@@ -9,6 +9,7 @@
 # R/route.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
+# Normalises a freeform location query for matching against place / county names — strips state qualifiers ("Wisconsin", "WI"), drops trailing place-type suffixes ("County", "City", "Town", "Village"), and collapses whitespace; output is what resolve_search_query compares against the precomputed normalised place / county name vectors.
 normalize_location_query_text <- function(x) {
   txt <- normalize_match_text(x)
   txt <- gsub("\\b(state of )?wisconsin\\b", " ", txt, perl = TRUE)

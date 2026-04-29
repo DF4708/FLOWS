@@ -17,6 +17,7 @@
 # mutation. Push/pop are O(log n).
 # ---------------------------------------------------------------------------
 
+# Allocates a new pq min-heap object (an environment with parallel keys / priorities vectors and a count n) sized to initial_capacity; the vectors auto-grow on push.
 pq_new <- function(initial_capacity = 64L) {
   env <- new.env(parent = emptyenv())
   env$keys <- integer(initial_capacity)

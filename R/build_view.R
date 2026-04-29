@@ -9,6 +9,26 @@
 # R/build_view.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
+# Why: every horizon (live / 24h / 48h / 72h) needs the same NWS forecast
+# fields (temperature, wind, pop) projected onto every WI ZIP, plus the
+# forecast_score that blends them into a 0..1 per-zip risk; we precompute
+# this once and cache so each downstream layer can read the same baseline.
+# What: returns an sf data.frame of zip_static enriched with horizon_label,
+# forecast_temperature_f / forecast_wind_mph / forecast_wind_dir /
+# forecast_pop_pct / forecast_short, the corresponding *_risk_score columns,
+# the blended forecast_score, and the temperature_pressure_text from
+# append_temperature_pressure_fields.
+# How: warms the cache from the on-disk runtime snapshot when present,
+# otherwise builds from scratch by calling fetch_forecast_for_region for
+# each forecast_region (~18 regions) in parallel and joining results back
+# to ZIPs by region; per-zip risk uses the latitude-band profile thresholds.
+# When: invoked by build_risk_polygons (and the warmers) at the start of
+# every build pass.
+# Impact: the (45/30/25) blend in forecast_score is the only place we mix
+# temperature, wind, and pop into a single forecast risk — adjusting it
+# changes which weather hazard dominates the heat / wind / convective
+# layers downstream. Changing the cache_name format invalidates every
+# saved snapshot for the matching horizon.
 build_forecast_baseline <- function(horizon_key = "live") {
   cache_name <- paste0("forecast-baseline-", horizon_key)
   cached <- cache_get("derived", cache_name)

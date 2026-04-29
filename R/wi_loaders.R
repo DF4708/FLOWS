@@ -277,6 +277,20 @@ load_road_zip_lookup <- function() {
   lookup
 }
 
+# Why: the live road overlay only needs to redraw the segments near elevated
+# driving risk; carrying every road in the state through the overlay build
+# would dominate map render latency.
+# What: returns a character vector of zipcodes whose driving_total_risk is
+# at or above min_score, expanded by their immediate neighbours so the
+# overlay does not abruptly clip at high-risk zone edges.
+# How: filters zips by driving_total_risk >= min_score, then unions the
+# neighbour-sets via get_zip_neighbors so adjacent low-risk zips that share
+# a road with a hot zip are also included.
+# When: called by build_driving_roads_overlay before subsetting the road
+# network for the live overlay.
+# Impact: lowering min_score widens the overlay (more roads, more redraw
+# cost); raising it can hide marginal yellow stretches that still deserve
+# the badge.
 get_relevant_road_zipcodes <- function(zips, min_score = 0.02) {
   if (is.null(zips) || nrow(zips) == 0) return(character(0))
   vals <- suppressWarnings(as.numeric(zips$driving_total_risk %||% rep(0, nrow(zips))))
@@ -290,6 +304,21 @@ get_relevant_road_zipcodes <- function(zips, min_score = 0.02) {
   as.character(zips$zipcode[keep_idx])
 }
 
+# Why: the modelled (no-overlay) road-risk path needs a per-road risk score
+# and the matching reason text so build_route_segments can emit a coherent
+# popup explanation even when WI511 / NWS road overlays are unavailable.
+# What: returns a data.frame(road_id, driving_total_risk, driving_reason_text,
+# dominant_zip, road_source, official_cause_text) with one row per road in
+# the input.
+# How: builds zip-keyed driving_risk / reason / transport-reason lookup
+# tables, then for each road uses the precomputed road-zip lookup to find
+# its intersecting ZIPs, picks the worst one as dominant_zip (tie-break by
+# index order), and propagates that zip's reason / cause through.
+# When: called from build_route_segments when no roads_overlay is supplied,
+# i.e. on every routing build that does not have a live transport feed.
+# Impact: the road_mult formula (0.85 + 0.15 * susceptibility) is the only
+# place road class is allowed to influence modelled risk; if susceptibility
+# is set to 0 the modelled risk floors at 0.85 of the worst zip's risk.
 build_modeled_road_risk_index <- function(roads, lookup, zips) {
   if (is.null(roads) || nrow(roads) == 0 || is.null(zips) || nrow(zips) == 0) {
     return(data.frame(
@@ -394,6 +423,20 @@ build_modeled_road_risk_index <- function(roads, lookup, zips) {
   )
 }
 
+# Why: NWS alert payloads carry forecast/public-zone codes (e.g. "WIZ020")
+# rather than ZIPs, and we need the matching zone polygons to map zone-
+# scoped alerts onto WI ZIPs.
+# What: returns an sf data.frame of WI public forecast zones with columns
+# STATE / ZONE / STATE_ZONE / NAME / geometry in EPSG:4326, or an empty sf
+# of the same shape when the upstream NWS shapefile is missing.
+# How: pulls the latest of the two NWS_PUBLIC_ZONE_URLS via fallback,
+# filters to STATE == TARGET_STATE and STATE_ZONE matching the WIZ###
+# pattern, normalises the zone code to upper-case, and caches for 24h.
+# When: called by get_zone_zip_lookup the first time alerts arrive, and
+# reused from cache thereafter for the rest of the session.
+# Impact: an upstream URL outage falls back to an empty sf; downstream
+# zone-to-zip resolution then degrades to county-based fallback, which is
+# coarser but does not break the build.
 load_public_zones <- function() {
   cached <- cache_get("reference", "wi_public_zones")
   if (!is.null(cached)) return(cached)
@@ -431,6 +474,21 @@ load_public_zones <- function() {
   zones
 }
 
+# Why: zone-scoped alerts ("WIZ020") need to project onto every ZIP whose
+# polygon meaningfully overlaps the zone, not just the ZIPs whose centroid
+# happens to fall inside; we precompute the mapping once.
+# How: for each ZIP, takes the intersection of polygon-hits and centroid-
+# hits — a centroid hit always counts; otherwise we measure the area
+# overlap between zip and zone polygon and only include the pair when
+# overlap >= min_overlap of the zip area.
+# What: returns a named list keyed by STATE_ZONE whose values are
+# character vectors of zipcodes covered by that zone.
+# When: called by zone_alerts.R on the first alert payload of each session
+# and cached for 24h thereafter (invalidated when the zone shapefile or
+# ZCTA reference is rebuilt).
+# Impact: min_overlap controls the precision/recall trade — too low and a
+# zone bleeds into ZIPs it barely touches, too high and small ZIPs near a
+# zone boundary get dropped from coverage.
 get_zone_zip_lookup <- function(min_overlap = 0.15) {
   cache_name <- sprintf("zone_zip_lookup_%0.2f", min_overlap)
   cached <- cache_get("derived", cache_name)
@@ -478,6 +536,7 @@ get_zone_zip_lookup <- function(min_overlap = 0.15) {
   lookup
 }
 
+# Splits a pipe-delimited code string (NWS alert UGC / SAME / zone fields use this format) into a unique trimmed character vector; returns character(0) on NULL / NA / empty input.
 split_pipe_codes <- function(x) {
   if (is.null(x) || length(x) == 0 || is.na(x) || !nzchar(trimws(x))) return(character(0))
   vals <- unlist(strsplit(as.character(x), "|", fixed = TRUE), use.names = FALSE)
@@ -485,6 +544,7 @@ split_pipe_codes <- function(x) {
   unique(vals[nzchar(vals)])
 }
 
+# Returns a list(by_geoid, name_to_geoid) where by_geoid maps each WI county GEOID to its zipcodes and name_to_geoid maps lowercase county names to GEOID — used by alert ingest to resolve county-scoped SAME / UGC codes onto ZIPs.
 get_county_zip_lookup <- function() {
   cached <- cache_get("derived", "county_zip_lookup")
   if (!is.null(cached)) return(cached)
@@ -498,12 +558,24 @@ get_county_zip_lookup <- function() {
   out
 }
 
+# Returns the cached zone -> county-list lookup populated lazily by update_zone_county_lookup as alerts arrive; an empty list on first read.
 get_zone_county_lookup <- function() {
   cached <- cache_get("derived", "zone_county_lookup")
   if (!is.null(cached)) return(cached)
   list()
 }
 
+# Why: NWS alerts arrive with both UGC zone codes (WIZ020) and SAME county
+# codes; once we observe a zone-county pairing we want to remember it so
+# later alerts that only carry a zone code can still resolve to counties.
+# What: returns the merged lookup; side-effect updates the cached version.
+# How: deep-merges new_map's zone -> counties pairs into the existing
+# lookup (uniquing the value lists), and caches for 24h.
+# When: called by zone_alerts.R / learn_zone_counties_from_geometry whenever
+# an alert provides both pieces of information at the same time.
+# Impact: the lookup is purely additive within a session; if a zone gets
+# remapped to a different county set, the old entries persist until cache
+# TTL expiry — currently this is acceptable because zones rarely move.
 update_zone_county_lookup <- function(new_map) {
   if (length(new_map) == 0) return(get_zone_county_lookup())
   lookup <- get_zone_county_lookup()
