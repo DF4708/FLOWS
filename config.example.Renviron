@@ -1,0 +1,9 @@
+# Optional runtime overrides
+NOAA_USER_AGENT=Satellite-Flooding/1.0 (contact: your-email@example.com)
+WI511_API_KEY=replace_with_your_511wi_developer_key
+USE_LOCAL_REFERENCE_ONLY=false
+GLM_GOES_BUCKETS=noaa-goes19,noaa-goes18,noaa-goes16,noaa-goes17
+GLM_LOOKBACK_MINUTES=20
+GLM_MAX_FILES_PER_PASS=18
+# Release verification expects Rscript plus the listed packages when you run scripts/release_preflight.py
+

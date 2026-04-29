@@ -1,0 +1,19 @@
+# R session / project state
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# macOS
+.DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Build-time inputs not needed at runtime
+data/reference/geofabrik_wisconsin-latest.osm.pbf
+*.pbf
+
+# Runtime caches (regenerable, not for version control)
+data/runtime_cache/

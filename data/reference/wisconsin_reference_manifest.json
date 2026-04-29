@@ -1,0 +1,38 @@
+{
+  "built_at_utc": "2026-04-13T02:15:26Z",
+  "output_file": "/Users/soulary/Documents/Marquette/VA_Class/RShiny_Project/COSC_5500_VA_Satellite_Foster/Satellite-Flooding copy 69/data/reference/wisconsin_reference.gpkg",
+  "sources": {
+    "counties": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_county_20m.zip",
+    "border_states": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_state_20m.zip",
+    "zctas": "https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_zcta520_500k.zip",
+    "places": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_55_place_500k.zip",
+    "roads": "https://www2.census.gov/geo/tiger/TIGER2025/PRISECROADS/tl_2025_55_prisecroads.zip"
+  },
+  "layers": {
+    "counties": {
+      "rows": 72,
+      "columns": ["NAME", "GEOID", "COUNTYFP"],
+      "crs": "EPSG:4326"
+    },
+    "border_states": {
+      "rows": 5,
+      "columns": ["NAME", "STATEFP", "STUSPS"],
+      "crs": "EPSG:4326"
+    },
+    "zctas": {
+      "rows": 861,
+      "columns": ["zipcode", "county_geoid", "county_name"],
+      "crs": "EPSG:4326"
+    },
+    "places": {
+      "rows": 808,
+      "columns": ["NAME", "NAMELSAD"],
+      "crs": "EPSG:4326"
+    },
+    "roads": {
+      "rows": 6328,
+      "columns": ["LINEARID", "FULLNAME", "RTTYP", "MTFCC", "road_id", "road_class", "road_name", "susceptibility"],
+      "crs": "EPSG:4326"
+    }
+  }
+}
