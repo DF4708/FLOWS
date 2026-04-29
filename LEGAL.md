@@ -10,7 +10,7 @@ Any unauthorized use is strictly prohibited.
 
 ## Purpose of this notice
 
-This notice is intended to make ownership and reservation of rights explicit. In the United States, copyright protection generally exists automatically once an original work is fixed in a tangible medium, and a copyright notice may still provide practical and legal benefits. A notice is **not** a substitute for registration. For U.S. works, regFLOWSistration (or refusal) is generally required before bringing an infringement action in court.
+This notice is intended to make ownership and reservation of rights explicit. In the United States, copyright protection generally exists automatically once an original work is fixed in a tangible medium, and a copyright notice may still provide practical and legal benefits.
 
 ## Ownership
 
