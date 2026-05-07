@@ -9,21 +9,49 @@
 # R/scoring.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Maps a normalised 0..1 score to one of "Transparent"/"Green"/"Yellow"/"Red" using the global RISK_*_MIN thresholds.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Maps 0..1 scores to "Transparent"/"Green"/"Yellow"/"Red" via the
+# global RISK_*_MIN thresholds. Vectorised: callers that pass a long score
+# vector (e.g. one entry per OSM road) used to wrap this in a vapply over
+# thousands of rows; the inlined vectorised form is significantly faster on
+# the road overlay's per-segment styling pass.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 risk_label_from_score <- function(score) {
-  if (!is.finite(score) || score < RISK_GREEN_MIN) return("Transparent")
-  if (score < RISK_YELLOW_MIN) return("Green")
-  if (score <= RISK_RED_MIN) return("Yellow")
-  "Red"
+  s <- suppressWarnings(as.numeric(score))
+  out <- rep("Transparent", length(s))
+  finite <- is.finite(s)
+  out[finite & s >= RISK_GREEN_MIN  & s <  RISK_YELLOW_MIN] <- "Green"
+  out[finite & s >= RISK_YELLOW_MIN & s <= RISK_RED_MIN]    <- "Yellow"
+  out[finite & s >  RISK_RED_MIN]                           <- "Red"
+  out
 }
 
-# Applies a gamma curve to a 0..1 score so the legend devotes more visual space to the higher-risk end of the scale.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Applies a gamma curve to a 0..1 score so the legend devotes more
+# visual space to the higher-risk end of the scale.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 risk_scale_position <- function(score, gamma = 1.45) {
   score <- pmax(0, pmin(1, safe_numeric(score)))
   score ^ gamma
 }
 
-# Formats a duration in minutes as "Nh Mm" / "Nh" / "M min" for ETA display, returning "ETA unavailable" for non-finite input.
+# Why: the user-facing display needs a consistent rendering of this value
+# across popups / summaries / legends.
+# What: Formats a duration in minutes as "Nh Mm" / "Nh" / "M min" for ETA
+# display, returning "ETA unavailable" for non-finite input.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: any change to the rendering shows up directly in popups / legends
+# / summaries; keep callers' assumptions about output shape (e.g., "%s%%")
+# stable.
 format_duration_minutes <- function(minutes) {
   minutes <- safe_numeric(minutes %||% NA_real_)
   if (!is.finite(minutes) || minutes <= 0) return("ETA unavailable")
@@ -60,20 +88,24 @@ risk_rgba <- function(score) {
   unname(cols)
 }
 
-# Returns CSS hex colours ("transparent"/"#2ecc71"/"#f1c40f"/"#dc3545") corresponding to score bands - opaque sibling of risk_rgba.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns CSS hex colours
+# ("transparent"/"#2ecc71"/"#f1c40f"/"#dc3545") for score bands. Vectorised
+# so the road-overlay styling pass (~25k rows) does not run a per-row
+# vapply.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 risk_rgb_hex <- function(score) {
-  score <- pmax(0, pmin(1, score))
-  cols <- vapply(
-    score,
-    function(x) {
-      if (!is.finite(x) || x < RISK_GREEN_MIN) return("transparent")
-      if (x < RISK_YELLOW_MIN) return("#2ecc71")
-      if (x <= RISK_RED_MIN) return("#f1c40f")
-      "#dc3545"
-    },
-    character(1)
-  )
-  unname(cols)
+  s <- pmax(0, pmin(1, suppressWarnings(as.numeric(score))))
+  out <- rep("transparent", length(s))
+  finite <- is.finite(s)
+  out[finite & s >= RISK_GREEN_MIN  & s <  RISK_YELLOW_MIN] <- "#2ecc71"
+  out[finite & s >= RISK_YELLOW_MIN & s <= RISK_RED_MIN]    <- "#f1c40f"
+  out[finite & s >  RISK_RED_MIN]                           <- "#dc3545"
+  out
 }
 
 # Why: the legend strip uses a continuous colour gradient, not the discrete
@@ -107,7 +139,14 @@ legend_gradient_color_hex <- function(score) {
   unname(vapply(score, interp_one, character(1)))
 }
 
-# Builds the inline CSS "background: linear-gradient(...)" string used by the legend strip, with stops at gamma-shaped positions.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Builds the inline CSS "background: linear-gradient(...)" string
+# used by the legend strip, with stops at gamma-shaped positions.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 legend_gradient_style <- function(gamma = 1.45) {
   sample_scores <- sort(unique(c(seq(0, 1, by = 0.05), RISK_GREEN_MIN, RISK_YELLOW_MIN, RISK_RED_MIN, 1.0)))
   stop_positions <- 100 * risk_scale_position(sample_scores, gamma = gamma)
@@ -116,7 +155,14 @@ legend_gradient_style <- function(gamma = 1.45) {
   paste0("background: linear-gradient(to right, ", stops, ");")
 }
 
-# Vectorised wrapper over piecewise_score with scalar (low, mid, high) thresholds.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Vectorised wrapper over piecewise_score with scalar (low, mid,
+# high) thresholds.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 vector_piecewise_score <- function(values, low, mid, high) {
   vapply(values, function(v) piecewise_score(v, low, mid, high), numeric(1))
 }

@@ -62,7 +62,14 @@ decode_polyline_matrix <- function(encoded) {
   out
 }
 
-# Wraps a [n,2] lon/lat matrix into a CRS-4326 sf linestring sfc, returning an empty geometrycollection if too few points.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Wraps a [n,2] lon/lat matrix into a CRS-4326 sf linestring sfc,
+# returning an empty geometrycollection if too few points.
+# How: sf geometry op.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 linestring_sfc_from_matrix <- function(mat) {
   if (is.null(mat) || length(mat) == 0 || nrow(mat) < 2) {
     return(sf::st_sfc(sf::st_geometrycollection(), crs = 4326))
@@ -70,33 +77,3 @@ linestring_sfc_from_matrix <- function(mat) {
   sf::st_sfc(sf::st_linestring(as.matrix(mat[, c("lon", "lat"), drop = FALSE])), crs = 4326)
 }
 
-# Why: some providers return only an ordered list of waypoints (no encoded
-# polyline), so we synthesise a coarse linestring from their coordinates.
-# What: returns a CRS-4326 sf linestring sfc threading start, each waypoint,
-# and end; an empty geometrycollection if fewer than 2 finite points exist.
-# How: pushes finite (lon,lat) pairs into a list (using
-# extract_named_numeric_any to handle assorted key spellings) and rbinds.
-# When: fallback path in driving/routing builders when the provider response
-# lacks a polyline but does include via points.
-# Impact: producing an empty geometry suppresses the route line on the map;
-# losing a waypoint here yields a noticeably wrong "shortcut" segment.
-linestring_sfc_from_waypoints <- function(waypoints, start_lon = NA_real_, start_lat = NA_real_, end_lon = NA_real_, end_lat = NA_real_) {
-  pts <- list()
-  add_point <- function(lon, lat) {
-    if (is.finite(lon) && is.finite(lat)) pts[[length(pts) + 1L]] <<- c(lon, lat)
-  }
-  add_point(start_lon, start_lat)
-  if (is.list(waypoints) && length(waypoints) > 0) {
-    for (wp in waypoints) {
-      lon <- extract_named_numeric_any(wp, c("Longitude", "longitude", "Lon", "lng", "x"))
-      lat <- extract_named_numeric_any(wp, c("Latitude", "latitude", "Lat", "lat", "y"))
-      add_point(lon, lat)
-    }
-  }
-  add_point(end_lon, end_lat)
-  if (length(pts) < 2) return(sf::st_sfc(sf::st_geometrycollection(), crs = 4326))
-  mat <- do.call(rbind, pts)
-  colnames(mat) <- c("lon", "lat")
-  if (nrow(mat) >= 2) mat <- unique(mat)
-  linestring_sfc_from_matrix(mat)
-}

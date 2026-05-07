@@ -72,6 +72,21 @@ RISK_GREEN_MIN <- 0.3980
 RISK_YELLOW_MIN <- 0.6990
 RISK_RED_MIN <- 0.8751
 
+# Noise-floor for WI511 fetchers. Rows whose computed risk score is below this
+# are dropped at fetch time so they never enter the snap, per-ZIP within-
+# distance, or color-compute passes. Default 0.20 is below RISK_GREEN_MIN
+# (0.398, the visualisation threshold) but above the per-source "default"
+# scores assigned to unmatched text (~0.18-0.20), so this drops:
+#   - winter rows with status "normal / clear / good" (score 0)
+#   - winter rows with unmatched status (score 0.25 — kept; just above the floor)
+#   - message signs whose text is generic informational (score 0.18 — dropped)
+#   - alerts whose body is non-specific (score 0.20 — borderline; dropped)
+# Override with WI511_MIN_RISK_THRESHOLD env var when debugging.
+WI511_MIN_RISK_THRESHOLD <- {
+  v <- suppressWarnings(as.numeric(Sys.getenv("WI511_MIN_RISK_THRESHOLD", "0.20")))
+  if (!is.finite(v) || v < 0 || v > 1) 0.20 else v
+}
+
 CENSUS_ZCTA_URL <- "https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_zcta520_500k.zip"
 CENSUS_COUNTY_URL <- "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_county_20m.zip"
 CENSUS_STATE_URL <- "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_state_20m.zip"
@@ -150,7 +165,6 @@ RADNET_WI_MONITOR_SPECS <- list(
   list(place_name = "Shawano", slug = "SHAWANO")
 )
 WI511_WINTER_ROADS_URL <- "https://511wi.gov/api/v3/get/winterroads"
-WI511_TRAVEL_TIMES_URL <- "https://511wi.gov/api/v2/get/traveltimes"
 WI511_EVENTS_URL <- "https://511wi.gov/api/v2/get/event"
 WI511_ALERTS_URL <- "https://511wi.gov/api/v2/get/alerts"
 WI511_MESSAGE_SIGNS_URL <- "https://511wi.gov/api/v2/get/messagesigns"

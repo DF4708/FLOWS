@@ -66,7 +66,48 @@ build_forecast_baseline <- function(horizon_key = "live") {
 
   region_ids <- sort(unique(as.integer(zips$forecast_region)))
   region_ids <- region_ids[is.finite(region_ids)]
-  region_forecasts <- lapply(region_ids, function(region_id) fetch_forecast_for_region(region_id, horizon_key))
+  # Parallelise the per-region NWS forecast fetches. Each is one HTTP RTT;
+  # 18 regions sequential = ~18 s of pure network wait. The earlier attempt
+  # to fork here (iter 4 in the optimisation log) failed because curl's
+  # native lib hadn't been loaded in the parent yet, so children segfaulted
+  # on dyn.load. The warmer scripts now eager-load curl/httr2 at startup
+  # (see scripts/warm_*.R), so child forks inherit the mapped libs.
+  use_parallel <- .Platform$OS.type != "windows" && length(region_ids) > 1 &&
+                  requireNamespace("curl", quietly = TRUE)
+  region_forecasts <- if (use_parallel) {
+    workers <- max(1L, min(length(region_ids), 8L))
+    res <- tryCatch(
+      parallel::mclapply(region_ids,
+                         function(region_id) fetch_forecast_for_region(region_id, horizon_key),
+                         mc.cores = workers, mc.preschedule = FALSE),
+      error = function(e) NULL
+    )
+    # Detect mclapply failures and retry those specific regions sequentially.
+    # Two failure modes: hard (NULL / try-error) and soft (NWS endpoint
+    # returned empty_forecast_result with NA temperature). The soft case
+    # used to slip through and bake NAs into the snapshot for whole regions
+    # — covered by the degraded-snapshot guard at the bottom of this
+    # function but the in-memory result was still NA-heavy. Re-fetching
+    # only the failed indices keeps the parallel speedup for healthy
+    # regions while patching the holes.
+    res_failed <- if (is.null(res)) seq_along(region_ids) else {
+      failed_hard <- vapply(res, function(x) inherits(x, "try-error") || is.null(x), logical(1))
+      failed_soft <- vapply(res, function(x) {
+        if (inherits(x, "try-error") || is.null(x)) return(TRUE)
+        !is.finite(x$temperature_f %||% NA_real_)
+      }, logical(1))
+      which(failed_hard | failed_soft)
+    }
+    if (length(res_failed) > 0) {
+      if (is.null(res)) res <- vector("list", length(region_ids))
+      for (j in res_failed) {
+        res[[j]] <- fetch_forecast_for_region(region_ids[j], horizon_key)
+      }
+    }
+    res
+  } else {
+    lapply(region_ids, function(region_id) fetch_forecast_for_region(region_id, horizon_key))
+  }
   names(region_forecasts) <- as.character(region_ids)
 
   lookup <- lapply(as.character(zips$forecast_region), function(k) {
@@ -109,8 +150,24 @@ build_forecast_baseline <- function(horizon_key = "live") {
   zips$forecast_score <- pmin(1, 0.45 * zips$temp_risk_score + 0.30 * zips$wind_risk_score + 0.25 * zips$pop_risk_score)
   zips <- append_temperature_pressure_fields(zips)
 
-  cache_put("derived", cache_name, zips, ttl_seconds = FORECAST_TTL_SECONDS)
-  save_runtime_snapshot(snapshot_path, zips)
+  # Don't persist (or memoize for the full TTL) a degraded baseline. If
+  # more than 10% of ZIPs come back with NA temperature, treat the build
+  # as transient — return it so the live request still gets *something*,
+  # but cache for ~60 s and skip the disk snapshot. The next refresh
+  # tries again with fresh upstream calls instead of being pinned to
+  # a half-hour of "N/A" tooltips on whole regions.
+  na_temp_frac <- mean(is.na(zips$forecast_temperature_f))
+  is_degraded <- is.finite(na_temp_frac) && na_temp_frac > 0.10
+  if (is_degraded) {
+    message(sprintf(
+      "[FLOWS-DEBUG] forecast baseline degraded for horizon=%s: %.0f%% of ZIPs have NA temperature; not persisting snapshot.",
+      horizon_key, 100 * na_temp_frac
+    ))
+    cache_put("derived", cache_name, zips, ttl_seconds = min(60L, FORECAST_TTL_SECONDS))
+  } else {
+    cache_put("derived", cache_name, zips, ttl_seconds = FORECAST_TTL_SECONDS)
+    save_runtime_snapshot(snapshot_path, zips)
+  }
   zips
 }
 
@@ -136,7 +193,7 @@ build_forecast_baseline <- function(horizon_key = "live") {
 finalize_zip_view <- function(zips, horizon_key, feature_key, primary_map = DEFAULT_PRIMARY_MAP, progress = NULL, progress_span = c(0.84, 0.98)) {
   primary_map <- normalize_primary_map(primary_map)
   zips$primary_map_key <- rep(primary_map, nrow(zips))
-  zips$risk_label <- vapply(zips$normalized_risk_score, risk_label_from_score, character(1))
+  zips$risk_label <- risk_label_from_score(zips$normalized_risk_score)
   state_key <- paste0("view-state-", horizon_key, "-", feature_key)
   prev <- cache_get("derived", state_key)
   prev_valid <- !is.null(prev) && nrow(prev) == nrow(zips) && identical(prev$zipcode, zips$zipcode)
@@ -177,21 +234,16 @@ finalize_zip_view <- function(zips, horizon_key, feature_key, primary_map = DEFA
     band <- zips[idx, , drop = FALSE]
     band <- compute_driving_risk(band)
     band$fill_risk_score <- compute_primary_fill_score(band, primary_map = primary_map)
-    band$display_risk_label <- vapply(band$fill_risk_score, risk_label_from_score, character(1))
+    band$display_risk_label <- risk_label_from_score(band$fill_risk_score)
     band$risk_fill_rgba <- risk_rgba(band$fill_risk_score)
 
     band_df <- sf::st_drop_geometry(band)
-    zip_row_summaries <- lapply(seq_len(nrow(band_df)), function(i) {
-      row <- band_df[i, , drop = FALSE]
-      list(
-        reason = compose_risk_reason(row),
-        components = compose_risk_component_summary(row),
-        types = compose_risk_type_summary(row)
-      )
-    })
-    band$risk_reason_text <- vapply(zip_row_summaries, function(x) x$reason %||% "All clear.", character(1))
-    band$risk_component_summary_text <- vapply(zip_row_summaries, function(x) x$components %||% "No material contributors.", character(1))
-    band$risk_type_summary_text <- vapply(zip_row_summaries, function(x) x$types %||% "No material contributors.", character(1))
+    # All three popup-string composers now vectorised. compose_*_vec
+    # operate on the whole band frame in one sweep, replacing the per-row
+    # `band_df[i, , drop = FALSE]` slicing that dominated finalize_zip_view.
+    band$risk_reason_text             <- compose_risk_reason_vec(band_df)
+    band$risk_component_summary_text  <- compose_risk_component_summary_vec(band_df)
+    band$risk_type_summary_text       <- compose_risk_type_summary_vec(band_df)
 
     changed <- rep(TRUE, nrow(band))
     if (isTRUE(prev_valid)) {
@@ -216,7 +268,7 @@ finalize_zip_view <- function(zips, horizon_key, feature_key, primary_map = DEFA
       detail = sprintf("Finalizing Wisconsin band %d of %d from north to south.", band_idx, total_bands)
     )
 
-    rm(band, band_df, zip_row_summaries)
+    rm(band, band_df)
     if (exists("changed_rows", inherits = FALSE)) rm(changed_rows)
     release_runtime_memory()
   }
@@ -230,7 +282,16 @@ finalize_zip_view <- function(zips, horizon_key, feature_key, primary_map = DEFA
   zips
 }
 
-# Adds (or zeroes) the per-ZIP alert columns that downstream stages assume exist (alert_score, per-family alert scores, alert_event/url and alert_event_list/url_list, risk_reason_text) — used both before apply_alert_coverage_to_zips and as a defensive reset inside it.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Adds (or zeroes) the per-ZIP alert columns that downstream stages
+# assume exist (alert_score, per-family alert scores, alert_event/url and
+# alert_event_list/url_list, risk_reason_text) — used both before
+# apply_alert_coverage_to_zips and as a defensive reset inside it.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 initialize_zip_alert_fields <- function(zips) {
   zips$alert_score <- 0
   zips$alert_event <- NA_character_
@@ -480,38 +541,76 @@ build_risk_polygons <- function(horizon_key = "live", selected_features = FAST_S
   if (!is.null(cached)) return(cached)
 
   notify_progress(progress, 0.08, sprintf("Loading %s forecast baseline.", switch(horizon_key %||% "live", live = "live", `24h` = "24-hour", `48h` = "48-hour", `72h` = "72-hour", "live")))
-  core <- build_forecast_baseline(horizon_key)
+  core <- flows_time_step(
+    sprintf("build_forecast_baseline (%s)", horizon_key),
+    build_forecast_baseline(horizon_key),
+    group = "build-view"
+  )
   core <- initialize_zip_alert_fields(core)
-  core <- enrich_external_risks(
-    core,
-    horizon_key,
-    selected_features = display_features,
-    include_transport = include_transport,
-    progress = progress,
-    progress_span = c(0.20, 0.72),
-    allow_stale = allow_stale_external,
-    schedule_refresh = schedule_external_refresh,
-    force_sync = force_external_sync,
-    project_dir = project_dir
+  core <- flows_time_step(
+    sprintf("enrich_external_risks (%s)", horizon_key),
+    enrich_external_risks(
+      core,
+      horizon_key,
+      selected_features = display_features,
+      include_transport = include_transport,
+      progress = progress,
+      progress_span = c(0.20, 0.72),
+      allow_stale = allow_stale_external,
+      schedule_refresh = schedule_external_refresh,
+      force_sync = force_external_sync,
+      project_dir = project_dir
+    ),
+    group = "build-view"
   )
 
   notify_progress(progress, 0.74, "Applying alert coverage.")
-  zips <- apply_alert_coverage_to_zips(core, alert_payload = alert_payload, horizon_key = horizon_key)
+  zips <- flows_time_step(
+    sprintf("apply_alert_coverage_to_zips (%s)", horizon_key),
+    apply_alert_coverage_to_zips(core, alert_payload = alert_payload, horizon_key = horizon_key),
+    group = "build-view"
+  )
   core <- NULL
   release_runtime_memory()
-  zips <- apply_family_risk_totals(zips, horizon_key = horizon_key)
-  zips$normalized_risk_score <- combine_environmental_risk_score(zips)
-  zips <- apply_proximity_boost(zips)
-  notify_progress(progress, 0.84, "Preparing Wisconsin ZIP output in north-to-south bands.")
-  zips <- finalize_zip_view(
-    zips,
-    horizon_key,
-    feature_key,
-    primary_map = primary_map,
-    progress = progress,
-    progress_span = c(0.84, 0.98)
+  zips <- flows_time_step(
+    sprintf("apply_family_risk_totals (%s)", horizon_key),
+    apply_family_risk_totals(zips, horizon_key = horizon_key),
+    group = "build-view"
   )
-  notify_progress(progress, 1, "Map ready.")
+  zips$normalized_risk_score <- flows_time_step(
+    sprintf("combine_environmental_risk_score (%s)", horizon_key),
+    combine_environmental_risk_score(zips),
+    group = "build-view"
+  )
+  zips <- flows_time_step(
+    sprintf("apply_proximity_boost (%s)", horizon_key),
+    apply_proximity_boost(zips),
+    group = "build-view"
+  )
+  notify_progress(progress, 0.84, "Preparing Wisconsin ZIP output in north-to-south bands.")
+  zips <- flows_time_step(
+    sprintf("finalize_zip_view (%s)", horizon_key),
+    finalize_zip_view(
+      zips,
+      horizon_key,
+      feature_key,
+      primary_map = primary_map,
+      progress = progress,
+      progress_span = c(0.84, 0.98)
+    ),
+    group = "build-view"
+  )
+  # IMPORTANT: do NOT emit "Map ready" here. build_risk_polygons just
+  # finished COMPUTING the polygons, but they haven't been painted onto
+  # the leaflet canvas yet — that happens later via schedule_banded_map_
+  # render's per-band observer. The band observer's final iteration
+  # calls reset_progress() once the last band is on screen; only THEN
+  # is the map actually ready. Emitting "Map ready" here causes the
+  # progress text to flash to "Map ready" briefly, then back to band-
+  # rendering messages, then to "Map ready" again — confusing on every
+  # primary-map switch (Flood / Wind / Winter / etc.). Use a descriptive
+  # data-stage message instead.
+  notify_progress(progress, 0.985, "Risk polygons ready, painting band-by-band onto the map.")
 
   invalidate_replaced_live_payloads("derived", prefix = paste0("risk-", horizon_key, "-", feature_key, "-"), keep_key = cache_name)
   cache_put("derived", cache_name, zips, ttl_seconds = if (identical(horizon_key, "live")) max(120L, ALERT_TTL_SECONDS) else FORECAST_TTL_SECONDS)
@@ -536,25 +635,97 @@ build_risk_polygons <- function(horizon_key = "live", selected_features = FAST_S
 # the next session warms from — the STARTUP_WARMER_TRIGGER_AGE_SECONDS
 # guard on the launcher prevents writing too-stale snapshots.
 prefetch_live_startup_payload <- function(force_refresh = FALSE, allow_stale = TRUE) {
-  alert_payload <- fetch_wisconsin_alerts(
-    force_refresh = force_refresh,
-    timeout_seconds = 8L,
-    max_tries = 1L,
-    allow_stale = allow_stale
+  alert_payload <- flows_time_step(
+    "prefetch: fetch_wisconsin_alerts",
+    fetch_wisconsin_alerts(
+      force_refresh = force_refresh,
+      timeout_seconds = 8L,
+      max_tries = 1L,
+      allow_stale = allow_stale
+    ),
+    group = "warmer"
   )
-  invisible(build_fast_live_baseline())
-  polys <- build_risk_polygons(
-    horizon_key = "live",
-    selected_features = primary_map_features(DEFAULT_PRIMARY_MAP),
-    alert_payload = alert_payload,
-    include_transport = TRUE,
-    primary_map = DEFAULT_PRIMARY_MAP,
-    allow_stale_external = TRUE,
-    schedule_external_refresh = FALSE,
-    force_external_sync = TRUE,
-    project_dir = getwd()
+  # Fork-and-collect the 511 road pipeline so it overlaps with the
+  # build_risk_polygons stage. The road-proximity, message-sign-road, and
+  # roads-overlay caches together account for ~11s of cold work and have no
+  # data dependency on build_risk_polygons; running them in a child while
+  # the parent handles the polygon stack saves wall time on cold startups.
+  # Curl/httr2 native libs are pre-loaded by the warmer script before this
+  # call (and by global.R's startup path in-app), so the fork inherits
+  # mapped libs and avoids the macOS dyn.load segfault.
+  job_511_road_prefetch <- if (.Platform$OS.type != "windows") {
+    tryCatch(
+      parallel::mcparallel({
+        # Within the fork, run the two genuinely-independent stages in
+        # parallel via mclapply: build_511_roads_overlay does its own 3-way
+        # mclapply (winter/travel/events) plus snap; compute_511_message_
+        # sign_road_signal hits an entirely separate API and runs its own
+        # distance grid. Their results need to be stitched into the fork's
+        # cache before compute_511_road_proximity_signal runs because
+        # proximity reads both. mclapply's children inherit the parent
+        # fork's mapped libs, so curl is safe to use here.
+        ttl_511 <- if (has_wi511_key()) ALERT_TTL_SECONDS else FORECAST_TTL_SECONDS
+        ov_msg <- parallel::mclapply(
+          list(
+            overlay = function() build_511_roads_overlay("live"),
+            msg_road = function() compute_511_message_sign_road_signal("live")
+          ),
+          function(fn) tryCatch(fn(), error = function(e) NULL),
+          mc.cores = 2L, mc.preschedule = FALSE
+        )
+        if (!is.null(ov_msg$overlay))
+          cache_put("derived", "wi511-roads-overlay-live", ov_msg$overlay, ttl_seconds = ttl_511)
+        if (!is.null(ov_msg$msg_road))
+          cache_put("derived", "wi511-message-sign-road-live", ov_msg$msg_road, ttl_seconds = ttl_511)
+        proximity <- tryCatch(compute_511_road_proximity_signal("live"), error = function(e) NULL)
+        list(overlay = ov_msg$overlay, msg_road = ov_msg$msg_road, proximity = proximity)
+      }),
+      error = function(e) NULL
+    )
+  } else NULL
+  flows_time_step("prefetch: build_fast_live_baseline",
+    invisible(build_fast_live_baseline()), group = "warmer")
+  polys <- flows_time_step(
+    "prefetch: build_risk_polygons",
+    build_risk_polygons(
+      horizon_key = "live",
+      selected_features = primary_map_features(DEFAULT_PRIMARY_MAP),
+      alert_payload = alert_payload,
+      include_transport = TRUE,
+      primary_map = DEFAULT_PRIMARY_MAP,
+      allow_stale_external = TRUE,
+      schedule_external_refresh = FALSE,
+      force_external_sync = TRUE,
+      project_dir = getwd()
+    ),
+    group = "warmer"
   )
-  roads <- build_driving_roads_overlay(polys, horizon_key = "live")
+  if (!is.null(job_511_road_prefetch)) {
+    flows_time_step(
+      "prefetch: collect 511 road prefetch",
+      {
+        collected <- tryCatch(parallel::mccollect(job_511_road_prefetch, wait = TRUE),
+                              error = function(e) NULL)
+        prefetch_payload <- if (is.list(collected) && length(collected) > 0) collected[[1]] else NULL
+        if (is.list(prefetch_payload) && !inherits(prefetch_payload, "try-error")) {
+          ttl_511 <- if (has_wi511_key()) ALERT_TTL_SECONDS else FORECAST_TTL_SECONDS
+          if (!is.null(prefetch_payload$overlay))
+            cache_put("derived", "wi511-roads-overlay-live", prefetch_payload$overlay, ttl_seconds = ttl_511)
+          if (!is.null(prefetch_payload$msg_road))
+            cache_put("derived", "wi511-message-sign-road-live", prefetch_payload$msg_road, ttl_seconds = ttl_511)
+          if (!is.null(prefetch_payload$proximity))
+            cache_put("derived", "wi511-road-proximity-live", prefetch_payload$proximity, ttl_seconds = ttl_511)
+        }
+      },
+      group = "warmer"
+    )
+  }
+  roads <- flows_time_step(
+    "prefetch: build_driving_roads_overlay",
+    build_driving_roads_overlay(polys, horizon_key = "live"),
+    group = "warmer"
+  )
+  flows_timing_summary(top = 15L, group = "warmer")
   payload <- list(polys = polys, roads = roads, primary_map = DEFAULT_PRIMARY_MAP)
   save_startup_map_snapshot(payload, horizon_key = "live", primary_map = DEFAULT_PRIMARY_MAP)
   payload

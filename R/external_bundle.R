@@ -21,7 +21,7 @@
 # exists, or in the background warmer for refreshes.
 # Impact: this is the heaviest function in the app - any extra fetch added
 # here lengthens cold-start time; persist_partial is the recovery hook.
-compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_features = FAST_START_FEATURES, include_transport = FALSE, progress = NULL, progress_span = c(0.35, 0.78), snapshot_path = NULL, persist_partial = FALSE) {
+compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_features = FAST_START_FEATURES, include_transport = FALSE, progress = NULL, progress_span = c(0.35, 0.78), snapshot_path = NULL, persist_partial = FALSE, pre_transport_hook = NULL) {
   requirements <- compute_feature_requirements(selected_features, include_transport = include_transport)
   zips <- initialize_external_risk_columns(zips)
 
@@ -85,7 +85,39 @@ compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_fe
     invisible(release_runtime_memory())
   }
 
+  # Per-step wall-clock timing rolls up through flush_step_timing() each time
+  # begin_external_step starts a new step (closing out the previous one) and
+  # once more at function exit. Output goes to the standard FLOWS-TIMING
+  # stream so the warmer log captures one line per family. Entry shape
+  # matches the rest of the timing system (label/group/seconds).
+  step_timing_env <- new.env(parent = emptyenv())
+  step_timing_env$start_time <- NA_real_
+  step_timing_env$label <- NA_character_
+
+  flush_step_timing <- function() {
+    if (!exists("flows_timing_enabled") || !flows_timing_enabled()) return(invisible(NULL))
+    if (is.na(step_timing_env$start_time) || is.na(step_timing_env$label)) return(invisible(NULL))
+    dt <- proc.time()[[3]] - step_timing_env$start_time
+    label_full <- sprintf("external bundle: %s (%s)", step_timing_env$label, horizon_key)
+    if (length(.flows_timing_state$entries) >= .flows_timing_state$max_entries) {
+      keep_from <- as.integer(.flows_timing_state$max_entries %/% 2L) + 1L
+      .flows_timing_state$entries <- .flows_timing_state$entries[keep_from:length(.flows_timing_state$entries)]
+    }
+    .flows_timing_state$entries[[length(.flows_timing_state$entries) + 1L]] <- list(
+      label = label_full, group = "external-bundle",
+      seconds = dt, ts = Sys.time()
+    )
+    message(sprintf("[FLOWS-TIMING] %-60s %8.3f s [external-bundle]",
+                    substr(label_full, 1, 60), dt))
+    step_timing_env$start_time <- NA_real_
+    step_timing_env$label <- NA_character_
+    invisible(NULL)
+  }
+
   begin_external_step <- function(label) {
+    flush_step_timing()
+    step_timing_env$start_time <- proc.time()[[3]]
+    step_timing_env$label <- as.character(label)
     if (!length(active_steps)) return(0L)
     progress_index <<- progress_index + 1L
     notify_progress(
@@ -166,22 +198,45 @@ compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_fe
   flood_entry <- module_entry("flood_guidance")
   if (isTRUE(flood_entry$active)) {
     step_idx <- begin_external_step(flood_entry$label)
-    qpf_sf <- get_wpc_qpf_sf(horizon_key)
-    flood_sf <- get_wpc_flood_outlook_sf()
+    qpf_sf <- flows_time_step(
+      sprintf("flood: get_wpc_qpf_sf (%s)", horizon_key),
+      get_wpc_qpf_sf(horizon_key), group = "flood")
+    flood_sf <- flows_time_step(
+      sprintf("flood: get_wpc_flood_outlook_sf (%s)", horizon_key),
+      get_wpc_flood_outlook_sf(), group = "flood")
     if (isTRUE(requirements$needs_full_flood_detail)) {
-      fho_sf <- get_owp_fho_sf(horizon_key)
-      nwps_context <- fetch_nwps_gauge_context()
-      horizon_river <- select_nwps_horizon_signal(nwps_context, horizon_key = horizon_key)
-      corridor_river <- compute_nwps_corridor_signal(horizon_key = horizon_key, nwps_context = nwps_context)
-      ffg_scores <- if (identical(horizon_key %||% "live", "live")) fetch_ffg_zip_sensitivity() else support_named_numeric("ffg_live_sensitivity_score", default = 0)
+      fho_sf <- flows_time_step(
+        sprintf("flood: get_owp_fho_sf (%s)", horizon_key),
+        get_owp_fho_sf(horizon_key), group = "flood")
+      nwps_context <- flows_time_step(
+        sprintf("flood: fetch_nwps_gauge_context (%s)", horizon_key),
+        fetch_nwps_gauge_context(), group = "flood")
+      horizon_river <- flows_time_step(
+        sprintf("flood: select_nwps_horizon_signal (%s)", horizon_key),
+        select_nwps_horizon_signal(nwps_context, horizon_key = horizon_key), group = "flood")
+      corridor_river <- flows_time_step(
+        sprintf("flood: compute_nwps_corridor_signal (%s)", horizon_key),
+        compute_nwps_corridor_signal(horizon_key = horizon_key, nwps_context = nwps_context),
+        group = "flood")
+      ffg_scores <- flows_time_step(
+        sprintf("flood: fetch_ffg_zip_sensitivity (%s)", horizon_key),
+        if (identical(horizon_key %||% "live", "live")) fetch_ffg_zip_sensitivity() else support_named_numeric("ffg_live_sensitivity_score", default = 0),
+        group = "flood")
     }
     # Precompute polygon-vs-zips intersections ONCE per feature (before the band
     # loop). The band loop then slices the precomputed vector instead of doing a
     # fresh st_intersects per band.
-    qpf_full <- precompute_polygon_metric(qpf_sf, qpf_value_from_row)
-    flood_full <- precompute_polygon_metric(flood_sf, flood_outlook_value_from_row)
-    fho_full <- if (isTRUE(requirements$needs_full_flood_detail))
-      precompute_polygon_metric(fho_sf, fho_value_from_row) else rep(0, nrow(zips))
+    qpf_full <- flows_time_step(
+      sprintf("flood: precompute_polygon_metric(qpf) (%s)", horizon_key),
+      precompute_polygon_metric(qpf_sf, qpf_value_from_row), group = "flood")
+    flood_full <- flows_time_step(
+      sprintf("flood: precompute_polygon_metric(flood_outlook) (%s)", horizon_key),
+      precompute_polygon_metric(flood_sf, flood_outlook_value_from_row), group = "flood")
+    fho_full <- if (isTRUE(requirements$needs_full_flood_detail)) {
+      flows_time_step(
+        sprintf("flood: precompute_polygon_metric(fho) (%s)", horizon_key),
+        precompute_polygon_metric(fho_sf, fho_value_from_row), group = "flood")
+    } else rep(0, nrow(zips))
     for (band_idx in seq_along(band_groups)) {
       idx <- band_groups[[band_idx]]
       if (length(idx) == 0) next
@@ -526,6 +581,15 @@ compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_fe
     persist_bundle_progress(progress_index, state = "partial")
   }
 
+  # Pre-transport hook: lets the warmer (or any orchestrator) inject work
+  # right before the transport step runs — typically mccollect+cache_put on
+  # an in-flight 511 prefetch — so the heavy compute_511_zip_transport_risk
+  # call below hits cache instead of refetching.
+  if (is.function(pre_transport_hook)) {
+    tryCatch(pre_transport_hook(), error = function(e) {
+      message(sprintf("[FLOWS-DEBUG] pre_transport_hook errored: %s", conditionMessage(e)))
+    })
+  }
   transport_entry <- module_entry("transport_guidance")
   if (isTRUE(transport_entry$active)) {
     step_idx <- begin_external_step(transport_entry$label)
@@ -537,7 +601,13 @@ compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_fe
         band_transport <- suppressWarnings(as.numeric((wi511_transport$scores %||% numeric(0))[as.character(zips$zipcode[idx])]))
         band_transport[!is.finite(band_transport)] <- 0
         zips$wi511_transport_score[idx] <- band_transport
-        zips$wi511_transport_reason[idx] <- as.character((wi511_transport$reasons %||% character(0))[as.character(zips$zipcode[idx])])
+        # sanitize_transport_reason strips legacy "511WI travel delay
+        # elevated risk by N minutes over normal" text — congestion is not
+        # a safety signal, so this string must not propagate into modeled
+        # road reasons via build_modeled_road_risk_index.
+        zips$wi511_transport_reason[idx] <- sanitize_transport_reason(
+          as.character((wi511_transport$reasons %||% character(0))[as.character(zips$zipcode[idx])])
+        )
         update_external_band_progress(step_idx, transport_entry$label, band_idx)
         rm(band_transport)
         release_runtime_memory()
@@ -553,6 +623,10 @@ compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_fe
         band_transport[!is.finite(band_transport)] <- 0
         band_reasons <- as.character(transport_reasons[as.character(zips$zipcode[idx])])
         band_reasons[!nzchar(trimws(band_reasons))] <- NA_character_
+        # Same sanitizer applied to the persisted-bundle read path so a
+        # pre-fix snapshot on disk can't keep injecting travel-delay text
+        # after the upstream fix is in place.
+        band_reasons <- sanitize_transport_reason(band_reasons)
         zips$wi511_transport_score[idx] <- apply_live_decay(band_transport, horizon_key, half_life_hours = if (is.finite(transport_entry$half_life_hours)) transport_entry$half_life_hours else 12)
         zips$wi511_transport_reason[idx] <- band_reasons
         update_external_band_progress(step_idx, transport_entry$label, band_idx)
@@ -567,10 +641,19 @@ compute_external_risk_bundle <- function(zips, horizon_key = "live", selected_fe
   zips$heat_risk_score <- ifelse(is.finite(zips$forecast_temperature_f), vector_piecewise_score(zips$forecast_temperature_f, 85, 95, 105), 0)
   zips$cold_risk_score <- ifelse(is.finite(zips$forecast_temperature_f), vector_piecewise_score(pmax(0, 40 - zips$forecast_temperature_f), 8, 20, 35), 0)
   persist_bundle_progress(total_steps, state = "complete", force_complete = TRUE)
+  flush_step_timing()
   zips
 }
 
-# Returns the canonical character vector of column names that an external bundle data.frame produces (zipcode + every per-hazard score/text column).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the canonical character vector of column names that an
+# external bundle data.frame produces (zipcode + every per-hazard
+# score/text column).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_risk_bundle_columns <- function() {
   c(
     "zipcode",
@@ -681,7 +764,7 @@ apply_external_risk_bundle <- function(zips, bundle = NULL) {
 # When: called by enrich_external_risks at the top of the per-build pass.
 # Impact: changing the precedence here changes which "freshness tier" the
 # user sees first, and whether the warmer fires at the right moment.
-load_external_risk_bundle <- function(zips, horizon_key = "live", selected_features = FAST_START_FEATURES, include_transport = FALSE, progress = NULL, progress_span = c(0.35, 0.78), allow_stale = TRUE, schedule_refresh = TRUE, force_sync = FALSE, project_dir = getwd()) {
+load_external_risk_bundle <- function(zips, horizon_key = "live", selected_features = FAST_START_FEATURES, include_transport = FALSE, progress = NULL, progress_span = c(0.35, 0.78), allow_stale = TRUE, schedule_refresh = TRUE, force_sync = FALSE, project_dir = getwd(), pre_transport_hook = NULL) {
   cache_name <- external_bundle_cache_name(horizon_key, selected_features, include_transport = include_transport)
   fresh_age <- external_bundle_fresh_age_seconds(horizon_key)
   stale_age <- external_bundle_stale_age_seconds(horizon_key)
@@ -729,7 +812,8 @@ load_external_risk_bundle <- function(zips, horizon_key = "live", selected_featu
     progress = progress,
     progress_span = progress_span,
     snapshot_path = snap_path,
-    persist_partial = TRUE
+    persist_partial = TRUE,
+    pre_transport_hook = pre_transport_hook
   )
   bundle_cols <- intersect(external_risk_bundle_columns(), names(bundle_zips))
   bundle <- sf::st_drop_geometry(bundle_zips[, bundle_cols, drop = FALSE])

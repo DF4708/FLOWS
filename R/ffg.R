@@ -9,7 +9,16 @@
 # R/ffg.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Maps a Flash Flood Guidance value (inches needed to flood) through inv_piecewise_score(4.5, 2.5, 1.0) - lower means worse.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps a Flash Flood Guidance value (inches needed to flood) through
+# inv_piecewise_score(4.5, 2.5, 1.0) - lower means worse.
+# How: see body — short helper.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_ffg_inches <- function(ffg_inches) {
   ffg_inches <- safe_numeric(ffg_inches)
   if (!is.finite(ffg_inches) || ffg_inches <= 0) return(0)

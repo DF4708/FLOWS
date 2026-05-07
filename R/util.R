@@ -71,12 +71,26 @@ zip_popup_payload_from_click <- function(click = NULL, polys = NULL) {
   )
 }
 
-# Escapes regex metacharacters in x so it can be embedded literally in a regex pattern.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Escapes regex metacharacters in x so it can be embedded literally
+# in a regex pattern.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 regex_escape <- function(x) {
   gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", as.character(x %||% ""), perl = TRUE)
 }
 
-# Lowercases x, strips non-alphanumerics, and collapses whitespace for tolerant string matching.
+# Why: downstream lookups and grepl calls need a canonical text form so
+# casing / punctuation drift can't cause false misses.
+# What: Lowercases x, strips non-alphanumerics, and collapses whitespace
+# for tolerant string matching.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 normalize_match_text <- function(x) {
   txt <- tolower(as.character(x %||% ""))
   txt <- gsub("[^a-z0-9 ]", " ", txt, perl = TRUE)
@@ -110,8 +124,22 @@ safe_string <- function(x) as.character(x %||% "")
 # When: alert text, popup labels, anywhere user-facing strings are emitted.
 # Impact: drop-in for the existing pattern.
 is_nontrivial_string <- function(x) {
-  s <- trimws(as.character(x %||% ""))
-  if (length(s) == 0L) FALSE else nzchar(s)
+  s <- as.character(x %||% "")
+  if (length(s) == 0L) return(FALSE)
+  # Anchor on `!is.na(s)` BEFORE nzchar — depending on locale/R build,
+  # `nzchar(NA_character_)` can return TRUE rather than NA, which would
+  # leak NAs through callers that use this in a boolean mask (e.g.
+  # `mask <- dominant_names == key & is_nontrivial_string(src)`). NA
+  # in the mask causes `vec[mask] <- replacement` to clobber the
+  # corresponding row with NA — that was the source of "Driving
+  # hazard: NA" popups on ZIPs whose dominant component lacked a
+  # per-zip reason override.
+  out <- rep(FALSE, length(s))
+  ok <- !is.na(s)
+  if (any(ok)) {
+    out[ok] <- nzchar(trimws(s[ok]))
+  }
+  out
 }
 
 # Why: `tryCatch(expr, error = function(e) NULL)` is repeated ~30 times to

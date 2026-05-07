@@ -21,23 +21,47 @@
 fetch_uv_band_scores <- function() {
   cached <- cache_get("derived", "uv-band-scores")
   if (!is.null(cached)) return(cached)
-  out <- stats::setNames(rep(0, nrow(band_reps)), as.character(band_reps$lat_band))
-  for (i in seq_len(nrow(band_reps))) {
+  fetch_one_band <- function(i) {
     zip_code <- as.character(band_reps$rep_zip[i] %||% "")
-    if (!nzchar(zip_code)) next
+    if (!nzchar(zip_code)) return(0)
     url <- sprintf(EPA_UV_DAILY_URL, zip_code)
     payload <- safely(http_json_simple(url))
     uv <- parse_uv_daily_payload(payload)
     uv_score <- score_uv_value(uv$uv_value)
     uv_alert_score <- if (isTRUE(uv$uv_alert)) 1 else 0
-    out[i] <- pmin(1, 1 - (1 - 0.70 * uv_score) * (1 - 0.30 * uv_alert_score))
+    pmin(1, 1 - (1 - 0.70 * uv_score) * (1 - 0.30 * uv_alert_score))
   }
+  # Parallelise the 10 per-band EPA UV API calls. Each is independent and
+  # dominated by network latency, so mclapply compresses the wall time from
+  # ~10 sequential RTTs to roughly one. Windows falls through to lapply.
+  band_seq <- seq_len(nrow(band_reps))
+  use_parallel <- .Platform$OS.type != "windows"
+  values <- if (use_parallel && length(band_seq) > 1) {
+    parallel::mclapply(band_seq, fetch_one_band,
+                       mc.cores = max(1L, min(length(band_seq), 6L)),
+                       mc.preschedule = FALSE)
+  } else {
+    lapply(band_seq, fetch_one_band)
+  }
+  out <- vapply(values, function(v) {
+    v <- suppressWarnings(as.numeric(v))
+    if (length(v) != 1L || !is.finite(v)) 0 else v
+  }, numeric(1))
   names(out) <- as.character(band_reps$lat_band)
   cache_put("derived", "uv-band-scores", out, ttl_seconds = 6 * 3600)
   out
 }
 
-# Builds the USGS earthquake API URL covering wi_bounds (+1deg buffer) for the past days_back days at >= min_magnitude.
+# Why: a downstream consumer needs the assembled output in a single call
+# rather than calling the underlying primitives separately.
+# What: Builds the USGS earthquake API URL covering wi_bounds (+1deg
+# buffer) for the past days_back days at >= min_magnitude.
+# How: cache lookup + put + named vector build.
+# When: called by the layer's top-level builder when assembling the
+# user-visible output.
+# Impact: any new column or row source needs to be added here AND in the
+# layer's standardise_* schema; mismatched schemas show up as silent column
+# drops downstream.
 build_usgs_query_url <- function(days_back = USGS_QUAKE_DAYS, min_magnitude = USGS_QUAKE_MIN_MAG) {
   start_time <- format(Sys.time() - days_back * 24 * 3600, "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
   sprintf(

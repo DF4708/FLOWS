@@ -17,6 +17,24 @@ setwd(project_dir)
 
 source(file.path(project_dir, "global.R"), chdir = TRUE)
 
+# Pre-load native libraries that the 511 / NWS / EPA fetchers rely on. macOS
+# fork() doesn't reliably handle on-demand dyn.load of native .so files in
+# the child — child processes that try to load curl/httr2's URL parser
+# segfault when the parent has not already touched those code paths. Forcing
+# eager load in the parent here makes any later parallel::mcparallel /
+# mclapply forks inherit the already-mapped libraries safely.
+suppressWarnings(suppressMessages({
+  invisible(tryCatch(curl::curl_version(), error = function(e) NULL))
+  # Touch the URL-parsing path explicitly: this is what the iter 7 segfault
+  # crashed on (httr2::req_retry -> url_parse -> dyn.load).
+  invisible(tryCatch({
+    if (requireNamespace("curl", quietly = TRUE)) {
+      curl::curl_parse_url("https://example.com/")
+    }
+  }, error = function(e) NULL))
+  invisible(tryCatch(httr2::request("https://example.com"), error = function(e) NULL))
+}))
+
 selected_features <- normalize_feature_selection(
   if (nzchar(trimws(feature_arg))) unlist(strsplit(feature_arg, ",", fixed = TRUE), use.names = FALSE) else character(0)
 )
@@ -44,17 +62,71 @@ message(sprintf(
   include_transport
 ))
 
-baseline <- build_forecast_baseline(horizon_key)
-baseline <- initialize_zip_alert_fields(baseline)
-bundle_info <- load_external_risk_bundle(
-  baseline,
-  horizon_key = horizon_key,
-  selected_features = selected_features,
-  include_transport = include_transport,
-  allow_stale = FALSE,
-  schedule_refresh = FALSE,
-  force_sync = TRUE,
-  project_dir = project_dir
+# Speculative parallel 511 prefetch in a forked child: the parent has just
+# pre-loaded curl/httr2 above so the child should inherit the mapped libs
+# and avoid the dyn.load segfault. Catches errors defensively — if the
+# child fails for any reason we fall through to the sequential path inside
+# compute_external_risk_bundle.
+job_511_prefetch <- if (isTRUE(include_transport) && .Platform$OS.type != "windows") {
+  parallel::mcparallel({
+    overlay <- tryCatch(build_511_roads_overlay(horizon_key), error = function(e) NULL)
+    msg_zip <- tryCatch(compute_511_message_sign_zip_signal(horizon_key), error = function(e) NULL)
+    alert_zip <- tryCatch(compute_511_alert_zip_signal(horizon_key), error = function(e) NULL)
+    transport <- tryCatch(compute_511_zip_transport_risk(horizon_key), error = function(e) NULL)
+    list(overlay = overlay, msg_zip = msg_zip, alert_zip = alert_zip, transport = transport)
+  })
+} else NULL
+
+baseline <- flows_time_step(
+  sprintf("warmer: build_forecast_baseline (%s)", horizon_key),
+  build_forecast_baseline(horizon_key),
+  group = "warmer-orch"
+)
+baseline <- flows_time_step(
+  sprintf("warmer: initialize_zip_alert_fields (%s)", horizon_key),
+  initialize_zip_alert_fields(baseline),
+  group = "warmer-orch"
+)
+
+# Defer mccollect to a hook that fires RIGHT BEFORE the transport step inside
+# compute_external_risk_bundle. The parent runs the lighter family steps (~10s
+# combined) sequentially while the child runs the heavy 511 pipeline (~10s)
+# in parallel; when the bundle reaches its transport step, the hook collects
+# the child's results and seeds the parent's cache so the transport step is a
+# fast cache hit. Wall time = max(non_transport_families, child_511) + small
+# epilogue, vs. fully sequential which is sum-of-all.
+prefetch_hook <- if (!is.null(job_511_prefetch)) {
+  function() {
+    prefetched <- flows_time_step(
+      sprintf("warmer: collect 511 prefetch (%s)", horizon_key),
+      parallel::mccollect(job_511_prefetch, wait = TRUE),
+      group = "warmer-orch"
+    )
+    prefetch_payload <- if (is.list(prefetched) && length(prefetched) > 0) prefetched[[1]] else NULL
+    if (is.list(prefetch_payload) && !inherits(prefetch_payload, "try-error")) {
+      ttl_511 <- if (has_wi511_key()) ALERT_TTL_SECONDS else FORECAST_TTL_SECONDS
+      if (!is.null(prefetch_payload$overlay))   cache_put("derived", paste0("wi511-roads-overlay-", horizon_key),  prefetch_payload$overlay,   ttl_seconds = ttl_511)
+      if (!is.null(prefetch_payload$msg_zip))   cache_put("derived", paste0("wi511-message-sign-zip-", horizon_key), prefetch_payload$msg_zip,   ttl_seconds = ttl_511)
+      if (!is.null(prefetch_payload$alert_zip)) cache_put("derived", paste0("wi511-alert-zip-signal-", horizon_key), prefetch_payload$alert_zip, ttl_seconds = ttl_511)
+      if (!is.null(prefetch_payload$transport)) cache_put("derived", paste0("wi511-zip-transport-", horizon_key),    prefetch_payload$transport, ttl_seconds = ttl_511)
+    }
+  }
+} else NULL
+
+bundle_info <- flows_time_step(
+  sprintf("warmer: load_external_risk_bundle (%s)", horizon_key),
+  load_external_risk_bundle(
+    baseline,
+    horizon_key = horizon_key,
+    selected_features = selected_features,
+    include_transport = include_transport,
+    allow_stale = FALSE,
+    schedule_refresh = FALSE,
+    force_sync = TRUE,
+    project_dir = project_dir,
+    pre_transport_hook = prefetch_hook
+  ),
+  group = "warmer-orch"
 )
 bundle <- bundle_info$bundle %||% data.frame()
 

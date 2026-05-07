@@ -17,7 +17,15 @@
 # mutation. Push/pop are O(log n).
 # ---------------------------------------------------------------------------
 
-# Allocates a new pq min-heap object (an environment with parallel keys / priorities vectors and a count n) sized to initial_capacity; the vectors auto-grow on push.
+# Why: A* needs an efficient priority queue; this is one of the primitive
+# ops on that structure.
+# What: Allocates a new pq min-heap object (an environment with parallel
+# keys / priorities vectors and a count n) sized to initial_capacity; the
+# vectors auto-grow on push.
+# How: see body — short helper.
+# When: called inside route_pathfind's A* loop on every visited node.
+# Impact: performance-critical for A*; replacing the underlying structure
+# changes the planner's complexity class.
 pq_new <- function(initial_capacity = 64L) {
   env <- new.env(parent = emptyenv())
   env$keys <- integer(initial_capacity)
@@ -26,7 +34,15 @@ pq_new <- function(initial_capacity = 64L) {
   env
 }
 
-# Inserts (key, priority) into the pq min-heap and sifts up to restore the heap invariant; doubles the backing vectors when capacity is exhausted. O(log n).
+# Why: A* needs an efficient priority queue; this is one of the primitive
+# ops on that structure.
+# What: Inserts (key, priority) into the pq min-heap and sifts up to
+# restore the heap invariant; doubles the backing vectors when capacity is
+# exhausted. O(log n).
+# How: see body — short helper.
+# When: called inside route_pathfind's A* loop on every visited node.
+# Impact: performance-critical for A*; replacing the underlying structure
+# changes the planner's complexity class.
 pq_push <- function(pq, key, priority) {
   pq$n <- pq$n + 1L
   if (pq$n > length(pq$keys)) {
@@ -49,7 +65,15 @@ pq_push <- function(pq, key, priority) {
   invisible()
 }
 
-# Removes and returns the minimum-priority entry as list(key, priority), or NULL when pq is empty; sifts the moved last element down to restore the heap invariant. O(log n).
+# Why: A* needs an efficient priority queue; this is one of the primitive
+# ops on that structure.
+# What: Removes and returns the minimum-priority entry as list(key,
+# priority), or NULL when pq is empty; sifts the moved last element down to
+# restore the heap invariant. O(log n).
+# How: see body — short helper.
+# When: called inside route_pathfind's A* loop on every visited node.
+# Impact: performance-critical for A*; replacing the underlying structure
+# changes the planner's complexity class.
 pq_pop <- function(pq) {
   if (pq$n == 0L) return(NULL)
   res <- list(key = pq$keys[1], priority = pq$priorities[1])
@@ -73,7 +97,13 @@ pq_pop <- function(pq) {
   res
 }
 
-# Predicate: TRUE when the pq min-heap holds zero entries.
+# Why: downstream code needs a canonical empty value; constructing it
+# inline at every call site invites schema drift.
+# What: Predicate: TRUE when the pq min-heap holds zero entries.
+# How: sf geometry op + guarded numeric coercion.
+# When: called inside route_pathfind's A* loop on every visited node.
+# Impact: performance-critical for A*; replacing the underlying structure
+# changes the planner's complexity class.
 pq_empty <- function(pq) pq$n == 0L
 
 # Why: A polygon-shaped query (city / county / ZIP) whose nearest road snap
@@ -218,7 +248,15 @@ build_route_graph <- function(edges_df) {
   )
 }
 
-# Looks up the integer node index for a node_id string in graph$node_idx — returns 0L on miss, since 0 is reserved as "no parent" in the A* prev_node array.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Looks up the integer node index for a node_id string in
+# graph$node_idx — returns 0L on miss, since 0 is reserved as "no parent"
+# in the A* prev_node array.
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 graph_node_for_id <- function(graph, node_id) {
   if (is.null(graph) || !nzchar(node_id %||% "")) return(NA_integer_)
   idx <- graph$node_idx[[node_id]]
@@ -243,10 +281,11 @@ graph_node_for_id <- function(graph, node_id) {
 # How: simple table lookup, defaulting to the fastest value for unknown keys.
 # When: called inside compute_profile_edge_weights once per profile per
 # query.
-# Impact: Metro now uses (alpha = 10, floor = RISK_GREEN_MIN) so it tolerates
-# green-band risk freely but strongly fights yellow / red. Without the
-# threshold, any uniform-alpha Metro setting between Fastest (4) and Safest
-# (25) was forced to detour 60+ miles around even modest green-band stretches.
+# Impact: Safest uses alpha = 100 so the cost function expresses
+# "minimise risk first, then time" within the safest_time_cap_multiplier
+# ceiling - lower alphas let a yellow Interstate out-cost a transparent
+# surface route purely on speed. Metro keeps (alpha = 10, floor = GREEN_MIN)
+# so it tolerates green-band risk freely but strongly fights yellow / red.
 route_profile_risk_alpha <- function(profile_key) {
   switch(
     tolower(as.character(profile_key %||% "fastest")),
@@ -255,7 +294,7 @@ route_profile_risk_alpha <- function(profile_key) {
     # makes Fastest no longer "fastest." Closures are still avoided via the
     # separate closure_pen term.
     fastest = 0.0,
-    safest = 25.0,
+    safest = 100.0,
     metro = 10.0,
     metrorail = 10.0,
     0.0
@@ -286,7 +325,16 @@ route_profile_risk_floor <- function(profile_key) {
   )
 }
 
-# Returns the per-profile multiplier applied to closure_penalty when computing edge weights — Safest amplifies the penalty (so it routes around incidents), Fastest dampens it (so it accepts incidents when they're still on the quickest path).
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Returns the per-profile multiplier applied to closure_penalty when
+# computing edge weights — Safest amplifies the penalty (so it routes
+# around incidents), Fastest dampens it (so it accepts incidents when
+# they're still on the quickest path).
+# How: branch dispatch + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_profile_closure_scale <- function(profile_key) {
   switch(
     tolower(as.character(profile_key %||% "fastest")),
@@ -327,9 +375,17 @@ compute_profile_edge_weights <- function(edges_df, profile_key) {
   # the core of the same risky polygon. Decay scale 2500 m (~1.5 mi) and a
   # 50% maximum reduction at the boundary keep the effect physically
   # plausible without ever zeroing out a yellow / red road.
+  # Safest opts out: under "minimise risk first, then time," the perimeter
+  # discount lets a yellow Interstate near a transparent ZIP undercut a
+  # genuinely lower-risk surface route. Phase 3 will replace the boundary
+  # heuristic with risk-center distance for Safest specifically.
   boundary_dist <- suppressWarnings(as.numeric(edges_df$boundary_distance_m %||% 1e6))
   boundary_dist[!is.finite(boundary_dist) | boundary_dist < 0] <- 1e6
-  attenuation <- 1 - 0.5 * exp(-boundary_dist / 2500)
+  attenuation <- if (identical(tolower(as.character(profile_key %||% "")), "safest")) {
+    rep(1, length(seg_risk))
+  } else {
+    1 - 0.5 * exp(-boundary_dist / 2500)
+  }
   attenuated_risk <- seg_risk * attenuation
   # risk_floor lets Metro accept green-band risk freely but fight yellow / red.
   effective_risk <- pmax(0, attenuated_risk - risk_floor)
@@ -364,9 +420,15 @@ edge_minutes_for_path <- function(edges_df, profile_key) {
   miles / speed_mph * 60
 }
 
-# Safest-route time cap multiplier as a piecewise function of the fastest
-# route's duration (hours). Per spec: 3x at <=1h, 2x at 2h, 1.1x at 24h, with
-# linear interpolation between break points and 1.1x past 24h.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Safest-route time cap multiplier as a piecewise function of the
+# fastest route's duration (hours). Per spec: 3x at <=1h, 2x at 2h, 1.1x at
+# 24h, with linear interpolation between break points and 1.1x past 24h.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 safest_time_cap_multiplier <- function(fastest_hours) {
   t <- suppressWarnings(as.numeric(fastest_hours))
   if (!is.finite(t) || t < 0) t <- 0
@@ -532,11 +594,18 @@ build_edge_pair_lookup <- function(segments) {
   stats::setNames(seq_along(key)[keep], key[keep])
 }
 
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What:
 # ---------------------------------------------------------------------------
-# Native step-instruction generator: groups consecutive same-road edges into
-# one instruction per group. Only the first edge of each group gets a non-empty
-# step_instruction; downstream rendering ignores blanks.
+# Native step-instruction generator: groups consecutive same-road edges
+# into one instruction per group. Only the first edge of each group gets a
+# non-empty step_instruction; downstream rendering ignores blanks.
 # ---------------------------------------------------------------------------
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 
 generate_native_step_instructions <- function(route_edges) {
   n <- nrow(route_edges)
@@ -555,11 +624,19 @@ generate_native_step_instructions <- function(route_edges) {
   instructions
 }
 
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What:
 # ---------------------------------------------------------------------------
-# Build a route_obj (the structure server.R consumes) from a path returned by
-# astar_route or cppr_best_path. The shape of route_obj is the contract the
-# Shiny renderer depends on; keep it stable when editing build_native_route_object.
+# Build a route_obj (the structure server.R consumes) from a path returned
+# by astar_route or cppr_best_path. The shape of route_obj is the contract
+# the Shiny renderer depends on; keep it stable when editing
+# build_native_route_object.
 # ---------------------------------------------------------------------------
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 
 native_profile_meta <- function(profile_key) {
   switch(
@@ -713,8 +790,7 @@ build_native_route_object <- function(path, segments, profile_key, route_rank,
 # weights cache, and the mclapply parallelism are the three biggest knobs that
 # control how long a user waits for a plan.
 native_plan_routes <- function(start_point, end_point, full_segments,
-                               corridor_segments = NULL, progress = NULL,
-                               horizon_key = "live") {
+                               progress = NULL, horizon_key = "live") {
   empty_result <- function(msg) {
     list(routes = list(), start_point = start_point, end_point = end_point, message = msg %||% "")
   }

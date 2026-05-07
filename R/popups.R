@@ -9,7 +9,14 @@
 # R/popups.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Escapes &, <, >, and quotes in x for safe interpolation into HTML strings; coerces NULL to "".
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Escapes &, <, >, and quotes in x for safe interpolation into HTML
+# strings; coerces NULL to "".
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 escape_html <- function(x) {
   htmltools::htmlEscape(safe_string(x))
 }
@@ -71,7 +78,14 @@ alert_field_html <- function(event, score, url, forecast_short, risk_label, prox
   )
 }
 
-# Splits a multi-alert string on the ALERT_LINK_SEP delimiter into a unique trimmed character vector (drops blanks and NAs).
+# Why: the data shape needs to change between two pipeline stages and
+# centralising the split/join keeps schema invariants in one place.
+# What: Splits a multi-alert string on the ALERT_LINK_SEP delimiter into a
+# unique trimmed character vector (drops blanks and NAs).
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 split_alert_field_values <- function(x) {
   txt <- safe_string(x)
   if (length(txt) == 0) return(character(0))
@@ -114,7 +128,15 @@ alert_field_multi_html <- function(events, score, urls, forecast_short, risk_lab
   paste(item_html, collapse = "")
 }
 
-# Formats a numeric score 0..1 as a "NN%" string clamped to [0,100], using na_label for non-finite values.
+# Why: the user-facing display needs a consistent rendering of this value
+# across popups / summaries / legends.
+# What: Formats a numeric score 0..1 as a "NN%" string clamped to [0,100],
+# using na_label for non-finite values.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: any change to the rendering shows up directly in popups / legends
+# / summaries; keep callers' assumptions about output shape (e.g., "%s%%")
+# stable.
 format_score_pct <- function(score, digits = 0, na_label = "0%") {
   val <- safe_numeric(score)
   if (length(val) == 0) return(na_label)
@@ -188,7 +210,14 @@ popup_compass_svg_html <- function(wind_direction = NA_character_, wind_directio
   )
 }
 
-# Returns "<div><strong>label:</strong> value</div>" used to render a single popup field row.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns "<div><strong>label:</strong> value</div>" used to render a
+# single popup field row.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 popup_value_row_html <- function(label, value_html) {
   sprintf('<div style="margin-bottom:0.18rem;"><strong>%s:</strong> %s</div>', escape_html(label), value_html)
 }
@@ -209,7 +238,7 @@ build_popup_html_fields <- function(zipcode, county_name, place_name, horizon_la
                                     forecast_temperature_f, forecast_wind_mph, forecast_pop_pct,
                                     alert_event, normalized_risk_score, alert_url, forecast_short,
                                     alert_event_list = NA_character_, alert_url_list = NA_character_,
-                                    proximity_boosted = FALSE, risk_reason_text = NA_character_,
+                                    proximity_boosted = FALSE,
                                     risk_component_summary_text = NA_character_,
                                     risk_type_summary_text = NA_character_,
                                     driving_total_risk = NA_real_, driving_risk_label = NA_character_,
@@ -247,7 +276,15 @@ build_popup_html_fields <- function(zipcode, county_name, place_name, horizon_la
   map_hazard <- escape_html(sprintf("%s (%s)", format_score_pct(map_score), map_label))
   env_hazard <- escape_html(sprintf("%s (%s)", format_score_pct(normalized_risk_score), risk_label %||% "Transparent"))
   drive_label <- escape_html(sprintf("%s (%s)", format_score_pct(driving_total_risk), driving_risk_label %||% "Transparent"))
-  drive_reason <- escape_html(driving_reason_text %||% "All clear.")
+  # `%||%` only catches NULL, not NA — so a stale or partial pipeline
+  # that left driving_reason_text as NA_character_ would render as the
+  # literal "NA" in the popup ("Driving hazard: NA"). Treat NA / empty
+  # string as "All clear." so the popup is always sensible.
+  drive_reason_clean <- as.character(driving_reason_text %||% "All clear.")
+  if (length(drive_reason_clean) == 0L || is.na(drive_reason_clean) || !nzchar(trimws(drive_reason_clean))) {
+    drive_reason_clean <- "All clear."
+  }
+  drive_reason <- escape_html(drive_reason_clean)
   component_summary <- escape_html(risk_component_summary_text %||% "No material contributors.")
   risk_type_summary <- escape_html(risk_type_summary_text %||% "No material contributors.")
   rows <- c(
@@ -310,7 +347,6 @@ build_popup_vectorized <- function(zips) {
     alert_event_list = alert_event_list,
     alert_url_list = alert_url_list,
     proximity_boosted = zips$proximity_boosted,
-    risk_reason_text = zips$risk_reason_text,
     risk_component_summary_text = zips$risk_component_summary_text,
     risk_type_summary_text = zips$risk_type_summary_text,
     driving_total_risk = zips$driving_total_risk,

@@ -9,19 +9,42 @@
 # R/airnow.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Maps a raw AQI value to a 0..1 risk by piecewise-scoring (aqi - 50) with thresholds (25, 75, 150) - AQI <= 50 is "good" -> 0.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps a raw AQI value to a 0..1 risk by piecewise-scoring (aqi - 50)
+# with thresholds (25, 75, 150) - AQI <= 50 is "good" -> 0.
+# How: guarded numeric coercion.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_airnow_aqi <- function(aqi_value) {
   aqi_value <- safe_numeric(aqi_value)
   if (!is.finite(aqi_value) || aqi_value <= 50) return(0)
   piecewise_score(aqi_value - 50, 25, 75, 150)
 }
 
-# Lowercases and strips non-alphanumeric characters from x to build a stable join key for AirNow reporting-area names.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Lowercases and strips non-alphanumeric characters from x to build a
+# stable join key for AirNow reporting-area names.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 sanitize_name_key <- function(x) {
   tolower(gsub("[^a-z0-9]+", "", safe_string(x), perl = TRUE))
 }
 
-# Returns the first column name in dat whose sanitized form matches one of the candidate names, else NA_character_.
+# Why: callers need an efficient lookup that avoids repeating the search
+# logic across multiple sites.
+# What: Returns the first column name in dat whose sanitized form matches
+# one of the candidate names, else NA_character_.
+# How: branch dispatch + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 find_matching_column <- function(dat, candidates = character(0)) {
   if (is.null(dat) || !is.data.frame(dat) || ncol(dat) == 0) return(NA_character_)
   keys <- sanitize_name_key(names(dat))
@@ -32,7 +55,15 @@ find_matching_column <- function(dat, candidates = character(0)) {
   names(dat)[idx[1]]
 }
 
-# Parses an AirNow date string trying "m/d/y" then "m/d/Y", returning NA Date for empty or unparseable input.
+# Why: the upstream payload arrives in an unstructured shape that the rest
+# of the pipeline can't consume directly.
+# What: Parses an AirNow date string trying "m/d/y" then "m/d/Y", returning
+# NA Date for empty or unparseable input.
+# How: branch dispatch + guarded numeric coercion.
+# When: called immediately after the upstream HTTP fetch resolves, before
+# the result is handed to the scorer or shape converter.
+# Impact: upstream schema drift is the main failure mode; the function
+# tries multiple field-name spellings to absorb minor changes.
 parse_airnow_date <- function(x) {
   x <- trimws(safe_string(x))
   if (!nzchar(x)) return(as.Date(NA))
@@ -41,12 +72,26 @@ parse_airnow_date <- function(x) {
   parsed
 }
 
-# Returns today's date in America/Chicago (Wisconsin's local timezone), used as the anchor for forecast horizon offsets.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns today's date in America/Chicago (Wisconsin's local
+# timezone), used as the anchor for forecast horizon offsets.
+# How: regex match + branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 airnow_current_central_date <- function() {
   as.Date(format(Sys.time(), tz = "America/Chicago", usetz = FALSE))
 }
 
-# Maps a horizon key ("live"/"24h"/"48h"/"72h") to the matching central-time forecast date (today + 0/1/2/3).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Maps a horizon key ("live"/"24h"/"48h"/"72h") to the matching
+# central-time forecast date (today + 0/1/2/3).
+# How: regex match + branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 airnow_target_date_from_horizon <- function(horizon_key = "live") {
   offset <- switch(horizon_key %||% "live", live = 0L, `24h` = 1L, `48h` = 2L, `72h` = 3L, 0L)
   airnow_current_central_date() + offset
@@ -73,7 +118,16 @@ airnow_category_representative_aqi <- function(category_text = "") {
   NA_real_
 }
 
-# Best-effort row score: prefers numeric aqi_value, falls back to airnow_category_representative_aqi(category_text), else 0.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Best-effort row score: prefers numeric aqi_value, falls back to
+# airnow_category_representative_aqi(category_text), else 0.
+# How: see body — short helper.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_airnow_row <- function(aqi_value = NA_real_, category_text = "") {
   aqi_value <- safe_numeric(aqi_value)
   if (is.finite(aqi_value)) return(score_airnow_aqi(aqi_value))
@@ -155,7 +209,17 @@ parse_cityzipcodes_csv <- function(txt) {
   unique(out)
 }
 
-# Fetches both AirNow forecast tables (reporting + city-zip) once per hour and caches the parsed pair under "derived".
+# Why: the underlying provider response needs network I/O + parsing into a
+# typed sf or data.frame consumed by the rest of the pipeline.
+# What: Fetches both AirNow forecast tables (reporting + city-zip) once per
+# hour and caches the parsed pair under "derived".
+# How: cache lookup + put.
+# When: called by the corresponding compute_/build_ wrapper at the top of
+# the per-horizon pipeline; result cached for ALERT_TTL_SECONDS or
+# FORECAST_TTL_SECONDS.
+# Impact: a missing / corrupt upstream payload returns the canonical empty
+# shape so downstream rbind / merge keep working; per-feature outages don't
+# crash the build.
 fetch_airnow_reportingarea_tables <- function() {
   cached <- cache_get("derived", "airnow-reportingarea-tables")
   if (!is.null(cached)) return(cached)
@@ -283,7 +347,16 @@ fetch_airnow_scores <- function(horizon_key = "live") {
   forecast_scores
 }
 
-# Builds the list of HourlyAQObs_*.dat URLs for the past lookback_hours so the live fetcher can try the freshest first.
+# Why: a downstream consumer needs the assembled output in a single call
+# rather than calling the underlying primitives separately.
+# What: Builds the list of HourlyAQObs_*.dat URLs for the past
+# lookback_hours so the live fetcher can try the freshest first.
+# How: row/element loop.
+# When: called by the layer's top-level builder when assembling the
+# user-visible output.
+# Impact: any new column or row source needs to be added here AND in the
+# layer's standardise_* schema; mismatched schemas show up as silent column
+# drops downstream.
 build_airnow_hourly_urls <- function(now_utc = Sys.time(), lookback_hours = AIRNOW_OBS_LOOKBACK_HOURS) {
   base_time <- as.POSIXct(format(now_utc, "%Y-%m-%d %H:00:00", tz = "UTC"), tz = "UTC")
   times <- base_time - seq(1, lookback_hours, by = 1) * 3600
@@ -300,7 +373,15 @@ build_airnow_hourly_urls <- function(now_utc = Sys.time(), lookback_hours = AIRN
   ))
 }
 
-# Reads AirNow HourlyAQObs CSV text into a data.frame, returning NULL on parse error or empty input.
+# Why: the upstream payload arrives in an unstructured shape that the rest
+# of the pipeline can't consume directly.
+# What: Reads AirNow HourlyAQObs CSV text into a data.frame, returning NULL
+# on parse error or empty input.
+# How: cache lookup + put + named vector build.
+# When: called immediately after the upstream HTTP fetch resolves, before
+# the result is handed to the scorer or shape converter.
+# Impact: upstream schema drift is the main failure mode; the function
+# tries multiple field-name spellings to absorb minor changes.
 parse_airnow_hourly_text <- function(txt) {
   if (is.null(txt) || !nzchar(txt)) return(NULL)
   safely(

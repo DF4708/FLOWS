@@ -9,7 +9,16 @@
 # R/spc_convective.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Maps an SPC probability (0..1 or 0..100) to a 0..1 risk via piecewise_score(5, 15, 30) - thresholds chosen on the percentage scale.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps an SPC probability (0..1 or 0..100) to a 0..1 risk via
+# piecewise_score(5, 15, 30) - thresholds chosen on the percentage scale.
+# How: regex match.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_convective_probability <- function(prob) {
   prob <- safe_numeric(prob)
   if (!is.finite(prob)) return(0)
@@ -17,7 +26,16 @@ score_convective_probability <- function(prob) {
   piecewise_score(prob, 5, 15, 30)
 }
 
-# Maps an SPC categorical label (TSTM/MRGL/SLGT/ENH/MDT/HIGH) to a fixed 0..1 score via the standard tier mapping.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps an SPC categorical label (TSTM/MRGL/SLGT/ENH/MDT/HIGH) to a
+# fixed 0..1 score via the standard tier mapping.
+# How: regex match + row/element loop.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_convective_category <- function(cat_value) {
   txt <- toupper(trimws(safe_string(cat_value)))
   if (!nzchar(txt)) return(0)

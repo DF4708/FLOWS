@@ -9,7 +9,14 @@
 # R/forecast.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Discretises lat into 1..n_bands bins between south and north using cut() - used to group ZIPs into latitude tiers for forecast caching.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Discretises lat into 1..n_bands bins between south and north using
+# cut() - used to group ZIPs into latitude tiers for forecast caching.
+# How: sf geometry op + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 assign_lat_band <- function(lat, south, north, n_bands = 10L) {
   breaks <- seq(south, north, length.out = n_bands + 1L)
   as.integer(cut(lat, breaks = breaks, include.lowest = TRUE, labels = FALSE))
@@ -99,7 +106,16 @@ build_forecast_region_context <- function(zctas, n_regions = FORECAST_REGION_COU
   list(assignments = assignments, reps = reps)
 }
 
-# Joins zip -> place_name from the cached lookup, mutating zips$place_name in place.
+# Why: a side-effect transformation on the zips frame needs to happen at a
+# known point in the pipeline; encapsulating it keeps order-of-application
+# explicit.
+# What: Joins zip -> place_name from the cached lookup, mutating
+# zips$place_name in place.
+# How: cache lookup + put.
+# When: called at a fixed step in the build pipeline (see callers);
+# ordering matters because later steps depend on the columns this writes.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 apply_cached_place_names <- function(zips) {
   lookup <- get_cached_zip_place_lookup()
   zips$place_name <- unname(lookup[zips$zipcode])
@@ -210,14 +226,28 @@ build_fast_live_baseline <- function() {
   zips
 }
 
-# Returns the matching row of risk_band_profiles for lat_band, falling back to row 1 if missing.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the matching row of risk_band_profiles for lat_band,
+# falling back to row 1 if missing.
+# How: row/element loop + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 lookup_band_profile <- function(lat_band) {
   idx <- match(lat_band, risk_band_profiles$lat_band)
   if (is.na(idx)) idx <- 1L
   risk_band_profiles[idx, , drop = FALSE]
 }
 
-# Returns the band's annual-average temperature in F, falling back through profile -> DEFAULT_LAT_BAND_ANNUAL_AVG_TEMPS_F -> 44.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the band's annual-average temperature in F, falling back
+# through profile -> DEFAULT_LAT_BAND_ANNUAL_AVG_TEMPS_F -> 44.
+# How: row/element loop + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 lookup_band_annual_avg_temp <- function(lat_band) {
   profile <- lookup_band_profile(lat_band)
   annual <- safe_numeric(profile$temp_annual_avg_f %||% NA_real_)
@@ -228,12 +258,26 @@ lookup_band_annual_avg_temp <- function(lat_band) {
   44
 }
 
-# Vectorised wrapper applying lookup_band_annual_avg_temp element-wise.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Vectorised wrapper applying lookup_band_annual_avg_temp
+# element-wise.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 vector_lookup_band_annual_avg_temp <- function(lat_band) {
   vapply(lat_band, lookup_band_annual_avg_temp, numeric(1))
 }
 
-# Applies the standard NWS wind-chill formula for temp_f <= 50 and wind_mph >= 3, returning temp_f unchanged otherwise.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Applies the standard NWS wind-chill formula for temp_f <= 50 and
+# wind_mph >= 3, returning temp_f unchanged otherwise.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 wind_chill_temperature_f <- function(temp_f, wind_mph) {
   temp_f <- safe_numeric(temp_f)
   wind_mph <- safe_numeric(wind_mph)
@@ -245,7 +289,16 @@ wind_chill_temperature_f <- function(temp_f, wind_mph) {
   out
 }
 
-# Formats the popup text describing whether apparent temp is above/at/below the local annual average, with a "wind chill adjusted" suffix when relevant.
+# Why: the user-facing display needs a consistent rendering of this value
+# across popups / summaries / legends.
+# What: Formats the popup text describing whether apparent temp is
+# above/at/below the local annual average, with a "wind chill adjusted"
+# suffix when relevant.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: any change to the rendering shows up directly in popups / legends
+# / summaries; keep callers' assumptions about output shape (e.g., "%s%%")
+# stable.
 format_temperature_pressure_text <- function(pressure_f = NA_real_, annual_avg_f = NA_real_, apparent_temp_f = NA_real_, actual_temp_f = NA_real_) {
   if (!is.finite(pressure_f) || !is.finite(annual_avg_f) || !is.finite(apparent_temp_f)) return("N/A")
   if (abs(pressure_f) < 0.5) {
@@ -300,10 +353,27 @@ append_temperature_pressure_fields <- function(zips) {
   zips
 }
 
-# Builds the api.weather.gov /points/{lat},{lon} URL with 4 decimal precision (the NWS rounds to grid anyway).
+# Why: a downstream consumer needs the assembled output in a single call
+# rather than calling the underlying primitives separately.
+# What: Builds the api.weather.gov /points/{lat},{lon} URL with 4 decimal
+# precision (the NWS rounds to grid anyway).
+# How: see body — short helper.
+# When: called by the layer's top-level builder when assembling the
+# user-visible output.
+# Impact: any new column or row source needs to be added here AND in the
+# layer's standardise_* schema; mismatched schemas show up as silent column
+# drops downstream.
 build_points_url <- function(lat, lon) sprintf("https://api.weather.gov/points/%.4f,%.4f", lat, lon)
 
-# Extracts the maximum integer from an NWS wind-speed string like "10 to 15 mph" and returns it as numeric mph (NA on no digits).
+# Why: the upstream payload arrives in an unstructured shape that the rest
+# of the pipeline can't consume directly.
+# What: Extracts the maximum integer from an NWS wind-speed string like "10
+# to 15 mph" and returns it as numeric mph (NA on no digits).
+# How: see body — short helper.
+# When: called immediately after the upstream HTTP fetch resolves, before
+# the result is handed to the scorer or shape converter.
+# Impact: upstream schema drift is the main failure mode; the function
+# tries multiple field-name spellings to absorb minor changes.
 parse_wind_mph <- function(wind_speed_text) {
   if (is.null(wind_speed_text) || is.na(wind_speed_text) || !nzchar(wind_speed_text)) return(NA_real_)
   nums <- safe_numeric(unlist(regmatches(wind_speed_text, gregexpr("[0-9]+", wind_speed_text))))
@@ -312,7 +382,14 @@ parse_wind_mph <- function(wind_speed_text) {
   max(nums)
 }
 
-# Canonicalises a wind direction string to an 8/16-point compass code (e.g. "Northeast" -> "NE"), returning NA when unrecognised.
+# Why: downstream lookups and grepl calls need a canonical text form so
+# casing / punctuation drift can't cause false misses.
+# What: Canonicalises a wind direction string to an 8/16-point compass code
+# (e.g. "Northeast" -> "NE"), returning NA when unrecognised.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 normalize_wind_direction <- function(direction_text = NA_character_) {
   txt <- toupper(trimws(safe_string(direction_text)))
   if (!nzchar(txt)) return(NA_character_)
@@ -328,7 +405,14 @@ normalize_wind_direction <- function(direction_text = NA_character_) {
   NA_character_
 }
 
-# Converts a 16-point compass label ("N", "NNE", ...) into a bearing in degrees, returning NA_real_ if not recognised.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Converts a 16-point compass label ("N", "NNE", ...) into a bearing
+# in degrees, returning NA_real_ if not recognised.
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 wind_direction_degrees <- function(direction_text = NA_character_) {
   dir <- normalize_wind_direction(direction_text)
   if (!nzchar(dir %||% "")) return(NA_real_)
@@ -342,30 +426,65 @@ wind_direction_degrees <- function(direction_text = NA_character_) {
   safe_numeric(bearing_map[[dir]])
 }
 
-# Maps a horizon key string to its hour offset (0/24/48/72) for forecast period selection.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Maps a horizon key string to its hour offset (0/24/48/72) for
+# forecast period selection.
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 horizon_hours_from_key <- function(horizon_key) {
   switch(horizon_key %||% "live", live = 0, `24h` = 24, `48h` = 48, `72h` = 72, 0)
 }
 
-# De-duplicates and coerces selected_features to a unique character vector (NULL -> empty character).
+# Why: downstream lookups and grepl calls need a canonical text form so
+# casing / punctuation drift can't cause false misses.
+# What: De-duplicates and coerces selected_features to a unique character
+# vector (NULL -> empty character).
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 normalize_feature_selection <- function(selected_features = character(0)) {
   unique(as.character(selected_features %||% character(0)))
 }
 
-# Coerces a primary_map id to a known PRIMARY_MAP_CHOICES value, falling back to DEFAULT_PRIMARY_MAP for unknown inputs.
+# Why: downstream lookups and grepl calls need a canonical text form so
+# casing / punctuation drift can't cause false misses.
+# What: Coerces a primary_map id to a known PRIMARY_MAP_CHOICES value,
+# falling back to DEFAULT_PRIMARY_MAP for unknown inputs.
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 normalize_primary_map <- function(primary_map = DEFAULT_PRIMARY_MAP) {
   primary_map <- as.character(primary_map %||% DEFAULT_PRIMARY_MAP)[1]
   if (!nzchar(primary_map) || !primary_map %in% unname(PRIMARY_MAP_CHOICES)) DEFAULT_PRIMARY_MAP else primary_map
 }
 
-# Returns the human-readable name (PRIMARY_MAP_CHOICES key) for a primary_map id, defaulting to "Normalized environmental risk".
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the human-readable name (PRIMARY_MAP_CHOICES key) for a
+# primary_map id, defaulting to "Normalized environmental risk".
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 primary_map_display_name <- function(primary_map = DEFAULT_PRIMARY_MAP) {
   primary_map <- normalize_primary_map(primary_map)
   out <- names(PRIMARY_MAP_CHOICES)[match(primary_map, unname(PRIMARY_MAP_CHOICES))]
   if (!nzchar(out %||% "")) "Normalized environmental risk" else out
 }
 
-# Maps a primary_map selection to the implicit hazard features it depends on (e.g., "wind" -> c("wind","convective")).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Maps a primary_map selection to the implicit hazard features it
+# depends on (e.g., "wind" -> c("wind","convective")).
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 primary_map_features <- function(primary_map = DEFAULT_PRIMARY_MAP) {
   primary_map <- normalize_primary_map(primary_map)
   normalize_feature_selection(switch(
@@ -387,12 +506,26 @@ primary_map_features <- function(primary_map = DEFAULT_PRIMARY_MAP) {
   ))
 }
 
-# Predicate: TRUE when the chosen primary map renders ZIP polygons (currently always TRUE - reserved for future raster maps).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE when the chosen primary map renders ZIP polygons
+# (currently always TRUE - reserved for future raster maps).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 primary_map_shows_polygons <- function(primary_map = DEFAULT_PRIMARY_MAP) {
   TRUE
 }
 
-# Adds TRANSPORT_SUPPORT_FEATURES to selected_features when include_transport is TRUE, otherwise returns features unchanged.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Adds TRANSPORT_SUPPORT_FEATURES to selected_features when
+# include_transport is TRUE, otherwise returns features unchanged.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 expand_transport_features <- function(selected_features = character(0), include_transport = FALSE) {
   features <- normalize_feature_selection(selected_features)
   if (isTRUE(include_transport)) {
@@ -431,7 +564,14 @@ compute_feature_requirements <- function(selected_features = character(0), inclu
   )
 }
 
-# Returns the static list describing each external data module (id, label, requirement key, live/future modes, optional half_life_hours).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the static list describing each external data module (id,
+# label, requirement key, live/future modes, optional half_life_hours).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_module_registry <- function() {
   list(
     list(id = "flood_guidance", label = "Flood guidance", requirement = "needs_flood", live_mode = "native", future_mode = "native"),
@@ -449,13 +589,27 @@ external_module_registry <- function() {
   )
 }
 
-# Predicate: TRUE if the requirement flag named by meta$requirement is set in the requirements list.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE if the requirement flag named by meta$requirement
+# is set in the requirements list.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_module_requirement_active <- function(meta, requirements) {
   req_name <- safe_string(meta$requirement)
   isTRUE(requirements[[req_name]])
 }
 
-# Returns the run mode for a module ("native"/"carry_forward"/"skip") given the horizon - live always uses live_mode.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the run mode for a module ("native"/"carry_forward"/"skip")
+# given the horizon - live always uses live_mode.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_module_run_mode <- function(meta, horizon_key = "live") {
   if (identical(horizon_key %||% "live", "live")) return(as.character(meta$live_mode %||% "native"))
   as.character(meta$future_mode %||% meta$live_mode %||% "skip")
@@ -488,27 +642,59 @@ build_external_module_plan <- function(horizon_key = "live", selected_features =
   Filter(function(entry) isTRUE(entry$active), plan)
 }
 
-# Indexes a module_plan list by id so callers can look up a module's metadata in O(1).
+# Why: a downstream consumer needs the assembled output in a single call
+# rather than calling the underlying primitives separately.
+# What: Indexes a module_plan list by id so callers can look up a module's
+# metadata in O(1).
+# How: row/element loop + named vector build.
+# When: called by the layer's top-level builder when assembling the
+# user-visible output.
+# Impact: any new column or row source needs to be added here AND in the
+# layer's standardise_* schema; mismatched schemas show up as silent column
+# drops downstream.
 build_external_module_plan_map <- function(module_plan = list()) {
   if (!length(module_plan)) return(list())
   stats::setNames(module_plan, vapply(module_plan, function(entry) as.character(entry$id %||% ""), character(1)))
 }
 
-# Calls progress(value, detail) when progress is a function, otherwise no-ops - used for optional Shiny Progress objects.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Calls progress(value, detail) when progress is a function,
+# otherwise no-ops - used for optional Shiny Progress objects.
+# How: HTTP JSON fetch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 notify_progress <- function(progress, value = NULL, detail = NULL) {
   if (!is.function(progress)) return(invisible(NULL))
   progress(value = value, detail = detail)
   invisible(NULL)
 }
 
-# Returns the exponential decay factor exp(-ln2 * h / half_life) for the horizon's hour offset, or 1 for "live"/0.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the exponential decay factor exp(-ln2 * h / half_life) for
+# the horizon's hour offset, or 1 for "live"/0.
+# How: cache lookup + put + HTTP JSON fetch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 horizon_live_decay <- function(horizon_key, half_life_hours = 24) {
   hrs <- horizon_hours_from_key(horizon_key)
   if (!is.finite(hrs) || hrs <= 0) return(1)
   exp(-log(2) * hrs / max(half_life_hours, 1e-9))
 }
 
-# Vectorised carry-forward: scales live_score by horizon_live_decay and clamps to [0,1] so future horizons fade rather than vanish.
+# Why: a side-effect transformation on the zips frame needs to happen at a
+# known point in the pipeline; encapsulating it keeps order-of-application
+# explicit.
+# What: Vectorised carry-forward: scales live_score by horizon_live_decay
+# and clamps to [0,1] so future horizons fade rather than vanish.
+# How: cache lookup + put + HTTP JSON fetch.
+# When: called at a fixed step in the build pipeline (see callers);
+# ordering matters because later steps depend on the columns this writes.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 apply_live_decay <- function(live_score, horizon_key, half_life_hours = 24) {
   score <- safe_numeric(live_score)
   score[!is.finite(score)] <- 0
@@ -541,7 +727,14 @@ get_points_metadata <- function(lat, lon) {
   meta
 }
 
-# Fetches the periods list from a forecast URL, caching under "forecast::url" with FORECAST_TTL_SECONDS, returning NULL on failure.
+# Why: downstream callers need this lookup encapsulated so cache + fallback
+# handling lives in one place.
+# What: Fetches the periods list from a forecast URL, caching under
+# "forecast::url" with FORECAST_TTL_SECONDS, returning NULL on failure.
+# How: cache lookup + put + HTTP JSON fetch + row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 get_forecast_periods <- function(url) {
   if (is.null(url) || is.na(url) || !nzchar(url)) return(NULL)
   cached <- cache_get("forecast", url)
@@ -553,7 +746,14 @@ get_forecast_periods <- function(url) {
   periods
 }
 
-# Selects the forecast period whose [startTime, endTime] window contains now+horizon_hours, or the period closest in time if none match.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Selects the forecast period whose [startTime, endTime] window
+# contains now+horizon_hours, or the period closest in time if none match.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 pick_forecast_period <- function(periods, horizon_hours) {
   if (is.null(periods) || length(periods) == 0) return(NULL)
   starts <- vapply(periods, function(p) as.numeric(parse_iso_time(p$startTime %||% NA_character_)), numeric(1))
@@ -564,7 +764,16 @@ pick_forecast_period <- function(periods, horizon_hours) {
   periods[[which.min(abs(starts - target))]]
 }
 
-# Returns a sentinel forecast result list (zero scores, NA fields) used as a safe fallback when the upstream call fails.
+# Why: the canonical empty shape is needed wherever the upstream feed is
+# missing or fails so downstream rbind / merge calls don't break the
+# schema.
+# What: Returns a sentinel forecast result list (zero scores, NA fields)
+# used as a safe fallback when the upstream call fails.
+# How: cache lookup + put.
+# When: called as the fallback in every fetcher / compute step when the
+# upstream feed is missing or returns no rows.
+# Impact: changing the column set requires a matching update in every
+# fetcher / compute step that returns this empty shape on failure.
 empty_forecast_result <- function() {
   list(
     score = 0,
@@ -656,16 +865,21 @@ fetch_forecast_for_region <- function(region_id, horizon_key) {
   cache_name <- paste0("forecast-region-", region_id, "-", horizon_key)
   cached <- cache_get("horizon", cache_name)
   if (!is.null(cached)) return(cached)
+  # Failure-mode TTL: a transient NWS outage shouldn't pin every ZIP in
+  # this region to "N/A" for the next half hour. Cache empty results for
+  # ~60 s so the next refresh retries the upstream call. Successful
+  # results still get the full FORECAST_TTL_SECONDS below.
+  failure_ttl <- min(60L, FORECAST_TTL_SECONDS)
   rep_row <- forecast_region_reps[forecast_region_reps$forecast_region == region_id, , drop = FALSE]
   if (nrow(rep_row) == 0) {
     out <- empty_forecast_result()
-    cache_put("horizon", cache_name, out, ttl_seconds = FORECAST_TTL_SECONDS)
+    cache_put("horizon", cache_name, out, ttl_seconds = failure_ttl)
     return(out)
   }
   meta <- get_points_metadata(rep_row$rep_lat[1], rep_row$rep_lon[1])
   if (is.null(meta)) {
     out <- empty_forecast_result()
-    cache_put("horizon", cache_name, out, ttl_seconds = FORECAST_TTL_SECONDS)
+    cache_put("horizon", cache_name, out, ttl_seconds = failure_ttl)
     return(out)
   }
   periods <- get_forecast_periods(meta$forecast_hourly_url)
@@ -673,7 +887,7 @@ fetch_forecast_for_region <- function(region_id, horizon_key) {
   period <- pick_forecast_period(periods, horizon_hours_from_key(horizon_key))
   if (is.null(period)) {
     out <- empty_forecast_result()
-    cache_put("horizon", cache_name, out, ttl_seconds = FORECAST_TTL_SECONDS)
+    cache_put("horizon", cache_name, out, ttl_seconds = failure_ttl)
     return(out)
   }
   temp_f <- safe_numeric(period$temperature %||% NA_real_)
@@ -697,13 +911,31 @@ fetch_forecast_for_region <- function(region_id, horizon_key) {
   out
 }
 
-# Maps a UV index value to a 0..1 score using piecewise_score(3, 6, 9) - aligned to the EPA UV exposure bands.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps a UV index value to a 0..1 score using piecewise_score(3, 6,
+# 9) - aligned to the EPA UV exposure bands.
+# How: guarded numeric coercion.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_uv_value <- function(uv_value) {
   if (!is.finite(uv_value)) return(0)
   piecewise_score(uv_value, 3, 6, 9)
 }
 
-# Pulls UV_INDEX (with UV_VALUE as legacy fallback) and UV_ALERT (case-insensitive) from a heterogeneous EPA UV daily JSON payload, returning list(uv_value, uv_alert).
+# Why: the upstream payload arrives in an unstructured shape that the rest
+# of the pipeline can't consume directly.
+# What: Pulls UV_INDEX (with UV_VALUE as legacy fallback) and UV_ALERT
+# (case-insensitive) from a heterogeneous EPA UV daily JSON payload,
+# returning list(uv_value, uv_alert).
+# How: guarded numeric coercion.
+# When: called immediately after the upstream HTTP fetch resolves, before
+# the result is handed to the scorer or shape converter.
+# Impact: upstream schema drift is the main failure mode; the function
+# tries multiple field-name spellings to absorb minor changes.
 parse_uv_daily_payload <- function(payload) {
   if (is.null(payload)) return(list(uv_value = NA_real_, uv_alert = FALSE))
   row <- NULL

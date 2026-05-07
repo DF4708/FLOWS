@@ -13,6 +13,18 @@ setwd(project_dir)
 
 source(file.path(project_dir, "global.R"), chdir = TRUE)
 
+# Pre-load native libs (curl, httr2 URL parser) so any later parallel::
+# mclapply / mcparallel forks inherit the mapped libraries safely. Without
+# this, macOS forks segfault during dyn.load on the first child to need
+# httr2's URL-parsing path. See iter 7/9 in the optimisation log.
+suppressWarnings(suppressMessages({
+  invisible(tryCatch(curl::curl_version(), error = function(e) NULL))
+  invisible(tryCatch({
+    if (requireNamespace("curl", quietly = TRUE)) curl::curl_parse_url("https://example.com/")
+  }, error = function(e) NULL))
+  invisible(tryCatch(httr2::request("https://example.com"), error = function(e) NULL))
+}))
+
 mark_startup_warmer_active(project_dir = project_dir)
 on.exit(clear_startup_warmer_active(), add = TRUE)
 

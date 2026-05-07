@@ -125,7 +125,14 @@ cache_get <- function(namespace, key) {
   item$value
 }
 
-# Like cache_get but ignores expires_at and never evicts - lets callers serve stale data while a refetch is in flight.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Like cache_get but ignores expires_at and never evicts - lets
+# callers serve stale data while a refetch is in flight.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 cache_peek <- function(namespace, key) {
   ck <- cache_key(namespace, key)
   if (!exists(ck, envir = live_cache, inherits = FALSE)) return(NULL)
@@ -151,7 +158,14 @@ load_runtime_snapshot <- function(path, max_age_seconds = Inf) {
   snap$value
 }
 
-# Persists value to path with a saved_at marker so load_runtime_snapshot can later check freshness; never throws.
+# Why: a downstream session needs the value persisted so the next process
+# can warm-start instead of recomputing from scratch.
+# What: Persists value to path with a saved_at marker so
+# load_runtime_snapshot can later check freshness; never throws.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 save_runtime_snapshot <- function(path, value) {
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
   snap <- list(saved_at = Sys.time(), value = value)
@@ -159,7 +173,14 @@ save_runtime_snapshot <- function(path, value) {
   invisible(TRUE)
 }
 
-# Returns the canonical .rds path under RUNTIME_CACHE_DIR for a named snapshot, sanitising the name to filesystem-safe chars.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the canonical .rds path under RUNTIME_CACHE_DIR for a named
+# snapshot, sanitising the name to filesystem-safe chars.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 runtime_snapshot_file <- function(name) {
   safe_name <- gsub("[^A-Za-z0-9._-]+", "_", as.character(name %||% "snapshot"), perl = TRUE)
   file.path(RUNTIME_CACHE_DIR, paste0(safe_name, ".rds"))
@@ -190,7 +211,15 @@ purge_expired_live_cache <- function() {
   invisible(TRUE)
 }
 
-# Drops every live_cache entry whose key starts with "<namespace>::<prefix>"; used to bulk-invalidate a category of derived data.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Drops every live_cache entry whose key starts with
+# "<namespace>::<prefix>"; used to bulk-invalidate a category of derived
+# data.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 invalidate_cache_prefix <- function(namespace, prefix = "") {
   keys <- ls(envir = live_cache, all.names = TRUE)
   full_prefix <- paste0(namespace, "::", prefix)
@@ -199,7 +228,14 @@ invalidate_cache_prefix <- function(namespace, prefix = "") {
   invisible(TRUE)
 }
 
-# Returns the single most-recently created cache key from a candidate list, or character(0) if none have created_at set.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the single most-recently created cache key from a candidate
+# list, or character(0) if none have created_at set.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 latest_live_cache_key <- function(keys) {
   keys <- as.character(keys %||% character(0))
   if (length(keys) == 0) return(character(0))
@@ -263,7 +299,14 @@ purge_inactive_map_caches <- function(current_horizon = "live", current_primary 
   invisible(TRUE)
 }
 
-# Convenience: purge expired cache entries and trigger a (full=TRUE optional) gc to free OS-level memory back.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Convenience: purge expired cache entries and trigger a (full=TRUE
+# optional) gc to free OS-level memory back.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 release_runtime_memory <- function(full = FALSE) {
   purge_expired_live_cache()
   invisible(gc(verbose = FALSE, full = isTRUE(full)))
@@ -328,7 +371,14 @@ latitude_band_row_groups <- function(zips, descending = TRUE) {
   )
 }
 
-# Returns the canonical list of ZIP-view columns used by zip_view_changed_rows for diff-based incremental rendering.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the canonical list of ZIP-view columns used by
+# zip_view_changed_rows for diff-based incremental rendering.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 zip_view_compare_columns <- function() {
   c(
     "place_name", "horizon_label", "risk_label", "alert_event", "alert_url", "alert_event_list", "alert_url_list", "forecast_short", "seismic_event_text", "radiation_reason_text", "nrc_event_text",

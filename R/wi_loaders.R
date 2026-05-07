@@ -264,17 +264,195 @@ load_border_states <- function() {
 load_road_zip_lookup <- function() {
   cached <- cache_get("derived", "road_zip_lookup")
   if (!is.null(cached)) return(cached)
-  roads <- load_wi_roads()
-  hits <- sf::st_intersects(roads, wi_zctas)
-  lookup <- lapply(
-    hits,
-    function(idx) {
-      as.character(wi_zctas$zipcode[idx])
+  # Disk-persisted snapshot: regenerable from wi_roads + wi_zctas (both stable
+  # across sessions), so the first session pays the spatial-intersect cost
+  # once and every subsequent R process loads from disk in <1 s.
+  snap_path <- runtime_snapshot_file("derived_road_zip_lookup")
+  persisted <- load_runtime_snapshot(snap_path, max_age_seconds = 24 * 3600)
+  if (!is.null(persisted)) {
+    cache_put("derived", "road_zip_lookup", persisted, ttl_seconds = 24 * 3600)
+    return(persisted)
+  }
+  flows_time_step("load_road_zip_lookup (cold build)", {
+    roads <- load_wi_roads()
+    hits <- sf::st_intersects(roads, wi_zctas)
+    lookup <- lapply(
+      hits,
+      function(idx) {
+        as.character(wi_zctas$zipcode[idx])
+      }
+    )
+    names(lookup) <- roads$road_id
+    cache_put("derived", "road_zip_lookup", lookup, ttl_seconds = 24 * 3600)
+    save_runtime_snapshot(snap_path, lookup)
+    lookup
+  }, group = "loader")
+}
+
+# Why: the OSM road set is ~97k features; projecting to EPSG:5070 takes
+# several seconds and ~100MB of working memory. Multiple call sites in the
+# 511 / routing pipelines were each running their own st_transform pass,
+# which compounded cold-start cost. Caching the projected sf once per session
+# keeps all those call sites cheap on the second-and-later use.
+# What: returns the projected (EPSG:5070) version of load_wi_roads() with
+# all its columns intact.
+# How: cache lookup keyed by "wi_roads_proj"; on miss, projects load_wi_roads()
+# once and stores for 24 hours (matches the road-zip lookup TTL so the two
+# road-derived artefacts age together).
+# When: invoked by 511 snap-to-OSM, 511 road proximity signal, and message-
+# sign road signal builders.
+# Impact: invalidating the underlying wi_osm_roads.rds requires also
+# invalidating this cache key.
+load_wi_roads_proj <- function() {
+  cached <- cache_get("derived", "wi_roads_proj")
+  if (!is.null(cached)) return(cached)
+  snap_path <- runtime_snapshot_file("derived_wi_roads_proj")
+  persisted <- load_runtime_snapshot(snap_path, max_age_seconds = 24 * 3600)
+  if (!is.null(persisted)) {
+    cache_put("derived", "wi_roads_proj", persisted, ttl_seconds = 24 * 3600)
+    return(persisted)
+  }
+  flows_time_step("load_wi_roads_proj (cold build)", {
+    roads <- load_wi_roads()
+    proj <- suppressWarnings(sf::st_transform(roads, 5070))
+    cache_put("derived", "wi_roads_proj", proj, ttl_seconds = 24 * 3600)
+    save_runtime_snapshot(snap_path, proj)
+    proj
+  }, group = "loader")
+}
+
+# Why: heavy per-OSM-road loops (511 proximity, message-sign proximity,
+# overlay snapping) need a stable north-to-south banding so they can report
+# incremental progress and keep per-band working sets small. Computing the
+# bands once per session matches how wi_zctas$lat_band is initialised at
+# global.R load-time and reused across the per-ZIP banded flow.
+# What: returns a list with two parallel structures keyed by the same
+# load_wi_roads() row order: `bands` is an integer vector (1..n_bands) per
+# road, and `groups` is a list of row-index vectors, one per band, ordered
+# north-to-south so iteration matches the existing latitude_band_row_groups
+# convention.
+# How: takes the centroid of each road's projected geometry, transforms back
+# to EPSG:4326 for latitude, applies assign_lat_band() with the same bounds
+# used for ZIPs, then reorders the band ids descending.
+# When: invoked once per session by the 511 road-level helpers; cached for
+# 24 hours alongside load_wi_roads_proj so both road-derived artefacts age
+# together.
+# Impact: rebuilding wi_osm_roads.rds requires invalidating this cache key.
+# Why: when scoring per-road risk, taking the MAX over every ZIP a road
+# touches penalises long Secondary roads that briefly clip a green ZIP
+# corner — the road inherits that green tag for its entire length even when
+# 95% of it is in transparent ZIPs. Length-weighted aggregation needs to
+# know how many metres of each road sit in each ZIP. This lookup gives that.
+# What: returns a named list keyed by road_id; each entry is a named numeric
+# vector mapping zipcode -> length_m_in_that_zip. Roads that fall entirely
+# outside any ZIP are absent from the list.
+# How: projects roads + wi_zctas to EPSG:5070, computes the geometric
+# intersection (which yields one row per (road x zcta) overlap piece),
+# measures each piece's length, then sums by (road_id, zipcode). Cached for
+# 24 hours alongside road_zip_lookup so both age together when wi_osm_roads
+# is rebuilt.
+# When: invoked the first time build_modeled_road_risk_index runs in a
+# session and length-weighted scoring kicks in. The intersection pass is
+# the costly bit (~30-90 s on the ~84k-road x 861-ZIP cross), but it
+# happens once per session.
+# Impact: missing or zero-length entries fall back to MAX-of-ZIPs scoring
+# inside build_modeled_road_risk_index, so a partial cache miss does not
+# degrade silently — it just reverts to the prior behaviour for that road.
+load_road_zip_length_lookup <- function() {
+  cache_key <- "road_zip_length_lookup"
+  cached <- cache_get("derived", cache_key)
+  if (!is.null(cached)) return(cached)
+  snap_path <- runtime_snapshot_file(sprintf("derived_%s", cache_key))
+  persisted <- load_runtime_snapshot(snap_path, max_age_seconds = 24 * 3600)
+  if (!is.null(persisted)) {
+    cache_put("derived", cache_key, persisted, ttl_seconds = 24 * 3600)
+    return(persisted)
+  }
+  flows_time_step("load_road_zip_length_lookup (cold build)", {
+    roads <- load_wi_roads()
+    if (nrow(roads) == 0) {
+      out <- list()
+      cache_put("derived", cache_key, out, ttl_seconds = 24 * 3600)
+      return(out)
     }
-  )
-  names(lookup) <- roads$road_id
-  cache_put("derived", "road_zip_lookup", lookup, ttl_seconds = 24 * 3600)
-  lookup
+
+    roads_proj <- load_wi_roads_proj()
+    zctas_proj <- tryCatch(suppressWarnings(sf::st_transform(wi_zctas, 5070)),
+                           error = function(e) NULL)
+    if (is.null(zctas_proj)) {
+      out <- list()
+      cache_put("derived", cache_key, out, ttl_seconds = 24 * 3600)
+      return(out)
+    }
+
+    inter <- tryCatch(
+      suppressWarnings(sf::st_intersection(roads_proj, zctas_proj)),
+      error = function(e) NULL
+    )
+    if (is.null(inter) || nrow(inter) == 0) {
+      out <- list()
+      cache_put("derived", cache_key, out, ttl_seconds = 24 * 3600)
+      return(out)
+    }
+
+    piece_length_m <- as.numeric(suppressWarnings(sf::st_length(inter)))
+    inter_df <- sf::st_drop_geometry(inter[, c("road_id", "zipcode"), drop = FALSE])
+    inter_df$piece_length_m <- piece_length_m
+    inter_df <- inter_df[is.finite(inter_df$piece_length_m) & inter_df$piece_length_m > 0, , drop = FALSE]
+    if (nrow(inter_df) == 0) {
+      out <- list()
+      cache_put("derived", cache_key, out, ttl_seconds = 24 * 3600)
+      return(out)
+    }
+
+    agg <- dplyr::summarise(
+      dplyr::group_by(inter_df, road_id, zipcode),
+      length_m = sum(piece_length_m, na.rm = TRUE),
+      .groups = "drop"
+    )
+    agg$road_id <- as.character(agg$road_id)
+    agg$zipcode <- as.character(agg$zipcode)
+    out <- split(agg, agg$road_id)
+    out <- lapply(out, function(df) stats::setNames(as.numeric(df$length_m), df$zipcode))
+    cache_put("derived", cache_key, out, ttl_seconds = 24 * 3600)
+    save_runtime_snapshot(snap_path, out)
+    out
+  }, group = "loader")
+}
+
+# Why: downstream layers need this reference data in a known shape; loading
+# it via a single helper centralises the path / version handling.
+# What: see body — load_wi_roads_lat_band_groups is documented here for the
+# first time.
+# How: cache lookup + put + sf geometry op + row/element loop + guarded
+# numeric coercion.
+# When: called once at module-load time or on the first request that needs
+# the reference data; cached for the rest of the session.
+# Impact: invalidating the on-disk snapshot is the main lever for picking
+# up updated reference data without restarting the session.
+load_wi_roads_lat_band_groups <- function(n_bands = 10L, descending = TRUE) {
+  cache_key <- sprintf("wi_roads_lat_bands_%d_%d", as.integer(n_bands), as.integer(descending))
+  cached <- cache_get("derived", cache_key)
+  if (!is.null(cached)) return(cached)
+  snap_path <- runtime_snapshot_file(sprintf("derived_%s", cache_key))
+  persisted <- load_runtime_snapshot(snap_path, max_age_seconds = 24 * 3600)
+  if (!is.null(persisted)) {
+    cache_put("derived", cache_key, persisted, ttl_seconds = 24 * 3600)
+    return(persisted)
+  }
+  roads_proj <- load_wi_roads_proj()
+  cents_proj <- suppressWarnings(sf::st_centroid(sf::st_geometry(roads_proj)))
+  cents_lonlat <- suppressWarnings(sf::st_transform(
+    sf::st_sfc(cents_proj, crs = sf::st_crs(roads_proj)), 4326))
+  coords <- suppressWarnings(sf::st_coordinates(cents_lonlat))
+  lat <- coords[, "Y"]
+  bands <- assign_lat_band(lat, wi_bounds$south, wi_bounds$north, n_bands)
+  band_order <- if (isTRUE(descending)) seq.int(n_bands, 1L) else seq.int(1L, n_bands)
+  groups <- lapply(band_order, function(b) which(bands == b))
+  out <- list(bands = bands, groups = groups, order = band_order)
+  cache_put("derived", cache_key, out, ttl_seconds = 24 * 3600)
+  save_runtime_snapshot(snap_path, out)
+  out
 }
 
 # Why: the live road overlay only needs to redraw the segments near elevated
@@ -337,80 +515,147 @@ build_modeled_road_risk_index <- function(roads, lookup, zips) {
   zip_reason <- stats::setNames(as.character(zips$driving_reason_text %||% rep("", nrow(zips))), zips$zipcode)
   zip_transport_reason <- stats::setNames(as.character(zips$wi511_transport_reason %||% rep("", nrow(zips))), zips$zipcode)
   road_ids <- as.character(roads$road_id %||% rep("", nrow(roads)))
+  n_roads <- length(road_ids)
 
-  dominant_zip <- vapply(
-    road_ids,
-    function(id) {
-      z <- lookup[[id]] %||% character(0)
-      if (length(z) == 0) return(NA_character_)
-      vals <- zip_drive[z]
-      if (length(vals) == 0 || all(!is.finite(vals))) return(NA_character_)
-      z[which.max(ifelse(is.finite(vals), vals, -Inf))][1]
-    },
-    character(1)
-  )
+  # Per-road, per-ZIP length lookup powers length-weighted scoring. When
+  # missing or empty, individual roads transparently fall back to MAX-of-ZIPs
+  # below — so this is a strict refinement that never makes things worse.
+  length_lookup <- tryCatch(load_road_zip_length_lookup(), error = function(e) NULL)
+  if (!is.null(length_lookup) && length(length_lookup) == 0) length_lookup <- NULL
 
-  driving_total_risk <- vapply(
-    seq_along(road_ids),
-    function(i) {
-      id <- road_ids[i]
-      z <- lookup[[id]] %||% character(0)
-      vals <- zip_drive[z]
-      vals <- vals[is.finite(vals)]
-      if (length(vals) == 0) return(0)
-      road_mult <- 0.85 + 0.15 * (roads$susceptibility[i] %||% 1)
-      pmin(1, max(vals, na.rm = TRUE) * road_mult)
-    },
-    numeric(1)
-  )
+  # Pre-subset both lookups by road_ids ONCE rather than lookup[[id]] inside
+  # each vapply iteration. R's [character_vec] indexing on a named list
+  # builds a hash table the first time, so the slice runs in O(n_roads)
+  # rather than O(n_roads * len(lookup)) (the latter was minutes for ~25k
+  # filtered roads vs an 84k-entry lookup; profiling confirmed do_subset2_dflt
+  # was the dominant frame).
+  lookup_subset <- lookup[road_ids]
+  length_lookup_subset <- if (!is.null(length_lookup)) length_lookup[road_ids] else NULL
+  road_susceptibility <- suppressWarnings(as.numeric(roads$susceptibility %||% rep(1, n_roads)))
+  road_susceptibility[!is.finite(road_susceptibility)] <- 1
+  road_mult <- 0.85 + 0.15 * road_susceptibility
 
-  is_blank_zip <- function(z) is.null(z) || length(z) == 0L || is.na(z) || !nzchar(as.character(z))
-  safe_lookup <- function(tbl, key) {
-    if (is_blank_zip(key)) return(NA_character_)
-    val <- tbl[as.character(key)]
-    if (is.na(val) || is.null(val)) return(NA_character_)
-    as.character(val)
+  # Flatten road->zip mappings into long-form vectors. Each entry is one
+  # (road, zip) pair; aggregations below collapse across n_roads via
+  # rowsum / order / duplicated in C-level loops, replacing four R-level
+  # vapply iterations that previously dominated this function (~10s for
+  # ~93k roads in a typical build).
+  zips_per_road <- lengths(lookup_subset)
+  if (!any(zips_per_road > 0L)) {
+    return(data.frame(
+      road_id = road_ids,
+      driving_total_risk = rep(0, n_roads),
+      driving_reason_text = rep("All clear.", n_roads),
+      dominant_zip = rep(NA_character_, n_roads),
+      road_source = rep("Modeled ZIP risk", n_roads),
+      official_cause_text = rep("none", n_roads),
+      stringsAsFactors = FALSE
+    ))
   }
 
-  driving_reason_text <- vapply(
-    road_ids,
-    function(id) {
-      z <- lookup[[id]] %||% character(0)
-      vals <- zip_drive[z]
-      if (length(z) == 0 || all(!is.finite(vals))) return("All clear.")
-      best_zip <- z[which.max(ifelse(is.finite(vals), vals, -Inf))][1]
-      reason <- safe_lookup(zip_reason, best_zip)
-      if (!is.na(reason) && nzchar(reason)) return(reason)
-      transport <- safe_lookup(zip_transport_reason, best_zip)
-      if (!is.na(transport) && nzchar(transport)) return(transport)
-      "All clear."
-    },
-    character(1)
-  )
+  flat_road_idx <- rep.int(seq_len(n_roads), zips_per_road)
+  flat_zip <- unlist(lookup_subset, use.names = FALSE)
+  flat_risk <- unname(zip_drive[flat_zip])
+  # Missing zips (not in zip_drive) come back NA -> -Inf for max selection,
+  # 0 for length-weighted numerator (matches the old vapply path which
+  # filtered with is.finite for max and na.rm = TRUE for the weighted sum).
+  finite_mask <- is.finite(flat_risk)
+  flat_risk_for_max <- ifelse(finite_mask, flat_risk, -Inf)
+  flat_risk_for_num <- ifelse(finite_mask, flat_risk, 0)
 
-  road_source <- vapply(
-    dominant_zip,
-    function(best_zip) {
-      if (is_blank_zip(best_zip)) return("Modeled ZIP risk")
-      transport <- safe_lookup(zip_transport_reason, best_zip)
-      if (!is.na(transport) && nzchar(trimws(transport))) {
-        "Modeled ZIP risk + 511 ZIP transport signal"
-      } else {
-        "Modeled ZIP risk"
-      }
-    },
-    character(1)
-  )
+  # Per-road dominant zip = argmax of zip_drive over its zip set, breaking
+  # ties by first-appearance order (matches `which.max(...)[1]` original).
+  ord <- order(flat_road_idx, -flat_risk_for_max)
+  first_in_group <- !duplicated(flat_road_idx[ord])
+  best_in_flat <- ord[first_in_group]
+  best_road_for_group <- flat_road_idx[best_in_flat]
+  best_risk_for_group <- flat_risk_for_max[best_in_flat]
+  has_finite_best <- is.finite(best_risk_for_group)
 
-  official_cause_text <- vapply(
-    dominant_zip,
-    function(best_zip) {
-      if (is_blank_zip(best_zip)) return("none")
-      transport <- safe_lookup(zip_transport_reason, best_zip)
-      classify_official_transport_cause(if (is.na(transport)) "" else transport, "511 ZIP transport")
-    },
+  best_risk_per_road <- rep(-Inf, n_roads)
+  best_risk_per_road[best_road_for_group] <- best_risk_for_group
+  dominant_zip <- rep(NA_character_, n_roads)
+  dominant_zip[best_road_for_group[has_finite_best]] <-
+    flat_zip[best_in_flat[has_finite_best]]
+
+  # Length-weighted mean: numerator and denominator collapse via rowsum
+  # (C-level grouped sum). Per-road fall back to max when the road has no
+  # usable lens (no length_lookup entry, all zeros, all non-finite/negative).
+  if (!is.null(length_lookup_subset)) {
+    flat_lens <- unlist(
+      Map(
+        function(z, l) {
+          if (is.null(l) || length(l) == 0L || length(z) == 0L) return(rep(0, length(z)))
+          v <- suppressWarnings(as.numeric(l[z]))
+          v[!is.finite(v) | v < 0] <- 0
+          v
+        },
+        lookup_subset,
+        length_lookup_subset
+      ),
+      use.names = FALSE
+    )
+    if (length(flat_lens) != length(flat_road_idx)) {
+      flat_lens <- rep(0, length(flat_road_idx))
+    }
+    # Zero out lens where the risk lookup itself was non-finite. The old
+    # path indexed `lens_named[names(vals)]` AFTER filtering vals to finite,
+    # so missing-zip lengths were never in the denominator. Without this,
+    # a road with one finite-val zip and one missing zip would dilute the
+    # weighted mean by the missing zip's length.
+    flat_lens[!finite_mask] <- 0
+    risk_x_len <- rowsum(flat_risk_for_num * flat_lens, flat_road_idx, na.rm = TRUE)
+    len_sum    <- rowsum(flat_lens,                     flat_road_idx, na.rm = TRUE)
+    group_key_int <- as.integer(rownames(risk_x_len))
+    weighted_per <- numeric(n_roads)
+    has_len      <- numeric(n_roads)
+    weighted_per[group_key_int] <- as.numeric(risk_x_len) / pmax(as.numeric(len_sum), .Machine$double.eps)
+    has_len[group_key_int]      <- as.numeric(len_sum)
+    use_weighted <- has_len > 0
+    max_finite <- ifelse(is.finite(best_risk_per_road), best_risk_per_road, 0)
+    blended <- ifelse(use_weighted, weighted_per, max_finite)
+    driving_total_risk <- pmin(1, blended * road_mult)
+  } else {
+    max_finite <- ifelse(is.finite(best_risk_per_road), best_risk_per_road, 0)
+    driving_total_risk <- pmin(1, max_finite * road_mult)
+  }
+
+  # Reasons / source / cause: pure per-road lookups keyed by dominant_zip.
+  reason_at_best    <- unname(zip_reason[dominant_zip])
+  transport_at_best <- unname(zip_transport_reason[dominant_zip])
+  has_reason    <- !is.na(reason_at_best)    & nzchar(reason_at_best)
+  has_transport <- !is.na(transport_at_best) & nzchar(transport_at_best)
+  driving_reason_text <- rep("All clear.", n_roads)
+  driving_reason_text[has_reason] <- reason_at_best[has_reason]
+  use_transport_reason <- !has_reason & has_transport
+  driving_reason_text[use_transport_reason] <- transport_at_best[use_transport_reason]
+  driving_reason_text[is.na(dominant_zip)] <- "All clear."
+
+  has_transport_trim <- !is.na(transport_at_best) & nzchar(trimws(transport_at_best))
+  road_source <- rep("Modeled ZIP risk", n_roads)
+  road_source[has_transport_trim & !is.na(dominant_zip)] <-
+    "Modeled ZIP risk + 511 ZIP transport signal"
+
+  # classify_official_transport_cause is scalar (cascading grepl with
+  # early-return). We hit it once per UNIQUE transport string rather than
+  # per road — n_unique << n_roads in practice — and use match() to map
+  # back. Plain named-vector indexing breaks here because zips with empty
+  # transport reasons map to "" as the key, and `x[""]` returns NA in R
+  # (it doesn't match the entry actually named "").
+  transport_for_class <- ifelse(is.na(transport_at_best), "", transport_at_best)
+  transport_for_class[is.na(dominant_zip)] <- NA_character_
+  unique_transport <- unique(transport_for_class[!is.na(transport_for_class)])
+  classified_unique <- vapply(
+    unique_transport,
+    function(t) classify_official_transport_cause(t, "511 ZIP transport"),
     character(1)
   )
+  official_cause_text <- rep("none", n_roads)
+  has_class <- !is.na(transport_for_class)
+  if (any(has_class)) {
+    idx <- match(transport_for_class[has_class], unique_transport)
+    official_cause_text[has_class] <- classified_unique[idx]
+  }
 
   data.frame(
     road_id = road_ids,
@@ -536,7 +781,15 @@ get_zone_zip_lookup <- function(min_overlap = 0.15) {
   lookup
 }
 
-# Splits a pipe-delimited code string (NWS alert UGC / SAME / zone fields use this format) into a unique trimmed character vector; returns character(0) on NULL / NA / empty input.
+# Why: the data shape needs to change between two pipeline stages and
+# centralising the split/join keeps schema invariants in one place.
+# What: Splits a pipe-delimited code string (NWS alert UGC / SAME / zone
+# fields use this format) into a unique trimmed character vector; returns
+# character(0) on NULL / NA / empty input.
+# How: cache lookup + put + row/element loop + named vector build.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 split_pipe_codes <- function(x) {
   if (is.null(x) || length(x) == 0 || is.na(x) || !nzchar(trimws(x))) return(character(0))
   vals <- unlist(strsplit(as.character(x), "|", fixed = TRUE), use.names = FALSE)
@@ -544,7 +797,16 @@ split_pipe_codes <- function(x) {
   unique(vals[nzchar(vals)])
 }
 
-# Returns a list(by_geoid, name_to_geoid) where by_geoid maps each WI county GEOID to its zipcodes and name_to_geoid maps lowercase county names to GEOID — used by alert ingest to resolve county-scoped SAME / UGC codes onto ZIPs.
+# Why: downstream callers need this lookup encapsulated so cache + fallback
+# handling lives in one place.
+# What: Returns a list(by_geoid, name_to_geoid) where by_geoid maps each WI
+# county GEOID to its zipcodes and name_to_geoid maps lowercase county
+# names to GEOID — used by alert ingest to resolve county-scoped SAME / UGC
+# codes onto ZIPs.
+# How: cache lookup + put + row/element loop + named vector build.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 get_county_zip_lookup <- function() {
   cached <- cache_get("derived", "county_zip_lookup")
   if (!is.null(cached)) return(cached)
@@ -558,7 +820,14 @@ get_county_zip_lookup <- function() {
   out
 }
 
-# Returns the cached zone -> county-list lookup populated lazily by update_zone_county_lookup as alerts arrive; an empty list on first read.
+# Why: downstream callers need this lookup encapsulated so cache + fallback
+# handling lives in one place.
+# What: Returns the cached zone -> county-list lookup populated lazily by
+# update_zone_county_lookup as alerts arrive; an empty list on first read.
+# How: cache lookup + put.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 get_zone_county_lookup <- function() {
   cached <- cache_get("derived", "zone_county_lookup")
   if (!is.null(cached)) return(cached)

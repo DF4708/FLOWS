@@ -46,6 +46,12 @@ shinyServer(function(input, output, session) {
   pending_band_payload <- reactiveVal(NULL)
   pending_band_ids <- reactiveVal(integer(0))
   pending_band_index <- reactiveVal(0L)
+  # Trigger for deferred route-graph warming. Set after the map finishes
+  # painting (banded or shortcut path); a downstream observer consumes it,
+  # builds the routing segments, and stores them in
+  # current_route_segments_snapshot. Backend cache only — never blocks
+  # the visual handoff.
+  pending_route_segments_payload <- reactiveVal(NULL)
 
   empty_route_result <- function(message = "") {
     list(message = message, routes = list(), start_point = NULL, end_point = NULL)
@@ -275,38 +281,77 @@ shinyServer(function(input, output, session) {
       push_progress(progress_value, detail %||% map_label)
       invisible(NULL)
     }
-    on.exit({
-      reset_progress()
-    }, add = TRUE)
+    # Deliberately DON'T reset_progress() in on.exit — that would signal
+    # "Map ready" the moment the data is computed, before leaflet has
+    # actually drawn the polygons on the canvas. The band-render observer
+    # below emits the final "Map ready" once the last latitude band is
+    # painted. The error branch in tryCatch's `error =` resets progress
+    # explicitly with a failure detail.
     tryCatch({
       snapshot_served <- isolate(isTRUE(startup_snapshot_served()))
       if (identical(horizon, "live") && identical(risk_primary, DEFAULT_PRIMARY_MAP) && !snapshot_served) {
         snapshot <- tryCatch(load_startup_map_snapshot(horizon_key = horizon, primary_map = risk_primary), error = function(e) NULL)
         if (!is.null(snapshot) && !is.null(snapshot$polys) && inherits(snapshot$polys, "sf") && nrow(snapshot$polys) > 0) {
           startup_snapshot_served(TRUE)
+          # Tag this payload so the band-render observer knows the data
+          # is from a cached snapshot and the indices may be stale —
+          # "Map ready" must NOT fire until the fresh build paints next.
+          snapshot$is_snapshot <- TRUE
           last_map_payload(snapshot)
-          last_map_payload_key(payload_key)
+          # Use a placeholder key so the next reactive cycle's
+          # cached_payload check fails and we run the cold path with
+          # fresh indices. Without this, the warmer's external_bundle
+          # mtime change is the only thing that would invalidate the
+          # cache, and that can be minutes away.
+          last_map_payload_key("__startup_snapshot_placeholder__")
+          # Force this reactive to re-run shortly so the cold-path
+          # build kicks off behind the snapshot's first paint. The
+          # snapshot stays on screen during the rebuild; when the
+          # cold-path payload arrives, bands re-render and "Map
+          # ready" fires for real.
+          invalidateLater(150, session)
           return(snapshot)
         }
       }
       progress_update(0.01, sprintf("Loading %s view with synchronized transportation overlay.", switch(horizon, live = "live", `24h` = "24-hour", `48h` = "48-hour", `72h` = "72-hour", "live")))
       if (identical(horizon, "live")) {
         progress_update(0.03, "Refreshing live Wisconsin alerts and official transportation conditions.")
-        alert_payload <- fetch_wisconsin_alerts(force_refresh = FALSE, timeout_seconds = 8L, max_tries = 1L, allow_stale = TRUE)
+        alert_payload <- flows_time_step(
+          sprintf("fetch_wisconsin_alerts (%s)", horizon),
+          fetch_wisconsin_alerts(force_refresh = FALSE, timeout_seconds = 8L, max_tries = 1L, allow_stale = TRUE),
+          group = "map-init"
+        )
       }
-      polys <- build_risk_polygons(
-        horizon,
-        features,
-        alert_payload = alert_payload,
-        include_transport = include_transport,
-        progress = progress_update,
-        primary_map = risk_primary
+      polys <- flows_time_step(
+        sprintf("build_risk_polygons (%s)", horizon),
+        build_risk_polygons(
+          horizon,
+          features,
+          alert_payload = alert_payload,
+          include_transport = include_transport,
+          progress = progress_update,
+          primary_map = risk_primary
+        ),
+        group = "map-init"
       )
       progress_update(0.98, "Preparing synchronized color-coded road overlay.")
-      roads <- build_driving_roads_overlay(polys, horizon)
-      progress_update(0.995, "Warming route graph cache for faster route planning.")
-      route_segments <- tryCatch(build_route_segments(polys, horizon, roads_overlay = roads), error = function(e) NULL)
-      progress_update(1, "Map ready.")
+      roads <- flows_time_step(
+        sprintf("build_driving_roads_overlay (%s)", horizon),
+        build_driving_roads_overlay(polys, horizon, progress = progress_update),
+        group = "map-init"
+      )
+      # build_route_segments builds an in-memory routing graph (~2-4 s on
+      # cold). It's a backend cache — only consumed when the user requests
+      # a route — so we don't block the visual handoff on it. A separate
+      # observer below warms the graph after "Map ready" fires; route
+      # requests that arrive before it lands will still build it lazily
+      # via the existing fallback in schedule_banded_map_render.
+      route_segments <- NULL
+      # Don't claim "Map ready" yet — visuals haven't been painted by
+      # leaflet. The band-render observer's completion path emits the
+      # final ready signal after the last band is on the canvas.
+      progress_update(0.97, "Drawing risk polygons and road overlay on the map.")
+      flows_timing_summary(top = 15L, group = "map-init")
       payload <- list(polys = polys, roads = roads, route_segments = route_segments, primary_map = current_primary, map_label = map_label, horizon = horizon)
       snapshot_payload <- payload
       snapshot_payload$route_segments <- NULL
@@ -317,6 +362,10 @@ shinyServer(function(input, output, session) {
       payload
     }, error = function(e) {
       fallback <- last_map_payload()
+      # On failure, clear the in-flight progress bar so the UI doesn't
+      # sit on "Drawing risk polygons..." forever — we used to rely on
+      # on.exit for this; now it's explicit.
+      reset_progress()
       showNotification(paste(map_label, "view failed:", conditionMessage(e)), type = "error", duration = 8)
       if (!is.null(fallback)) return(fallback)
       stop(e)
@@ -580,16 +629,30 @@ shinyServer(function(input, output, session) {
     bands <- ordered_latitude_bands(payload$polys)
     if (length(bands) == 0) {
       current_polygons_snapshot(payload$polys)
-      current_route_segments_snapshot(payload$route_segments %||% tryCatch(build_route_segments(payload$polys, payload$horizon %||% (input$time_horizon %||% "live"), roads_overlay = payload$roads), error = function(e) NULL))
+      # Defer route_segments build — it's not a visual. The deferred
+      # observer below warms it after the map paints.
+      current_route_segments_snapshot(payload$route_segments)
       update_risk_layer(payload$polys, full_redraw = TRUE)
       roads <- payload$roads
       current_roads_snapshot(roads)
       update_road_layer(roads, primary_map_key = payload$primary_map %||% DEFAULT_PRIMARY_MAP, full_redraw = TRUE)
+      # No bands to incrementally render, so the band observer never
+      # fires reset_progress for us. Distinguish snapshot paint from
+      # fresh-data paint: snapshot paint is followed by a cold-path
+      # rebuild (kicked off via invalidateLater in current_map_payload),
+      # so we must NOT claim "Map ready" yet — the indices on screen
+      # are cached and the fresh build is still computing.
+      if (isTRUE(payload$is_snapshot)) {
+        push_progress(0.80, "Showing cached map - refreshing live data...")
+      } else {
+        reset_progress()
+      }
+      pending_route_segments_payload(payload)
       return(invisible(TRUE))
     }
     current_polygons_snapshot(payload$polys)
     current_roads_snapshot(payload$roads)
-    current_route_segments_snapshot(payload$route_segments %||% tryCatch(build_route_segments(payload$polys, payload$horizon %||% (input$time_horizon %||% "live"), roads_overlay = payload$roads), error = function(e) NULL))
+    current_route_segments_snapshot(payload$route_segments)
     current_rendered(data.frame(zipcode = character(), render_signature = character(), stringsAsFactors = FALSE))
     current_rendered_roads(data.frame(road_id = character(), render_signature = character(), stringsAsFactors = FALSE))
     current_horizon_loaded("")
@@ -692,7 +755,12 @@ shinyServer(function(input, output, session) {
       showNotification(paste("Live map update failed:", conditionMessage(e)), type = "error", duration = 8)
       return(NULL)
     })
-    if (is.null(payload) || is.null(payload$polys) || nrow(payload$polys) == 0) return()
+    if (is.null(payload) || is.null(payload$polys) || nrow(payload$polys) == 0) {
+      # Nothing to draw — don't leave the progress bar pinned on the last
+      # "Drawing..." detail.
+      reset_progress()
+      return()
+    }
     schedule_banded_map_render(payload)
   }, ignoreInit = FALSE)
 
@@ -730,12 +798,44 @@ shinyServer(function(input, output, session) {
       if (isTRUE(route_summary_open()) && length(current_route_result()$routes %||% list()) > 0) {
         render_route_result_on_map(current_route_result(), fit_view = FALSE, selected_rank = suppressWarnings(as.numeric(input$route_choice %||% NA)))
       }
-      reset_progress()
+      # Only claim "Map ready" once the FRESH-data payload has been
+      # painted. Snapshot payloads (served at app start so the user sees
+      # something immediately) are followed by a cold-path rebuild
+      # whose payload paints over them; the second paint is the real
+      # "Map ready". Without this gate the user sees "Map ready" while
+      # the indices are still computing.
+      if (isTRUE(payload$is_snapshot)) {
+        push_progress(0.80, "Showing cached map - refreshing live data...")
+      } else {
+        reset_progress()
+      }
       pending_band_payload(NULL)
       pending_band_ids(integer(0))
       pending_band_index(0L)
+      # Visuals are now on the canvas; kick off route-graph warming as a
+      # separate observer so the JS message queue flushes "Map ready"
+      # immediately rather than after build_route_segments returns.
+      pending_route_segments_payload(payload)
     }
   })
+
+  # Deferred route-graph warming: only runs AFTER the band-render observer
+  # (or the no-bands shortcut) has set the trigger, by which point the
+  # "Map ready" JS message has already been flushed to the client. The
+  # build is a backend cache for the routing tab; if the user clicks
+  # "Plan route" before this completes, recompute_route_result builds the
+  # graph synchronously then.
+  observeEvent(pending_route_segments_payload(), {
+    payload <- pending_route_segments_payload()
+    if (is.null(payload) || is.null(payload$polys)) return()
+    pending_route_segments_payload(NULL)
+    horizon <- payload$horizon %||% (input$time_horizon %||% "live")
+    segs <- tryCatch(
+      build_route_segments(payload$polys, horizon, roads_overlay = payload$roads),
+      error = function(e) NULL
+    )
+    if (!is.null(segs)) current_route_segments_snapshot(segs)
+  }, ignoreNULL = TRUE, ignoreInit = TRUE)
 
   observe({
     if (nrow(current_rendered()) == 0) return()

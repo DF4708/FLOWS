@@ -9,7 +9,14 @@
 # R/wpc.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Returns the WPC QPF (quantitative precipitation forecast) sf for the requested horizon, in CRS 4326, cached for 3 hours.
+# Why: downstream callers need this lookup encapsulated so cache + fallback
+# handling lives in one place.
+# What: Returns the WPC QPF (quantitative precipitation forecast) sf for
+# the requested horizon, in CRS 4326, cached for 3 hours.
+# How: cache lookup + put.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 get_wpc_qpf_sf <- function(horizon_key = "live") {
   key <- paste0("wpc-qpf-", horizon_key)
   cached <- cache_get("reference", key)
@@ -19,7 +26,14 @@ get_wpc_qpf_sf <- function(horizon_key = "live") {
   ensure_crs_4326(obj)
 }
 
-# Returns the WPC excessive-rainfall flood outlook sf in CRS 4326, cached for 6 hours; returns an empty sf on fetch failure.
+# Why: downstream callers need this lookup encapsulated so cache + fallback
+# handling lives in one place.
+# What: Returns the WPC excessive-rainfall flood outlook sf in CRS 4326,
+# cached for 6 hours; returns an empty sf on fetch failure.
+# How: cache lookup + put.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 get_wpc_flood_outlook_sf <- function() {
   key <- "wpc-flood-outlook"
   cached <- cache_get("reference", key)
@@ -77,17 +91,44 @@ extract_named_numeric <- function(row, patterns, default = NA_real_) {
   max(vals, na.rm = TRUE)
 }
 
-# Maps QPF rainfall in inches to a 0..1 score via piecewise_score(0.25, 1.0, 2.5).
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps QPF rainfall in inches to a 0..1 score via
+# piecewise_score(0.25, 1.0, 2.5).
+# How: see body — short helper.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_qpf_inches <- function(inches) {
   piecewise_score(inches, 0.25, 1.0, 2.5)
 }
 
-# Maps a percent probability (0..100) to a 0..1 score via piecewise_score(10, 40, 70).
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps a percent probability (0..100) to a 0..1 score via
+# piecewise_score(10, 40, 70).
+# How: see body — short helper.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_probability_pct <- function(prob_pct) {
   piecewise_score(prob_pct, 10, 40, 70)
 }
 
-# Maps a fire-weather DN (Drought Number/grid code) to a fixed-band 0..1 score: >=10 -> 1, >=8 -> 0.8, >=5 -> 0.55, otherwise 0.25.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps a fire-weather DN (Drought Number/grid code) to a fixed-band
+# 0..1 score: >=10 -> 1, >=8 -> 0.8, >=5 -> 0.55, otherwise 0.25.
+# How: see body — short helper.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_fire_dn <- function(dn) {
   dn <- safe_numeric(dn)
   if (!is.finite(dn) || dn <= 0) return(0)
@@ -97,7 +138,16 @@ score_fire_dn <- function(dn) {
   0.25
 }
 
-# Maps a WPC flood outlook numeric value to 0..1 by val/max(5, val) clipped to [0,1] - asymptotic, never quite reaching 1 for small vals.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps a WPC flood outlook numeric value to 0..1 by val/max(5, val)
+# clipped to [0,1] - asymptotic, never quite reaching 1 for small vals.
+# How: see body — short helper.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_flood_outlook_value <- function(val) {
   val <- safe_numeric(val)
   if (!is.finite(val) || val <= 0) return(0)
@@ -144,14 +194,28 @@ assign_polygon_metric <- function(zips, sf_obj, value_fun) {
   scores
 }
 
-# value_fun for assign_polygon_metric: extracts a numeric QPF amount from the row and runs score_qpf_inches.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: value_fun for assign_polygon_metric: extracts a numeric QPF amount
+# from the row and runs score_qpf_inches.
+# How: regex match.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 qpf_value_from_row <- function(row) {
   val <- extract_named_numeric(row, c("qpf", "amount", "upper", "lower", "value", "label", "contour"))
   if (!is.finite(val)) return(0)
   score_qpf_inches(val)
 }
 
-# value_fun for assign_polygon_metric: pulls a probability (auto-scaled if 0..1) from the row and runs score_probability_pct.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: value_fun for assign_polygon_metric: pulls a probability
+# (auto-scaled if 0..1) from the row and runs score_probability_pct.
+# How: regex match + row/element loop + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 winter_prob_value_from_row <- function(row) {
   val <- extract_named_numeric(row, c("prob", "pct", "percent", "value", "label", "contour"))
   if (!is.finite(val)) return(0)
@@ -159,14 +223,31 @@ winter_prob_value_from_row <- function(row) {
   score_probability_pct(val)
 }
 
-# value_fun for assign_polygon_metric: numeric outlook value -> score_flood_outlook_value, defaulting to 0.6 when no number is found.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: value_fun for assign_polygon_metric: numeric outlook value ->
+# score_flood_outlook_value, defaulting to 0.6 when no number is found.
+# How: regex match + row/element loop + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 flood_outlook_value_from_row <- function(row) {
   val <- extract_named_numeric(row, c("dn", "risk", "value", "label", "outlook", "flood"))
   if (!is.finite(val)) return(0.6)
   score_flood_outlook_value(val)
 }
 
-# Maps the NOAA Flood Hazard Outlook (FHO) category text ("considerable", "elevated", "limited", etc.) to a fixed 0..1 score.
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps the NOAA Flood Hazard Outlook (FHO) category text
+# ("considerable", "elevated", "limited", etc.) to a fixed 0..1 score.
+# How: regex match + sf geometry op + row/element loop + guarded numeric
+# coercion.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_fho_category <- function(value) {
   txt <- tolower(trimws(as.character(value %||% "")))
   if (!nzchar(txt)) return(NA_real_)
@@ -177,7 +258,15 @@ score_fho_category <- function(value) {
   NA_real_
 }
 
-# value_fun: takes max of categorical FHO score and a normalized numeric DN score so polygons with either signal score correctly.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: value_fun: takes max of categorical FHO score and a normalized
+# numeric DN score so polygons with either signal score correctly.
+# How: cache lookup + put + sf geometry op + row/element loop + branch
+# dispatch + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 fho_value_from_row <- function(row) {
   vals <- unlist(row, use.names = FALSE)
   cat_score <- suppressWarnings(max(vapply(vals, score_fho_category, numeric(1)), na.rm = TRUE))
@@ -259,7 +348,14 @@ load_spc_fire_sf <- function(horizon_key = "live") {
   out
 }
 
-# value_fun: pulls numeric DN/gridcode from the row and runs score_fire_dn.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: value_fun: pulls numeric DN/gridcode from the row and runs
+# score_fire_dn.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 fire_value_from_row <- function(row) {
   dn <- extract_named_numeric(row, c("dn", "gridcode", "value", "label", "risk"))
   if (!is.finite(dn)) return(0)

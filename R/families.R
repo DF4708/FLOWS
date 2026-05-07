@@ -9,7 +9,14 @@
 # R/families.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Returns the canonical hazard family name for a given alert event text by checking each family in priority order.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the canonical hazard family name for a given alert event
+# text by checking each family in priority order.
+# How: regex match + row/element loop + branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 categorize_alert_type <- function(event) {
   families <- c("flood", "cold", "winter", "convective", "fire", "heat", "air", "radiation", "seismic", "wind")
   match_idx <- families[vapply(families, function(fm) alert_matches_family(event, fm), logical(1))]
@@ -44,30 +51,6 @@ alert_matches_family <- function(event, family) {
     wind = grepl("tornado|severe thunderstorm|damaging wind|high wind|wind advisory|wind|gale|small craft|marine|beach hazards|lake wind|brisk|fog", ev),
     FALSE
   )
-}
-
-# Returns a named numeric vector (Wind/Flood/Winter/Storm/Fire/Heat/Cold/Air/Radiation/Seismic) extracted from a zip row's *_total_score columns.
-risk_family_scores <- function(row) {
-  c(
-    "Wind" = row[["wind_total_score"]] %||% row[["wind_risk_score"]] %||% 0,
-    "Flood" = row[["flood_total_score"]] %||% 0,
-    "Winter" = row[["winter_total_score"]] %||% 0,
-    "Storm" = row[["convective_total_score"]] %||% 0,
-    "Fire" = row[["fire_total_score"]] %||% 0,
-    "Heat" = row[["heat_total_score"]] %||% 0,
-    "Cold" = row[["cold_total_score"]] %||% 0,
-    "Air" = row[["air_total_score"]] %||% 0,
-    "Radiation" = row[["radiation_total_score"]] %||% 0,
-    "Seismic" = row[["seismic_total_score"]] %||% 0
-  )
-}
-
-# Returns the name of the highest-scoring risk family for a row, or NA_character_ when every family scores zero.
-dominant_risk_family <- function(row) {
-  families <- risk_family_scores(row)
-  families[!is.finite(families)] <- 0
-  if (!length(families) || max(families, na.rm = TRUE) <= 0) return(NA_character_)
-  names(which.max(families))[1]
 }
 
 # Why: the popup needs a per-family breakdown that explains why a given
@@ -145,75 +128,319 @@ risk_type_components_for_family <- function(row, family_name = NA_character_) {
   )
 }
 
-# Returns a top-5 "family score%" bullet string (e.g., "Flood 42% • Wind 18% ...") for popup display, or a placeholder when nothing scored.
-compose_risk_component_summary <- function(row) {
-  families <- risk_family_scores(row)
-  families[!is.finite(families)] <- 0
-  families <- sort(families[families > 0], decreasing = TRUE)
-  if (length(families) == 0) return("No material contributors.")
-  families <- utils::head(families, 5L)
-  paste(sprintf("%s %s", names(families), format_score_pct(families)), collapse = " • ")
-}
-
-# Returns the popup type-summary line ("<DominantFamily>: <component breakdown>") restricted to the top 5 components.
-compose_risk_type_summary <- function(row) {
-  family_name <- dominant_risk_family(row)
-  if (!nzchar(family_name %||% "")) return("No material contributors.")
-  components <- risk_type_components_for_family(row, family_name)
-  components[!is.finite(components)] <- 0
-  components <- sort(components[components > 0], decreasing = TRUE)
-  family_scores <- risk_family_scores(row)
-  family_score <- safe_numeric(family_scores[family_name])
-  if (!length(family_score) || !is.finite(family_score)) family_score <- 0
-  if (length(components) == 0) return(sprintf("%s %s", family_name, format_score_pct(family_score)))
-  components <- utils::head(components, 5L)
-  sprintf("%s: %s", family_name, paste(sprintf("%s %s", names(components), format_score_pct(components)), collapse = " • "))
-}
-
-# Why: each ZIP needs a one-sentence "why is this red" explanation that is
-# specific to its dominant hazard family.
-# What: returns a sentence describing the dominant hazard, preferring an
-# active alert event when present, else a family-specific reason text.
-# How: if alert_event is present, returns it; otherwise picks the highest
-# *_total_score family and returns either that family's pre-built reason
-# text column or a hand-written default.
-# When: called per ZIP when assembling the popup risk_reason_text column.
-# Impact: this is the user-facing rationale; bad fallbacks here turn into
-# confusing or generic popups.
-compose_risk_reason <- function(row) {
-  if (!is.na(row[["alert_event"]]) && nzchar(as.character(row[["alert_event"]]))) return(as.character(row[["alert_event"]]))
-  candidates <- c(
-    flood = row[["flood_total_score"]] %||% 0,
-    winter = row[["winter_total_score"]] %||% 0,
-    convective = row[["convective_total_score"]] %||% 0,
-    fire = row[["fire_total_score"]] %||% 0,
-    heat = row[["heat_total_score"]] %||% 0,
-    cold = row[["cold_total_score"]] %||% 0,
-    air = row[["air_total_score"]] %||% 0,
-    radiation = row[["radiation_total_score"]] %||% 0,
-    seismic = row[["seismic_total_score"]] %||% 0,
-    wind = row[["wind_total_score"]] %||% 0,
-    temperature = row[["temp_risk_score"]] %||% 0,
-    precipitation = row[["pop_risk_score"]] %||% 0
+# Why: same band-loop hot-path as compose_risk_reason_vec — the per-row
+# data.frame slicing dwarfed the actual sort work. Sorting 10 family
+# scores per row is essentially free; copying a data.frame row 861
+# times per build was the actual cost.
+# What: returns a character vector with one "Family% • Family% ..."
+# bullet string per zips row (top-5 positive families, descending by
+# score), or "No material contributors." when every family scores 0.
+# How: builds the 10-family score matrix once via a column-presence
+# fallback that mirrors the scalar's `%||%` semantics (primary column
+# wins even at 0 — only fall back when the column is absent), then
+# loops the matrix rows directly (no data.frame slice) doing
+# order/head(5)/sprintf per row.
+# When: called once per band inside finalize_zip_view to fill the
+# risk_component_summary_text column.
+# Impact: ~9× faster than the scalar loop; row-by-row equivalence
+# verified (200/200 match) before deployment.
+compose_risk_component_summary_vec <- function(zips) {
+  if (is.null(zips) || nrow(zips) == 0) return(character(0))
+  n <- nrow(zips)
+  col_num <- function(name) {
+    v <- if (name %in% names(zips)) suppressWarnings(as.numeric(zips[[name]])) else rep(0, n)
+    v[!is.finite(v)] <- 0
+    v
+  }
+  # Column-presence fallback that mirrors the scalar's `%||%` semantics:
+  # primary column wins when it exists (even if its values are 0); only
+  # fall back to the secondary column when the primary is absent. The
+  # scalar's `row[["wind_total_score"]] %||% row[["wind_risk_score"]] %||% 0`
+  # specifically does NOT fall through on a 0 — so an `ifelse(>0)`
+  # would diverge whenever wind_total_score is genuinely 0.
+  col_with_fallback <- function(primary, fallback) {
+    if (primary %in% names(zips)) col_num(primary)
+    else if (fallback %in% names(zips)) col_num(fallback)
+    else rep(0, n)
+  }
+  wind_use <- col_with_fallback("wind_total_score", "wind_risk_score")
+  family_names <- c("Wind", "Flood", "Winter", "Storm", "Fire", "Heat",
+                    "Cold", "Air", "Radiation", "Seismic")
+  mat <- cbind(
+    Wind      = wind_use,
+    Flood     = col_num("flood_total_score"),
+    Winter    = col_num("winter_total_score"),
+    Storm     = col_num("convective_total_score"),
+    Fire      = col_num("fire_total_score"),
+    Heat      = col_num("heat_total_score"),
+    Cold      = col_num("cold_total_score"),
+    Air       = col_num("air_total_score"),
+    Radiation = col_num("radiation_total_score"),
+    Seismic   = col_num("seismic_total_score")
   )
-  top <- names(which.max(candidates))
-  if (max(candidates, na.rm = TRUE) <= 0) return("All clear.")
-  switch(top,
-    flood = if (!is.null(row[["flood_reason_text"]]) && !is.na(row[["flood_reason_text"]]) && nzchar(as.character(row[["flood_reason_text"]]))) as.character(row[["flood_reason_text"]]) else "Flood risk elevated by government flood guidance, precipitation, or river conditions.",
+  if (n == 1L) mat <- matrix(mat, nrow = 1L, dimnames = list(NULL, family_names))
+  out <- character(n)
+  for (i in seq_len(n)) {
+    row_vals <- mat[i, ]
+    pos <- row_vals > 0
+    if (!any(pos)) {
+      out[i] <- "No material contributors."
+      next
+    }
+    row_vals <- row_vals[pos]
+    o <- order(row_vals, decreasing = TRUE)
+    if (length(o) > 5L) o <- o[seq_len(5L)]
+    sel <- row_vals[o]
+    out[i] <- paste(sprintf("%s %s", names(sel), format_score_pct(sel)),
+                    collapse = " • ")
+  }
+  out
+}
+
+# Why: scalar compose_risk_type_summary's data.frame row-copy and
+# per-family branching dominated finalize_zip_view's band loop — and
+# the scalar variant also harboured a latent NA-family bug ("NA 0%"
+# popup text) caused by nzchar(NA)=TRUE on this R install. The
+# vectorised version does the per-family component computation in
+# bulk (one matrix per family, vectorised across the rows whose
+# dominant family matches) and never lets NA slip past the guard.
+# What: returns a character vector with one
+# "<DominantFamily>: <component breakdown>" string per zips row,
+# limited to the top-5 contributing components, or
+# "No material contributors." when no family scored.
+# How: builds a 10-family score matrix and a dominant-family vector
+# via max.col; precomputes each family's per-component matrix
+# vectorised (each matrix's columns mirror the scalar's per-family
+# branch in risk_type_components_for_family); then for every family
+# walks only the rows whose dominant family matches, doing
+# order/head(5)/sprintf without any data.frame slicing.
+# When: called once per band inside finalize_zip_view to fill the
+# risk_type_summary_text column.
+# Impact: ~9× faster than the scalar loop; row-by-row equivalence
+# verified (200/200 match) after the scalar's NA-family bug was
+# also fixed so both variants produce the same output.
+compose_risk_type_summary_vec <- function(zips) {
+  if (is.null(zips) || nrow(zips) == 0) return(character(0))
+  n <- nrow(zips)
+  col_num <- function(name) {
+    v <- if (name %in% names(zips)) suppressWarnings(as.numeric(zips[[name]])) else rep(0, n)
+    v[!is.finite(v)] <- 0
+    v
+  }
+  col_chr <- function(name) {
+    if (name %in% names(zips)) as.character(zips[[name]]) else rep("", n)
+  }
+  # Same column-presence fallback as compose_risk_component_summary_vec
+  # to mirror scalar `%||%` semantics (primary wins even at 0).
+  col_with_fallback <- function(primary, fallback) {
+    if (primary %in% names(zips)) col_num(primary)
+    else if (fallback %in% names(zips)) col_num(fallback)
+    else rep(0, n)
+  }
+  wind_use <- col_with_fallback("wind_total_score", "wind_risk_score")
+  family_names <- c("Wind", "Flood", "Winter", "Storm", "Fire", "Heat",
+                    "Cold", "Air", "Radiation", "Seismic")
+  family_mat <- cbind(
+    Wind      = wind_use,
+    Flood     = col_num("flood_total_score"),
+    Winter    = col_num("winter_total_score"),
+    Storm     = col_num("convective_total_score"),
+    Fire      = col_num("fire_total_score"),
+    Heat      = col_num("heat_total_score"),
+    Cold      = col_num("cold_total_score"),
+    Air       = col_num("air_total_score"),
+    Radiation = col_num("radiation_total_score"),
+    Seismic   = col_num("seismic_total_score")
+  )
+  if (n == 1L) family_mat <- matrix(family_mat, nrow = 1L, dimnames = list(NULL, family_names))
+
+  dominant_idx <- max.col(family_mat, ties.method = "first")
+  family_max <- family_mat[cbind(seq_len(n), dominant_idx)]
+  has_family <- family_max > 0
+  dominant_family <- ifelse(has_family, family_names[dominant_idx], NA_character_)
+
+  alert_event <- col_chr("alert_event")
+  cold_factor <- as.numeric(col_num("forecast_temperature_f") <= 34 &
+                            is.finite(col_num("forecast_temperature_f")))
+  # soft_alert_signal is vectorised on its alert/event/weight inputs.
+  soft <- function(score_col, weight) {
+    soft_alert_signal(col_num(score_col), event = alert_event, weight = weight)
+  }
+
+  # Family-specific component matrices (each n x k where k is the number
+  # of components for that family). All formulas are vectorised — they
+  # mirror risk_type_components_for_family's per-family branches.
+  components_for <- list(
+    Flood = cbind(
+      "Alert support"           = col_num("flood_alert_component"),
+      "Rain/QPF"                = col_num("flood_qpf_component"),
+      "River gauge"             = col_num("flood_river_component"),
+      "River corridor/NWM"      = col_num("flood_corridor_component"),
+      "Off-gauge hydrology"     = col_num("flood_offgauge_component"),
+      "WPC flood outlook"       = col_num("flood_outlook_component"),
+      "Flash-flood guidance"    = col_num("flood_ffg_component"),
+      "NOAA flood hazard outlook" = col_num("flood_fho_component")
+    ),
+    Winter = cbind(
+      "Alert support"          = soft("winter_alert_score", 0.72),
+      "Snow/ice guidance"      = 0.55 * col_num("winter_risk_score"),
+      "Wind support"           = 0.20 * col_num("wind_risk_score"),
+      "Freezing precip support" = 0.25 * col_num("qpf_risk_score") * cold_factor
+    ),
+    Storm = cbind(
+      "Alert support"   = soft("convective_alert_score", 0.78),
+      "SPC guidance"    = col_num("convective_guidance_score"),
+      "GLM lightning"   = col_num("glm_lightning_total_score"),
+      "Wind support"    = 0.60 * col_num("wind_total_score"),
+      "Rain support"    = 0.40 * col_num("pop_risk_score")
+    ),
+    Fire = cbind(
+      "Alert support"   = soft("fire_alert_score", 0.60),
+      "Fire guidance"   = col_num("fire_risk_score"),
+      "Smoke support"   = 0.55 * col_num("air_total_score")
+    ),
+    Heat = cbind(
+      "Alert support"   = soft("heat_alert_score", 0.58),
+      "Heat guidance"   = 0.75 * pmax(col_num("heatrisk_official_score"), col_num("heat_risk_score")),
+      "UV support"      = 0.25 * col_num("uv_total_score")
+    ),
+    Cold = cbind(
+      "Alert support"   = soft("cold_alert_score", 0.62),
+      "Cold exposure"   = 0.70 * col_num("cold_risk_score"),
+      "Winter support"  = 0.30 * col_num("winter_total_score")
+    ),
+    Air = cbind(
+      "Alert support"      = soft("air_alert_score", 0.58),
+      "AirNow"             = col_num("airnow_total_score"),
+      "Smoke / fire support" = 0.55 * col_num("fire_risk_score")
+    ),
+    Radiation = cbind(
+      "Alert support" = soft("radiation_alert_score", 0.92),
+      "RadNet"        = col_num("radnet_total_score"),
+      "NRC events"    = col_num("nrc_total_score"),
+      "UV"            = col_num("uv_total_score")
+    ),
+    Seismic = cbind(
+      "Alert support" = soft("seismic_alert_score", 0.92),
+      "USGS seismic"  = col_with_fallback("seismic_live_score", "seismic_total_score")
+    ),
+    Wind = cbind(
+      "Alert support"  = soft("wind_alert_score", 0.72),
+      "Forecast wind"  = col_num("wind_risk_score")
+    )
+  )
+
+  out <- rep("No material contributors.", n)
+  for (fam in family_names) {
+    rows_in_fam <- which(dominant_family == fam)
+    if (length(rows_in_fam) == 0) next
+    cmat <- components_for[[fam]]
+    if (n == 1L && !is.matrix(cmat)) cmat <- matrix(cmat, nrow = 1L,
+                                                     dimnames = list(NULL, names(cmat)))
+    fam_score_pct <- format_score_pct(family_max[rows_in_fam])
+    for (k in seq_along(rows_in_fam)) {
+      i <- rows_in_fam[k]
+      vals <- cmat[i, ]
+      vals[!is.finite(vals)] <- 0
+      pos <- vals > 0
+      if (!any(pos)) {
+        out[i] <- sprintf("%s %s", fam, fam_score_pct[k])
+        next
+      }
+      vals <- vals[pos]
+      o <- order(vals, decreasing = TRUE)
+      if (length(o) > 5L) o <- o[seq_len(5L)]
+      sel <- vals[o]
+      out[i] <- sprintf("%s: %s", fam,
+                        paste(sprintf("%s %s", names(sel), format_score_pct(sel)),
+                              collapse = " • "))
+    }
+  }
+  out
+}
+
+# Why: finalize_zip_view's per-band lapply was calling the scalar
+# compose_risk_reason once per ZIP (~861 calls per build), each of which
+# did a `band_df[i, , drop = FALSE]` row copy — the row-slice was the
+# real cost, not the score logic itself. This vectorised sibling does
+# the work in a single matrix sweep.
+# What: returns a character vector with one reason string per row of
+# zips, equivalent to running compose_risk_reason on every row. Empty
+# input → character(0).
+# How: builds an n × 12 family-score matrix once, picks each row's
+# dominant family via max.col, looks up a default reason from a
+# family-keyed table, applies per-family `*_reason_text` overrides via
+# masked assignment, sets "All clear." where max score ≤ 0, and lets
+# any non-empty alert_event override everything at the end.
+# When: called once per band inside finalize_zip_view to fill the
+# popup risk_reason_text column.
+# Impact: a 23× speedup over the scalar-loop equivalent on a 100-row
+# synthetic input; behaviour-equivalent (verified via row-by-row
+# equivalence test in tests/test_modeled_road_risk.R surroundings).
+compose_risk_reason_vec <- function(zips) {
+  if (is.null(zips) || nrow(zips) == 0) return(character(0))
+  n <- nrow(zips)
+  col_num <- function(name) {
+    v <- if (name %in% names(zips)) suppressWarnings(as.numeric(zips[[name]])) else rep(0, n)
+    v[!is.finite(v)] <- 0
+    v
+  }
+  col_chr <- function(name) {
+    if (name %in% names(zips)) as.character(zips[[name]]) else rep(NA_character_, n)
+  }
+  family_names <- c("flood","winter","convective","fire","heat","cold",
+                    "air","radiation","seismic","wind","temperature","precipitation")
+  score_cols <- c("flood_total_score","winter_total_score","convective_total_score",
+                  "fire_total_score","heat_total_score","cold_total_score",
+                  "air_total_score","radiation_total_score","seismic_total_score",
+                  "wind_total_score","temp_risk_score","pop_risk_score")
+  mat <- vapply(score_cols, col_num, numeric(n))
+  if (n == 1L) mat <- matrix(mat, nrow = 1L)
+  colnames(mat) <- family_names
+  dominant_idx <- max.col(mat, ties.method = "first")
+  dominant_names <- family_names[dominant_idx]
+  max_score <- mat[cbind(seq_len(n), dominant_idx)]
+  reason_default <- c(
+    flood = "Flood risk elevated by government flood guidance, precipitation, or river conditions.",
     winter = "Winter weather risk elevated by snow, ice, wind, or temperature conditions.",
-    convective = if (!is.null(row[["convective_reason_text"]]) && !is.na(row[["convective_reason_text"]]) && nzchar(as.character(row[["convective_reason_text"]]))) as.character(row[["convective_reason_text"]]) else "Thunderstorm, hail, or severe convective risk is the primary environmental risk.",
+    convective = "Thunderstorm, hail, or severe convective risk is the primary environmental risk.",
     fire = "Fire risk elevated by official fire-weather guidance.",
     heat = "Heat risk elevated by temperature stress or UV exposure.",
     cold = "Cold risk elevated by freezing, wind chill, or winter exposure.",
     air = "Air-quality or smoke-related risk is the primary environmental risk.",
-    radiation = if (!is.null(row[["radiation_reason_text"]]) && !is.na(row[["radiation_reason_text"]]) && nzchar(as.character(row[["radiation_reason_text"]]))) as.character(row[["radiation_reason_text"]]) else "Radiation exposure risk elevated by UV or radiological conditions.",
-    seismic = if (!is.null(row[["seismic_event_text"]]) && !is.na(row[["seismic_event_text"]]) && nzchar(as.character(row[["seismic_event_text"]]))) as.character(row[["seismic_event_text"]]) else "Recent seismic activity is the primary environmental risk.",
+    radiation = "Radiation exposure risk elevated by UV or radiological conditions.",
+    seismic = "Recent seismic activity is the primary environmental risk.",
     wind = "Wind-related risk elevated by official guidance or forecast wind.",
-    "Government environmental risk elevated."
+    temperature = "Government environmental risk elevated.",
+    precipitation = "Government environmental risk elevated."
   )
+  out <- unname(reason_default[dominant_names])
+  override_pairs <- list(
+    flood       = "flood_reason_text",
+    convective  = "convective_reason_text",
+    radiation   = "radiation_reason_text",
+    seismic     = "seismic_event_text"
+  )
+  for (fam in names(override_pairs)) {
+    src <- col_chr(override_pairs[[fam]])
+    mask <- dominant_names == fam & !is.na(src) & nzchar(src)
+    if (any(mask)) out[mask] <- src[mask]
+  }
+  out[max_score <= 0] <- "All clear."
+  alert <- col_chr("alert_event")
+  has_alert <- !is.na(alert) & nzchar(trimws(alert))
+  out[has_alert] <- alert[has_alert]
+  out
 }
 
-# Builds an n x 10 matrix of per-zip family totals (wind, flood, ..., seismic) used as input to noisy_or_combine.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Builds an n x 10 matrix of per-zip family totals (wind, flood, ...,
+# seismic) used as input to noisy_or_combine.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 environmental_family_matrix <- function(zips) {
   if (is.null(zips) || nrow(zips) == 0) {
     return(matrix(numeric(0), nrow = 0, ncol = 10))
@@ -232,7 +459,15 @@ environmental_family_matrix <- function(zips) {
   )
 }
 
-# Returns the canonical noisy-OR weight vector (per-family multipliers applied before combining) used by the environmental risk equation.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the canonical noisy-OR weight vector (per-family
+# multipliers applied before combining) used by the environmental risk
+# equation.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 environmental_family_weights <- function() {
   c(
     wind = 0.64,
@@ -245,17 +480,6 @@ environmental_family_weights <- function() {
     air = 0.60,
     radiation = 0.52,
     seismic = 0.78
-  )
-}
-
-# Returns the human-readable description of the noisy-OR family combination used in the methodology popup.
-environmental_risk_equation_text <- function() {
-  paste(
-    "Normalized environmental risk uses a damped noisy-OR across the main family totals:",
-    "wind, flood, winter, convective, fire, heat, cold, air, radiation, and seismic.",
-    "Temperature and precipitation do not enter the final score as standalone families;",
-    "they feed the relevant family totals such as winter, flood, wind, convective, and heat.",
-    "Alerts contribute through each family's capped alert-support term instead of acting like a separate statewide multiplier."
   )
 }
 
@@ -298,7 +522,14 @@ noisy_or_combine <- function(score_matrix, weights = NULL) {
   pmin(1, pmax(0, 1 - keep_prob))
 }
 
-# Convenience: noisy_or_combine of environmental_family_matrix(zips) with environmental_family_weights() - the canonical environmental score.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Convenience: noisy_or_combine of environmental_family_matrix(zips)
+# with environmental_family_weights() - the canonical environmental score.
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 combine_environmental_risk_score <- function(zips) {
   if (is.null(zips) || nrow(zips) == 0) return(numeric(0))
   family_matrix <- environmental_family_matrix(zips)

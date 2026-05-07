@@ -9,7 +9,14 @@
 # R/glm.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Returns x truncated down to the hour boundary in UTC (minutes/seconds zeroed) for GLM bucket prefix construction.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns x truncated down to the hour boundary in UTC
+# (minutes/seconds zeroed) for GLM bucket prefix construction.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 glm_floor_to_hour <- function(x) {
   lt <- as.POSIXlt(x, tz = "UTC")
   lt$min <- 0L
@@ -37,7 +44,14 @@ glm_hour_prefixes <- function(lookback_minutes = GLM_LOOKBACK_MINUTES) {
   }, character(1)))
 }
 
-# Extracts the bare keys from an S3 ListObjectsV2 XML response - lightweight regex parser, no XML lib dependency.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Extracts the bare keys from an S3 ListObjectsV2 XML response -
+# lightweight regex parser, no XML lib dependency.
+# How: regex match + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 glm_parse_s3_keys <- function(xml_text) {
   if (is.null(xml_text) || !nzchar(xml_text)) return(character(0))
   matches <- gregexpr("<Key>([^<]+)</Key>", xml_text, perl = TRUE)
@@ -46,7 +60,14 @@ glm_parse_s3_keys <- function(xml_text) {
   sub("^<Key>|</Key>$", "", vals)
 }
 
-# Parses the "_sYYYYJJJHHMMSS" timestamp embedded in a GOES GLM filename and returns it as a UTC POSIXct (or NA on bad keys).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Parses the "_sYYYYJJJHHMMSS" timestamp embedded in a GOES GLM
+# filename and returns it as a UTC POSIXct (or NA on bad keys).
+# How: regex match + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 glm_object_start_time <- function(key) {
   key <- safe_string(key)
   stamp <- sub(".*_s([0-9]{13}).*", "\\1", key, perl = TRUE)
@@ -117,7 +138,14 @@ glm_recent_object_catalog <- function() {
   data.frame(bucket = character(0), key = character(0), start_time = as.POSIXct(character(0), tz = "UTC"), url = character(0), stringsAsFactors = FALSE)
 }
 
-# Reads the first variable from an open ncdf4 handle whose name appears in candidates; returns NULL if none match or the read errors.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Reads the first variable from an open ncdf4 handle whose name
+# appears in candidates; returns NULL if none match or the read errors.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 glm_first_available_var <- function(nc, candidates = character(0)) {
   vars <- names(nc$var %||% list())
   match_name <- candidates[candidates %in% vars][1] %||% NA_character_

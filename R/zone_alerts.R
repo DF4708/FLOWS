@@ -84,7 +84,15 @@ extract_alert_county_geoids <- function(ugc_csv = "", same_csv = "", area_desc =
   county_geoids[county_geoids %in% names(county_lookup$by_geoid)]
 }
 
-# Returns the unique zipcodes covered by any WIZ* zone UGC in the alert (using the cached zone -> zip lookup).
+# Why: upstream payload structures vary; this helper centralises the
+# field-name search so callers don't repeat the OR-chain in every spot.
+# What: Returns the unique zipcodes covered by any WIZ* zone UGC in the
+# alert (using the cached zone -> zip lookup).
+# How: regex match + sf geometry op + named vector build + guarded numeric
+# coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 extract_alert_zone_zipcodes <- function(ugc_csv = "") {
   ugc_codes <- toupper(split_pipe_codes(ugc_csv))
   zone_codes <- ugc_codes[grepl("^WIZ[0-9]{3}$", ugc_codes)]

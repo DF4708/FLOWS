@@ -32,11 +32,45 @@ truncate_sentence <- function(text, max_chars = 120) {
   paste0(substr(first_sentence, 1, max_chars - 1), "...")
 }
 
-# Parses an ISO-8601 timestamp x as UTC POSIXct, returning POSIXct(NA) on empty/invalid input.
+# Why: the upstream payload arrives in an unstructured shape that the rest
+# of the pipeline can't consume directly.
+# What: Parses an ISO-8601 timestamp x as UTC POSIXct, returning
+# POSIXct(NA) on empty/invalid input. Handles three common shapes that NWS
+# / WI511 emit: "2026-05-05T05:00:00-05:00" (offset with colon — strptime's
+# %z does NOT accept a colon, so strip it) "2026-05-05T05:00:00Z" (UTC
+# marker) "2026-05-05 05:00:00" (no T, no offset — assume UTC) The previous
+# implementation called as.POSIXct(x, tz = "UTC") with the default format
+# and silently truncated to the date for any value that included a "T"
+# separator or a colonized offset. That left every period in an hourly
+# forecast resolving to the same midnight UTC, so pick_forecast_period
+# selected the wrong "now" period — for ZIP 53713 this surfaced as a
+# 22-hour-future 45 F reading on the live popup.
+# How: guarded numeric coercion.
+# When: called immediately after the upstream HTTP fetch resolves, before
+# the result is handed to the scorer or shape converter.
+# Impact: upstream schema drift is the main failure mode; the function
+# tries multiple field-name spellings to absorb minor changes.
 parse_iso_time <- function(x) {
   if (is.null(x) || length(x) == 0 || is.na(x) || !nzchar(x)) return(as.POSIXct(NA, origin = "1970-01-01", tz = "UTC"))
-  parsed <- suppressWarnings(as.POSIXct(x, tz = "UTC"))
-  if (is.na(parsed)) return(as.POSIXct(NA, origin = "1970-01-01", tz = "UTC"))
+  s <- as.character(x)
+  # Normalise: replace "Z" with "+0000", and strip the ":" inside any
+  # +HH:MM / -HH:MM offset suffix so strptime's %z can parse it.
+  s <- sub("Z$", "+0000", s)
+  s <- sub("([+-][0-9]{2}):([0-9]{2})$", "\\1\\2", s)
+  fmts <- c(
+    "%Y-%m-%dT%H:%M:%OS%z",
+    "%Y-%m-%dT%H:%M:%S%z",
+    "%Y-%m-%dT%H:%M:%OS",
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%OS",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d"
+  )
+  parsed <- as.POSIXct(NA, origin = "1970-01-01", tz = "UTC")
+  for (f in fmts) {
+    p <- suppressWarnings(as.POSIXct(s, format = f, tz = "UTC"))
+    if (!is.na(p)) { parsed <- p; break }
+  }
   parsed
 }
 
@@ -148,7 +182,14 @@ alert_notification_level <- function(event = "") {
   out
 }
 
-# Returns the hex color (green/amber/red/grey) matching alert_notification_level for each event in the vector.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the hex color (green/amber/red/grey) matching
+# alert_notification_level for each event in the vector.
+# How: regex match.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 alert_notification_color <- function(event = "", default = "#666666") {
   level <- alert_notification_level(event)
   if (length(level) == 0) return(default)
@@ -159,7 +200,15 @@ alert_notification_color <- function(event = "", default = "#666666") {
   out
 }
 
-# Predicate: TRUE per element when the event text indicates an in-progress life-threat (tornado, flash flood emergency, hurricane, etc., excluding "watch").
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE per element when the event text indicates an
+# in-progress life-threat (tornado, flash flood emergency, hurricane, etc.,
+# excluding "watch").
+# How: regex match.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 alert_is_active_event <- function(event = "") {
   txt <- tolower(trimws(safe_string(event)))
   has_txt <- nzchar(txt)
@@ -211,7 +260,14 @@ soft_alert_signal <- function(score, event = "", weight = 0.55) {
   pmin(1, pmax(0, signal))
 }
 
-# Probabilistic OR-blend: returns 1 - (1 - base_signal) * (1 - soft_alert_signal(alert_score, event, alert_weight)).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Probabilistic OR-blend: returns 1 - (1 - base_signal) * (1 -
+# soft_alert_signal(alert_score, event, alert_weight)).
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 blend_alert_signal <- function(base_signal, alert_score, event = "", alert_weight = 0.55) {
   base_signal <- pmax(0, pmin(1, safe_numeric(base_signal %||% 0)))
   alert_signal <- soft_alert_signal(alert_score, event = event, weight = alert_weight)
@@ -253,7 +309,16 @@ score_nws_alert <- function(event, severity, urgency, certainty) {
   cap_alert_score_for_notification(bounded, event = event)
 }
 
-# Returns an empty CRS-4326 sf with the canonical alert columns - used as fallback when no alerts are active or fetch fails.
+# Why: the canonical empty shape is needed wherever the upstream feed is
+# missing or fails so downstream rbind / merge calls don't break the
+# schema.
+# What: Returns an empty CRS-4326 sf with the canonical alert columns -
+# used as fallback when no alerts are active or fetch fails.
+# How: sf geometry op.
+# When: called as the fallback in every fetcher / compute step when the
+# upstream feed is missing or returns no rows.
+# Impact: changing the column set requires a matching update in every
+# fetcher / compute step that returns this empty shape on failure.
 empty_alert_sf <- function() {
   sf::st_sf(
     alert_id = character(),
@@ -383,7 +448,14 @@ fetch_wisconsin_alerts <- function(force_refresh = FALSE, timeout_seconds = 12L,
   out
 }
 
-# Returns list(start, end) UTC bounds for an alert horizon ("live" -> [now, now], 24h/48h/72h -> sliding 24h windows).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns list(start, end) UTC bounds for an alert horizon ("live" ->
+# [now, now], 24h/48h/72h -> sliding 24h windows).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 alert_horizon_window <- function(horizon_key = "live", reference_time = Sys.time()) {
   ref_time <- tryCatch(as.POSIXct(reference_time, tz = "UTC"), error = function(e) as.POSIXct(Sys.time(), tz = "UTC"))
   if (!is.finite(as.numeric(ref_time))) ref_time <- as.POSIXct(Sys.time(), tz = "UTC")

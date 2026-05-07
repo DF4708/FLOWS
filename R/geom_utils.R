@@ -42,38 +42,6 @@ coords_to_matrix <- function(x) {
   mat
 }
 
-# Why: route geometries are linestrings (open paths), not polygons, so we need
-# a sibling of coords_to_matrix that does not force ring closure.
-# What: returns a numeric [n,2] matrix with named columns "lon"/"lat", or NULL
-# if fewer than two valid points are available.
-# How: same coercion path as coords_to_matrix but skips the closure step and
-# only enforces a 2-point minimum.
-# When: used by polyline/route helpers when converting decoded coordinate
-# bundles into sf::st_linestring inputs.
-# Impact: returning NULL means an empty geometry collection downstream and the
-# associated route segment becomes invisible on the map.
-coords_to_linestring_matrix <- function(x) {
-  if (is.null(x)) return(NULL)
-  if (is.matrix(x)) {
-    mat <- x
-  } else if (is.data.frame(x)) {
-    mat <- as.matrix(x)
-  } else {
-    flat <- safe_numeric(unlist(x, recursive = TRUE, use.names = FALSE))
-    flat <- flat[is.finite(flat)]
-    if (length(flat) < 4) return(NULL)
-    if ((length(flat) %% 2) != 0) flat <- flat[-length(flat)]
-    mat <- matrix(flat, ncol = 2, byrow = TRUE)
-  }
-  if (ncol(mat) < 2) return(NULL)
-  mat <- mat[, 1:2, drop = FALSE]
-  storage.mode(mat) <- "double"
-  mat <- mat[stats::complete.cases(mat), , drop = FALSE]
-  if (nrow(mat) < 2) return(NULL)
-  colnames(mat) <- c("lon", "lat")
-  mat
-}
-
 # Why: many upstream alert/zone feeds return geometries as nested GeoJSON-style
 # R lists rather than parsed sf objects.
 # What: returns an sfc with CRS 4326 - a polygon, multipolygon, or empty

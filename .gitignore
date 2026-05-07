@@ -4,6 +4,9 @@
 .RData
 .Ruserdata
 
+# Local environment / secrets — never commit
+.Renviron
+
 # macOS
 .DS_Store
 

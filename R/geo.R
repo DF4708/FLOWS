@@ -56,7 +56,14 @@ download_unzip_read_sf <- function(url, user_agent = NOAA_USER_AGENT) {
   stop(sprintf("Unsupported reference format for %s", url), call. = FALSE)
 }
 
-# Returns x reprojected to CRS 4326, or x with CRS assigned to 4326 if it had none.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns x reprojected to CRS 4326, or x with CRS assigned to 4326
+# if it had none.
+# How: sf geometry op + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 ensure_crs_4326 <- function(x) {
   if (is.null(x)) return(x)
   crs <- suppressWarnings(sf::st_crs(x))
@@ -65,7 +72,14 @@ ensure_crs_4326 <- function(x) {
   suppressWarnings(sf::st_transform(x, 4326))
 }
 
-# Renames the active sf geometry column to target_name (default "geometry") so downstream code can rely on a stable name.
+# Why: downstream lookups and grepl calls need a canonical text form so
+# casing / punctuation drift can't cause false misses.
+# What: Renames the active sf geometry column to target_name (default
+# "geometry") so downstream code can rely on a stable name.
+# How: sf geometry op + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 normalize_sf_geometry_column <- function(x, target_name = "geometry") {
   if (is.null(x) || !inherits(x, "sf")) return(x)
   geom_col <- attr(x, "sf_column")
@@ -131,7 +145,14 @@ safe_st_intersects <- function(x, y) {
   )
 }
 
-# Returns sf::st_point_on_surface points in CRS 4326 by computing in a planar projection (default 5070) for accuracy.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns sf::st_point_on_surface points in CRS 4326 by computing in
+# a planar projection (default 5070) for accuracy.
+# How: cache lookup + put + sf geometry op + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 point_on_surface_lonlat <- function(x, projected_epsg = 5070) {
   if (is.null(x) || nrow(x) == 0) return(x)
   x <- ensure_crs_4326(x)
@@ -219,7 +240,14 @@ read_reference_sf_fallback <- function(namespace, key, urls) {
   stop(sprintf("Unable to load reference geography for %s", key), call. = FALSE)
 }
 
-# Returns the parsed reference geopackage manifest (or NULL if missing), cached for 24h, listing which layers are bundled locally.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the parsed reference geopackage manifest (or NULL if
+# missing), cached for 24h, listing which layers are bundled locally.
+# How: cache lookup + put + sf geometry op.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 read_reference_manifest <- function() {
   cached <- cache_get("reference", "reference_manifest")
   if (!is.null(cached)) return(cached)
@@ -231,7 +259,14 @@ read_reference_manifest <- function() {
   manifest
 }
 
-# Predicate: TRUE if manifest is missing (assume yes) or explicitly lists layer_name in its layers section.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE if manifest is missing (assume yes) or explicitly
+# lists layer_name in its layers section.
+# How: sf geometry op.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 manifest_declares_layer <- function(manifest, layer_name) {
   if (is.null(manifest) || is.null(manifest$layers)) return(TRUE)
   layer_name %in% names(manifest$layers)

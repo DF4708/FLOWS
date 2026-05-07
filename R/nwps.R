@@ -81,7 +81,14 @@ extract_stageflow_components <- function(stage_payload) {
   list(observed = observed, forecast = forecast, nwm = nwm)
 }
 
-# Returns max(observed, forecast, nwm) from the stage payload as a single scalar, NA if all components are missing.
+# Why: upstream payload structures vary; this helper centralises the
+# field-name search so callers don't repeat the OR-chain in every spot.
+# What: Returns max(observed, forecast, nwm) from the stage payload as a
+# single scalar, NA if all components are missing.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 extract_stageflow_signal <- function(stage_payload) {
   comps <- extract_stageflow_components(stage_payload)
   vals <- c(comps$observed, comps$forecast, comps$nwm)
@@ -116,7 +123,15 @@ score_stageflow_against_thresholds <- function(value, action = NA_real_, flood =
   piecewise_score(value, a, f, g)
 }
 
-# Returns the human band label ("major flood stage", "moderate flood stage", "flood stage", "action stage", "elevated water conditions") for a stage value.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the human band label ("major flood stage", "moderate flood
+# stage", "flood stage", "action stage", "elevated water conditions") for a
+# stage value.
+# How: sf geometry op + named vector build.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 stageflow_band_label <- function(value, action = NA_real_, flood = NA_real_, moderate = NA_real_, major = NA_real_) {
   if (!is.finite(value)) return("elevated water conditions")
   if (is.finite(major) && value >= major) return("major flood stage")
@@ -126,7 +141,16 @@ stageflow_band_label <- function(value, action = NA_real_, flood = NA_real_, mod
   "elevated water conditions"
 }
 
-# Returns the popup-ready reason text describing the gauge's dominant signal source ("observed/forecast/NWM") and its band label.
+# Why: a downstream consumer needs the assembled output in a single call
+# rather than calling the underlying primitives separately.
+# What: Returns the popup-ready reason text describing the gauge's dominant
+# signal source ("observed/forecast/NWM") and its band label.
+# How: sf geometry op + named vector build.
+# When: called by the layer's top-level builder when assembling the
+# user-visible output.
+# Impact: any new column or row source needs to be added here AND in the
+# layer's standardise_* schema; mismatched schemas show up as silent column
+# drops downstream.
 build_stageflow_reason_text <- function(gauge_id, dominant_source, dominant_value, action = NA_real_, flood = NA_real_, moderate = NA_real_, major = NA_real_) {
   if (!is.finite(dominant_value)) return(NA_character_)
   band <- stageflow_band_label(dominant_value, action = action, flood = flood, moderate = moderate, major = major)
@@ -140,7 +164,16 @@ build_stageflow_reason_text <- function(gauge_id, dominant_source, dominant_valu
   }
 }
 
-# Returns the canonical empty NWPS context (zero/NA per ZCTA, empty gauge sf) used when fetch_nwps_gauge_context fails or returns no gauges.
+# Why: the canonical empty shape is needed wherever the upstream feed is
+# missing or fails so downstream rbind / merge calls don't break the
+# schema.
+# What: Returns the canonical empty NWPS context (zero/NA per ZCTA, empty
+# gauge sf) used when fetch_nwps_gauge_context fails or returns no gauges.
+# How: sf geometry op + named vector build.
+# When: called as the fallback in every fetcher / compute step when the
+# upstream feed is missing or returns no rows.
+# Impact: changing the column set requires a matching update in every
+# fetcher / compute step that returns this empty shape on failure.
 empty_nwps_context <- function() {
   named_zero <- stats::setNames(rep(0, nrow(wi_zctas)), wi_zctas$zipcode)
   named_na <- stats::setNames(rep(NA_character_, nrow(wi_zctas)), wi_zctas$zipcode)
@@ -266,7 +299,11 @@ fetch_nwps_gauge_context <- function() {
   fetch_one <- function(i) {
     id <- gauges_df$id[i]
     stage_url <- sprintf("%s/%s/stageflow", NWPS_GAUGES_URL, id)
-    stage_payload <- tryCatch(http_json(stage_url, timeout_seconds = 6L, max_tries = 1L),
+    # 4 s timeout (was 6). Healthy NWPS stage responses arrive in
+    # <1.5 s; the long tail is hung gauges. Failing fast gives the
+    # mclapply pool more time to drain the rest of the queue without
+    # blocking on stragglers.
+    stage_payload <- tryCatch(http_json(stage_url, timeout_seconds = 4L, max_tries = 1L),
                               error = function(e) NULL)
     if (is.null(stage_payload)) {
       return(list(observed = NA_real_, forecast = NA_real_, nwm = NA_real_))
@@ -274,7 +311,12 @@ fetch_nwps_gauge_context <- function() {
     extract_stageflow_components(stage_payload)
   }
   n_gauges <- nrow(gauges_sf)
-  mc_cores <- if (.Platform$OS.type == "windows") 1L else min(6L, max(1L, n_gauges))
+  # Per-gauge fetches are pure network I/O. The WI bbox returns ~455
+  # gauges, so 12 cores * 6 s timeout = 76 s worst case; doubling to 24
+  # cores at 4 s timeout caps worst case at ~76 s but typical drops to
+  # ~15-25 s. NWPS handles the higher concurrency without throttling at
+  # this volume. CPU cost is negligible — each worker waits on I/O.
+  mc_cores <- if (.Platform$OS.type == "windows") 1L else min(24L, max(1L, n_gauges))
   comps_list <- if (mc_cores > 1L) {
     parallel::mclapply(seq_len(n_gauges), fetch_one, mc.cores = mc_cores, mc.preschedule = FALSE)
   } else {
@@ -441,12 +483,27 @@ compute_nwps_corridor_signal <- function(horizon_key = "live", nwps_context = NU
   zip_pts_proj <- wi_zip_points_proj
   gauge_proj <- suppressWarnings(sf::st_transform(gauge_sf, 5070))
   hits <- suppressWarnings(sf::st_is_within_distance(zip_pts_proj, gauge_proj, dist = 40000))
+  # Bulk distance with CRS stripped: 861 ZIP points x N gauges (small).
+  # Replaces 861 per-ZIP st_distance calls each paying the PROJ DB CRS
+  # validation tax. Both inputs in EPSG:5070 by construction.
+  zip_geom <- sf::st_geometry(zip_pts_proj)
+  gauge_geom <- sf::st_geometry(gauge_proj)
+  sf::st_crs(zip_geom) <- NA
+  sf::st_crs(gauge_geom) <- NA
+  d_full <- tryCatch({
+    m <- suppressWarnings(sf::st_distance(zip_geom, gauge_geom))
+    m <- matrix(as.numeric(m), nrow = length(zip_geom))
+    m[!is.finite(m)] <- 40000
+    m
+  }, error = function(e) NULL)
   for (i in seq_along(hits)) {
     idx <- unique(as.integer(hits[[i]]))
     if (length(idx) == 0) next
-    d <- safe_numeric(sf::st_distance(zip_pts_proj[i, ], gauge_proj[idx, ]))
-    if (length(d) == 0) next
-    d[!is.finite(d)] <- 40000
+    d <- if (!is.null(d_full)) d_full[i, idx] else {
+      v <- safe_numeric(sf::st_distance(zip_geom[i], gauge_geom[idx]))
+      v[!is.finite(v)] <- 40000
+      v
+    }
     proximity <- exp(-pmax(d, 0) / 16000)
     src_mult <- ifelse(gauge_sources[idx] == "nwm", 1.05, ifelse(gauge_sources[idx] == "forecast", 1.02, 1.00))
     local_scores <- pmin(1, gauge_scores[idx] * proximity * src_mult)

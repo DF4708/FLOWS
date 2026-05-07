@@ -23,10 +23,38 @@ load_startup_map_snapshot <- function(horizon_key = "live", primary_map = DEFAUL
   if (!identical(horizon_key %||% "live", "live") || !identical(primary_map, DEFAULT_PRIMARY_MAP)) return(NULL)
   snap <- load_runtime_snapshot(STARTUP_MAP_SNAPSHOT_PATH, max_age_seconds = max_age_seconds)
   if (is.null(snap)) return(NULL)
-  snap$payload %||% snap
+  payload <- snap$payload %||% snap
+  # Strip any legacy 511 travel-delay reason strings that pre-fix
+  # snapshots may have baked into modeled road popups. Travel-time delay
+  # is a congestion signal, not a safety hazard, so the warmed startup
+  # paint must not surface it. The sanitizer drops the row's bespoke
+  # text back to the generic "All clear." fallback the rest of the
+  # pipeline expects.
+  if (!is.null(payload$roads) && inherits(payload$roads, "sf") && nrow(payload$roads) > 0 &&
+      "driving_reason_text" %in% names(payload$roads)) {
+    bad <- is_travel_delay_reason(payload$roads$driving_reason_text)
+    if (any(bad, na.rm = TRUE)) {
+      payload$roads$driving_reason_text[bad] <- "All clear."
+      if ("road_source" %in% names(payload$roads)) {
+        payload$roads$road_source[bad] <- "Modeled ZIP risk"
+      }
+      if ("official_cause_text" %in% names(payload$roads)) {
+        payload$roads$official_cause_text[bad] <- "none"
+      }
+    }
+  }
+  payload
 }
 
-# Persists the live + default-primary map payload to disk so subsequent restarts can warm-start; only saves when payload$polys has rows.
+# Why: a downstream session needs the value persisted so the next process
+# can warm-start instead of recomputing from scratch.
+# What: Persists the live + default-primary map payload to disk so
+# subsequent restarts can warm-start; only saves when payload$polys has
+# rows.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 save_startup_map_snapshot <- function(payload, horizon_key = "live", primary_map = DEFAULT_PRIMARY_MAP) {
   primary_map <- normalize_primary_map(primary_map)
   if (!identical(horizon_key %||% "live", "live") || !identical(primary_map, DEFAULT_PRIMARY_MAP)) return(invisible(FALSE))
@@ -35,17 +63,38 @@ save_startup_map_snapshot <- function(payload, horizon_key = "live", primary_map
   invisible(TRUE)
 }
 
-# Predicate: TRUE if the startup map snapshot exists and is younger than max_age_seconds.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE if the startup map snapshot exists and is younger
+# than max_age_seconds.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 startup_snapshot_fresh_enough <- function(max_age_seconds = STARTUP_SNAPSHOT_MAX_AGE_SECONDS) {
   !is.null(load_startup_map_snapshot(horizon_key = "live", primary_map = DEFAULT_PRIMARY_MAP, max_age_seconds = max_age_seconds))
 }
 
-# Predicate: TRUE if a startup-warmer lock file exists and is younger than max_age_seconds (a sibling process is already warming).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE if a startup-warmer lock file exists and is younger
+# than max_age_seconds (a sibling process is already warming).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 startup_warmer_active <- function(max_age_seconds = STARTUP_WARMER_MAX_AGE_SECONDS) {
   !is.null(load_runtime_snapshot(STARTUP_WARMER_LOCK_PATH, max_age_seconds = max_age_seconds))
 }
 
-# Records a startup-warmer lock file (with pid + project_dir) so concurrent app starts do not all rebuild the snapshot.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Records a startup-warmer lock file (with pid + project_dir) so
+# concurrent app starts do not all rebuild the snapshot.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 mark_startup_warmer_active <- function(project_dir = getwd()) {
   save_runtime_snapshot(
     STARTUP_WARMER_LOCK_PATH,
@@ -57,51 +106,116 @@ mark_startup_warmer_active <- function(project_dir = getwd()) {
   invisible(TRUE)
 }
 
-# Removes the startup-warmer lock file (no-op if absent) - call after the warmer finishes.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Removes the startup-warmer lock file (no-op if absent) - call after
+# the warmer finishes.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 clear_startup_warmer_active <- function() {
   if (file.exists(STARTUP_WARMER_LOCK_PATH)) unlink(STARTUP_WARMER_LOCK_PATH, force = TRUE)
   invisible(TRUE)
 }
 
-# Returns a sorted comma-separated key derived from compute_feature_requirements - used as the cache identity for an external bundle.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns a sorted comma-separated key derived from
+# compute_feature_requirements - used as the cache identity for an external
+# bundle.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_feature_key <- function(selected_features = character(0), include_transport = FALSE) {
   requirements <- compute_feature_requirements(selected_features, include_transport = include_transport)
   features <- sort(unique(as.character(requirements$effective_features %||% character(0))))
   paste(c(features, if (isTRUE(include_transport)) ".transport" else character(0)), collapse = ",")
 }
 
-# Builds the in-memory cache key for an external bundle: "external-bundle-<horizon>-<hash(feature_key)>".
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Builds the in-memory cache key for an external bundle:
+# "external-bundle-<horizon>-<hash(feature_key)>".
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_cache_name <- function(horizon_key = "live", selected_features = character(0), include_transport = FALSE) {
   feature_key <- external_bundle_feature_key(selected_features, include_transport = include_transport)
   paste0("external-bundle-", horizon_key, "-", cache_hash_string(feature_key))
 }
 
-# Returns the .rds snapshot path matching this external bundle's cache name - used for both load and save.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the .rds snapshot path matching this external bundle's
+# cache name - used for both load and save.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_snapshot_path <- function(horizon_key = "live", selected_features = character(0), include_transport = FALSE) {
   runtime_snapshot_file(sprintf("derived_%s", external_bundle_cache_name(horizon_key, selected_features, include_transport = include_transport)))
 }
 
-# Returns the lock file path used to detect "another process is warming this bundle" for the same (horizon, feature key).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the lock file path used to detect "another process is
+# warming this bundle" for the same (horizon, feature key).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_lock_path <- function(horizon_key = "live", selected_features = character(0), include_transport = FALSE) {
   runtime_snapshot_file(sprintf("external_bundle_lock_%s", external_bundle_cache_name(horizon_key, selected_features, include_transport = include_transport)))
 }
 
-# Returns the .log file path that warming workers tail-write progress into for the matching cache name.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the .log file path that warming workers tail-write progress
+# into for the matching cache name.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_log_path <- function(horizon_key = "live", selected_features = character(0), include_transport = FALSE) {
   file.path(RUNTIME_CACHE_DIR, sprintf("external_bundle_%s.log", gsub("[^A-Za-z0-9._-]+", "_", external_bundle_cache_name(horizon_key, selected_features, include_transport = include_transport), perl = TRUE)))
 }
 
-# Returns the "fresh" TTL in seconds for the bundle: ALERT_TTL_SECONDS (>= 10min) for live, FORECAST_TTL_SECONDS for future.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the "fresh" TTL in seconds for the bundle:
+# ALERT_TTL_SECONDS (>= 10min) for live, FORECAST_TTL_SECONDS for future.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_fresh_age_seconds <- function(horizon_key = "live") {
   if (identical(horizon_key %||% "live", "live")) max(10L * 60L, ALERT_TTL_SECONDS) else FORECAST_TTL_SECONDS
 }
 
-# Returns the "stale-but-still-usable" TTL: 6h for live, 24h for future horizons - used when serving stale-while-revalidate.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the "stale-but-still-usable" TTL: 6h for live, 24h for
+# future horizons - used when serving stale-while-revalidate.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_stale_age_seconds <- function(horizon_key = "live") {
   if (identical(horizon_key %||% "live", "live")) 6L * 3600L else 24L * 3600L
 }
 
-# Returns the maximum mtime (in epoch seconds) across all external-bundle snapshot files - used to invalidate caches across feature combos.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns the maximum mtime (in epoch seconds) across all
+# external-bundle snapshot files - used to invalidate caches across feature
+# combos.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 latest_external_bundle_snapshot_mtime <- function() {
   files <- list.files(RUNTIME_CACHE_DIR, pattern = "^derived_external-bundle-.*\\.rds$", full.names = TRUE)
   if (length(files) == 0) return(0)
@@ -134,12 +248,27 @@ external_bundle_cache_token <- function(horizon_key = "live", selected_features 
   ))
 }
 
-# Predicate: TRUE if a warmer lock for this bundle exists and is younger than max_age_seconds (default 45 min).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE if a warmer lock for this bundle exists and is
+# younger than max_age_seconds (default 45 min).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 external_bundle_warmer_active <- function(horizon_key = "live", selected_features = character(0), include_transport = FALSE, max_age_seconds = 45L * 60L) {
   !is.null(load_runtime_snapshot(external_bundle_lock_path(horizon_key, selected_features, include_transport = include_transport), max_age_seconds = max_age_seconds))
 }
 
-# Records a warmer lock file (pid, project_dir, feature_key, transport flag) for this bundle - sibling helper to mark_startup_warmer_active.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Records a warmer lock file (pid, project_dir, feature_key,
+# transport flag) for this bundle - sibling helper to
+# mark_startup_warmer_active.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 mark_external_bundle_warmer_active <- function(horizon_key = "live", selected_features = character(0), include_transport = FALSE, project_dir = getwd()) {
   save_runtime_snapshot(
     external_bundle_lock_path(horizon_key, selected_features, include_transport = include_transport),
@@ -154,7 +283,13 @@ mark_external_bundle_warmer_active <- function(horizon_key = "live", selected_fe
   invisible(TRUE)
 }
 
-# Removes the bundle's warmer lock file once warming is complete.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Removes the bundle's warmer lock file once warming is complete.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 clear_external_bundle_warmer_active <- function(horizon_key = "live", selected_features = character(0), include_transport = FALSE) {
   path <- external_bundle_lock_path(horizon_key, selected_features, include_transport = include_transport)
   if (file.exists(path)) unlink(path, force = TRUE)
@@ -191,12 +326,27 @@ normalize_external_bundle_snapshot <- function(value = NULL) {
   )
 }
 
-# Convenience: load_runtime_snapshot then normalize_external_bundle_snapshot.
+# Why: downstream layers need this reference data in a known shape; loading
+# it via a single helper centralises the path / version handling.
+# What: Convenience: load_runtime_snapshot then
+# normalize_external_bundle_snapshot.
+# How: see body — short helper.
+# When: called once at module-load time or on the first request that needs
+# the reference data; cached for the rest of the session.
+# Impact: invalidating the on-disk snapshot is the main lever for picking
+# up updated reference data without restarting the session.
 load_external_bundle_snapshot <- function(path, max_age_seconds = Inf) {
   normalize_external_bundle_snapshot(load_runtime_snapshot(path, max_age_seconds = max_age_seconds))
 }
 
-# Persists a bundle data.frame plus completion metadata so partial bundles can be resumed and complete ones served from disk.
+# Why: a downstream session needs the value persisted so the next process
+# can warm-start instead of recomputing from scratch.
+# What: Persists a bundle data.frame plus completion metadata so partial
+# bundles can be resumed and complete ones served from disk.
+# How: cache lookup + put.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 save_external_bundle_snapshot <- function(path, bundle = data.frame(), complete = TRUE, completed_steps = NA_real_, total_steps = NA_real_, state = NULL) {
   save_runtime_snapshot(
     path,
@@ -210,7 +360,14 @@ save_external_bundle_snapshot <- function(path, bundle = data.frame(), complete 
   )
 }
 
-# Lists all "derived_external-bundle-live-*.rds" files in RUNTIME_CACHE_DIR for fallback search.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Lists all "derived_external-bundle-live-*.rds" files in
+# RUNTIME_CACHE_DIR for fallback search.
+# How: cache lookup + put.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 list_live_external_bundle_snapshot_paths <- function() {
   list.files(RUNTIME_CACHE_DIR, pattern = "^derived_external-bundle-live-.*\\.rds$", full.names = TRUE)
 }
@@ -250,7 +407,14 @@ load_live_external_support_bundle <- function(selected_features = FAST_START_FEA
   NULL
 }
 
-# Returns the cached zipcode->place_name vector, or a NA-filled fallback when the lookup hasn't been populated yet.
+# Why: downstream callers need this lookup encapsulated so cache + fallback
+# handling lives in one place.
+# What: Returns the cached zipcode->place_name vector, or a NA-filled
+# fallback when the lookup hasn't been populated yet.
+# How: cache lookup + put + named vector build.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 get_cached_zip_place_lookup <- function() {
   cached <- cache_get("derived", "zip_place_lookup")
   if (!is.null(cached)) return(cached)

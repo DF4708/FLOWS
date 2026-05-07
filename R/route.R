@@ -9,7 +9,17 @@
 # R/route.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Normalises a freeform location query for matching against place / county names — strips state qualifiers ("Wisconsin", "WI"), drops trailing place-type suffixes ("County", "City", "Town", "Village"), and collapses whitespace; output is what resolve_search_query compares against the precomputed normalised place / county name vectors.
+# Why: downstream lookups and grepl calls need a canonical text form so
+# casing / punctuation drift can't cause false misses.
+# What: Normalises a freeform location query for matching against place /
+# county names — strips state qualifiers ("Wisconsin", "WI"), drops
+# trailing place-type suffixes ("County", "City", "Town", "Village"), and
+# collapses whitespace; output is what resolve_search_query compares
+# against the precomputed normalised place / county name vectors.
+# How: regex match + sf geometry op.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 normalize_location_query_text <- function(x) {
   txt <- normalize_match_text(x)
   txt <- gsub("\\b(state of )?wisconsin\\b", " ", txt, perl = TRUE)
@@ -158,7 +168,15 @@ summarize_official_transport_causes <- function(cause_vec, source_vec = characte
   paste(trimws(paste(utils::head(parts, max_items), collapse = "; ")), source_part)
 }
 
-# Maps a freeform reason_text to a numeric closure penalty (8 for hard closures, 3 for incidents/restrictions, 0 otherwise) used as an additive cost-multiplier in the routing edge weights.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Maps a freeform reason_text to a numeric closure penalty (8 for
+# hard closures, 3 for incidents/restrictions, 0 otherwise) used as an
+# additive cost-multiplier in the routing edge weights.
+# How: regex match.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_closure_penalty <- function(reason_text = "") {
   txt <- tolower(trimws(as.character(reason_text %||% "")))
   if (!nzchar(txt)) return(0)
@@ -184,13 +202,24 @@ ROUTE_TIER_BONUS_TABLES <- list(
   # the planner pick a longer Interstate path over a shorter US/State path
   # that is actually faster, breaking the "Fastest is fastest" invariant.
   fastest   = c(Interstate = 1.00, US = 1.00, State = 1.00, County = 1.00, Major = 1.00, Primary = 1.00, Secondary = 1.00, Connector = 1.0),
-  safest    = c(Interstate = 0.84, US = 0.90, State = 0.96, County = 1.00, Major = 1.04, Primary = 1.02, Secondary = 1.10, Connector = 1.0),
+  # Safest: also all-1.0. The Safest profile must lex-prioritise low risk over
+  # tier preference, so any per-tier discount (especially for Interstate) lets
+  # a higher-risk highway out-cost a lower-risk surface route despite the alpha
+  # penalty. Risk avoidance is expressed via the alpha multiplier alone; the
+  # post-hoc safest_time_cap_multiplier still bounds the absolute drive time.
+  safest    = c(Interstate = 1.00, US = 1.00, State = 1.00, County = 1.00, Major = 1.00, Primary = 1.00, Secondary = 1.00, Connector = 1.0),
   metro     = c(Interstate = 0.38, US = 0.54, State = 0.72, County = 1.16, Major = 1.24, Primary = 1.14, Secondary = 1.40, Connector = 1.0),
   metrorail = c(Interstate = 0.38, US = 0.54, State = 0.72, County = 1.16, Major = 1.24, Primary = 1.14, Secondary = 1.40, Connector = 1.0)
 )
 
-# Vectorised tier->mph lookup for a profile. Unknown tiers fall back to 28 mph
-# (the historical default in the scalar wrapper).
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Vectorised tier->mph lookup for a profile. Unknown tiers fall back
+# to 28 mph (the historical default in the scalar wrapper).
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_tier_speed_lookup <- function(route_tier, route_key = "fastest") {
   key <- tolower(as.character(route_key %||% "fastest"))
   tbl <- ROUTE_TIER_SPEED_TABLES[[key]] %||% ROUTE_TIER_SPEED_TABLES$fastest
@@ -199,7 +228,14 @@ route_tier_speed_lookup <- function(route_tier, route_key = "fastest") {
   speed
 }
 
-# Vectorised tier->bonus lookup for a profile. Unknown tiers fall back to 1.0.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Vectorised tier->bonus lookup for a profile. Unknown tiers fall
+# back to 1.0.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_tier_bonus_lookup <- function(route_tier, route_key = "fastest") {
   key <- tolower(as.character(route_key %||% "fastest"))
   tbl <- ROUTE_TIER_BONUS_TABLES[[key]] %||% ROUTE_TIER_BONUS_TABLES$fastest
@@ -208,19 +244,43 @@ route_tier_bonus_lookup <- function(route_tier, route_key = "fastest") {
   bonus
 }
 
-# Scalar wrapper around route_tier_speed_lookup — kept for backwards-compatibility with call sites that pass a single tier instead of a vector.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Scalar wrapper around route_tier_speed_lookup — kept for
+# backwards-compatibility with call sites that pass a single tier instead
+# of a vector.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_tier_speed_for_profile <- function(route_tier = "", route_key = "fastest") {
   tier <- as.character(route_tier %||% "Secondary")
   unname(route_tier_speed_lookup(tier, route_key))[1]
 }
 
-# Scalar wrapper around route_tier_bonus_lookup; falls back to "Primary" or "Secondary" tier based on road_class when no explicit tier is supplied.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Scalar wrapper around route_tier_bonus_lookup; falls back to
+# "Primary" or "Secondary" tier based on road_class when no explicit tier
+# is supplied.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_tier_bonus_for_profile <- function(route_tier = "", route_key = "fastest", road_class = "") {
   tier <- as.character(route_tier %||% ifelse(identical(as.character(road_class %||% ""), "Primary"), "Primary", "Secondary"))
   unname(route_tier_bonus_lookup(tier, route_key))[1]
 }
 
-# Returns base_speed_mph clipped to a minimum of 10 mph, with a 5 mph penalty applied to any segment whose risk exceeds RISK_RED_MIN — used when computing per-segment ETA.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Returns base_speed_mph clipped to a minimum of 10 mph, with a 5 mph
+# penalty applied to any segment whose risk exceeds RISK_RED_MIN — used
+# when computing per-segment ETA.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 adjusted_route_speed_mph <- function(base_speed_mph, segment_risk = 0) {
   speed <- suppressWarnings(as.numeric(base_speed_mph))
   speed[!is.finite(speed) | speed <= 0] <- 28
@@ -230,12 +290,29 @@ adjusted_route_speed_mph <- function(base_speed_mph, segment_risk = 0) {
   pmax(10, speed)
 }
 
-# Predicate: TRUE when route_tier is one of Interstate / US / State (the high-tier corridors used by route_highway_summary to compute pre/post-highway mileage splits).
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Predicate: TRUE when route_tier is one of Interstate / US / State
+# (the high-tier corridors used by route_highway_summary to compute
+# pre/post-highway mileage splits).
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_high_priority_tier <- function(route_tier = "") {
   as.character(route_tier %||% "") %in% c("Interstate", "US", "State")
 }
 
-# Builds a stable graph node ID by snapping projected (x, y) meter coordinates to a ROUTE_NODE_SNAP_METERS grid — two endpoints within snap_m of each other share an ID, which is how OSM ways with slightly different junction coordinates get joined into a single graph node.
+# Why: constructor/factory for a stable internal type used across the
+# layer.
+# What: Builds a stable graph node ID by snapping projected (x, y) meter
+# coordinates to a ROUTE_NODE_SNAP_METERS grid — two endpoints within
+# snap_m of each other share an ID, which is how OSM ways with slightly
+# different junction coordinates get joined into a single graph node.
+# How: sf geometry op + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 make_route_node_id <- function(x, y, snap_m = ROUTE_NODE_SNAP_METERS) {
   snap_m <- max(1, suppressWarnings(as.numeric(snap_m %||% ROUTE_NODE_SNAP_METERS)))
   sprintf("%d|%d", round(as.numeric(x) / snap_m), round(as.numeric(y) / snap_m))
@@ -283,6 +360,24 @@ build_route_segments <- function(zips, horizon_key = "live", roads_overlay = NUL
   cached <- cache_get("derived", cache_name)
   if (!is.null(cached)) return(cached)
 
+  return(flows_time_step(
+    sprintf("build_route_segments cold body (%s)", horizon_key),
+    build_route_segments_cold(zips, horizon_key, roads_overlay, cache_name),
+    group = "route"
+  ))
+}
+
+# Why: a downstream consumer needs the assembled output in a single call
+# rather than calling the underlying primitives separately.
+# What: Cold-cache body of build_route_segments — extracted so the wrapper
+# above can time it without confusing the early-return cache path.
+# How: sf geometry op + named vector build + guarded numeric coercion.
+# When: called by the layer's top-level builder when assembling the
+# user-visible output.
+# Impact: any new column or row source needs to be added here AND in the
+# layer's standardise_* schema; mismatched schemas show up as silent column
+# drops downstream.
+build_route_segments_cold <- function(zips, horizon_key, roads_overlay, cache_name) {
   roads <- load_wi_roads()
   if (nrow(roads) == 0) return(data.frame())
   roads <- suppressWarnings(sf::st_cast(roads, "LINESTRING", warn = FALSE))
@@ -445,74 +540,6 @@ build_route_segments <- function(zips, horizon_key = "live", roads_overlay = NUL
   out
 }
 
-# Why: A* over the full ~97k-edge OSM graph is wasteful when the start/end
-# pair only spans a small corridor, and most of that work just gets thrown
-# away. Restricting the search graph to a buffered corridor cuts cold-cache
-# routing latency without affecting optimality for typical Wisconsin trips.
-# What: returns the subset of segments whose endpoints lie inside a buffered
-# corridor (between the two points) plus generous anchor buffers around each
-# endpoint, or the full segments table when the corridor would be too sparse.
-# How: projects the two points to EPSG:5070, draws a corridor buffer scaled
-# by trip distance (30%, capped 30-120 km) and per-anchor buffers (18%, capped
-# 20-90 km), then keeps any segment that intersects the union of the three.
-# When: called from plan_route_options before native_plan_routes so each of
-# the three profile A* searches sees the same corridor-restricted graph.
-# Impact: too narrow a corridor risks cutting off a viable detour and
-# yielding suboptimal routes; the <200-segment fallback to the full graph
-# guards against that on routes that pass through sparse rural areas.
-subset_route_segments <- function(segments, start_point, end_point) {
-  if (is.null(segments) || nrow(segments) == 0) return(segments)
-  pts_proj <- suppressWarnings(sf::st_transform(
-    sf::st_sfc(
-      sf::st_point(c(start_point$lon, start_point$lat)),
-      sf::st_point(c(end_point$lon, end_point$lat)),
-      crs = 4326
-    ),
-    5070
-  ))
-  coords <- suppressWarnings(sf::st_coordinates(pts_proj))
-  if (is.null(coords) || nrow(coords) < 2) return(segments)
-  dx <- coords[2, "X"] - coords[1, "X"]
-  dy <- coords[2, "Y"] - coords[1, "Y"]
-  dist_m <- sqrt(dx^2 + dy^2)
-  buffer_m <- min(120000, max(30000, dist_m * 0.30))
-  anchor_buffer_m <- min(90000, max(20000, dist_m * 0.18))
-  line_mat <- rbind(c(coords[1, "X"], coords[1, "Y"]), c(coords[2, "X"], coords[2, "Y"]))
-  corridor <- sf::st_buffer(sf::st_sfc(sf::st_linestring(line_mat), crs = 5070), buffer_m)
-  start_buf <- sf::st_buffer(sf::st_sfc(sf::st_point(c(coords[1, "X"], coords[1, "Y"])), crs = 5070), anchor_buffer_m)
-  end_buf <- sf::st_buffer(sf::st_sfc(sf::st_point(c(coords[2, "X"], coords[2, "Y"])), crs = 5070), anchor_buffer_m)
-  seg_sf <- sf::st_as_sf(segments, coords = c("from_x", "from_y"), crs = 5070, remove = FALSE)
-  keep_from <- lengths(sf::st_intersects(seg_sf, corridor)) > 0
-  keep_start_from <- lengths(sf::st_intersects(seg_sf, start_buf)) > 0
-  keep_end_from <- lengths(sf::st_intersects(seg_sf, end_buf)) > 0
-  seg_sf2 <- sf::st_as_sf(segments, coords = c("to_x", "to_y"), crs = 5070, remove = FALSE)
-  keep_to <- lengths(sf::st_intersects(seg_sf2, corridor)) > 0
-  keep_start_to <- lengths(sf::st_intersects(seg_sf2, start_buf)) > 0
-  keep_end_to <- lengths(sf::st_intersects(seg_sf2, end_buf)) > 0
-  keep_start <- keep_start_from | keep_start_to
-  keep_end <- keep_end_from | keep_end_to
-  keep <- keep_from | keep_to | keep_start | keep_end
-  out <- segments[keep, , drop = FALSE]
-  if (nrow(out) < 200 || !any(keep_start) || !any(keep_end)) out <- segments
-  out
-}
-
-# Returns the single nearest node_id to point (lon, lat), measured in EPSG:5070 meters; if preferred_node_ids is non-empty, only those nodes are considered first.
-find_nearest_route_node <- function(node_df, point, preferred_node_ids = NULL) {
-  if (!is.null(preferred_node_ids) && length(preferred_node_ids) > 0) {
-    preferred_df <- node_df[node_df$node_id %in% preferred_node_ids, , drop = FALSE]
-    if (nrow(preferred_df) > 0) node_df <- preferred_df
-  }
-  pt <- sf::st_sfc(sf::st_point(c(point$lon, point$lat)), crs = 4326)
-  pt_proj <- suppressWarnings(sf::st_transform(pt, 5070))
-  coords <- suppressWarnings(sf::st_coordinates(pt_proj))
-  if (nrow(coords) == 0) return(NA_character_)
-  dx <- node_df$x - coords[1, "X"]
-  dy <- node_df$y - coords[1, "Y"]
-  idx <- which.min(dx * dx + dy * dy)
-  node_df$node_id[idx]
-}
-
 # Why: A* needs more than just the single nearest node to a query point —
 # starting from one node can force the search down a local street even when
 # a high-tier road is close by; a small candidate set lets the planner
@@ -550,7 +577,15 @@ find_candidate_route_nodes <- function(node_df, point, preferred_node_ids = NULL
 }
 
 
-# Returns the human-readable description of a routing profile (fastest / safest / metro / metrorail) shown in the route details panel — kept aligned with the route-selection contract documented in global.R.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Returns the human-readable description of a routing profile
+# (fastest / safest / metro / metrorail) shown in the route details panel —
+# kept aligned with the route-selection contract documented in global.R.
+# How: branch dispatch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_behavior_description <- function(route_key = "fastest") {
   key <- tolower(as.character(route_key %||% "fastest"))
   switch(
@@ -765,7 +800,15 @@ build_route_display_sf <- function(route_sf, geometry_override = NULL) {
   out
 }
 
-# Returns route_obj's pre-built display_sf when present, else lazily computes one via route_display_sf_from_live_roads — the lazy path is what server.R uses when the route was built without a live roads overlay.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Returns route_obj's pre-built display_sf when present, else lazily
+# computes one via route_display_sf_from_live_roads — the lazy path is what
+# server.R uses when the route was built without a live roads overlay.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_display_sf <- function(route_obj = NULL, roads_sf = NULL) {
   if (is.null(route_obj)) return(NULL)
   display_sf <- route_obj$display_sf %||% NULL
@@ -923,7 +966,15 @@ make_route_connector_sf <- function(point, node_row, route_name, route_rank, rou
 }
 
 
-# Joins two route-summary notes (base_note and extra_note) with a single space, dropping NULL/empty inputs and returning NULL only when both are empty.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Joins two route-summary notes (base_note and extra_note) with a
+# single space, dropping NULL/empty inputs and returning NULL only when
+# both are empty.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 append_route_mode_note <- function(base_note = NULL, extra_note = NULL) {
   base_note <- trimws(as.character(base_note %||% ""))
   extra_note <- trimws(as.character(extra_note %||% ""))
@@ -975,7 +1026,15 @@ clone_route_profile <- function(route_obj, profile, note = NULL) {
 }
 
 
-# Returns a unique character vector of "<road_id>::<segment_index>" keys for the displayable edges in route_obj — used by route_overlap_ratio to compare two routes.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Returns a unique character vector of "<road_id>::<segment_index>"
+# keys for the displayable edges in route_obj — used by route_overlap_ratio
+# to compare two routes.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_edge_keys <- function(route_obj = NULL) {
   if (is.null(route_obj) || is.null(route_obj$route_sf) || nrow(route_obj$route_sf) == 0) return(character(0))
   route_sf <- filter_display_route_sf(route_obj$route_sf)
@@ -983,19 +1042,21 @@ route_edge_keys <- function(route_obj = NULL) {
   unique(paste(route_sf$road_id, route_sf$segment_index, sep = "::"))
 }
 
-# Returns |edges_a ∩ edges_b| / min(|edges_a|, |edges_b|) — a 0..1 score used by native_plan_routes to detect near-duplicate routes that should be replaced with a clone_route_profile fallback.
+# Why: routing pipeline needs this small primitive in a hot loop; isolating
+# it keeps the planner readable.
+# What: Returns |edges_a ∩ edges_b| / min(|edges_a|, |edges_b|) — a 0..1
+# score used by native_plan_routes to detect near-duplicate routes that
+# should be replaced with a clone_route_profile fallback.
+# How: guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 route_overlap_ratio <- function(route_a = NULL, route_b = NULL) {
   keys_a <- route_edge_keys(route_a)
   keys_b <- route_edge_keys(route_b)
   if (length(keys_a) == 0 || length(keys_b) == 0) return(0)
   length(intersect(keys_a, keys_b)) / max(1, min(length(keys_a), length(keys_b)))
 }
-
-# Returns route_obj$summary$total_miles coerced to numeric, or NA_real_ when missing — convenience accessor used by ranking and UI rendering.
-route_distance_miles <- function(route_obj = NULL) {
-  suppressWarnings(as.numeric(route_obj$summary$total_miles %||% NA_real_))
-}
-
 
 # Why: when ranking route alternatives for the safest profile, raw avg_risk
 # under-penalises short red stretches; we need a single scalar that scores
@@ -1026,38 +1087,6 @@ route_exposure_index <- function(route_obj = NULL) {
   nontrans[!is.finite(nontrans)] <- 0
   avg[!is.finite(avg)] <- 0
   (red * 5000) + (red_weighted * 7000) + (yellow * 220) + (green * 24) + (nontrans * 3) + (avg * 180)
-}
-
-
-# Maps a 0..1 score to an ordered integer rank (Transparent=1, Green=2, Yellow=3, Red=4, anything else=99) so route summaries can compare two scores by tier without re-running the threshold logic.
-risk_label_rank <- function(score = NA_real_) {
-  lbl <- risk_label_from_score(score)
-  switch(
-    lbl,
-    Transparent = 1L,
-    Green = 2L,
-    Yellow = 3L,
-    Red = 4L,
-    99L
-  )
-}
-
-
-# Returns the great-circle distance in miles between start_point and end_point's lon/lat — used as the baseline "as the crow flies" span when sizing search corridors and time ceilings; NA_real_ if either point is missing.
-route_request_span_miles <- function(start_point = NULL, end_point = NULL) {
-  if (is.null(start_point) || is.null(end_point)) return(NA_real_)
-  pts <- tryCatch(
-    sf::st_sfc(
-      sf::st_point(c(start_point$lon, start_point$lat)),
-      sf::st_point(c(end_point$lon, end_point$lat)),
-      crs = 4326
-    ),
-    error = function(e) NULL
-  )
-  if (is.null(pts) || length(pts) < 2) return(NA_real_)
-  dist_m <- tryCatch(as.numeric(sf::st_distance(pts[1], pts[2], by_element = TRUE)), error = function(e) NA_real_)
-  if (!is.finite(dist_m)) return(NA_real_)
-  dist_m / 1609.344
 }
 
 
@@ -1092,9 +1121,7 @@ plan_route_options <- function(start_query, end_query, zips, horizon_key = "live
     return(list(message = "No routable Wisconsin road segments were available for this request.",
                 routes = list(), start_point = start_point, end_point = end_point))
   }
-  corridor_segments <- subset_route_segments(full_segments, start_point, end_point)
   return(native_plan_routes(start_point, end_point, full_segments,
-                            corridor_segments = corridor_segments,
                             progress = progress, horizon_key = horizon_key))
 }
 

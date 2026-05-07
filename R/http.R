@@ -28,13 +28,28 @@ http_text <- function(url, user_agent = NOAA_USER_AGENT, timeout_seconds = DEFAU
   httr2::resp_body_string(resp)
 }
 
-# Fetches URL with http_text and parses as JSON with simplifyVector = FALSE so nested structures stay as nested lists.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Fetches URL with http_text and parses as JSON with simplifyVector =
+# FALSE so nested structures stay as nested lists.
+# How: sf geometry op + HTTP JSON fetch + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 http_json <- function(url, user_agent = NOAA_USER_AGENT, timeout_seconds = DEFAULT_HTTP_TIMEOUT_SECONDS, max_tries = DEFAULT_HTTP_MAX_TRIES) {
   txt <- http_text(url, user_agent = user_agent, timeout_seconds = timeout_seconds, max_tries = max_tries)
   jsonlite::fromJSON(txt, simplifyVector = FALSE)
 }
 
-# Fetches URL and parses JSON with default simplifyVector behaviour, returning NULL on parse error.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Fetches URL and parses JSON with default simplifyVector behaviour,
+# returning NULL on parse error.
+# How: regex match + sf geometry op + HTTP JSON fetch + guarded numeric
+# coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 http_json_simple <- function(url, user_agent = NOAA_USER_AGENT, timeout_seconds = DEFAULT_HTTP_TIMEOUT_SECONDS, max_tries = DEFAULT_HTTP_MAX_TRIES) {
   txt <- http_text(url, user_agent = user_agent, timeout_seconds = timeout_seconds, max_tries = max_tries)
   safely(jsonlite::fromJSON(txt))
@@ -61,12 +76,26 @@ download_to_tempfile <- function(url, fileext = "", user_agent = NOAA_USER_AGENT
   tmp_file
 }
 
-# Predicate: TRUE for harmless sf::st_read warnings (currently the "invalid winding order" notice).
+# Why: callers need a boolean predicate that's NA-safe and consistent
+# across every site that needs the same classification.
+# What: Predicate: TRUE for harmless sf::st_read warnings (currently the
+# "invalid winding order" notice).
+# How: regex match + sf geometry op + HTTP JSON fetch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 is_benign_sf_read_warning <- function(message) {
   grepl("invalid winding order", safe_string(message), ignore.case = TRUE)
 }
 
-# Wraps sf::st_read to muffle warnings flagged as benign by is_benign_sf_read_warning.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Wraps sf::st_read to muffle warnings flagged as benign by
+# is_benign_sf_read_warning.
+# How: sf geometry op + HTTP JSON fetch + row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 read_sf_quietly <- function(dsn, quiet = TRUE, ...) {
   withCallingHandlers(
     sf::st_read(dsn, quiet = quiet, ...),
@@ -78,7 +107,14 @@ read_sf_quietly <- function(dsn, quiet = TRUE, ...) {
   )
 }
 
-# Predicate: TRUE if WI511_API_KEY is set to a non-empty string, gating optional WI511 feeds.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Predicate: TRUE if WI511_API_KEY is set to a non-empty string,
+# gating optional WI511 feeds.
+# How: regex match + HTTP JSON fetch + row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 has_wi511_key <- function() {
   nzchar(trimws(WI511_API_KEY %||% ""))
 }
@@ -108,12 +144,26 @@ build_url_with_query <- function(url, query = list()) {
   paste0(url, if (grepl("?", url, fixed = TRUE)) "&" else "?", paste(parts, collapse = "&"))
 }
 
-# Convenience: build_url_with_query then http_json - lets callers pass query parameters as a list.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Convenience: build_url_with_query then http_json - lets callers
+# pass query parameters as a list.
+# How: HTTP JSON fetch.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 http_json_query <- function(url, query = list(), user_agent = NOAA_USER_AGENT, timeout_seconds = DEFAULT_HTTP_TIMEOUT_SECONDS, max_tries = DEFAULT_HTTP_MAX_TRIES) {
   http_json(build_url_with_query(url, query), user_agent = user_agent, timeout_seconds = timeout_seconds, max_tries = max_tries)
 }
 
-# Returns the first non-NULL value in obj across the given candidate names, otherwise default.
+# Why: upstream payload structures vary; this helper centralises the
+# field-name search so callers don't repeat the OR-chain in every spot.
+# What: Returns the first non-NULL value in obj across the given candidate
+# names, otherwise default.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 extract_named_value <- function(obj, names, default = NULL) {
   for (nm in names) {
     if (!is.null(obj[[nm]])) return(obj[[nm]])
@@ -121,7 +171,14 @@ extract_named_value <- function(obj, names, default = NULL) {
   default
 }
 
-# Returns the first non-empty character value found across candidate names in obj, else default.
+# Why: upstream payload structures vary; this helper centralises the
+# field-name search so callers don't repeat the OR-chain in every spot.
+# What: Returns the first non-empty character value found across candidate
+# names in obj, else default.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 extract_named_character <- function(obj, names, default = NA_character_) {
   val <- extract_named_value(obj, names, default = default)
   if (is.null(val) || length(val) == 0) return(default)
@@ -129,7 +186,14 @@ extract_named_character <- function(obj, names, default = NA_character_) {
   if (!nzchar(trimws(out))) default else out
 }
 
-# Returns the first finite numeric value found across candidate names in obj, else default.
+# Why: upstream payload structures vary; this helper centralises the
+# field-name search so callers don't repeat the OR-chain in every spot.
+# What: Returns the first finite numeric value found across candidate names
+# in obj, else default.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 extract_named_numeric_any <- function(obj, names, default = NA_real_) {
   val <- extract_named_value(obj, names, default = default)
   if (is.null(val) || length(val) == 0) return(default)
@@ -137,7 +201,15 @@ extract_named_numeric_any <- function(obj, names, default = NA_real_) {
   if (is.finite(out)) out else default
 }
 
-# Formats a Unix timestamp x as "YYYY-mm-dd HH:MM UTC", or NA_character_ when x is non-finite.
+# Why: the user-facing display needs a consistent rendering of this value
+# across popups / summaries / legends.
+# What: Formats a Unix timestamp x as "YYYY-mm-dd HH:MM UTC", or
+# NA_character_ when x is non-finite.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: any change to the rendering shows up directly in popups / legends
+# / summaries; keep callers' assumptions about output shape (e.g., "%s%%")
+# stable.
 format_unix_time_or_na <- function(x) {
   val <- safe_numeric(x)
   if (!is.finite(val)) return(NA_character_)

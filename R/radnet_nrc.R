@@ -9,7 +9,14 @@
 # R/radnet_nrc.R — auto-extracted from global.R during the modular split.
 # Edit functions here; do not move them back into global.R unless you also update the loader.
 
-# Decodes the basic HTML entities and CDATA wrappers in NRC RSS payloads without pulling in a full XML/HTML parser.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Decodes the basic HTML entities and CDATA wrappers in NRC RSS
+# payloads without pulling in a full XML/HTML parser.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 decode_html_entities_simple <- function(x) {
   x <- as.character(x %||% "")
   x <- gsub("<!\\[CDATA\\[", "", x, perl = TRUE)
@@ -22,7 +29,14 @@ decode_html_entities_simple <- function(x) {
   x
 }
 
-# Strips XML/HTML tags and collapses whitespace - decodes entities first so resulting plain text is human readable.
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Strips XML/HTML tags and collapses whitespace - decodes entities
+# first so resulting plain text is human readable.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 strip_xml_tags_simple <- function(x) {
   x <- decode_html_entities_simple(x)
   x <- gsub("<[^>]+>", " ", x, perl = TRUE)
@@ -30,7 +44,15 @@ strip_xml_tags_simple <- function(x) {
   trimws(x)
 }
 
-# Returns the inner text of the first <tag>...</tag> match (case-insensitive), stripped of any nested tags - lightweight regex extractor.
+# Why: upstream payload structures vary; this helper centralises the
+# field-name search so callers don't repeat the OR-chain in every spot.
+# What: Returns the inner text of the first <tag>...</tag> match
+# (case-insensitive), stripped of any nested tags - lightweight regex
+# extractor.
+# How: row/element loop.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 extract_xml_tag_value_simple <- function(xml_text, tag_name) {
   pattern <- sprintf("<%s(?:[^>]*)>(.*?)</%s>", tag_name, tag_name)
   matches <- regmatches(xml_text, gregexpr(pattern, xml_text, perl = TRUE, ignore.case = TRUE))[[1]]
@@ -68,14 +90,28 @@ parse_simple_rss_items <- function(xml_text) {
   dplyr::bind_rows(rows)
 }
 
-# Lowercases and replaces non-alphanumerics with single spaces - used to fuzzy-match RadNet station place names.
+# Why: downstream lookups and grepl calls need a canonical text form so
+# casing / punctuation drift can't cause false misses.
+# What: Lowercases and replaces non-alphanumerics with single spaces - used
+# to fuzzy-match RadNet station place names.
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 normalize_place_name_simple <- function(x) {
   x <- tolower(as.character(x %||% ""))
   x <- gsub("[^a-z0-9]+", " ", x, perl = TRUE)
   trimws(x)
 }
 
-# Finds the sf row in load_places() whose normalised name matches place_name, returning a CRS-4326 point on its surface (NULL if no match).
+# Why: internal helper used by callers in the same module; isolating it
+# keeps the call sites free of repeated boilerplate.
+# What: Finds the sf row in load_places() whose normalised name matches
+# place_name, returning a CRS-4326 point on its surface (NULL if no match).
+# How: see body — short helper.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 lookup_place_point_by_name <- function(place_name) {
   places <- load_places()
   if (is.null(places) || nrow(places) == 0) return(NULL)
@@ -189,26 +225,25 @@ fetch_radnet_wi_scores <- function() {
   if (!is.null(cached)) return(cached)
 
   year_now <- as.integer(format(Sys.Date(), "%Y"))
-  rows <- list()
-  for (spec in RADNET_WI_MONITOR_SPECS) {
+  fetch_one_station <- function(spec) {
     txt <- NULL
     for (yr in unique(c(year_now, year_now - 1L))) {
       url <- sprintf("https://radnet.epa.gov/cdx-radnet-rest/api/rest/csv/%s/fixed/WI/%s", yr, spec$slug)
       txt <- safely(http_text(url, user_agent = NOAA_USER_AGENT))
       if (!is.null(txt) && nzchar(trimws(txt))) break
     }
-    if (is.null(txt) || !nzchar(trimws(txt))) next
+    if (is.null(txt) || !nzchar(trimws(txt))) return(NULL)
     lines <- readLines(textConnection(txt), warn = FALSE)
     header_idx <- which(grepl(",", lines) & grepl("date|time|gamma|exposure|rate", lines, ignore.case = TRUE))
-    if (length(header_idx) == 0) next
+    if (length(header_idx) == 0) return(NULL)
     csv_txt <- paste(lines[header_idx[1]:length(lines)], collapse = "\n")
     dat <- safely(utils::read.csv(text = csv_txt, stringsAsFactors = FALSE, check.names = TRUE))
-    if (is.null(dat) || nrow(dat) == 0) next
+    if (is.null(dat) || nrow(dat) == 0) return(NULL)
     scored <- score_radnet_monitor_data(dat)
     place_pt <- lookup_place_point_by_name(spec$place_name)
-    if (is.null(place_pt) || nrow(place_pt) == 0) next
+    if (is.null(place_pt) || nrow(place_pt) == 0) return(NULL)
     coords <- sf::st_coordinates(place_pt)
-    rows[[length(rows) + 1L]] <- data.frame(
+    data.frame(
       place_name = spec$place_name,
       lon = coords[1, 1],
       lat = coords[1, 2],
@@ -217,6 +252,18 @@ fetch_radnet_wi_scores <- function() {
       stringsAsFactors = FALSE
     )
   }
+  # Parallelise across the 4 WI RadNet stations: each is an independent EPA
+  # CDX HTTP fetch + CSV parse, dominated by network latency. mclapply forks
+  # cleanly on macOS / Linux; Windows transparently falls through to lapply.
+  use_parallel <- .Platform$OS.type != "windows"
+  results <- if (use_parallel) {
+    parallel::mclapply(RADNET_WI_MONITOR_SPECS, fetch_one_station,
+                       mc.cores = max(1L, min(length(RADNET_WI_MONITOR_SPECS), 4L)),
+                       mc.preschedule = FALSE)
+  } else {
+    lapply(RADNET_WI_MONITOR_SPECS, fetch_one_station)
+  }
+  rows <- Filter(Negate(is.null), results)
 
   out_scores <- stats::setNames(rep(0, nrow(wi_zctas)), wi_zctas$zipcode)
   out_labels <- stats::setNames(rep(NA_character_, nrow(wi_zctas)), wi_zctas$zipcode)
@@ -239,7 +286,16 @@ fetch_radnet_wi_scores <- function() {
   out
 }
 
-# Maps NRC event report text to a 0..1 severity score by keyword (general emergency = 1.00, alert = 0.80, unusual event = 0.55, etc.).
+# Why: downstream consumers need a 0..1 numeric risk for this signal so it
+# can fuse with other family scores via noisy-OR.
+# What: Maps NRC event report text to a 0..1 severity score by keyword
+# (general emergency = 1.00, alert = 0.80, unusual event = 0.55, etc.).
+# How: regex match + guarded numeric coercion.
+# When: called per row inside the matching fetcher / compute step; results
+# land in the per-zip or per-road score column the rest of the layer reads.
+# Impact: the keyword / threshold table here is the lever for how
+# aggressively this signal lights up; broadening keywords surfaces more
+# rows at lower bands.
 score_nrc_event_text <- function(text) {
   text <- tolower(safe_string(text))
   if (!nzchar(text)) return(0)
@@ -254,13 +310,28 @@ score_nrc_event_text <- function(text) {
   max(levels, na.rm = TRUE)
 }
 
-# Predicate: TRUE if title+description text mentions Wisconsin, "wi", or one of the named WI nuclear sites (Point Beach, Kewaunee, etc.).
+# Why: callers need a boolean predicate that's NA-safe and consistent
+# across every site that needs the same classification.
+# What: Predicate: TRUE if title+description text mentions Wisconsin, "wi",
+# or one of the named WI nuclear sites (Point Beach, Kewaunee, etc.).
+# How: regex match + cache lookup + put + guarded numeric coercion.
+# When: called from a small set of internal call sites within this module.
+# Impact: consult call sites before changing the signature; a regression
+# here propagates through every caller.
 is_wisconsin_nrc_event <- function(title, description) {
   text <- tolower(paste(title %||% "", description %||% ""))
   grepl("\\bwisconsin\\b|\\bwi\\b|point beach|kewaunee|la crosse|madison|milwaukee|shawano", text, perl = TRUE)
 }
 
-# Parses an NRC RSS pubDate ("Mon, 02 Jan 2024 13:45:00 +0000") to UTC POSIXct, falling back to a generic POSIXct cast.
+# Why: the upstream payload arrives in an unstructured shape that the rest
+# of the pipeline can't consume directly.
+# What: Parses an NRC RSS pubDate ("Mon, 02 Jan 2024 13:45:00 +0000") to
+# UTC POSIXct, falling back to a generic POSIXct cast.
+# How: cache lookup + put + guarded numeric coercion.
+# When: called immediately after the upstream HTTP fetch resolves, before
+# the result is handed to the scorer or shape converter.
+# Impact: upstream schema drift is the main failure mode; the function
+# tries multiple field-name spellings to absorb minor changes.
 parse_nrc_pubdate <- function(x) {
   x <- trimws(safe_string(x))
   if (!nzchar(x)) return(as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"))
