@@ -48,4 +48,4 @@ For stronger protection and enforcement posture, consider:
 
 ## Not legal advice
 
-This template is general informational material and not a substitute for legal advice from a qualified attorney in the relevant jurisdiction. WIPO also cautions that its educational materials are not a substitute for professional legal advice.
+This template is general informational material and not a substitute for legal advice from a qualified attorney in the relevant jurisdiction. WIPO also cautions that its educational materials are not a substitute for professional legal advice. 
