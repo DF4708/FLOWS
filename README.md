@@ -119,7 +119,7 @@ From an R session in the project root:
 
 ```r
 install.packages(c(
-  "shiny", "sf", "dplyr", "httr2", "jsonlite", "htmltools",
+  "shiny", "sf", "httr2", "jsonlite", "htmltools",
   "leaflet", "DT"
 ))
 

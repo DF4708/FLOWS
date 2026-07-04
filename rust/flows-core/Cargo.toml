@@ -1,0 +1,18 @@
+[package]
+name = "flows-core"
+version = "0.1.0"
+edition = "2021"
+description = "FLOWS compute core — Phase R0 PoC (risk bands, distance kernel, C-ABI FFI)"
+
+[lib]
+# staticlib: links directly into the Swift binary (libflows_core.a).
+# rlib: lets the Rust test harness exercise the same code.
+# cdylib: a .dylib R can dyn.load() to call the C-ABI kernels via .C(), so the
+#   same compiled core is verified byte-identical against the R oracle (the
+#   R->Rust FFI bridge, phase R1). One core, exercised from Swift AND R.
+crate-type = ["staticlib", "rlib", "cdylib"]
+
+[dependencies]
+# Phase R0 is intentionally dependency-free — pure std — so the PoC builds
+# fast and small even under the memory ceiling. Feeds/geo/routing crates
+# (reqwest, serde, geo, fast_paths, rstar) arrive in later phases.

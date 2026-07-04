@@ -246,7 +246,9 @@ fetch_glm_lightning_scores <- function() {
     freshest_age[hit_idx] <- pmin(freshest_age[hit_idx], age_minutes)
   }
   if (any(accum > 0)) {
-    raw_scores <- vapply(accum, function(v) piecewise_score(v, 1.5, 6, 15), numeric(1))
+    # Vectorised (no per-element vapply loop) — byte-identical to
+    # vapply(piecewise_score) for scalar thresholds; see R/scoring.R.
+    raw_scores <- vector_piecewise_score(accum, 1.5, 6, 15)
     scores[] <- raw_scores
     labels[raw_scores > 0] <- ifelse(
       is.finite(freshest_age[raw_scores > 0]),

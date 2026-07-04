@@ -186,15 +186,26 @@ load_wi_roads <- function() {
     roads$road_name[blank_name] <- ifelse(roads$MTFCC[blank_name] == "S1100", "Primary road", "Secondary road")
   }
   if (!"road_class" %in% names(roads)) roads$road_class <- ifelse(roads$MTFCC == "S1100", "Primary", "Secondary")
-  classify_route_tier <- function(rttyp = "", road_class = "", road_name = "") {
-    tier_code <- toupper(trimws(as.character(rttyp %||% "")))
-    if (tier_code == "I" || grepl("\\bI\\s*-?\\s*\\d+\\b", road_name %||% "", perl = TRUE, ignore.case = TRUE)) return("Interstate")
-    if (tier_code == "U") return("US")
-    if (tier_code == "S") return("State")
-    if (tier_code == "C") return("County")
-    if (tier_code == "M") return("Major")
-    if (identical(as.character(road_class %||% ""), "Primary")) return("Primary")
-    "Secondary"
+  # Vectorised over the whole ~84k-road column (was a per-row vapply index
+  # loop). road_name enters only through one vectorised grepl, so the entire
+  # classifier vectorises. The if/return precedence (Interstate > US > State >
+  # County > Major > Primary > Secondary) is reproduced by assigning masks in
+  # REVERSE priority so the highest-priority match wins. Byte-identical to the
+  # scalar form over the real data domain (20000/20000; the only divergence is
+  # NA rttyp, which the scalar form ERRORS on and never occurs in production —
+  # this vectorised form handles it gracefully as "").
+  classify_route_tier_vec <- function(rttyp, road_class, road_name) {
+    tier_code <- toupper(trimws(as.character(rttyp))); tier_code[is.na(tier_code)] <- ""
+    rn <- as.character(road_name); rn[is.na(rn)] <- ""
+    rc <- as.character(road_class); rc[is.na(rc)] <- ""
+    out <- rep("Secondary", length(tier_code))
+    out[rc == "Primary"]  <- "Primary"
+    out[tier_code == "M"] <- "Major"
+    out[tier_code == "C"] <- "County"
+    out[tier_code == "S"] <- "State"
+    out[tier_code == "U"] <- "US"
+    out[tier_code == "I" | grepl("\\bI\\s*-?\\s*\\d+\\b", rn, perl = TRUE, ignore.case = TRUE)] <- "Interstate"
+    out
   }
   route_tier_speed_mph <- function(route_tier = "") {
     tier <- as.character(route_tier %||% "Secondary")
@@ -211,12 +222,19 @@ load_wi_roads <- function() {
       28
     )
   }
-  roads$route_tier <- vapply(
-    seq_len(nrow(roads)),
-    function(i) classify_route_tier(roads$RTTYP[i] %||% "", roads$road_class[i] %||% "", roads$road_name[i] %||% ""),
-    character(1)
+  # Missing column -> "" for every row (mirrors the old per-row `%||% ""`).
+  .col_or_blank <- function(x) if (is.null(x) || length(x) == 0L) rep("", nrow(roads)) else as.character(x)
+  roads$route_tier <- classify_route_tier_vec(
+    .col_or_blank(roads$RTTYP), .col_or_blank(roads$road_class), .col_or_blank(roads$road_name)
   )
-  roads$base_speed_mph <- vapply(roads$route_tier, route_tier_speed_mph, numeric(1))
+  # route_tier_speed_mph is pure in route_tier (~5-10 distinct tiers across the
+  # ~84k-road set), so evaluate it ONCE per distinct tier and map back — an
+  # O(distinct) pass instead of O(n roads) on the cold graph-build path.
+  # Byte-identical to the per-road vapply (identity vapply(x,g)==
+  # g(unique(x))[match(x,unique(x))] for deterministic g; cycle 27). The
+  # redundancy removed scales with the CONUS road count.
+  .tiers_u <- unique(roads$route_tier)
+  roads$base_speed_mph <- vapply(.tiers_u, route_tier_speed_mph, numeric(1))[match(roads$route_tier, .tiers_u)]
   if (!"susceptibility" %in% names(roads)) roads$susceptibility <- ifelse(roads$road_class == "Primary", 1.00, 0.85)
   cache_put("reference", "wi_prisecroads", roads, ttl_seconds = 24 * 3600)
   roads
@@ -405,10 +423,9 @@ load_road_zip_length_lookup <- function() {
       return(out)
     }
 
-    agg <- dplyr::summarise(
-      dplyr::group_by(inter_df, road_id, zipcode),
-      length_m = sum(piece_length_m, na.rm = TRUE),
-      .groups = "drop"
+    agg <- flows_group_aggregate(
+      inter_df, c("road_id", "zipcode"),
+      list(length_m = function(d) sum(d$piece_length_m, na.rm = TRUE))
     )
     agg$road_id <- as.character(agg$road_id)
     agg$zipcode <- as.character(agg$zipcode)

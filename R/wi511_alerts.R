@@ -296,7 +296,7 @@ fetch_511_alerts_live <- function() {
   # Use base::message — the loop above shadows `message` with each alert body.
   base::message(sprintf("[FLOWS-DEBUG] 511 alerts: kept %d / %d (dropped %d below threshold %.2f).",
                         length(rows), total_seen, dropped_low_risk, WI511_MIN_RISK_THRESHOLD))
-  out <- if (length(rows) == 0) data.frame(alert_id = character(), score = numeric(), message = character(), notes = character(), high_importance = logical(), send_notification = logical(), regions = character(), reason_text = character(), stringsAsFactors = FALSE) else dplyr::bind_rows(rows)
+  out <- if (length(rows) == 0) data.frame(alert_id = character(), score = numeric(), message = character(), notes = character(), high_importance = logical(), send_notification = logical(), regions = character(), reason_text = character(), stringsAsFactors = FALSE) else flows_bind_rows(rows)
   cache_put("derived", key, out, ttl_seconds = ALERT_TTL_SECONDS)
   out
 }

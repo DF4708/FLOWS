@@ -20,3 +20,35 @@ data/reference/geofabrik_wisconsin-latest.osm.pbf
 
 # Runtime caches (regenerable, not for version control)
 data/runtime_cache/
+
+# Autonomous test runner artifacts (regenerable, high-churn)
+tests/continuous_results.jsonl
+tests/.runner_heartbeat
+tests/.runner.log
+tests/.stop_runner
+tests/.runner.pid
+tests/.runner_stdout.log
+
+# Durable autonomous results (persistent, crash-safe, high-churn).
+# Glob (not bare directory) so the negation below works — git does not
+# descend into a fully-ignored directory, which silently hid the
+# hand-authored scientific log from version control.
+data/results/*
+# experiments.jsonl is AUTHORED history (the scientific-method log), not a
+# regenerable artifact — it must stay trackable.
+!data/results/experiments.jsonl
+
+# Rust build artifacts
+rust/target/
+
+# Apple app: generated project + build products (project.yml is the source
+# of truth — regenerate with `cd apple && xcodegen generate`)
+apple/FLOWS.xcodeproj/
+apple/FLOWS/Generated/
+apple/build/
+apple/DerivedData/
+
+# Claude Code session-local state (launch.json IS tracked — it defines the
+# local dev server; worktrees are per-session scratch)
+.claude/worktrees/
+.claude/settings.local.json

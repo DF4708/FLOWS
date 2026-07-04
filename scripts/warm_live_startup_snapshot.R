@@ -28,7 +28,15 @@ suppressWarnings(suppressMessages({
 mark_startup_warmer_active(project_dir = project_dir)
 on.exit(clear_startup_warmer_active(), add = TRUE)
 
-message(sprintf("[%s] warming live startup payload in %s", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), project_dir))
+message(sprintf("[%s] warming live startup payload in %s (region: %s | %s)",
+                format(Sys.time(), "%Y-%m-%d %H:%M:%S"), project_dir,
+                tryCatch(active_region_label(), error = function(e) "unknown"),
+                tryCatch(resource_posture_line(), error = function(e) "resource: unknown")))
+# Hold before the memory-heavy build if the system is already near its
+# ceiling (another process spiked). Proceeds after headroom or a timeout so
+# the warmer still makes progress on a sustained-busy machine.
+invisible(tryCatch(wait_for_memory_headroom(ceiling = 0.90, timeout_seconds = 60),
+                   error = function(e) TRUE))
 payload <- prefetch_live_startup_payload(force_refresh = FALSE, allow_stale = TRUE)
 road_rows <- if (inherits(payload$roads, "sf")) nrow(payload$roads) else 0L
 message(sprintf("[%s] warm complete: zip_rows=%d road_rows=%d", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), nrow(payload$polys), road_rows))
