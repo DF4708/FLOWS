@@ -1,0 +1,12 @@
+# FLOWS Rust core — workspace root.
+# Phase R0 proof-of-concept per docs/RUST_SWIFT_MIGRATION.md.
+# Keeps the R app as the correctness oracle: every function here is verified
+# byte-identical to its R counterpart in the crate's test suite.
+[workspace]
+members = ["flows-core"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

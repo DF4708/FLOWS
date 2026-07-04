@@ -20,45 +20,54 @@
 # Impact: a bug in shift/accumulator math would offset every coordinate; the
 # returned matrix is the geometric ground truth for the rest of the pipeline.
 decode_polyline_matrix <- function(encoded) {
+  # In-house decoder, overflow-safe by construction: each varint accumulates in
+  # DOUBLE space (exact up to 2^53; a valid delta needs <= 32 bits, so there is
+  # ~21 bits of headroom) instead of R's 32-bit signed integers, where the old
+  # `-bitwShiftR(result, 1L) - 1L` un-zigzag underflowed to NA_integer_ on
+  # malformed/overlong varints ("NAs produced by integer overflow").
+  # Vectorized: one utf8ToInt pass + rowsum, no per-character substr loop.
+  # Semantics preserved from the loop version: a truncated trailing varint (or
+  # a dangling lat with no lon) is dropped; a varint longer than MAX_CHUNKS is
+  # malformed and decoding stops at it, returning the pairs decoded so far.
+  empty <- matrix(numeric(0), ncol = 2, dimnames = list(NULL, c("lon", "lat")))
   encoded <- safe_string(encoded)
-  if (!nzchar(encoded)) return(matrix(numeric(0), ncol = 2, dimnames = list(NULL, c("lon", "lat"))))
-  index <- 1L
-  lat <- 0L
-  lon <- 0L
-  len <- nchar(encoded)
-  coords <- vector("list", 0)
+  if (!nzchar(encoded)) return(empty)
 
-  decode_value <- function() {
-    result <- 0L
-    shift <- 0L
-    repeat {
-      if (index > len) return(NULL)
-      b <- utf8ToInt(substr(encoded, index, index)) - 63L
-      index <<- index + 1L
-      result <- bitwOr(result, bitwShiftL(bitwAnd(b, 0x1fL), shift))
-      shift <- shift + 5L
-      if (b < 0x20L) break
-    }
-    if (bitwAnd(result, 1L) != 0L) {
-      -bitwShiftR(result, 1L) - 1L
-    } else {
-      bitwShiftR(result, 1L)
-    }
+  b <- utf8ToInt(encoded) - 63L
+  cont <- b >= 0x20L                       # continuation bit (bit 5)
+  ends <- which(!cont)                     # last chunk of each complete varint
+  if (length(ends) == 0L) return(empty)    # no complete varint at all
+  n_used <- ends[length(ends)]             # chars past the last end are a
+  b <- b[seq_len(n_used)]                  # truncated varint -> dropped
+
+  starts <- c(1L, ends[-length(ends)] + 1L)
+  lens <- ends - starts + 1L
+  MAX_CHUNKS <- 10L                        # 50 bits; valid deltas need <= 7
+  bad <- which(lens > MAX_CHUNKS)
+  if (length(bad) > 0L) {                  # malformed: stop before first bad varint
+    keep <- bad[1L] - 1L
+    if (keep == 0L) return(empty)
+    ends <- ends[seq_len(keep)]
+    starts <- starts[seq_len(keep)]
+    n_used <- ends[keep]
+    b <- b[seq_len(n_used)]
   }
 
-  repeat {
-    dlat <- decode_value()
-    if (is.null(dlat)) break
-    dlon <- decode_value()
-    if (is.null(dlon)) break
-    lat <- lat + dlat
-    lon <- lon + dlon
-    coords[[length(coords) + 1L]] <- c(lon / 1e5, lat / 1e5)
-  }
+  group <- rep.int(seq_along(ends), ends - starts + 1L)
+  offset <- seq_len(n_used) - starts[group]          # chunk position in varint
+  # (b %% 32) == two's-complement bitwAnd(b, 0x1f) even for negative b (chars
+  # below '?'); 32^offset keeps every term exact in double space.
+  vals <- rowsum((b %% 32L) * 32^offset, group, reorder = FALSE)[, 1L]
 
-  if (length(coords) == 0) return(matrix(numeric(0), ncol = 2, dimnames = list(NULL, c("lon", "lat"))))
-  out <- do.call(rbind, coords)
-  colnames(out) <- c("lon", "lat")
+  odd <- vals %% 2 == 1
+  deltas <- ifelse(odd, -(vals + 1) / 2, vals / 2)   # un-zigzag, exact in double
+
+  n_pairs <- length(deltas) %/% 2L
+  if (n_pairs == 0L) return(empty)
+  dlat <- deltas[seq.int(1L, by = 2L, length.out = n_pairs)]
+  dlon <- deltas[seq.int(2L, by = 2L, length.out = n_pairs)]
+  out <- cbind(lon = cumsum(dlon) / 1e5, lat = cumsum(dlat) / 1e5)
+  rownames(out) <- NULL
   out
 }
 

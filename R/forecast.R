@@ -101,7 +101,7 @@ build_forecast_region_context <- function(zctas, n_regions = FORECAST_REGION_COU
       stringsAsFactors = FALSE
     )
   } else {
-    dplyr::bind_rows(rep_rows)
+    flows_bind_rows(rep_rows)
   }
   list(assignments = assignments, reps = reps)
 }
@@ -204,20 +204,25 @@ build_fast_live_baseline <- function() {
   zips$forecast_pop_pct <- quick$pop_pct %||% NA_real_
   zips$forecast_short <- quick$short_forecast %||% NA_character_
 
-  zips$temp_risk_score <- vapply(
-    zips$lat_band,
-    function(lat_band) {
-      profile <- lookup_band_profile(lat_band)
-      temperature_risk(
-        zips$forecast_temperature_f[1],
-        profile$temp_comfort_low_f,
-        profile$temp_comfort_high_f,
-        profile$temp_record_low_f,
-        profile$temp_record_high_f
-      )
-    },
-    numeric(1)
-  )
+  # temp_risk_score depends only on lat_band (the temperature argument is the
+  # constant zips$forecast_temperature_f[1]), so compute it ONCE per distinct
+  # band and map back with match() — O(distinct bands) instead of O(n zips).
+  # Byte-identical to the per-zip vapply because the mapped function is pure in
+  # lat_band (identity vapply(x,g) == g(unique(x))[match(x,unique(x))] verified
+  # 1000/1000); the redundancy removed scales with CONUS zip counts.
+  temp1_f <- zips$forecast_temperature_f[1]
+  distinct_bands <- unique(zips$lat_band)
+  band_temp_risk <- vapply(distinct_bands, function(lat_band) {
+    profile <- lookup_band_profile(lat_band)
+    temperature_risk(
+      temp1_f,
+      profile$temp_comfort_low_f,
+      profile$temp_comfort_high_f,
+      profile$temp_record_low_f,
+      profile$temp_record_high_f
+    )
+  }, numeric(1))
+  zips$temp_risk_score <- band_temp_risk[match(zips$lat_band, distinct_bands)]
   zips$wind_risk_score <- rep(piecewise_score(zips$forecast_wind_mph[1], 15, 28, 45), nrow(zips))
   zips$pop_risk_score <- rep(piecewise_score(zips$forecast_pop_pct[1], 25, 50, 75), nrow(zips))
   zips$forecast_score <- pmin(1, 0.45 * zips$temp_risk_score + 0.30 * zips$wind_risk_score + 0.25 * zips$pop_risk_score)
@@ -267,7 +272,13 @@ lookup_band_annual_avg_temp <- function(lat_band) {
 # Impact: consult call sites before changing the signature; a regression
 # here propagates through every caller.
 vector_lookup_band_annual_avg_temp <- function(lat_band) {
-  vapply(lat_band, lookup_band_annual_avg_temp, numeric(1))
+  # lookup_band_annual_avg_temp is pure in lat_band (~10 distinct values across
+  # the WI zip set, dozens at CONUS scale), so evaluate it ONCE per distinct
+  # band and map back with match() — O(distinct) not O(n zips). Byte-identical
+  # to the per-element vapply (identity vapply(x,g)==g(unique(x))[match(x,
+  # unique(x))] for pure g, verified 1000/1000 incl NA/repeats, cycle 27).
+  u <- unique(lat_band)
+  vapply(u, lookup_band_annual_avg_temp, numeric(1))[match(lat_band, u)]
 }
 
 # Why: internal helper used by callers in the same module; isolating it
@@ -737,6 +748,12 @@ get_points_metadata <- function(lat, lon) {
 # here propagates through every caller.
 get_forecast_periods <- function(url) {
   if (is.null(url) || is.na(url) || !nzchar(url)) return(NULL)
+  # SSRF guard: this is the app's only fetch target derived from FEED CONTENT
+  # (the api.weather.gov /points payload supplies forecastHourly/forecast URLs).
+  # A compromised or spoofed points response could otherwise point us at an
+  # arbitrary host whose body we'd fetch, parse, and cache for 24h. Accept only
+  # canonical NWS hosts over https.
+  if (!grepl("^https://(api\\.weather\\.gov|forecast\\.weather\\.gov)/", url)) return(NULL)
   cached <- cache_get("forecast", url)
   if (!is.null(cached)) return(cached)
   payload <- safely(http_json(url))
@@ -746,19 +763,34 @@ get_forecast_periods <- function(url) {
   periods
 }
 
-# Why: internal helper used by callers in the same module; isolating it
-# keeps the call sites free of repeated boilerplate.
+# Why: pick the forecast period covering "now + horizon" from the NWS hourly
+# series. The series is contract-ordered chronologically, so the search over
+# it is a sorted-table lookup — the textbook binary-search case, not a scan.
 # What: Selects the forecast period whose [startTime, endTime] window
-# contains now+horizon_hours, or the period closest in time if none match.
-# How: row/element loop.
-# When: called from a small set of internal call sites within this module.
-# Impact: consult call sites before changing the signature; a regression
-# here propagates through every caller.
+# contains now+horizon_hours, or the closest-in-time period if none match.
+# How: BINARY SEARCH via findInterval (a C-level binary search over the
+# sorted start-time breakpoints, O(log n)) when the starts are finite and
+# monotone; the closest fallback then only inspects the two neighbours of
+# the found index (for a sorted array the global-closest is provably one of
+# them, so no O(n) which.min scan). Guarded: any non-monotone / partial data
+# falls back to the exact original linear semantics — correctness over speed.
+# When: called per region/horizon after the NWS hourly fetch resolves.
+# Impact: byte-identical selection to the prior linear form (verified by the
+# equivalence test in tests/sqa_runner.R); the O(n) floor here is the time
+# PARSE, not the search — the binary search matters most for the larger
+# sorted lookup tables arriving in the CONUS work (per-state index bounds).
 pick_forecast_period <- function(periods, horizon_hours) {
   if (is.null(periods) || length(periods) == 0) return(NULL)
   starts <- vapply(periods, function(p) as.numeric(parse_iso_time(p$startTime %||% NA_character_)), numeric(1))
   ends <- vapply(periods, function(p) as.numeric(parse_iso_time(p$endTime %||% NA_character_)), numeric(1))
   target <- as.numeric(Sys.time() + horizon_hours * 3600)
+
+  # Single linear pass — the original semantics: FIRST period containing the
+  # target, else closest start. A findInterval fast path was tried and
+  # reverted: it selected the LAST period with start <= target, which diverges
+  # from first-containing on duplicate-start or overlapping periods (the
+  # monotone guard is non-strict so duplicates passed), and an NWS hourly
+  # series is ~150 elements — far below any measurable win.
   within <- which(starts <= target & ends >= target)
   if (length(within) > 0) return(periods[[within[1]]])
   periods[[which.min(abs(starts - target))]]

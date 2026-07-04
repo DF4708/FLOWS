@@ -1,0 +1,96 @@
+# FLOWS Apple app — xcodegen project definition.
+# Regenerate the .xcodeproj with:  cd apple && xcodegen generate
+# (FLOWS.xcodeproj is generated output and git-ignored.)
+name: FLOWS
+options:
+  bundleIdPrefix: com.flows
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    GENERATE_INFOPLIST_FILE: NO
+    # Rust core: FlowsCore.swift dlopens libflows_core at runtime in dev builds
+    # (pure-Swift fallback when absent). Device/App Store builds static-link
+    # ../rust/target/<triple>/release/libflows_core.a — see docs/APPLE_APP.md.
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  FLOWS-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: FLOWS/Sources
+      - path: FLOWS/Resources
+    info:
+      path: FLOWS/Generated/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: FLOWS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocationWhenInUseUsageDescription: >-
+          FLOWS uses your location for turn-by-turn navigation and to keep the
+          weather-risk map centered on you.
+        NSLocationAlwaysAndWhenInUseUsageDescription: >-
+          Continuous location access keeps navigation and hazard warnings
+          current while FLOWS is guiding a route.
+        NSAppleMusicUsageDescription: >-
+          FLOWS shows Apple Music playback controls while navigating in
+          CarPlay.
+        UIBackgroundModes:
+          - location
+        # CarPlay map scene — activates only when the CarPlay entitlement
+        # (com.apple.developer.carplay-maps) is granted by Apple.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app
+        TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
+        SUPPORTS_MACCATALYST: NO
+
+  FLOWS-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: FLOWS/Sources
+      - path: FLOWS/Resources
+    info:
+      path: FLOWS/Generated/Info-macOS.plist
+      properties:
+        CFBundleDisplayName: FLOWS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSLocationUsageDescription: >-
+          FLOWS uses your location to center the weather-risk map and preview
+          routes from where you are.
+        LSApplicationCategoryType: public.app-category.navigation
+    entitlements:
+      path: FLOWS/Generated/FLOWS-macOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.personal-information.location: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.mac
+        CODE_SIGN_IDENTITY: "-"   # ad-hoc for local testing

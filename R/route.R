@@ -341,7 +341,12 @@ build_route_segments <- function(zips, horizon_key = "live", roads_overlay = NUL
     if (length(overlay_fields) > 0) {
       overlay_df <- sf::st_drop_geometry(roads_overlay[, overlay_fields, drop = FALSE])
       overlay_df <- overlay_df[order(overlay_df$road_id), , drop = FALSE]
-      overlay_payload <- paste(apply(as.data.frame(overlay_df), 1, paste, collapse = "~"), collapse = "|")
+      # Columnwise vectorised paste (was apply(df,1,paste) — a per-row R loop
+      # ~3.7x slower over ~100k roads, ~1s, paid on every warm incl. cache
+      # hits). This is a cache KEY: only determinism + collision-resistance
+      # matter, not byte-identity, so the numeric-format change vs apply/
+      # as.matrix is harmless (one-time cache rebuild). Benchmark cycle 19.
+      overlay_payload <- paste(do.call(paste, c(as.list(overlay_df), sep = "~")), collapse = "|")
     }
   }
   cache_fields <- intersect(c("zipcode", "render_signature", "driving_total_risk", "normalized_risk_score"), names(zips))
@@ -349,7 +354,7 @@ build_route_segments <- function(zips, horizon_key = "live", roads_overlay = NUL
     paste(horizon_key, overlay_payload, sep = "|")
   } else if (length(cache_fields) > 0 && nrow(zips) > 0) {
     paste(
-      apply(as.data.frame(sf::st_drop_geometry(zips[, cache_fields, drop = FALSE])), 1, paste, collapse = "~"),
+      do.call(paste, c(as.list(sf::st_drop_geometry(zips[, cache_fields, drop = FALSE])), sep = "~")),
       collapse = "|"
     )
   } else {
@@ -563,8 +568,23 @@ find_candidate_route_nodes <- function(node_df, point, preferred_node_ids = NULL
     if (is.null(df) || nrow(df) == 0) return(character(0))
     dx <- df$x - coords[1, "X"]
     dy <- df$y - coords[1, "Y"]
-    ord <- order(dx * dx + dy * dy, na.last = NA)
-    unique(df$node_id[ord])[seq_len(min(length(unique(df$node_id[ord])), max_candidates))]
+    d2 <- dx * dx + dy * dy
+    keep <- which(!is.na(d2))                 # order(na.last=NA) drops NAs
+    if (length(keep) == 0) return(character(0))
+    # We only need the max_candidates nearest DISTINCT node_ids. Partial-select
+    # a window (O(n)) sized to cover typical duplication, then dedup; fall back
+    # to the exact full order() only if heavy duplication left too few distinct.
+    # Byte-identical to the prior full-sort form (fallback guarantees it), but
+    # O(n) instead of O(n log n) in the common case (node_ids ~distinct).
+    k <- min(length(keep), max(max_candidates * 4L, 8L))
+    sel <- k_smallest_indices(d2[keep], k)
+    ids <- unique(df$node_id[keep[sel]])
+    if (length(ids) >= max_candidates || k >= length(keep)) {
+      return(ids[seq_len(min(length(ids), max_candidates))])
+    }
+    ord <- order(d2, na.last = NA)
+    u <- unique(df$node_id[ord])
+    u[seq_len(min(length(u), max_candidates))]
   }
 
   preferred <- if (!is.null(preferred_node_ids) && length(preferred_node_ids) > 0) node_df[node_df$node_id %in% preferred_node_ids, , drop = FALSE] else node_df[0, , drop = FALSE]
@@ -846,14 +866,21 @@ route_exposure_summary <- function(route_sf) {
   miles <- pmax(0, suppressWarnings(as.numeric(route_sf$length_m))) / 1609.344
   risk <- pmax(0, pmin(1, suppressWarnings(as.numeric(route_sf$segment_risk))))
   risk[!is.finite(risk)] <- 0
+  # Compute each band mask once (SOP: no redundant work). Previously
+  # `risk > RISK_RED_MIN` was evaluated 3x and `risk >= RISK_GREEN_MIN` 2x
+  # per call. Byte-identical to the prior form (5000/5000 incl. boundary /
+  # NA / Inf / empty; see scratchpad exposure_equiv harness, cycle 18).
+  at_green    <- risk >= RISK_GREEN_MIN
+  red         <- risk > RISK_RED_MIN
+  red_miles_v <- miles[red]
   list(
     total_miles = sum(miles, na.rm = TRUE),
     transparent_miles = sum(miles[risk < RISK_GREEN_MIN], na.rm = TRUE),
-    green_miles = sum(miles[risk >= RISK_GREEN_MIN & risk < RISK_YELLOW_MIN], na.rm = TRUE),
+    green_miles = sum(miles[at_green & risk < RISK_YELLOW_MIN], na.rm = TRUE),
     yellow_miles = sum(miles[risk >= RISK_YELLOW_MIN & risk <= RISK_RED_MIN], na.rm = TRUE),
-    red_miles = sum(miles[risk > RISK_RED_MIN], na.rm = TRUE),
-    red_weighted_miles = sum(miles[risk > RISK_RED_MIN] * pmax(risk[risk > RISK_RED_MIN] - RISK_RED_MIN, 0.01), na.rm = TRUE),
-    nontransparent_miles = sum(miles[risk >= RISK_GREEN_MIN], na.rm = TRUE)
+    red_miles = sum(red_miles_v, na.rm = TRUE),
+    red_weighted_miles = sum(red_miles_v * pmax(risk[red] - RISK_RED_MIN, 0.01), na.rm = TRUE),
+    nontransparent_miles = sum(miles[at_green], na.rm = TRUE)
   )
 }
 
@@ -1026,37 +1053,6 @@ clone_route_profile <- function(route_obj, profile, note = NULL) {
 }
 
 
-# Why: routing pipeline needs this small primitive in a hot loop; isolating
-# it keeps the planner readable.
-# What: Returns a unique character vector of "<road_id>::<segment_index>"
-# keys for the displayable edges in route_obj — used by route_overlap_ratio
-# to compare two routes.
-# How: see body — short helper.
-# When: called from a small set of internal call sites within this module.
-# Impact: consult call sites before changing the signature; a regression
-# here propagates through every caller.
-route_edge_keys <- function(route_obj = NULL) {
-  if (is.null(route_obj) || is.null(route_obj$route_sf) || nrow(route_obj$route_sf) == 0) return(character(0))
-  route_sf <- filter_display_route_sf(route_obj$route_sf)
-  if (nrow(route_sf) == 0) return(character(0))
-  unique(paste(route_sf$road_id, route_sf$segment_index, sep = "::"))
-}
-
-# Why: routing pipeline needs this small primitive in a hot loop; isolating
-# it keeps the planner readable.
-# What: Returns |edges_a ∩ edges_b| / min(|edges_a|, |edges_b|) — a 0..1
-# score used by native_plan_routes to detect near-duplicate routes that
-# should be replaced with a clone_route_profile fallback.
-# How: guarded numeric coercion.
-# When: called from a small set of internal call sites within this module.
-# Impact: consult call sites before changing the signature; a regression
-# here propagates through every caller.
-route_overlap_ratio <- function(route_a = NULL, route_b = NULL) {
-  keys_a <- route_edge_keys(route_a)
-  keys_b <- route_edge_keys(route_b)
-  if (length(keys_a) == 0 || length(keys_b) == 0) return(0)
-  length(intersect(keys_a, keys_b)) / max(1, min(length(keys_a), length(keys_b)))
-}
 
 # Why: when ranking route alternatives for the safest profile, raw avg_risk
 # under-penalises short red stretches; we need a single scalar that scores
@@ -1219,7 +1215,7 @@ route_direction_steps <- function(route_obj, max_steps = 10L) {
       keep_back <- 3L
       middle_idx <- seq.int(keep_front + 1L, nrow(steps) - keep_back)
       middle_miles <- sum(steps$miles[middle_idx], na.rm = TRUE)
-      steps <- dplyr::bind_rows(
+      steps <- flows_bind_rows(
         steps[seq_len(keep_front), , drop = FALSE],
         data.frame(instruction = sprintf("Continue through %d intermediate navigation steps.", length(middle_idx)), miles = middle_miles, stringsAsFactors = FALSE),
         steps[(nrow(steps) - keep_back + 1L):nrow(steps), , drop = FALSE]
@@ -1249,7 +1245,7 @@ route_direction_steps <- function(route_obj, max_steps = 10L) {
     }
     data.frame(instruction = instruction, miles = seg_miles, stringsAsFactors = FALSE)
   })
-  steps <- dplyr::bind_rows(grouped)
+  steps <- flows_bind_rows(grouped)
   if (nrow(steps) == 0) {
     return(data.frame(step = integer(), instruction = character(), miles = numeric(), stringsAsFactors = FALSE))
   }
@@ -1258,7 +1254,7 @@ route_direction_steps <- function(route_obj, max_steps = 10L) {
     keep_back <- 3L
     middle_idx <- seq.int(keep_front + 1L, nrow(steps) - keep_back)
     middle_miles <- sum(steps$miles[middle_idx], na.rm = TRUE)
-    steps <- dplyr::bind_rows(
+    steps <- flows_bind_rows(
       steps[seq_len(keep_front), , drop = FALSE],
       data.frame(instruction = sprintf("Continue through %d intermediate road changes.", length(middle_idx)), miles = middle_miles, stringsAsFactors = FALSE),
       steps[(nrow(steps) - keep_back + 1L):nrow(steps), , drop = FALSE]
