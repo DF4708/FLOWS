@@ -543,3 +543,86 @@ key. Gap-filling sources adopted under this rule:
 **Recreation.gov RIDB (federal campgrounds/rec areas)** — ridb.recreation.gov:
 1. Create a recreation.gov account → profile → "API" → generate key.
 (Optional, same reason as NPS.)
+
+---
+
+## 12. FSQ OS Places → offline POI shards (`.fps`) — owned
+
+FLOWS's own offline, legally-shippable POI database: **Foursquare OS Places**
+(Apache 2.0, ~106M global POIs) filtered to US places in the eight groups the
+app actually offers, compiled into one binary shard per state. Replaces
+dependence on keyed POI APIs; ships with the app; works with zero network.
+
+### Source + the gating caveat (2026-07)
+
+Foursquare's own distribution moved: the original public S3 bucket
+(`fsq-os-places-us-east-1`) now holds **only** `LICENSE.txt` and `NOTICE.txt`,
+and current monthly releases (e.g. `dt=2026-07-09`) live in a **gated**
+Hugging Face dataset (`foursquare/fsq-os-places`) requiring an account plus an
+agreement that includes marketing use of the licensee's name. FLOWS builds
+from the last ungated, keyless mirror instead:
+
+- **Mirror:** Source Cooperative, `fused/fsq-os-places`
+  (`https://data.source.coop/fused/fsq-os-places/<release>/places/*.parquet`),
+  Apache 2.0 confirmed in the mirror's own README. Latest mirrored release:
+  **2025-02-06** (81 parquet files, 16.9 GB global).
+- POIs age slowly; a 2025 snapshot is fine. If fresher data is ever wanted,
+  a human can accept the HF gate and point the tooling at that copy.
+
+### Pipeline (one command)
+
+```
+scripts/build_places_shards.sh [release]      # default: latest on the mirror
+```
+
+1. **Tooling conversion** (`scripts/fsq_places_to_tsv.py`, python + duckdb —
+   REPO TOOLING only, never a product dependency): remote *filtered* scan.
+   Parquet footers are read first, so files whose `country` column stats
+   cannot contain `'US'` are skipped wholesale (34 of 81 files survive), and
+   only the needed columns are transferred — single-digit GB, not 17 GB.
+   Filters: `country='US'`, `date_closed IS NULL`, non-null finite lat/lon,
+   non-empty name, and a keyword→group table over `fsq_category_labels`
+   (first match wins): 7 rest/truckstop (`truck stop`, `rest area`) → 0 fuel
+   (`fuel station`, `electric vehicle charging`…) → 4 medical (`hospital`,
+   `urgent care`, `pharmacy`, `drugstore`; vets excluded) → 3 hotel
+   (`> lodging`, `hotel`/`motel`; hotel bars excluded) → 6 transit (rail /
+   metro / tram / bus stations, marine terminals, airports-proper — gates,
+   lounges, taxi stands, bus stops excluded) → 1 food (`dining and drinking`)
+   → 2 stores (`retail`) → 5 tourist (`arts and entertainment`, `landmarks
+   and outdoors`; towns/municipalities excluded). Region is normalized to a
+   2-letter state code (full names mapped; unresolvable rows dropped).
+   Output: `data/reference/fsq_places_us.tsv` (gitignored), headerless,
+   columns: `group lat lon name street city region postcode website tel
+   category_label`.
+2. **Shard build** (`places-shard`, pure-std Rust, zero crates —
+   `rust/flows-train/src/bin/places-shard.rs`): TSV →
+   `data/places/<XX>.fps` per state plus `data/places/index.json`
+   (per-state record counts + byte sizes). Both gitignored (regenerable).
+
+### `.fps` v1 format ("FPS1", little-endian)
+
+| Offset | Field |
+|---|---|
+| 0..4 | magic `FPS1` |
+| 4..8 | version u32 (=1) |
+| 8..12 | record count u32 |
+| 12..20 | grid-index offset u64 (absolute) |
+| 20..28 | fnv1a-64 body hash u64 (bytes 32..end; corrupt shard = refused) |
+| 28..32 | grid cell count u32 |
+| 32.. | records sorted by (0.2° cell key, name): `lat f32, lon f32, group u8, flags u8`, then u16-length-prefixed UTF-8 `name, street, city, website, tel`, then `postcode u32` (0=none) |
+| grid off.. | grid index: `(cellKey i64, startRecord u32, count u32)` sorted by key for binary search |
+
+Cell key: `lat5=floor(lat*5)`, `lon5=floor(lon*5)`,
+`cellKey=(lat5+9000)*100000+(lon5+18000)`. Groups: 0=fuel 1=food 2=stores
+3=hotel 4=medical 5=tourist 6=transit 7=rest/truckstop. Unit tests pin
+round-trip, grid-lookup-vs-brute-force equality, hash rejection of
+corruption, and truncation safety at every byte offset.
+
+### Attribution (Apache 2.0 NOTICE — required)
+
+Foursquare's NOTICE must be preserved wherever the shards ship.
+`data/places/ATTRIBUTION.txt` (tracked in git, everything else in
+`data/places/` is ignored) carries the upstream NOTICE plus FLOWS's
+modification statement — **bundle it with the shards in the app**, and any
+About/legal screen listing data sources should credit: *"Place data:
+Foursquare OS Places, © Foursquare Labs, Inc., Apache License 2.0."*

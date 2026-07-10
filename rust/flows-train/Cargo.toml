@@ -23,4 +23,11 @@ path = "src/bin/national-bundle.rs"
 name = "history-baseline"
 path = "src/bin/history-baseline.rs"
 
+# Offline POI shards: compiles the Foursquare OS Places TSV (Apache 2.0) into
+# per-state binary .fps shards with a 0.2 deg grid index. Pure std, zero
+# crates. See scripts/build_places_shards.sh for the end-to-end flow.
+[[bin]]
+name = "places-shard"
+path = "src/bin/places-shard.rs"
+
 [dependencies]
