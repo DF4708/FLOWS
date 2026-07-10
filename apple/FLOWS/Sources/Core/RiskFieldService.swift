@@ -200,7 +200,34 @@ final class RiskFieldService: ObservableObject {
             return
         }
         riskLog.info("loaded \(loadedEntries.count) zips, \(fams.count) families")
-        entries = loadedEntries
+        // WEEK-CORRECT seasonal priors: the bundle's national scores are frozen
+        // at export week; when the 20-year harmonic table is present, rebuild
+        // each NATIONAL entry's covered families for the CURRENT week from its
+        // Fourier coefficients. R-engine entries are the ones with polygon
+        // rings — those carry live-engine scores and are never touched.
+        var final = loadedEntries
+        if let table = await Task.detached(priority: .utility, operation: {
+            HarmonicClimatology.loadBundled()
+        }).value {
+            let week = SeasonalRiskModel.week()
+            let famIdx: [(bundle: Int, harmonic: Int)] = fams.enumerated().compactMap {
+                (i, name) in table.families.firstIndex(of: name).map { (i, $0) }
+            }
+            var rebuilt = 0
+            for e in 0..<final.count where final[e].ring == nil {
+                guard let zi = table.zipIndex(final[e].zip) else { continue }
+                var scores = final[e].scores
+                for (bi, hi) in famIdx where bi < scores.count {
+                    scores[bi] = table.score(zipIndex: zi, familyIndex: hi, week: week)
+                }
+                final[e] = ZipEntry(zip: final[e].zip, centroid: final[e].centroid,
+                                    scores: scores, summary: final[e].summary,
+                                    ring: nil)
+                rebuilt += 1
+            }
+            riskLog.info("harmonic climatology: \(rebuilt) national zips rescored for week \(week)")
+        }
+        entries = final
         families = fams
         generatedUTC = generated
         zipsMemo = [:]
