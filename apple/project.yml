@@ -48,7 +48,7 @@ targets:
             weatherusa.net:
               NSIncludesSubdomains: true
               NSExceptionRequiresForwardSecrecy: false
-              NSExceptionMinimumTLSVersion: TLSv1.0
+              NSExceptionMinimumTLSVersion: TLSv1.2
         NSLocationWhenInUseUsageDescription: >-
           FLOWS uses your location for turn-by-turn navigation and to keep the
           weather-risk map centered on you.
@@ -148,7 +148,7 @@ targets:
             weatherusa.net:
               NSIncludesSubdomains: true
               NSExceptionRequiresForwardSecrecy: false
-              NSExceptionMinimumTLSVersion: TLSv1.0
+              NSExceptionMinimumTLSVersion: TLSv1.2
         NSLocationUsageDescription: >-
           FLOWS uses your location to center the weather-risk map and preview
           routes from where you are.

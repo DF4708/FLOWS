@@ -188,32 +188,49 @@ enum RiskEquations {
         return max(primaryAmplified, secondaryAdvisory)
     }
 
-    /// RELATIVE-elevation flood amplifier: water pools toward the LOCAL minima,
-    /// so flooding is about where a road sits within its OWN terrain — a
-    /// mountain-town valley floor floods even at 8,000 ft absolute elevation.
-    /// Given a corridor sample's elevation, the corridor's local min/max, and
-    /// the forecast rain amount (inches), returns a multiplier ≥ 1 to apply to
-    /// the precip PREDICTOR (it amplifies a forecast; it is never proof — the
-    /// realized primary stays the gauge/warning):
-    ///   lowFraction = 1 − (E − min)/(max − min)   (1 at the local low point)
-    ///   rainFactor  = min(qpfInches / 2, 1)        (2″ forecast = full effect)
-    ///   multiplier  = 1 + lowFraction · rainFactor (≤ 2×, clamped predictor)
-    /// Flat corridors (max ≈ min) get a uniform mid factor: no terrain signal,
-    /// rain still matters.
+    /// WATERLINE-THRESHOLD flood amplifier (multiplier ≥ 1 on the precip
+    /// PREDICTOR — never proof; the realized primary stays the gauge/warning/
+    /// closure). Water pools toward the LOCAL minimum and rises by the rain
+    /// depth, so the physics is a threshold, not a linear ramp:
+    ///
+    ///   waterline = localMin + rainDepth   (rain accumulates at the low point)
+    ///   headroom  = roadElevation − localMin   (how far the road sits above it)
+    ///
+    /// • headroom ≤ rainDepth → the risen waterline REACHES the road: a physical
+    ///   flood crossing, amplified regardless of other evidence (1.6…2.0×).
+    /// • headroom > rainDepth → the road is above the pooling water. Between the
+    ///   local min and the road there is NO guarantee of flooding — the user's
+    ///   rule — so it gets a bump ONLY with SUPPORTING EVIDENCE that water
+    ///   reaches it (a FEMA A/V flood zone, a river gauge at/above flood stage,
+    ///   or a mapped river/lake nearby), tapered by how close the waterline
+    ///   comes. No evidence → 1.0 (no elevation-driven flood bump).
+    ///
+    /// Units: `qpfInches` is inches, elevations are meters → rain is converted
+    /// (× 0.0254) so the inch-vs-meter comparison is real, not dodged.
+    /// `localMinElevation` MUST be a WINDOWED local minimum (the nearby pooling
+    /// low), not the whole corridor's global low hundreds of km away.
     static func floodElevationMultiplier(
-        sampleElevation: Double?, minElevation: Double?, maxElevation: Double?,
-        qpfInches: Double?
+        sampleElevation: Double?, localMinElevation: Double?,
+        qpfInches: Double?, supportingEvidence: Double = 0
     ) -> Double {
         guard let qpf = qpfInches, qpf.isFinite, qpf > 0 else { return 1 }
-        let rainFactor = min(qpf / 2.0, 1.0)
-        guard let e = sampleElevation, let lo = minElevation, let hi = maxElevation,
-              e.isFinite, lo.isFinite, hi.isFinite else {
-            return 1 + 0.5 * rainFactor      // no elevation data: rain-only bump
+        let rainMeters = qpf * 0.0254
+        let evidence = min(max(supportingEvidence, 0), 1)
+        guard let e = sampleElevation, let lo = localMinElevation,
+              e.isFinite, lo.isFinite else {
+            // No elevation data: rain matters only where there's water evidence.
+            return 1 + 0.5 * evidence * min(qpf / 2, 1)
         }
-        let range = hi - lo
-        guard range > 5 else { return 1 + 0.5 * rainFactor }   // flat: no signal
-        let lowFraction = 1 - min(max((e - lo) / range, 0), 1)
-        return 1 + lowFraction * rainFactor
+        let headroom = max(e - lo, 0)          // meters above the local pooling low
+        if headroom <= rainMeters {            // waterline reaches the road
+            let submerge = min((rainMeters - headroom) / max(rainMeters, 0.01), 1)
+            return 1 + (0.6 + 0.4 * submerge)  // 1.6 … 2.0
+        }
+        // Above the waterline: between local min and road, water pools LOWER —
+        // flood only with evidence it reaches this road, tapered by proximity.
+        guard evidence > 0 else { return 1 }
+        let proximity = max(0, 1 - (headroom - rainMeters) / max(rainMeters, 0.01))
+        return 1 + 0.5 * evidence * proximity
     }
 
     /// Balance the two truths for ROUTE ORDERING (never the display band): the

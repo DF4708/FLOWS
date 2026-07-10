@@ -698,8 +698,15 @@ final class AppModel: ObservableObject {
             let roadRoutes = try await router.planRoutes(
                 from: from, fromName: fromName, to: to, toName: toName,
                 includeTollFree: false, walking: false)
-            let walkable = roadRoutes.filter { $0.planKind == .avoidHighways }
-            let base = walkable.isEmpty ? roadRoutes : walkable
+            // Walkers can NEVER be sent onto a freeway. Prefer routes with no
+            // highways at all; if every candidate uses some highway, keep the
+            // avoid-highways one (least freeway) and the notice warns to verify.
+            let noHighway = roadRoutes.filter { !$0.hasHighways }
+            let avoidHwy = roadRoutes.filter { $0.planKind == .avoidHighways }
+            let base = !noHighway.isEmpty ? noHighway
+                     : !avoidHwy.isEmpty ? avoidHwy
+                     : roadRoutes
+            let anyHighway = base.contains { $0.hasHighways }
             let estimates = base.map { r -> PlannedRoute in
                 var w = r
                 w.isWalkingEstimate = true
@@ -707,9 +714,13 @@ final class AppModel: ObservableObject {
                 w.etaOverride = r.distanceMeters / 1.39 * 1.10
                 return w
             }
-            plannerNotice = "Beyond the pedestrian router's range — showing a "
-                + "WALKING ESTIMATE along local roads (3.1 mph pace): verify "
-                + "sidewalk/shoulder availability before setting out."
+            plannerNotice = anyHighway
+                ? "Beyond the pedestrian router's range — WALKING ESTIMATE at "
+                    + "3.1 mph. No fully highway-free route exists here; a segment "
+                    + "may follow a highway — verify a legal walking path before setting out."
+                : "Beyond the pedestrian router's range — WALKING ESTIMATE along "
+                    + "LOCAL ROADS only (3.1 mph pace): verify sidewalk/shoulder "
+                    + "availability before setting out."
             return estimates
         }
         plannerNotice = nil
@@ -1169,26 +1180,53 @@ final class AppModel: ObservableObject {
             return c.predictorFamilies(latitude: coord.latitude, longitude: coord.longitude,
                                        elevationMeters: elev)
         }
-        // LOCAL terrain envelope for the flood amplifier: min/max elevation over
-        // the corridor's fetched samples — flooding is relative to the local
-        // low, not sea level (mountain towns flood in their own valleys).
-        let corridorElevs = onDevice.values.compactMap(\.1)
-        let corridorElevMin = corridorElevs.min()
-        let corridorElevMax = corridorElevs.max()
-        // DOT closures along the corridor (WZDx): realized blocked-road proof.
+        // Corridor bbox for the flood-evidence fetches.
         let sampleLats = score.samples.map(\.coordinate.latitude)
         let sampleLons = score.samples.map(\.coordinate.longitude)
-        let corridorClosures = await LiveHazardFeedFetcher.shared.roadClosures(
-            minLat: (sampleLats.min() ?? 0) - 0.05, minLon: (sampleLons.min() ?? 0) - 0.05,
-            maxLat: (sampleLats.max() ?? 0) + 0.05, maxLon: (sampleLons.max() ?? 0) + 0.05)
+        let bbox = (minLat: (sampleLats.min() ?? 0) - 0.05, minLon: (sampleLons.min() ?? 0) - 0.05,
+                    maxLat: (sampleLats.max() ?? 0) + 0.05, maxLon: (sampleLons.max() ?? 0) + 0.05)
+        // DOT closures along the corridor (WZDx): realized blocked-road proof.
+        async let closuresF = LiveHazardFeedFetcher.shared.roadClosures(
+            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
+        // FLOOD SUPPORTING EVIDENCE — the topographic analysis the waterline
+        // model gates on (a road between local min and max floods only WITH
+        // evidence): live river GAUGES at/above flood stage (was map-only; now
+        // scored on the route), and USGS NHD RIVER/LAKE proximity (the rivers &
+        // lakes piece that was missing). FEMA A/V zones remain the route filter.
+        async let gaugesF = LiveHazardFeedFetcher.shared.floodGauges(
+            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
+        let waterProbe = stride(from: 0, to: score.samples.count,
+                                by: max(score.samples.count / 12, 1))
+            .map { score.samples[$0].coordinate }
+        async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
+        let corridorClosures = await closuresF
+        let corridorGauges = await gaugesF
+        let corridorWater = await waterF
+
+        // WINDOWED local minimum elevation: the nearby pooling low, NOT the
+        // corridor-global low (which on a long/mountain route sits hundreds of
+        // km away and breaks "local minimum waterline"). Min over the fetched
+        // elevations within ±4 samples of the query point.
+        let elevBySample: [Int: Double?] = onDevice.mapValues(\.1)
+        func localMinElevation(near i: Int) -> Double? {
+            var lo: Double?
+            for j in max(i - 4, 0)...min(i + 4, max(score.samples.count - 1, 0)) {
+                if let e = elevBySample[j] ?? nil { lo = lo.map { Swift.min($0, e) } ?? e }
+            }
+            return lo
+        }
 
         let blended = score.samples.enumerated().map { i, s -> RiskSample in
             let c = s.coordinate
             let dev = onDevicePredictors(near: i)
             let near = nearestOnDevice(i)
+            // Evidence gate = noisy-OR of a gauge in flood and mapped water near.
+            let gaugeEvid = HazardFeedScores.floodGaugeScore(gauges: corridorGauges, at: c)
+            let waterEvid = HazardFeedScores.waterProximityScore(waterPoints: corridorWater, at: c)
+            let floodEvidence = 1 - (1 - gaugeEvid) * (1 - waterEvid)
             let floodMult = RiskEquations.floodElevationMultiplier(
-                sampleElevation: near?.1, minElevation: corridorElevMin,
-                maxElevation: corridorElevMax, qpfInches: near?.0.qpfInches)
+                sampleElevation: near?.1, localMinElevation: localMinElevation(near: i),
+                qpfInches: near?.0.qpfInches, supportingEvidence: floodEvidence)
             // Route filters track per-family peaks (display): worse of the ZIP
             // export and the on-device forecast decomposition.
             for fam in filterFamilies {
