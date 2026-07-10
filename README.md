@@ -1,192 +1,91 @@
 <p align="center">
-  <img src="images/FLOWS_Banner_logo.png" alt="FLOWS — Forecasted Live Operational Weather System" width="100%">
+  <img src="images/FLOWS_Banner_logo.png" alt="FLOWS" width="100%">
 </p>
 
-# FLOWS — Wisconsin's Live Hazard Intelligence Map
+# FLOWS — driving-safety navigation for North America
 
-**One screen. Every active hazard. The whole state of Wisconsin.**
+**One map. Every official hazard. A route that respects what's actually happening on the road.**
 
-FLOWS turns the firehose of federal weather, hydrology, air, radiation, seismic, and roadway feeds into a single, beautifully readable Wisconsin map — and then plans you a route that actually respects what's happening on the ground. No paid subscription. No black-box scoring. Just the official feeds, fused together and explained in plain English at the ZIP-code level.
+FLOWS fuses the firehose of federal and provincial weather, hydrology, fire, air, radiation, seismic, and roadway feeds into a single readable map — then plans a route that understands the difference between *a forecast of rain* and *a road that is actually underwater*. It is a native Apple app (macOS, iOS, iPadOS, watchOS, CarPlay) built on a pure-Rust compute core and an R risk engine, using only official public data. No paid subscription. No black-box scoring.
 
-If you've ever wished the National Weather Service, NWPS, AirNow, EPA RadNet, the NRC, USGS, and 511 Wisconsin would all *talk to each other* — that's FLOWS.
-
----
-
-## Why FLOWS?
-
-- **Built on the sources you already trust.** NWS alerts and forecasts, NWPS river gauges, WPC QPF and winter guidance, SPC fire and convective outlooks, live GOES GLM lightning, HeatRisk, AirNow, EPA UV and RadNet, NRC daily event reports, USGS seismic, NOAA Flood Hazard Outlook, and official 511 Wisconsin road feeds — fused into one coherent picture.
-- **Wisconsin-first, ZIP-precise.** Every hazard score is normalized to your ZIP — not a vague "central Wisconsin" blob.
-- **Routes that route around trouble.** Pick *Fastest*, *Safest*, or *Metro/Rail*. The road graph is built from OpenStreetMap and re-weighted in real time by live alerts, flooding, lightning, winter conditions, and 511WI closures.
-- **Fast paint, full depth.** The map renders in seconds with the essentials, then progressively layers in specialty feeds the moment you ask for them.
-- **Transparent by design.** Click any ZIP, segment, or route — every score comes with its contributors and a numeric breakdown. No mystery numbers.
+<p align="center">
+  <img src="images/architecture.svg" alt="FLOWS architecture" width="92%">
+</p>
 
 ---
 
-## See It In Action
+## What makes FLOWS different
 
-### A Living Hazard Map
+- **Proof, not prediction.** Risk is two-tier. A hazard can only turn a road **Red** if it is *realized* — a fire perimeter you'd drive through, a river gauge over the road, a DOT-reported closure, a tornado/tsunami warning in progress. Forecasts, watches, and outlooks are **predictors**: they amplify a realized hazard but are capped below Red on their own. A pile of small overlapping risks never sums to lethal.
 
-Statewide environmental risk, normalized at the ZIP level, with progressive disclosure of specialty layers.
+<p align="center">
+  <img src="images/risk_model.svg" alt="Two-tier realized-risk model" width="92%">
+</p>
 
-![Wisconsin ZIP-level hazard indices](images/Zip_Indices.png)
+- **Continental coverage, ZIP-precise.** A 33,300-ZIP on-device risk field (the R engine's scored ZIPs preserved byte-for-byte, plus per-ZIP seasonal climatology) backs the whole US, enriched live by NWS, USGS, FEMA, SPC, HMS, WZDx and more across the US, Canada (ECCC), and Mexico (SMN).
 
-### Filter the Map to *Your* Risk
+- **Climate-aware, season-aware.** Every location is typed into one of 12 Köppen-style climates computed from geography, so 95 °F reads as dangerous heat in marine Seattle but a normal afternoon in Phoenix. Temperature and wind only surface on the map when they exceed the **regional and seasonal** normal — "normal for here, right now" stays quiet.
 
-Switch between normalized environmental risk, wind, flood, winter, fire, storm, heat, air, radiation, seismic, and transport overlays — instantly.
+- **A flood model that understands terrain.** Flooding is a *waterline threshold*, not "low ground is risky." Rain accumulates at the local minimum and rises by its depth; a road floods when its height above that local low is less than the rain depth. A road above the waterline floods only with **supporting evidence** — a mapped USGS NHD river/lake nearby, a gauge at flood stage, or a FEMA A/V zone. Mountain-town valleys flood in their own terrain; ridgelines don't.
 
-![Map filter panel](images/Map_Filter.png)
+- **Routes that balance two truths.** A route is ranked by both its *realized* corridor risk and the *identified* risk of the ZIPs it crosses, refined over time by an on-device seasonal model that learns your recurring trips. The overall band is **distance-weighted** — a short bad stretch is called out explicitly, not smeared across the whole route.
 
-### Real-Time Government Alerts, In Context
-
-Every active National Weather Service alert, scoped to the ZIPs and corridors it actually touches — not just a generic statewide dump.
-
-![Live NWS / weather alerts](images/Weather_Alerts.png)
-
-### Direct Links to the Source
-
-Every alert keeps a click-through to the originating government bulletin. FLOWS shows you the analysis; the official text is one click away.
-
-![Government alert links](images/Government_alert_links.png)
-
-### Find Anything, Fast
-
-Search by ZIP, county, or city. Wisconsin gazetteer, baked in.
-
-![Universal search bar](images/Search_Bar.png)
-
-### Risk-Aware Route Planner
-
-Three profiles — *Fastest*, *Safest*, and *Metro/Rail* — over a 97k-edge OpenStreetMap graph re-weighted by live hazards. Optional `cppRouting` backend resolves a typical query in roughly 50 ms.
-
-![Risk-aware route planning](images/Risk_Aware_Route_Planning.png)
-
-### Turn-by-Turn Driving Instructions
-
-The route you see is the route you can drive. Step-by-step directions, with hazard-aware segments called out where they matter.
-
-![Turn-by-turn driving instructions](images/turn_by_turn_driving_instructions.png)
+- **Transparent and offline-tough.** Every score is inspectable. An always-on breadcrumb trail lets you retrace your way out with zero signal — for the woods, the desert, or a dead zone.
 
 ---
 
-## Under the Hood
+## Feature tour
 
-FLOWS is a Shiny application written in R, designed to render fast and explain itself.
-
-- **Fast paint mode.** First render shows alerts plus forecast temperature, wind, and precipitation — the rest of the families (QPF/flood, winter, convective, fire, heat, cold, air, radiation, seismic, transport) load on demand.
-- **ZIP-level scoring.** `data/wi_latitude_band_profiles.csv` drives latitude-normalized temperature scoring so northern and southern Wisconsin are compared fairly.
-- **Bundled reference assets.** If `data/reference/wisconsin_reference.gpkg` is present, the app loads Wisconsin counties, ZIPs, places, and roads from disk before reaching for live Census downloads.
-- **Source-aware flood scoring.** Flood risk distinguishes rain/QPF-driven flooding from point-gauge flooding, off-gauge hydrologic guidance, nearby river-corridor / National Water Model–style guidance, SPC guidance, and live lightning-driven convective escalation. Popups expose key contributors and a numeric breakdown — not a single opaque reason.
-- **Live ionizing-radiation signals.** EPA RadNet Wisconsin monitor anomalies and NRC daily event reports decay across 24h / 48h / 72h horizons rather than being copied forward as literal forecasts.
-- **Two-path air quality.** Live views use AirNow hourly observations; 24h / 48h / 72h views use the AirNow reporting-area forecast file with a graceful decayed-live-air fallback.
-- **Honest 511WI integration.** When `WI511_API_KEY` is set, official Wisconsin DOT winter-road conditions, travel-time delays, incidents, alerts, and dynamic message signs propagate into ZIP-level transport and driving risk via direct intersection *and* nearby-corridor distance decay.
-
-### Optional Configuration
-
-| Variable | Purpose |
+| Area | What you get |
 |---|---|
-| `NOAA_USER_AGENT` | Overrides the default Weather.gov user agent string. |
-| `WI511_API_KEY` | Enables 511WI winter-road, travel-time, event, alert, and message-sign enrichment. |
-| `USE_LOCAL_REFERENCE_ONLY` | When `true`, the app fails fast if the bundled reference GeoPackage is missing instead of silently falling back to live Census downloads. |
+| **Risk map** | Transparent ZIP-boundary areas striped by risk level × hazard type; clustered, centroid-snapped hazard badges; live family filters across North America. |
+| **Route planning** | Fastest / Safest / Local / Toll-free profiles; **Cheapest** and **Fuel/CO₂-efficient** banners; a **Tourist** filter that pins parks & landmarks and reorders routes by what's worth stopping for; GO unlocks only once a route's weather has actually scored. |
+| **Transit** | In-app walk→ride→walk itineraries; rail **and** bus selectable together; exact carrier ticket links (no hand-off to Maps); a Rust RAPTOR engine with a GTFS→`.ftt` ingestion pipeline for real schedules. |
+| **Trucker mode** | Height/grade-aware routing, weigh stations, HOS timer, verified truck-stop showers (Pilot/Flying J, Love's, TA/Petro), diesel-by-cost, GPS-nearest NOAA weather radio. |
+| **Vehicle & towing** | Fuel/range tracking, live towing-limit warnings vs. published GVWR/tow/GCWR (with labeled class-typical estimates where a maker doesn't publish). |
+| **Safety** | Crash detection with assisted 911/contact flow; imminent-alert banners with source links; auto shelter/rest suggestions. |
+| **Terrain** | A 3D grade-tinted elevation ribbon drawn from our own EPQS road-elevation data + steep-grade markers. |
+| **Learning** | On-device seasonal route model + a ranking head trained by a pure-std Rust trainer; nothing about your trips leaves the device. |
 
-### Optional R Packages
-
-- **`cppRouting`** — sub-second bidirectional Dijkstra route search. Falls back to an in-process heap-based A* when not installed.
-- **`ncdf4`** — required for live GOES GLM lightning ingestion. The convective layer falls back to SPC-only when not installed.
-
----
-
-## Install & Run
-
-FLOWS is a standard R Shiny application. You'll need **R 4.2+** and (recommended) **RStudio**.
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/DF4708/FLOWS.git
-cd FLOWS
-```
-
-Or, using the HTTPS URL directly:
-
-```bash
-git clone https://github.com/DF4708/FLOWS/
-cd FLOWS
-```
-
-### 2. Install R dependencies
-
-From an R session in the project root:
-
-```r
-install.packages(c(
-  "shiny", "sf", "dplyr", "httr2", "jsonlite", "htmltools",
-  "leaflet", "DT"
-))
-
-# Optional but recommended:
-install.packages(c("cppRouting", "ncdf4"))
-```
-
-### 3. (Optional) Configure environment
-
-Copy the template and edit it with any keys you have:
-
-```bash
-cp config.example.Renviron .Renviron
-```
-
-Then edit `.Renviron` to set, for example:
-
-```
-WI511_API_KEY=your-key-here
-NOAA_USER_AGENT=YourOrg-FLOWS (contact@example.com)
-```
-
-### 4. Launch the app
-
-From the project root in R or RStudio:
-
-```r
-shiny::runApp()
-```
-
-Or, from the command line:
-
-```bash
-Rscript -e "shiny::runApp(launch.browser = TRUE)"
-```
-
-The app entry points are `global.R`, `ui.R`, and `server.R`.
+> **Screenshots:** the feature-named images in `images/` show earlier iterations of the map and planner. Refresh them from the current native app on your machine; the banner (`FLOWS_Banner_logo.png`) and app icon are intentionally left unchanged.
 
 ---
 
-## Release Preflight
+## The stack
 
-For packaging a local-only release, FLOWS ships with a deterministic build-and-validate pipeline:
+FLOWS ships exactly three languages, by rule: **Rust** (core algorithms + on-device training), **AArch64 assembly** (the one proven polyline hot loop), and **Swift** (the app). No Python, JavaScript, or interpreter runs in or ships with the product — Python is used only as repo tooling for one-off data checks. Dependencies are taken only when owning the code would be worse; `flows-train` is pure standard library with an empty dependency list.
 
-```bash
-# Build the bundled Wisconsin reference assets (needs internet access):
-python scripts/build_wisconsin_reference_assets.py
-
-# Or supply pre-downloaded archives explicitly:
-python scripts/build_wisconsin_reference_assets.py \
-  --county-archive ... --zcta-archive ... --place-archive ... --roads-archive ...
-
-# Validate the built bundle:
-python scripts/validate_wisconsin_reference_assets.py
-
-# Full preflight (validator + R runtime smoke test):
-python scripts/release_preflight.py --project-dir . --require-assets --require-r
+```
+apple/FLOWS/Sources/     Swift app — Core/ (services), UI/, FLOWSApp.swift
+rust/flows-core/         risk · scoring · polyline (+asm) · routing/CH · transit (RAPTOR + GTFS/.ftt) · FFI
+rust/flows-train/        pure-std ranking-head trainer + national climatology bundle generator
+R/                       the risk engine + reference oracle (byte-identity target for Rust)
+scripts/                 bundle export, GTFS fetch/build, sync
+docs/                    ARCHITECTURE · APPLE_APP · TRANSIT_ROUTING · DATA_FEEDS · TESTING_STRATEGY · LEARNINGS
 ```
 
-The preflight validates the GeoPackage when present and then runs the R smoke test (`scripts/runtime_smoke_test.R`) when `Rscript` is available, reporting precisely whether any remaining gap is "missing assets," "missing R runtime," or an actual app-load failure.
+**Tested:** 153 Swift XCTest + 66 Rust tests, zero compiler warnings. The Rust risk/scoring paths are held byte-identical to their R oracle; the RAPTOR engine is gated against a Dijkstra reference.
 
 ---
 
-## License & Contact
+## Data sources
 
-Copyright © David B. Foster. All rights reserved. Unauthorized copying, distribution, modification, or use of this project, in whole or in part, is strictly prohibited without express written permission of the copyright holder.
+Nearly everything FLOWS reads is **keyless and free** — NWS/NWPS, Open-Meteo, USGS (quakes, EPQS elevation, NHD hydrography), FEMA NFHL, SPC, NOAA HMS/SWPC/NHC, WZDx DOT closures, Census TIGER, OSM Overpass, ECCC (Canada), SMN (Mexico), EPA fuel economy. Only three sources are optional user-provided keys, and the app degrades gracefully without them:
 
-Contact: **d.foster@marquette.edu**
+| Source | Enables | Without it |
+|---|---|---|
+| Yelp Fusion (free tier) | POI ratings, price tiers, hours | National market-share ordering |
+| TomTom (free tier) | Live per-station fuel prices | State-average price estimates |
+| Smartcar (connect your own car) | Fuel level, tire-pressure telemetry | Manual vehicle profile |
 
-Repository: [github.com/DF4708/FLOWS](https://github.com/DF4708/FLOWS/)
+See `docs/DATA_FEEDS.md` for the full endpoint map.
+
+---
+
+## Status
+
+Active development on `feature/native-app-and-decoder`. Built for and validated across the US, Canada, and Mexico. Transit `.ftt` on-device wiring, national R-engine scoring, and richer hydrology are the next milestones — see `docs/` for the roadmap.
+
+---
+
+*FLOWS is built on the sources you already trust — NWS, USGS, FEMA, EPA, NOAA, and official DOT feeds — fused, scored transparently, and explained in plain English. Not affiliated with any of these agencies.*
