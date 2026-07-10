@@ -56,3 +56,16 @@ struct FloatingCard: ViewModifier {
 extension View {
     func floatingCard() -> some View { modifier(FloatingCard()) }
 }
+
+/// THE band→color mapping — review finding: three drifting copies existed,
+/// one of which used `== .blue` as a "clear band" sentinel.
+extension RiskBand {
+    var color: Color {
+        switch self {
+        case .clear: return .blue
+        case .green: return Theme.riskGreen
+        case .yellow: return Theme.riskYellow
+        case .red: return Theme.riskRed
+        }
+    }
+}

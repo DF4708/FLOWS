@@ -41,6 +41,11 @@ data/results/*
 # Rust build artifacts
 rust/target/
 
+# Transit feeds + built .ftt shards (large; per-feed redistribution licenses
+# vary — see docs/TRANSIT_ROUTING.md licensing notes). Fetch with
+# scripts/fetch_gtfs.sh, build with scripts/build_ftt.sh.
+data/transit/
+
 # Apple app: generated project + build products (project.yml is the source
 # of truth — regenerate with `cd apple && xcodegen generate`)
 apple/FLOWS.xcodeproj/
@@ -48,7 +53,14 @@ apple/FLOWS/Generated/
 apple/build/
 apple/DerivedData/
 
-# Claude Code session-local state (launch.json IS tracked — it defines the
+# Editor/agent session-local state (launch.json IS tracked — it defines the
 # local dev server; worktrees are per-session scratch)
 .claude/worktrees/
 .claude/settings.local.json
+
+# App risk bundle copies are generated (scripts/export_app_risk_bundle.R)
+apple/FLOWS/Resources/app_risk_bundle.json
+
+# Re-downloadable reference data (Census gazetteer, scrape backups)
+data/reference/
+data/runtime_cache/app_risk_bundle.wi_only.json

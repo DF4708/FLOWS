@@ -3,7 +3,7 @@
 # Keeps the R app as the correctness oracle: every function here is verified
 # byte-identical to its R counterpart in the crate's test suite.
 [workspace]
-members = ["flows-core"]
+members = ["flows-core", "flows-train"]
 resolver = "2"
 
 [profile.release]

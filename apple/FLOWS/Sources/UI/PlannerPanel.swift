@@ -10,58 +10,132 @@ import CoreLocation
 import MapKit
 import SwiftUI
 
-/// The web app's route card, in Swift: Search section + Route planner with
-/// "Source ZIP, county, or city" / destination fields and a black pill CTA.
+/// The planner card. Destination-first: the hero field is "Where to?", and
+/// the source defaults to the live GPS fix (with an optional From override),
+/// so the everyday flow is type-destination → Plan. Search section retained
+/// for web-app parity (find a place on the map without routing to it).
 struct PlannerPanel: View {
     @EnvironmentObject private var model: AppModel
     @Binding var camera: MapCameraPosition
 
     @State private var searchQuery = ""
-    @State private var source = ""
-    @State private var destination = ""
+    @State private var overrideSource = false
     @State private var isWorking = false
     @State private var errorMessage: String?
-    @State private var routes: [PlannedRoute] = []
+    @FocusState private var focusedField: Field?
+
+    enum Field { case destination, source }
+
+    /// Fields live on the model so Edit-from-choosing round-trips intact.
+    private var source: String { model.plannerSource }
+    private var hasGPS: Bool { model.location.coordinate != nil }
+    /// No GPS → the source field is always shown (the primary flow must
+    /// never dead-end on a Mac without location access).
+    private var showSourceField: Bool { overrideSource || !hasGPS }
+    private var usingGPSSource: Bool {
+        hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Search")
+            // Starred addresses: one press plans a route there from the GPS
+            // fix — no typing.
+            if !model.favorites.favorites.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(model.favorites.favorites) { fav in
+                            favoriteChip(fav)
+                        }
+                    }
+                }
+            }
+            Text("Where to?")
                 .font(.system(size: 15, weight: .bold))
-            HStack(spacing: 8) {
-                TextField("Search by ZIP code, county name, or city name", text: $searchQuery)
+            HStack(spacing: 6) {
+                TextField("Destination ZIP, county, or city", text: $model.plannerDestination)
                     .textFieldStyle(.plain)
+                    .font(.system(size: 16))
                     .frame(minHeight: Theme.tapMinimum)
                     .padding(.horizontal, 14)
                     .background(Color.black.opacity(0.04))
                     .clipShape(Capsule())
-                    .onSubmit { Task { await search() } }
-                Button("Search") { Task { await search() } }
-                    .buttonStyle(PillCTAStyle())
-                    .frame(width: 110)
+                    .contentShape(Capsule())
+                    .focused($focusedField, equals: .destination)
+                    .onSubmit { Task { await plan() } }
+                // Star: save the typed destination as a favorite, tagged with
+                // its role symbol (home / office / …).
+                Menu {
+                    ForEach(FavoriteAddress.Symbol.allCases) { symbol in
+                        Button {
+                            Task { await saveFavorite(as: symbol) }
+                        } label: {
+                            Label("Save as \(symbol.rawValue)", systemImage: symbol.systemImage)
+                        }
+                    }
+                } label: {
+                    Image(systemName: destinationIsFavorite ? "star.fill" : "star")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(destinationIsFavorite ? Color.yellow : Color.secondary)
+                        .frame(width: Theme.tapMinimum, height: Theme.tapMinimum)
+                        .background(Color.black.opacity(0.04))
+                        .clipShape(Circle())
+                }
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty)
+                .help("Save this destination as a favorite")
             }
 
-            Divider()
-
-            Text("Route planner")
-                .font(.system(size: 15, weight: .bold))
-            HStack(spacing: 8) {
-                TextField("Source ZIP, county, or city", text: $source)
-                    .textFieldStyle(.roundedBorder)
-                TextField("Destination ZIP, county, or city", text: $destination)
-                    .textFieldStyle(.roundedBorder)
+            // Source row: GPS by default, tap to override. When there's no
+            // GPS fix the field shows automatically with an explanation.
+            HStack(spacing: 6) {
+                Image(systemName: usingGPSSource ? "location.fill" : "mappin.circle")
+                    .font(.footnote)
+                    .foregroundStyle(usingGPSSource ? .blue : .secondary)
+                Text(sourceRowText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if hasGPS {
+                    Button(showSourceField ? "Use GPS" : "Enter your own location") {
+                        overrideSource.toggle()
+                        if !overrideSource { model.plannerSource = "" }
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                }
             }
+            if showSourceField {
+                // Same pill styling as the destination — the roundedBorder
+                // style had a near-unclickable hit target on macOS.
+                TextField("Source ZIP, county, or city", text: $model.plannerSource)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16))
+                    .frame(minHeight: Theme.tapMinimum)
+                    .padding(.horizontal, 14)
+                    .background(Color.black.opacity(0.04))
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
+                    .focused($focusedField, equals: .source)
+                    .onSubmit { Task { await plan() } }
+            }
+
             Button(isWorking ? "Planning…" : "Plan route") {
                 Task { await plan() }
             }
             .buttonStyle(PillCTAStyle())
-            .disabled(isWorking || destination.isEmpty)
+            .disabled(isWorking || model.plannerDestination.isEmpty
+                      || (!hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty))
 
             if let errorMessage {
                 Text(errorMessage)
                     .font(.footnote)
                     .foregroundStyle(Theme.riskRed)
             }
+
         }
+        .onAppear { focusedField = .destination }
         .floatingCard()
     }
 
@@ -80,14 +154,74 @@ struct PlannerPanel: View {
         }
     }
 
+    // MARK: favorites
+
+    private var destinationIsFavorite: Bool {
+        model.favorites.contains(name: model.plannerDestination.trimmingCharacters(in: .whitespaces))
+    }
+
+    private func favoriteChip(_ fav: FavoriteAddress) -> some View {
+        Button {
+            Task {
+                isWorking = true
+                defer { isWorking = false }
+                if let planned = await model.planToFavorite(fav), let first = planned.first {
+                    withAnimation {
+                        camera = .rect(first.route.polyline.boundingMapRect.insetBy(
+                            dx: -first.route.polyline.boundingMapRect.width * 0.2,
+                            dy: -first.route.polyline.boundingMapRect.height * 0.2))
+                    }
+                } else {
+                    errorMessage = "Couldn't plan to \(fav.name) — no GPS fix or no route."
+                }
+            }
+        } label: {
+            Label(fav.name, systemImage: fav.symbol.systemImage)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 34)
+                .background(Color.black.opacity(0.05))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                model.favorites.remove(fav)
+            } label: {
+                Label("Remove favorite", systemImage: "trash")
+            }
+        }
+    }
+
+    private func saveFavorite(as symbol: FavoriteAddress.Symbol) async {
+        let text = model.plannerDestination.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        errorMessage = nil
+        do {
+            let (coord, name) = try await model.router.geocode(text)
+            model.favorites.add(FavoriteAddress(
+                name: name, symbol: symbol,
+                latitude: coord.latitude, longitude: coord.longitude))
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private var sourceRowText: String {
+        if usingGPSSource { return "From: Current Location" }
+        if !hasGPS { return "From: (no GPS on this device — enter a start)" }
+        return "From:"
+    }
+
     private func plan() async {
         isWorking = true
         defer { isWorking = false }
         errorMessage = nil
         do {
-            // Blank source = "from where I am", like every navigation app.
+            // GPS is the source unless a start was typed (or GPS is absent).
             let from: (CLLocationCoordinate2D, String)
-            if source.isEmpty {
+            if usingGPSSource {
                 guard let here = model.location.coordinate else {
                     throw RouteError.notFound("current location (no GPS fix yet)")
                 }
@@ -95,13 +229,14 @@ struct PlannerPanel: View {
             } else {
                 from = try await model.router.geocode(source)
             }
-            let to = try await model.router.geocode(destination)
-            let planned = try await model.router.planRoutes(
+            let to = try await model.router.geocode(model.plannerDestination)
+            // Routes appear as soon as directions return; weather badges
+            // hydrate asynchronously inside present(routes:). Planning goes
+            // through the model so filter toggles can replan variants later.
+            let planned = try await model.plan(
                 from: from.0, fromName: from.1,
-                to: to.0, toName: to.1,
-                alerts: model.alerts)
-            model.routeChoices = planned
-            model.mode = .choosing
+                to: to.0, toName: to.1)
+            model.present(routes: planned)
             // Frame the full corridor while choosing.
             if let first = planned.first {
                 withAnimation {

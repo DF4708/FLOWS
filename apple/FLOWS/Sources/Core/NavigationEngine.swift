@@ -32,6 +32,9 @@ final class NavigationEngine: ObservableObject {
         var instruction: String
         var distanceToManeuver: CLLocationDistance
         var stepIndex: Int
+        /// Meters travelled along the route (cumulative at nearest vertex) —
+        /// the anchor for the speed-scaled live-monitoring window.
+        var alongMeters: CLLocationDistance = 0
         var remainingDistance: CLLocationDistance
         var remainingTime: TimeInterval
         var cameraAltitude: Double
@@ -41,6 +44,12 @@ final class NavigationEngine: ObservableObject {
     @Published private(set) var guidance: Guidance?
     @Published private(set) var route: PlannedRoute?
     @Published private(set) var isRerouting = false
+
+    /// Fired ONCE when the vehicle reaches the route's end (< 120 m) —
+    /// AppModel chains multi-leg trips (POI stop → final destination) off it.
+    /// Set via start(route:onArrival:) — never assigned post-start.
+    private var onArrival: (() -> Void)?
+    private var arrivalFired = false
 
     private let location: LocationService
     private var cancellable: AnyCancellable?
@@ -57,18 +66,33 @@ final class NavigationEngine: ObservableObject {
         self.location = location
     }
 
-    func start(route: PlannedRoute) {
+    /// `onArrival` is a parameter (not assigned after the fact) because
+    /// start() produces guidance immediately — review finding: assigning the
+    /// callback on the NEXT line meant a <120 m arrival fired into a nil or
+    /// stale closure (reentrantly consuming the previous trip's chain).
+    func start(route: PlannedRoute, onArrival: (() -> Void)? = nil) {
+        lastNearestIndex = 0
+        rerouteTask?.cancel()   // a reroute for the OLD leg must not clobber this one
         self.route = route
+        self.onArrival = onArrival
         flatten(route: route.route)
         currentStep = firstRealStep()
         offRouteFixes = 0
+        arrivalFired = false
         location.beginNavigationUpdates()
         cancellable = location.$latest
             .compactMap { $0 }
             .sink { [weak self] fix in self?.advance(with: fix) }
+        // First instruction/camera immediately — but on the NEXT main-actor
+        // tick so an instant arrival can never re-enter the caller mid-start.
+        if let fix = location.latest {
+            Task { @MainActor [weak self] in self?.advance(with: fix) }
+        }
     }
 
     func stop() {
+        rerouteTask?.cancel()
+        rerouteTask = nil
         cancellable = nil
         guidance = nil
         route = nil
@@ -77,17 +101,33 @@ final class NavigationEngine: ObservableObject {
 
     // MARK: per-fix update — the time-sensitive loop
 
+    /// Last matched route index — the next fix searches a LOCAL WINDOW around
+    /// it instead of rescanning the whole polyline (a cross-country route has
+    /// tens of thousands of points; the old full scan also allocated two
+    /// CLLocation objects per point per 1 Hz fix on the main actor).
+    private var lastNearestIndex = 0
+
     private func advance(with fix: CLLocation) {
         guard route != nil, !points.isEmpty else { return }
 
-        // Nearest route point (bounded scan around the previous match would be
-        // the optimization; a full scan at 1 Hz over one route is already sub-ms).
-        var nearest = 0
-        var nearestDist = CLLocationDistance.greatestFiniteMagnitude
-        for (i, pt) in points.enumerated() {
-            let d = fix.distance(from: CLLocation(latitude: pt.latitude, longitude: pt.longitude))
-            if d < nearestDist { nearestDist = d; nearest = i }
+        // Windowed nearest-point match (allocation-free equirectangular math);
+        // full rescan only when the window loses the vehicle (rejoin, jump).
+        func scan(_ range: Range<Int>) -> (idx: Int, dist: CLLocationDistance) {
+            var bestI = range.lowerBound
+            var bestD = CLLocationDistance.greatestFiniteMagnitude
+            for i in range {
+                let d = POIRanking.meters(points[i], fix.coordinate)
+                if d < bestD { bestD = d; bestI = i }
+            }
+            return (bestI, bestD)
         }
+        let lo = max(lastNearestIndex - 12, 0)
+        let hi = min(lastNearestIndex + 80, points.count)
+        var (nearest, nearestDist) = scan(lo..<hi)
+        if nearestDist > 250 {   // window lost the vehicle → one full rescan
+            (nearest, nearestDist) = scan(0..<points.count)
+        }
+        lastNearestIndex = nearest
 
         // Off-route: 3 consecutive fixes > 60 m from the corridor → reroute.
         if nearestDist > 60 {
@@ -111,6 +151,7 @@ final class NavigationEngine: ObservableObject {
             instruction: stepInstructions[min(currentStep, stepInstructions.count - 1)],
             distanceToManeuver: distToManeuver,
             stepIndex: currentStep,
+            alongMeters: cumulative[nearest],
             remainingDistance: remaining,
             remainingTime: (route?.eta ?? 0) * fraction,
             cameraAltitude: cameraAltitude(
@@ -119,6 +160,22 @@ final class NavigationEngine: ObservableObject {
                 speed: location.speed),
             isOffRoute: offRouteFixes >= 3
         )
+
+        if remaining < 120, !arrivalFired {
+            // Guard against a spurious nearest-vertex match on a route that
+            // doubles back (or a large GPS jump landing on a late vertex): fire
+            // arrival only when the fix is ALSO physically near the destination,
+            // not merely when the along-route `remaining` (from a possibly-wrong
+            // `nearest`) says so — otherwise the multi-leg onArrival chain could
+            // fire while the driver is still far out.
+            let dest = points.last!
+            let destDist = fix.distance(from: CLLocation(
+                latitude: dest.latitude, longitude: dest.longitude))
+            if destDist < 200 {
+                arrivalFired = true
+                onArrival?()
+            }
+        }
     }
 
     /// Zoom policy: maneuver density in a speed-scaled lookahead window.
@@ -148,12 +205,15 @@ final class NavigationEngine: ObservableObject {
 
     // MARK: reroute
 
+    private var rerouteTask: Task<Void, Never>?
+
     private func requestReroute(from fix: CLLocation) {
         guard !isRerouting, let current = route else { return }
         isRerouting = true
         offRouteFixes = 0
         let destination = points.last!
-        Task { [weak self] in
+        rerouteTask?.cancel()
+        rerouteTask = Task { [weak self] in
             defer { self?.isRerouting = false }
             let request = MKDirections.Request()
             request.source = MKMapItem(placemark: MKPlacemark(coordinate: fix.coordinate))
@@ -161,6 +221,7 @@ final class NavigationEngine: ObservableObject {
             request.transportType = .automobile
             request.departureDate = Date()
             guard let response = try? await MKDirections(request: request).calculate(),
+                  !Task.isCancelled,   // stop()/new leg superseded this reroute
                   let newRoute = response.routes.first, let self else { return }
             var replanned = PlannedRoute(
                 route: newRoute,

@@ -20,6 +20,16 @@
 - `scripts/sync_to_shared.sh` is the only bridge between `~/Documents` and the
   mirror. It excludes secrets (`.Renviron`, `*.key`, …) and keeps the mirror
   `drwxr-x---`.
+- The runner the worker exec's (`scripts/autonomous_test_runner.sh`) now rotates
+  R regression gates alongside a governed Rust suite (`rust_r0_gate`,
+  memory-gated `cargo test --release -j 1`) and the in-house polyline-decoder
+  gate — see [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md) for the rotation.
+
+*Re-verified 2026-07-10:* `com.flows.worker` is loaded and running,
+`worker.sh`'s ownership/permission guards and system-first `PATH` are in place,
+the sync's secret exclusions and `chmod 750` hold, and none of the deleted
+FLOW.app toolchain files (`install_launch_agent.sh`,
+`com.flows.testrunner.plist.template`, `flow_launcher.c`) exist on disk.
 
 ## Why FLOW.app was deleted (security)
 
@@ -33,10 +43,15 @@ confirmed the live FDA grant in `TCC.db`.
 Remediation applied:
 - Both copies of `FLOW.app` (`/Applications` and `~/Applications`) removed; the
   orphaned FDA grant is dead (TCC re-verifies the now-absent ad-hoc cdhash).
-- `scripts/install_launch_agent.sh install` is **disabled** — it refuses to
-  recreate the FDA agent and points at `com.flows.worker` instead.
-- `scripts/com.flows.testrunner.plist.template` is marked **DEPRECATED — DO NOT
-  USE** (kept only as a record of the abandoned approach).
+- The entire FLOW.app toolchain has been **deleted** (2026-07-04, after
+  verifying no `com.flows.testrunner` agent remains loaded or on disk):
+  `scripts/install_launch_agent.sh` (latterly a refusal stub),
+  `scripts/com.flows.testrunner.plist.template`, and `scripts/flow_launcher.c`
+  (the app's Mach-O launcher source). This document is the durable record of
+  the approach and why it was retired.
+- If a stale `com.flows.testrunner` agent ever reappears on a machine:
+  `launchctl bootout gui/$(id -u)/com.flows.testrunner` and delete
+  `~/Library/LaunchAgents/com.flows.testrunner.plist`.
 
 The `/Users/Shared` worker replaces all of this and needs **no permission grants
 at all**, which is strictly safer than a persistent FDA-holding launcher.

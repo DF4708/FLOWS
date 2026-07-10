@@ -17,6 +17,7 @@ of bug they prevent tends to come back.
 7. [Progress UX invariants](#7-progress-ux-invariants)
 8. [Testing patterns worth keeping](#8-testing-patterns-worth-keeping)
 9. [Resource governance (memory ceiling + accelerator honesty)](#9-resource-governance-memory-ceiling--accelerator-honesty)
+10. [Native app learnings — 2026-07](#10-native-app-learnings--2026-07)
 
 ---
 
@@ -469,3 +470,128 @@ claiming NPU acceleration here would be false. If a future FLOWS feature
 adds an actual ML model (e.g. a learned ETA or hazard-nowcasting model),
 that specific inference could target the ANE via CoreML — but nothing in the
 current pipeline qualifies. Honesty over a checkbox.
+
+*(Superseded in part, 2026-07: FLOWS now DOES carry on-device learned models —
+`SeasonalRiskModel` + a `LearnedHead` MLP trained by `rust/flows-train` — so
+the "no ML model" premise no longer holds for the Swift app. The honesty rule
+stands: only claim an accelerator when a real backend runs on it.)*
+
+---
+
+## 10. Native app learnings — 2026-07
+
+Discovered while shipping the native Swift/MapKit app
+(`apple/FLOWS/Sources/`). Same spirit as sections 1–9: each of these cost
+real debugging time and will bite again if forgotten.
+
+### MapKit polygons render no pattern fills
+
+SwiftUI `MapPolygon` silently ignores `ImagePaint` stripe tiles — you get a
+flat fill (or nothing), no error. There is no supported way to pattern-fill
+a map polygon. The risk-area hatching is therefore drawn as geometry:
+`ContentView.hatchLines` (`apple/FLOWS/Sources/UI/ContentView.swift`)
+generates parallel line segments clipped to the polygon ring and renders
+each as a `MapPolyline`, alternating risk-color / hazard-type stripes over
+a transparent polygon.
+
+**Rule**: on MapKit, "texture" must be built from polylines/polygons, never
+from paint styles.
+
+### Walking router: return `[]`, don't throw
+
+`MKDirections` errors outright on long pedestrian asks (Apple rejects
+long-distance walking requests). `RouteService.planRoutes(walking:)`
+(`apple/FLOWS/Sources/Core/RouteService.swift`) therefore issues ONE
+pedestrian request (the three driving strategies are identical under
+`.walking` — concurrent copies just wasted requests) and returns `[]`
+instead of throwing on failure. Returning empty — not error — is what lets
+the caller's driving fallback plus the `plannerNotice` banner engage
+uniformly; a thrown error would surface as a failure instead of a graceful
+"showing driving route instead" downgrade.
+
+**Rule**: when a fallback path exists, an empty result is a better contract
+than an exception — the caller's degrade logic runs either way.
+
+### WZDx: an open registry beats N hand-configured DOT feeds
+
+DOT road closures come from the WZDx open-feed registry on
+data.transportation.gov (public Socrata JSON) rather than hardcoded
+per-state URLs — `LiveHazardFeedFetcher` (`Core/LiveHazardFeeds.swift`)
+fetches the registry at most once per day (`ensureWZDxRegistry`, and the
+timestamp advances even on failure so a dead endpoint can't retry-storm),
+then pulls keyless per-state GeoJSON feeds with a per-state cache.
+Footgun found in the wild: registry field names have drifted across
+versions, so the parser probes multiple candidate field names instead of
+trusting one schema. Closures feed the `closure` PRIMARY risk family.
+
+### Seasonal-normal gating: normal-for-here-and-season never draws
+
+Presentation-layer principle. A 95 °F day is an alert in Seattle and
+Tuesday in Phoenix. `ClimateProfiles` (`Core/ClimateProfiles.swift`)
+classifies 12 Köppen-style climate types from lat/lon/elevation (replacing
+1-D latitude bands for temp normalization — `LatitudeBands` is retained
+only for R-parity scoring inputs), and `seasonalNorms(week:…)` interpolates
+each type's winter/summer envelope with a week-of-year sinusoid.
+`temperatureBeyondNormal` / `windBeyondNormal` gate the overlay: a reading
+inside the local seasonal envelope draws nothing, however extreme it would
+be elsewhere. This is a *display* gate — scoring inputs are unchanged.
+
+**Rule**: hazard presentation must be normalized to local seasonal
+climatology, or the map cries wolf across half the continent.
+
+### Two-truths ranking: realized band ⊕ discounted identified exposure
+
+Route ORDERING (never the display band) combines two kinds of evidence in
+`RiskEquations.rankingRisk` (`Core/RiskEquations.swift`): the realized-risk
+band (alerts + current conditions) and the IDENTIFIED ZIP exposure (modeled
+field, then the on-device seasonal prior). A ZIP can carry known risk
+before any alert fires, and an alert can fire in a historically clean ZIP —
+both are evidence. Identified risk is discounted ×0.6 so a realized Red
+always dominates, and the two combine noisy-OR so neither truth erases the
+other. As the `SeasonalRiskModel` prior for this route/week accrues
+confidence, it linearly takes over from the static field
+(`z*(1-c) + p*c`). Companion rule (proof-not-prediction,
+`RiskEquations.alertFamily`): warnings of in-progress danger map to PRIMARY
+families that can reach Red alone; watches/forecasts map to predictor
+families capped below Red.
+
+### Quit-during-reinstall reads as crash
+
+Dev-workflow footgun. The dev loop reinstalls the app constantly (and every
+reinstall already wipes TCC grants unless the stable code-signing identity
+from `apple/tools/make_signing_identity.sh` is used). If the running app is
+quit/killed while its binary is being replaced by a reinstall, macOS logs
+the termination as an unexpected exit — it shows up as a "crash" in
+Console/crash reports even though nothing crashed. Cost time chasing
+phantom crash reports that were just the install step tearing down the old
+process.
+
+**Rule**: after a reinstall cycle, a crash report timestamped at install
+time is noise. Only investigate crashes that occur while the (re)installed
+build is actually running.
+
+### 10.1 Full-codebase review (2026-07-10) — deferred findings register
+
+Fixed in the same pass: nav-pan camera fight (drag gesture beats the 1 Hz
+stamp heuristic), invisible ImagePaint fills on alert polygons/corridor
+circles, `weatherScored` honoring `CorridorScore.complete` + one retry pass,
+US–MX border misclassification (Rio Grande diagonal), custom trucker_radio.json
+survival, range-EMA alpha (50 s → ~55 min), ClimateProfiles negative-key
+decode, tsunami per-entry classification, WZDx per-feed caching + dedupe,
+flash-flood warning-only realization, LearnedHead bounds, RiskFieldService 5×5
+neighborhood, reroute-task lifecycle, brand-match tightening, Yelp term
+encoding, HOS stationary-fix speed guard, towing-banner clear, badge identity,
+sweep retry/cancellation.
+
+Deliberately DEFERRED (known, documented, not yet fixed):
+- addStop(): leg-2 plan failure can fire a false final-arrival banner
+  (FLOWSApp.swift ~1757) — needs an arrival-state machine rework.
+- Escalation baseline vs corridor-window risk is not strictly like-for-like
+  (window slice omits onDevice/flood/closure terms).
+- POIService isSearching/stale-results race on rapid same-kind re-taps.
+- NavigationEngine.advance() O(n) nearest-vertex scan per fix on long routes
+  (correct, but allocation-heavy; candidate for the RoutePath grid).
+- corridorHazardShapes badge clustering still runs in mapContent per render
+  (bounded ≤ ~50 samples; candidate for per-route memoization).
+- First rebuildRiskOverlays after a sweep briefly pairs new hazards with
+  stale ZCTA rings until ring resolution lands (~1 s visual).

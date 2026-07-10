@@ -102,8 +102,12 @@ math — is real and achievable the right way:
 
 **Decision:** "Rust + Assembly" is implemented as **Rust with SIMD
 intrinsics for proven hot kernels, GPU for the largest, and inline `asm!`
-only where a profiler mandates it.** The PoC includes a scalar-and-SIMD
-distance kernel with an equality test to demonstrate this concretely.
+only where a profiler mandates it.** The shipped example is the polyline
+varint decoder's AArch64 `asm!` kernel (`decode_deltas_asm`), held
+byte-identical to a portable Rust oracle — a real on-device integer hot loop,
+not a speculative one. The distance kernel stays the scalar reference (it runs
+only on the R bridge); its SIMD form drops in behind the same signature if a
+profile ever shows it dominating.
 
 ---
 
@@ -139,7 +143,7 @@ equivalence gate.
 
 - Cargo workspace `rust/` with `flows-core`.
 - Port the *pure, side-effect-free* functions first: `risk_label_from_score`,
-  `risk_rgb_hex`, and the Euclidean distance kernel (scalar + SIMD).
+  `risk_rgb_hex`, and the Euclidean distance kernel (scalar reference).
 - A Rust test suite that reproduces the R SQA boundary cases exactly.
 - A C-ABI export + a Swift snippet that calls it and prints the result.
 - **Gate:** Rust output byte-identical to R for every SQA boundary case.

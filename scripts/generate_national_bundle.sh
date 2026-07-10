@@ -1,0 +1,23 @@
+#!/bin/sh
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+# Regenerate the national seasonal-climatology ZIP baseline and merge it into
+# data/runtime_cache/app_risk_bundle.json. R-engine entries are preserved
+# byte-for-byte; only the national tail is recomputed for the current week.
+#
+# Usage: scripts/generate_national_bundle.sh [week 0-51]
+set -eu
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+WEEK="${1:-}"
+if [ -z "$WEEK" ]; then
+    DOY=$(date +%j | sed 's/^0*//')
+    WEEK=$((DOY / 7))
+    [ "$WEEK" -gt 51 ] && WEEK=51
+fi
+
+PATH="$HOME/.cargo/bin:$PATH" cargo build --release -p flows-train \
+    --manifest-path "$REPO/rust/Cargo.toml"
+cd "$REPO"
+./rust/target/release/national-bundle "$WEEK"
