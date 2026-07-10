@@ -178,30 +178,47 @@ final class RiskRealizationTests: XCTestCase {
     // Relative-elevation flood amplifier: valley floor in heavy rain amplifies
     // most; ridge amplifies none; no rain → no amplification; flat terrain or
     // missing elevation → rain-only bump; multiplier stays in [1, 2].
+    // Waterline-threshold flood model: bump only when the risen waterline
+    // (localMin + rainDepth) reaches the road; a road above it floods only with
+    // supporting evidence (gauge/FEMA/water nearby), per the user's rule.
     func testFloodElevationMultiplier() {
-        func m(_ e: Double?, lo: Double?, hi: Double?, q: Double?) -> Double {
+        func m(_ e: Double?, lo: Double?, q: Double?, ev: Double = 0) -> Double {
             RiskEquations.floodElevationMultiplier(
-                sampleElevation: e, minElevation: lo, maxElevation: hi, qpfInches: q)
+                sampleElevation: e, localMinElevation: lo, qpfInches: q, supportingEvidence: ev)
         }
-        XCTAssertEqual(m(100, lo: 100, hi: 500, q: 2.0), 2.0, accuracy: 1e-9,
-                       "valley floor + 2in rain = full 2× amplification")
-        XCTAssertEqual(m(500, lo: 100, hi: 500, q: 2.0), 1.0, accuracy: 1e-9,
-                       "ridge top amplifies nothing")
-        XCTAssertEqual(m(300, lo: 100, hi: 500, q: 2.0), 1.5, accuracy: 1e-9)
-        XCTAssertEqual(m(100, lo: 100, hi: 500, q: 0), 1.0, "no rain, no amplification")
-        XCTAssertEqual(m(100, lo: 100, hi: 500, q: nil), 1.0)
-        XCTAssertEqual(m(nil, lo: nil, hi: nil, q: 2.0), 1.5, accuracy: 1e-9,
-                       "no elevation data: rain-only mid bump")
-        XCTAssertEqual(m(2500, lo: 2400, hi: 2404, q: 1.0), 1.25, accuracy: 1e-9,
-                       "flat corridor (<5 m relief): terrain signal ignored")
-        // The MOUNTAIN TOWN case: high absolute elevation, but the LOCAL low.
-        XCTAssertGreaterThan(m(2400, lo: 2400, hi: 2900, q: 1.5),
-                             m(2900, lo: 2400, hi: 2900, q: 1.5),
-                             "an 8,000 ft valley floor still floods relative to its own terrain")
+        // 2 in rain = 0.0508 m of rise. A road AT the local low floods fully.
+        XCTAssertEqual(m(100, lo: 100, q: 2.0), 2.0, accuracy: 1e-9,
+                       "road at the local minimum: waterline submerges it → 2×")
+        // A road 0.03 m above the low is still under a 0.0508 m rise → flooded.
+        XCTAssertGreaterThan(m(100.03, lo: 100, q: 2.0), 1.6)
+        // A road well above the risen waterline with NO evidence: no bump.
+        XCTAssertEqual(m(105, lo: 100, q: 2.0), 1.0, accuracy: 1e-9,
+                       "5 m above a 0.05 m rise, no evidence → NO flood bump (user's rule)")
+        // …but WITH supporting evidence (river/gauge/FEMA nearby) it can bump —
+        // though 5 m up is out of proximity range, so still ~1; a near-miss does.
+        XCTAssertEqual(m(105, lo: 100, q: 2.0, ev: 1.0), 1.0, accuracy: 1e-9,
+                       "evidence doesn't override real elevation headroom far above the line")
+        XCTAssertGreaterThan(m(100.06, lo: 100, q: 2.0, ev: 1.0), 1.0,
+                             "just above the waterline + evidence → tapered near-miss bump")
+        XCTAssertEqual(m(100.06, lo: 100, q: 2.0, ev: 0), 1.0, accuracy: 1e-9,
+                       "same road, NO evidence → no bump")
+        XCTAssertEqual(m(100, lo: 100, q: 0), 1.0, "no rain, no flood")
+        XCTAssertEqual(m(100, lo: 100, q: nil), 1.0)
+        // Bounds across the range.
         for q in [0.1, 1.0, 5.0] {
-            let v = m(200, lo: 100, hi: 500, q: q)
-            XCTAssertGreaterThanOrEqual(v, 1); XCTAssertLessThanOrEqual(v, 2)
+            for ev in [0.0, 0.5, 1.0] {
+                let v = m(101, lo: 100, q: q, ev: ev)
+                XCTAssertGreaterThanOrEqual(v, 1); XCTAssertLessThanOrEqual(v, 2)
+            }
         }
+        // Water proximity scorer: 1 on the water sample, tapering to 0 by 6 km.
+        let water = [CLLocationCoordinate2D(latitude: 43.0, longitude: -89.0)]
+        XCTAssertEqual(HazardFeedScores.waterProximityScore(
+            waterPoints: water, at: CLLocationCoordinate2D(latitude: 43.0, longitude: -89.0)),
+            1.0, accuracy: 1e-9)
+        XCTAssertEqual(HazardFeedScores.waterProximityScore(
+            waterPoints: water, at: CLLocationCoordinate2D(latitude: 43.1, longitude: -89.0)),
+            0.0, accuracy: 0.05, "~11 km away → out of range")
     }
 
     // A DOT-reported road closure is PROOF — the realized blocked-road primary

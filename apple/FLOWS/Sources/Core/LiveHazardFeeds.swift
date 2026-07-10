@@ -201,6 +201,22 @@ enum HazardFeedScores {
         return best
     }
 
+    /// Topographic flood evidence: proximity to a mapped river or lake (USGS
+    /// NHD). `waterPoints` are corridor samples confirmed to have water within
+    /// the query radius; the score is 1 at such a sample, tapering to 0 by
+    /// ~6 km — a road beside the Yahara reads high, one on a ridge reads 0.
+    static func waterProximityScore(
+        waterPoints: [CLLocationCoordinate2D], at point: CLLocationCoordinate2D
+    ) -> Double {
+        var best = 0.0
+        for w in waterPoints {
+            let d = POIRanking.meters(w, point)
+            guard d < 6_000 else { continue }
+            best = max(best, 1 - d / 6_000)
+        }
+        return best
+    }
+
     // MARK: radiation — NOAA SWPC space weather (S / G scales)
 
     /// A single NOAA space-weather scale (0…5) → 0…1. Quiet levels (0–2) stay
@@ -591,6 +607,51 @@ actor LiveHazardFeedFetcher {
         }
         if floodCache.count > 40 { floodCache = [:] }
         return out
+    }
+
+    // MARK: hydrography — USGS NHD rivers/lakes proximity (keyless), 24-h TTL
+
+    private var waterCache: [String: (Date, Bool)] = [:]
+
+    /// Of the given corridor sample points, which sit within ~800 m of a mapped
+    /// USGS NHD river (flowline) or lake (waterbody)? Static hydrography barely
+    /// changes, so a 24-h per-cell cache keeps this to a handful of requests.
+    /// This is the TOPOGRAPHIC evidence (rivers/lakes) the flood model gates on,
+    /// alongside FEMA zones and live gauges.
+    func waterProximity(near points: [CLLocationCoordinate2D])
+        async -> [CLLocationCoordinate2D] {
+        var out: [CLLocationCoordinate2D] = []
+        for p in points {
+            let key = "\(Int(p.latitude * 50))|\(Int(p.longitude * 50))"   // ~2 km cells
+            if let c = waterCache[key], Date().timeIntervalSince(c.0) < 86_400 {
+                if c.1 { out.append(p) }
+                continue
+            }
+            let near = await Self.nhdWaterNear(p)
+            waterCache[key] = (Date(), near)
+            if near { out.append(p) }
+        }
+        if waterCache.count > 400 { waterCache = [:] }
+        return out
+    }
+
+    /// One keyless NHD count query: is a river (layer 4) or lake (layer 10)
+    /// within 800 m? Small-scale layers keep the query fast at corridor zoom.
+    private static func nhdWaterNear(_ p: CLLocationCoordinate2D) async -> Bool {
+        func count(layer: Int, meters: Int) async -> Int {
+            let base = "https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/\(layer)/query"
+            let q = "?geometry=\(p.longitude),\(p.latitude)&geometryType=esriGeometryPoint"
+                + "&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=\(meters)"
+                + "&units=esriSRUnit_Meter&returnCountOnly=true&f=json"
+            guard let u = URL(string: base + q),
+                  let (data, resp) = try? await ThrottledNet.fetch(u),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let n = json["count"] as? Int else { return 0 }
+            return n
+        }
+        if await count(layer: 4, meters: 500) > 0 { return true }   // river/stream
+        return await count(layer: 10, meters: 800) > 0              // lake/reservoir
     }
 
     // MARK: volcanic — USGS HANS elevated volcanoes (US live status), 30-min TTL

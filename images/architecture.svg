@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 560" font-family="-apple-system, Segoe UI, Roboto, sans-serif">
+  <rect width="920" height="560" rx="16" fill="#0f1419"/>
+  <text x="460" y="42" text-anchor="middle" fill="#e8eef5" font-size="24" font-weight="700">FLOWS — system architecture</text>
+  <text x="460" y="66" text-anchor="middle" fill="#7f8c9b" font-size="13">Rust + AArch64 assembly + Swift · no runtime interpreter · pure-std tooling</text>
+
+  <!-- Live feeds -->
+  <rect x="34" y="98" width="230" height="180" rx="12" fill="#18212b" stroke="#2b3a48"/>
+  <text x="149" y="124" text-anchor="middle" fill="#6fb1ff" font-size="14" font-weight="700">Live keyless feeds</text>
+  <text x="52" y="150" fill="#c4d0dc" font-size="12">NWS alerts + gridpoint forecast</text>
+  <text x="52" y="172" fill="#c4d0dc" font-size="12">NWPS river gauges · FEMA NFHL</text>
+  <text x="52" y="194" fill="#c4d0dc" font-size="12">USGS NHD rivers/lakes · EPQS</text>
+  <text x="52" y="216" fill="#c4d0dc" font-size="12">USGS quakes · SPC · HMS fire</text>
+  <text x="52" y="238" fill="#c4d0dc" font-size="12">WZDx DOT closures · Open-Meteo</text>
+  <text x="52" y="260" fill="#c4d0dc" font-size="12">ECCC (CA) · SMN (MX) · NHC · SWPC</text>
+
+  <!-- R engine -->
+  <rect x="34" y="300" width="230" height="150" rx="12" fill="#18212b" stroke="#2b3a48"/>
+  <text x="149" y="326" text-anchor="middle" fill="#f0b35b" font-size="14" font-weight="700">R risk engine (oracle)</text>
+  <text x="52" y="352" fill="#c4d0dc" font-size="12">Per-ZIP family scoring</text>
+  <text x="52" y="374" fill="#c4d0dc" font-size="12">Byte-identical reference for Rust</text>
+  <text x="52" y="396" fill="#c4d0dc" font-size="12">export_app_risk_bundle.R</text>
+  <text x="52" y="424" fill="#8fa1b0" font-size="11" font-style="italic">national-bundle (Rust) merges</text>
+  <text x="52" y="440" fill="#8fa1b0" font-size="11" font-style="italic">climatology → 33,300-ZIP bundle</text>
+
+  <!-- Rust core -->
+  <rect x="330" y="150" width="250" height="270" rx="12" fill="#1a2530" stroke="#3a5169"/>
+  <text x="455" y="178" text-anchor="middle" fill="#ff8f6b" font-size="15" font-weight="700">flows-core (Rust)</text>
+  <text x="348" y="206" fill="#c4d0dc" font-size="12">risk · scoring (R-parity, tested)</text>
+  <text x="348" y="228" fill="#c4d0dc" font-size="12">polyline decoder + AArch64 asm</text>
+  <text x="348" y="250" fill="#c4d0dc" font-size="12">RAPTOR transit + GTFS→.ftt</text>
+  <text x="348" y="272" fill="#c4d0dc" font-size="12">CH routing · distance kernels</text>
+  <text x="348" y="294" fill="#c4d0dc" font-size="12">C-ABI FFI → Swift staticlib</text>
+  <rect x="348" y="312" width="214" height="92" rx="9" fill="#12202c" stroke="#26455c"/>
+  <text x="455" y="335" text-anchor="middle" fill="#8fd0a0" font-size="12" font-weight="700">flows-train (pure std)</text>
+  <text x="362" y="358" fill="#b9c6d2" font-size="11">ranking-head MLP trainer</text>
+  <text x="362" y="378" fill="#b9c6d2" font-size="11">national climatology bundle gen</text>
+  <text x="362" y="396" fill="#8fa1b0" font-size="10.5" font-style="italic">zero external crates</text>
+
+  <!-- Swift app -->
+  <rect x="644" y="98" width="242" height="352" rx="12" fill="#182634" stroke="#3a5169"/>
+  <text x="765" y="124" text-anchor="middle" fill="#6fb1ff" font-size="15" font-weight="700">FLOWS app (Swift)</text>
+  <text x="662" y="150" fill="#8fa1b0" font-size="11">macOS · iOS · iPadOS · watchOS · CarPlay</text>
+  <text x="662" y="178" fill="#c4d0dc" font-size="12">Two-tier realized-risk band</text>
+  <text x="662" y="200" fill="#c4d0dc" font-size="12">Climate-typed seasonal gates</text>
+  <text x="662" y="222" fill="#c4d0dc" font-size="12">Waterline flood model + NHD</text>
+  <text x="662" y="244" fill="#c4d0dc" font-size="12">ZIP-boundary risk stripes</text>
+  <text x="662" y="266" fill="#c4d0dc" font-size="12">Two-truths route ranking + GO gate</text>
+  <text x="662" y="288" fill="#c4d0dc" font-size="12">Transit cards + ticket links</text>
+  <text x="662" y="310" fill="#c4d0dc" font-size="12">POI: fuel/food/stores/tourist</text>
+  <text x="662" y="332" fill="#c4d0dc" font-size="12">Offline breadcrumb lifeline</text>
+  <text x="662" y="354" fill="#c4d0dc" font-size="12">On-device seasonal learning</text>
+  <text x="662" y="376" fill="#c4d0dc" font-size="12">3D grade ribbon · towing · crash</text>
+  <rect x="662" y="392" width="206" height="44" rx="9" fill="#12202c" stroke="#26455c"/>
+  <text x="765" y="419" text-anchor="middle" fill="#8fd0a0" font-size="12">153 Swift + 66 Rust tests · 0 warnings</text>
+
+  <!-- Arrows -->
+  <g stroke="#4a6076" stroke-width="2" fill="none" marker-end="url(#a)">
+    <path d="M264 300 L330 270"/>
+    <path d="M264 200 L330 220"/>
+    <path d="M580 250 L644 250"/>
+  </g>
+  <defs><marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto"><path d="M0 0 L8 3.5 L0 7 z" fill="#4a6076"/></marker></defs>
+  <text x="300" y="500" fill="#5c6b7a" font-size="11">Live feeds + the R engine's ZIP bundle feed the Rust core; the Swift app renders the realized-risk band, routes, and on-device learning.</text>
+</svg>

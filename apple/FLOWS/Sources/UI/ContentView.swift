@@ -978,6 +978,7 @@ struct ContentView: View {
                         .stroke(Color.gray.opacity(0.55), lineWidth: 5)
                 }
                 if let hl = model.routeChoices.first(where: { $0.id == model.highlightedRouteID }) {
+                    if model.show3DMap { gradeRibbon(hl) }   // elevation casing UNDER the route
                     riskStrokedRoute(hl)
                     if model.show3DMap { steepGradeMarkers(hl) }
                 }
@@ -1007,6 +1008,7 @@ struct ContentView: View {
                         .stroke(Color.blue.opacity(0.5),
                                 style: StrokeStyle(lineWidth: 5, dash: [8, 6]))
                 }
+                if model.show3DMap { gradeRibbon(route) }   // elevation casing UNDER the route
                 riskStrokedRoute(route)
                 if model.show3DMap { steepGradeMarkers(route) }
             }
@@ -1370,6 +1372,55 @@ struct ContentView: View {
         let lat = ring.map(\.latitude).reduce(0, +) / Double(ring.count)
         let lon = ring.map(\.longitude).reduce(0, +) / Double(ring.count)
         return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+
+    /// GRADE-tinted elevation ribbon: a casing under the route colored by our
+    /// EPQS grade table — flat = green, moderate = yellow, steep = orange,
+    /// severe = red. MapKit's base mesh is NOT app-deformable (it comes from
+    /// Apple's own DEM), so instead of "bending the map" this DRAPES our own
+    /// elevation-change data onto it — the honest way to show relief we know in
+    /// detail. Shown with the steep-grade % markers when 3D terrain is on.
+    @MapContentBuilder
+    private func gradeRibbon(_ route: PlannedRoute) -> some MapContent {
+        ForEach(Array(route.gradeProfile.enumerated()), id: \.offset) { _, seg in
+            let pts = Self.polylineSlice(of: route, fromMile: seg.startMile, toMile: seg.endMile)
+            if pts.count >= 2 {
+                MapPolyline(coordinates: pts)
+                    .stroke(Self.gradeColor(seg.gradePercent),
+                            style: StrokeStyle(lineWidth: 11, lineCap: .round))
+            }
+        }
+    }
+
+    /// Hypsometric-style ramp for road STEEPNESS (|grade|): the flatter the
+    /// greener, the steeper the redder.
+    nonisolated private static func gradeColor(_ percent: Double) -> Color {
+        switch abs(percent) {
+        case ..<2: return Color.green.opacity(0.5)
+        case ..<4: return Color(red: 0.6, green: 0.8, blue: 0.2).opacity(0.55)
+        case ..<6: return Color.yellow.opacity(0.6)
+        case ..<9: return Color.orange.opacity(0.7)
+        default: return Color.red.opacity(0.8)
+        }
+    }
+
+    /// The route polyline between two mile marks (for a ribbon segment).
+    nonisolated private static func polylineSlice(
+        of route: PlannedRoute, fromMile: Double, toMile: Double) -> [CLLocationCoordinate2D] {
+        let poly = route.route.polyline
+        let n = poly.pointCount
+        guard n > 1 else { return [] }
+        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
+        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        let a = fromMile * 1609.344, b = toMile * 1609.344
+        var acc = 0.0
+        var out: [CLLocationCoordinate2D] = []
+        for i in 0..<n {
+            if i > 0 { acc += POIRanking.meters(coords[i - 1], coords[i]) }
+            if acc >= a && acc <= b { out.append(coords[i]) }
+            if acc > b { break }
+        }
+        return out
     }
 
     /// STEEP-GRADE markers along the active route when 3D terrain is on: our
@@ -1802,7 +1853,7 @@ struct SettingsSheet: View {
                 Label("3D terrain", systemImage: "mountain.2.fill")
                     .font(.system(size: 14, weight: .semibold))
             }
-            Text("Renders real elevation relief and pitches the navigation camera deeper — mountain grades read on the map itself.")
+            Text("Drapes a grade-colored elevation ribbon on the route (from our EPQS road-elevation data) and pitches the camera deeper. Apple's base terrain isn't app-editable, so relief is shown through the ribbon + grade markers, not by bending the map.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
