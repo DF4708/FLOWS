@@ -62,6 +62,22 @@ final class StoresAndCostsTests: XCTestCase {
         XCTAssertTrue(StoreCategory.allCases.map(\.rawValue).contains("Gun"))
     }
 
+    // AAA "Current Avg." row parse: Regular is gas, 4th column is diesel;
+    // malformed pages return nil instead of garbage.
+    func testAAACurrentAvgParse() {
+        let html = """
+        <thead><th>Regular</th><th>Mid</th><th>Premium</th><th>Diesel</th></thead>
+        <tbody><tr><td>Current Avg.</td>
+        <td>$3.6840</td><td>$4.2100</td><td>$4.8310</td><td>$4.5810</td></tr>
+        <tr><td>Yesterday Avg.</td><td>$3.5950</td></tr>
+        """
+        let parsed = AAAFuelPrices.parseCurrentAvg(html)
+        XCTAssertEqual(parsed?.gas ?? 0, 3.684, accuracy: 1e-9)
+        XCTAssertEqual(parsed?.diesel ?? 0, 4.581, accuracy: 1e-9)
+        XCTAssertNil(AAAFuelPrices.parseCurrentAvg("<html>no table here</html>"))
+        XCTAssertNil(AAAFuelPrices.parseCurrentAvg("Current Avg. $3.10 only-one-price"))
+    }
+
     // Fuel cost math: 300 mi at 30 mpg × $3.00 = $30; degenerate inputs → nil.
     func testDriveFuelCost() {
         XCTAssertEqual(TripCosts.driveFuelCostUSD(miles: 300, milesPerUnit: 30,

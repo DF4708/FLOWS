@@ -15,6 +15,63 @@ import Foundation
 /// rounded to the dime — clearly labeled "est. state avg" in the UI, and a
 /// station-level licensed feed (GasBuddy/OPIS) plugs into the same
 /// `priceProvider` to replace them per station.
+/// Live state-average fuel prices scraped politely from AAA's PUBLIC state
+/// pages (gasprices.aaa.com — keyless, refreshed at most twice a day per
+/// state). A public posting by the operator, not platform content; polite,
+/// low-volume, cached. Feeds FuelPrices.estimate as a fresher override of the
+/// static state-factor table — labeled "est." in the UI either way (it's a
+/// state average, not a station price).
+final class AAAFuelPrices: @unchecked Sendable {
+    static let shared = AAAFuelPrices()
+
+    private let lock = NSLock()
+    private var cache: [String: (gas: Double, diesel: Double, at: Date)] = [:]
+
+    func cached(_ code: String) -> (gas: Double, diesel: Double)? {
+        lock.lock(); defer { lock.unlock() }
+        guard let c = cache[code], Date().timeIntervalSince(c.at) < 43_200 else { return nil }
+        return (c.gas, c.diesel)
+    }
+
+    /// Fetch a state's Current Avg row (Regular/Mid/Premium/Diesel) once per
+    /// 12 h. Parsing anchors on the "Current Avg." cell — the four following
+    /// $-prices are the columns in order.
+    func refresh(stateCode: String) async {
+        let code = stateCode.uppercased()
+        if cached(code) != nil { return }
+        guard code.count == 2,
+              let url = URL(string: "https://gasprices.aaa.com/?state=\(code)"),
+              let (data, resp) = try? await ThrottledNet.fetch(url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let html = String(data: data, encoding: .utf8),
+              let parsed = Self.parseCurrentAvg(html) else { return }
+        store(code: code, gas: parsed.gas, diesel: parsed.diesel)
+    }
+
+    /// Synchronous mutation point (NSLock is not await-safe; this never awaits).
+    private func store(code: String, gas: Double, diesel: Double) {
+        lock.lock(); defer { lock.unlock() }
+        cache[code] = (gas: gas, diesel: diesel, at: Date())
+    }
+
+    /// Pure parse (testable offline): the four $-prices after "Current Avg."
+    /// are Regular / Mid / Premium / Diesel, in column order.
+    static func parseCurrentAvg(_ html: String) -> (gas: Double, diesel: Double)? {
+        guard let anchor = html.range(of: "Current Avg.") else { return nil }
+        var prices: [Double] = []
+        var search = anchor.upperBound
+        while prices.count < 4,
+              let d = html.range(of: "$", range: search..<html.endIndex) {
+            let tail = String(html[d.upperBound...].prefix(8))
+            let num = String(tail.prefix(while: { $0.isNumber || $0 == "." }))
+            if let v = Double(num), v > 1, v < 9 { prices.append(v) }
+            search = d.upperBound
+        }
+        guard prices.count == 4 else { return nil }
+        return (gas: prices[0], diesel: prices[3])
+    }
+}
+
 enum FuelPrices {
     /// Baselines (US national, $/gal; electric $/kWh at public L2/DCFC).
     static let nationalGas = 3.10
@@ -61,6 +118,15 @@ enum FuelPrices {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if trimmed.count == 2 { return trimmed.uppercased() }
             return stateNameToCode[trimmed.lowercased()]
+        }
+        // Fresher truth first: AAA's live state average (keyless scrape,
+        // 12-h cache) overrides the static factor table when present.
+        if let code, let live = AAAFuelPrices.shared.cached(code) {
+            switch fuel {
+            case .gas: return (live.gas * 100).rounded() / 100
+            case .diesel: return (live.diesel * 100).rounded() / 100
+            case .electric: break   // AAA doesn't publish $/kWh
+            }
         }
         let factor = code.flatMap { stateFactor[$0] } ?? 1.0
         switch fuel {

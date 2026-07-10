@@ -504,3 +504,42 @@ The low-bridge clearance query (`clearances(inBoxes:)`) now has a bbox-keyed,
 6-hour TTL cache (device-stretched). Bridges are static infrastructure, so
 re-scoring the same route no longer re-queries the rate-limited Overpass API;
 only successes are cached (a failure stays retryable).
+
+---
+
+## Deployment posture: keyless / open-source / politely-scraped first (2026-07)
+
+Keyed APIs are OPTIONAL enrichment only; the app must deploy fully without any
+key. Gap-filling sources adopted under this rule:
+
+| Gap | Source | Access | Status |
+|---|---|---|---|
+| Live fuel prices | **AAA state averages** (gasprices.aaa.com, public posting) | Keyless polite scrape, 12-h cache per state (`AAAFuelPrices`) | **Wired** — overrides the static state-factor estimates; still labeled "est." (state average, not station price) |
+| POI database | **Foursquare OS Places** (Apache 2.0, ~106M POIs) | Keyless bulk download → regional `.fps` shards | Pipeline in `scripts/build_places_shards.sh` (see section below); Swift reader next |
+| POI database (alt/merge) | **Overture Maps Places** (CDLA-P-2.0/Apache 2.0) | Keyless GeoParquet on S3/Azure | Candidate for a future merge pass |
+| Transit fares | GTFS `fare_*.txt` where agencies publish | Keyless (rides the GTFS→.ftt pipeline) | Parser slot reserved |
+| Streamflow depth | USGS Water Services IV | Keyless | Not wired: raw gauge height lacks flood-stage context; NWPS (already wired) supplies categorized flood levels |
+| Closures (non-WZDx states) | State 511 sites | Mixed (some keyless, some free-key) | WZDx registry covers the open-feed states; per-state 511 keys deliberately skipped |
+
+### Optional free keys (enrichment only — NOT required to deploy)
+
+**Google Places API (New)** — POI star ratings / price / hours (primary ratings provider):
+1. console.cloud.google.com → create/select a project.
+2. "APIs & Services" → "Library" → enable **Places API (New)**.
+3. "Credentials" → "Create credentials" → API key; restrict it to Places API (New).
+4. Billing account required for activation, but the per-SKU free monthly tier
+   (thousands of Text Search calls) covers per-search app use without charges.
+5. Paste into FLOWS → Settings → Data sources → Google Places key.
+
+**EIA (fuel-price series, stabler than scraping)** — api.eia.gov:
+1. https://www.eia.gov/opendata/register.php → email → key arrives instantly.
+2. Weekly retail gasoline/diesel by state: `/v2/petroleum/pri/gnd/data`.
+(Currently unused — AAA scrape covers it keylessly; keep as backup.)
+
+**NPS (parks detail for Tourist stops)** — developer.nps.gov:
+1. https://www.nps.gov/subjects/developer/get-started.htm → sign up → instant key.
+(Optional: FSQ Places shards already carry parks/landmarks keylessly.)
+
+**Recreation.gov RIDB (federal campgrounds/rec areas)** — ridb.recreation.gov:
+1. Create a recreation.gov account → profile → "API" → generate key.
+(Optional, same reason as NPS.)
