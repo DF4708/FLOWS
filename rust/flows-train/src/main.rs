@@ -24,7 +24,7 @@ use std::env;
 use std::f64::consts::PI;
 use std::fs;
 
-const NI: usize = 6; // input features
+const NI: usize = 8; // input features (v2: + origin/dest longitude)
 const NH: usize = 16; // hidden units
 
 // ---------------------------------------------------------------- features
@@ -41,11 +41,17 @@ fn haversine_km(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64 {
 fn features(o_lat: f64, o_lon: f64, d_lat: f64, d_lon: f64, week: f64, cross: bool) -> [f64; NI] {
     let a = 2.0 * PI * week / 52.0;
     let dist = haversine_km(o_lat, o_lon, d_lat, d_lon);
+    // v2 contract: longitudes included — without them Phoenix and Moore, OK
+    // (same latitude band) were indistinguishable, collapsing desert-heat and
+    // tornado-alley climatology into one blur. IDENTICAL order in Swift
+    // RouteFeatures.vector; change one side => change both + version bump.
     [
         a.sin(),
         a.cos(),
         o_lat / 90.0,
         d_lat / 90.0,
+        o_lon / 180.0,
+        d_lon / 180.0,
         dist.min(4000.0) / 4000.0,
         if cross { 1.0 } else { 0.0 },
     ]
@@ -190,27 +196,68 @@ fn forward(n: &Net, x: &[f64; NI]) -> (f64, [f64; NH], [f64; NH]) {
     (1.0 / (1.0 + (-z2).exp()), h, z1) // sigmoid
 }
 
+/// Gradient of one row-chunk (the parallel unit). Pure function of (net, rows).
+fn chunk_grad(net: &Net, rows: &[Row], wmean: f64) -> Net {
+    let mut g = Net::zero();
+    for r in rows {
+        let (pred, h, z1) = forward(net, &r.x);
+        let ww = r.w / wmean;
+        let dz2 = 2.0 * ww * (pred - r.y) * pred * (1.0 - pred); // MSE·sigmoid
+        g.b2 += dz2;
+        for j in 0..NH {
+            g.w2[j] += dz2 * h[j];
+            let dz1 = if z1[j] > 0.0 { dz2 * net.w2[j] } else { 0.0 };
+            g.b1[j] += dz1;
+            for i in 0..NI {
+                g.w1[j][i] += dz1 * r.x[i];
+            }
+        }
+    }
+    g
+}
+
+fn add_grad(into: &mut Net, g: &Net) {
+    into.b2 += g.b2;
+    for j in 0..NH {
+        into.w2[j] += g.w2[j];
+        into.b1[j] += g.b1[j];
+        for i in 0..NI {
+            into.w1[j][i] += g.w1[j][i];
+        }
+    }
+}
+
 fn train(rows: &[Row], epochs: i32, lr: f64) -> Net {
     let mut net = init();
     let (mut m, mut v) = (Net::zero(), Net::zero());
     let n = rows.len().max(1) as f64;
     let wmean = (rows.iter().map(|r| r.w).sum::<f64>() / n).max(1e-9);
+    // Full-batch gradient, PARALLEL across cores: each thread sums its chunk's
+    // gradient (identical math to the serial loop; only fp summation order
+    // differs, within Adam's noise floor). ~cores× faster on the 1.16M-row
+    // 20-year history set; small row counts stay serial (thread spawn costs
+    // more than it saves).
+    let workers = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1);
     for ep in 1..=epochs {
-        let mut g = Net::zero();
-        for r in rows {
-            let (pred, h, z1) = forward(&net, &r.x);
-            let ww = r.w / wmean;
-            let dz2 = 2.0 * ww * (pred - r.y) * pred * (1.0 - pred); // MSE·sigmoid
-            g.b2 += dz2;
-            for j in 0..NH {
-                g.w2[j] += dz2 * h[j];
-                let dz1 = if z1[j] > 0.0 { dz2 * net.w2[j] } else { 0.0 };
-                g.b1[j] += dz1;
-                for i in 0..NI {
-                    g.w1[j][i] += dz1 * r.x[i];
+        let g = if rows.len() < 4_096 || workers < 2 {
+            chunk_grad(&net, rows, wmean)
+        } else {
+            let chunk = rows.len().div_ceil(workers);
+            let net_ref = &net;
+            std::thread::scope(|s| {
+                let handles: Vec<_> = rows
+                    .chunks(chunk)
+                    .map(|c| s.spawn(move || chunk_grad(net_ref, c, wmean)))
+                    .collect();
+                let mut total = Net::zero();
+                for h in handles {
+                    if let Ok(part) = h.join() {
+                        add_grad(&mut total, &part);
+                    }
                 }
-            }
-        }
+                total
+            })
+        };
         adam(&mut net.b2, g.b2 / n, &mut m.b2, &mut v.b2, ep, lr);
         for j in 0..NH {
             adam(&mut net.w2[j], g.w2[j] / n, &mut m.w2[j], &mut v.w2[j], ep, lr);
@@ -233,7 +280,7 @@ fn rmse(net: &Net, rows: &[Row]) -> f64 {
 
 // ---------------------------------------------------------------- output
 
-fn write_head(net: &Net, version: i64, path: &str) {
+fn write_head(net: &Net, version: i64, rows: usize, path: &str) {
     let mut s = String::from("{\"w1\":[");
     for (j, row) in net.w1.iter().enumerate() {
         if j > 0 {
@@ -263,8 +310,8 @@ fn write_head(net: &Net, version: i64, path: &str) {
         s.push_str(&val.to_string());
     }
     s.push_str(&format!(
-        "],\"b2\":{},\"version\":{},\"in\":{},\"hidden\":{}}}",
-        net.b2, version, NI, NH
+        "],\"b2\":{},\"version\":{},\"in\":{},\"hidden\":{},\"rows\":{}}}",
+        net.b2, version, NI, NH, rows
     ));
     let tmp = format!("{path}.tmp");
     if fs::write(&tmp, &s).is_ok() {
@@ -295,12 +342,23 @@ fn main() {
     rows.extend(real);
     eprintln!("training on {} rows ({n_real} real on-device, {n_seed} seed)", rows.len());
 
-    let net = train(&rows, 400, 0.02);
-    eprintln!("  train RMSE = {:.4}", rmse(&net, &rows));
+    // Deterministic 90/10 split (every 10th row -> validation): the held-out
+    // number is what generalization actually looks like.
+    let mut tr: Vec<Row> = Vec::with_capacity(rows.len());
+    let mut va: Vec<Row> = Vec::new();
+    for (i, r) in rows.into_iter().enumerate() {
+        if i % 10 == 9 { va.push(r) } else { tr.push(r) }
+    }
+    let t0 = std::time::Instant::now();
+    let net = train(&tr, 400, 0.02);
+    eprintln!(
+        "  train RMSE = {:.4} | val RMSE = {:.4} | {:.1}s on {} threads",
+        rmse(&net, &tr), rmse(&net, &va), t0.elapsed().as_secs_f64(),
+        std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1));
 
     let version = next_version(models);
-    write_head(&net, version, &head_out);
-    write_head(&net, version, &format!("{models}/route_head_v{version}.json"));
+    write_head(&net, version, tr.len() + va.len(), &head_out);
+    write_head(&net, version, tr.len() + va.len(), &format!("{models}/route_head_v{version}.json"));
     eprintln!("  wrote v{version} -> {head_out}");
 }
 
@@ -325,6 +383,13 @@ mod tests {
         assert!((f[0] - 0.0).abs() < 1e-12); // sin(0)
         assert!((f[1] - 1.0).abs() < 1e-12); // cos(0)
         assert!((f[2] - 43.0 / 90.0).abs() < 1e-12);
-        assert_eq!(f[5], 0.0);
+        assert!((f[4] - (-89.0 / 180.0)).abs() < 1e-12); // v2: origin longitude
+        assert!((f[5] - (-88.0 / 180.0)).abs() < 1e-12); // v2: dest longitude
+        assert_eq!(f[7], 0.0); // crossCountry moved to the tail
+        assert_eq!(NI, 8);
+        // Longitude separates same-latitude places (the Phoenix/Moore fix).
+        let phx = features(33.45, -112.07, 33.45, -112.07, 26.0, false);
+        let moore = features(33.45, -97.49, 33.45, -97.49, 26.0, false);
+        assert!(phx != moore);
     }
 }

@@ -64,3 +64,10 @@ apple/FLOWS/Resources/app_risk_bundle.json
 # Re-downloadable reference data (Census gazetteer, scrape backups)
 data/reference/
 data/runtime_cache/app_risk_bundle.wi_only.json
+
+# 20-year history pipeline artifacts (regenerable: scripts/build_history_baseline.sh)
+data/runtime_cache/history_dense.bin
+data/runtime_cache/history_harmonic.bin
+data/runtime_cache/history_training_rows.csv
+data/runtime_cache/app_risk_bundle.pre_history.json
+data/runtime_cache/history_route_head.json

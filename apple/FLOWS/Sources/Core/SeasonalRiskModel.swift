@@ -234,18 +234,21 @@ private func haversineKm(_ aLat: Double, _ aLon: Double, _ bLat: Double, _ bLon:
     return 2 * r * atan2(s.squareRoot(), (1 - s).squareRoot())
 }
 
-/// The route/week feature vector — IDENTICAL order in the Python trainer and
-/// here (train_worker.py::features). Pre-normalized to ~[-1, 1] so no separate
-/// scaling is needed. Change one side ⇒ change both.
+/// The route/week feature vector — IDENTICAL order in the Rust trainer
+/// (rust/flows-train/src/main.rs::features) and here. Pre-normalized to
+/// ~[-1, 1]; change one side ⇒ change both AND retrain (the head's input
+/// width is gated below, so a stale head degrades instead of misfiring).
+/// v2 adds LONGITUDES: without them Phoenix and Moore, OK (same latitude)
+/// were indistinguishable — desert heat and tornado alley blurred together.
 enum RouteFeatures {
     static func vector(oLat: Double, oLon: Double, dLat: Double, dLon: Double,
                        week: Int, crossCountry: Bool) -> [Double] {
         let a = 2 * Double.pi * Double(week) / 52
         let dist = haversineKm(oLat, oLon, dLat, dLon)
-        return [sin(a), cos(a), oLat / 90, dLat / 90, min(dist, 4000) / 4000,
-                crossCountry ? 1 : 0]
+        return [sin(a), cos(a), oLat / 90, dLat / 90, oLon / 180, dLon / 180,
+                min(dist, 4000) / 4000, crossCountry ? 1 : 0]
     }
-    static let count = 6
+    static let count = 8
 }
 
 /// A small trained MLP (features → risk 0…1) — the phase-2a regression head the
@@ -259,6 +262,12 @@ struct LearnedHead: Codable {
     let w2: [Double]     // [hidden] → single output
     let b2: Double
     let version: Int
+    /// Training-set size (absent in old heads) — the richer model wins.
+    var rows: Int? = nil
+
+    /// Input width this head was trained for — must equal RouteFeatures.count
+    /// or the head is stale (feature-contract change) and is not used.
+    var inputWidth: Int { w1.first?.count ?? 0 }
 
     func predict(_ x: [Double]) -> Double {
         var out = b2
@@ -308,8 +317,31 @@ final class SeasonalRiskModel: ObservableObject {
     /// the worker rewrites the file, so the app picks up a fresher model next
     /// launch. Missing/corrupt ⇒ the statistical prior is used.
     func loadHead() {
-        head = (try? Data(contentsOf: headURL)).flatMap {
-            try? JSONDecoder().decode(LearnedHead.self, from: $0)
+        func decode(_ data: Data?) -> LearnedHead? {
+            guard let data,
+                  let h = try? JSONDecoder().decode(LearnedHead.self, from: data),
+                  h.inputWidth == RouteFeatures.count   // stale contract → unusable
+            else { return nil }
+            return h
+        }
+        let local = decode(try? Data(contentsOf: headURL))
+        // The SHIPPED baseline: trained on 20 years of NOAA Storm Events
+        // (2005–2024) so a fresh install predicts from history, not zero. A
+        // newer locally-trained head (the weekly worker's output, which folds
+        // in the driver's own trips) wins by version.
+        let bundled = decode(Bundle.main.url(
+            forResource: "baseline_route_head", withExtension: "json")
+            .flatMap { try? Data(contentsOf: $0) })
+        switch (local, bundled) {
+        case let (l?, b?):
+            // The model trained on MORE data wins: a local head from a few
+            // hundred of the driver's trips must refine, not replace, the
+            // 20-year historical baseline. (The weekly worker folds history
+            // rows in over time, at which point local overtakes honestly.)
+            head = (l.rows ?? 0) >= (b.rows ?? 0) ? l : b
+        case let (l?, nil): head = l
+        case let (nil, b?): head = b
+        default: head = nil
         }
     }
 
