@@ -1011,6 +1011,15 @@ struct ContentView: View {
                 if model.show3DMap { gradeRibbon(route) }   // elevation casing UNDER the route
                 riskStrokedRoute(route)
                 if model.show3DMap { steepGradeMarkers(route) }
+                // Long walking estimate: the accurate Apple pedestrian path for
+                // the stretch right ahead, drawn (bright green, solid) over the
+                // big-picture road route — real sidewalks locally, road-based
+                // direction overall.
+                if route.isWalkingEstimate, model.walkingRefinedPath.count >= 2 {
+                    MapPolyline(coordinates: model.walkingRefinedPath)
+                        .stroke(Color.green,
+                                style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                }
             }
 
             ForEach(model.poi.results) { ranked in

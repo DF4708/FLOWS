@@ -731,6 +731,61 @@ final class AppModel: ObservableObject {
     /// the route choices; cleared on the next successful plan in-mode.
     @Published var plannerNotice: String?
 
+    // MARK: rolling walking-path refinement (long-walk estimates)
+
+    /// Accurate Apple `.walking` geometry for the stretch immediately ahead of
+    /// a walker on a long WALKING ESTIMATE — drawn ON TOP of the big-picture
+    /// road route so the traveler follows real sidewalks/crossings locally
+    /// while the overall direction stays the (relatively accurate) road path.
+    @Published var walkingRefinedPath: [CLLocationCoordinate2D] = []
+    private var walkRefineAnchor: CLLocationCoordinate2D?
+    private var walkRefineTask: Task<Void, Never>?
+
+    /// The local window the pedestrian router refreshes (Apple happily walks a
+    /// few km even when it refused the whole cross-town trip).
+    private static let walkRefineWindowMeters: CLLocationDistance = 2_500
+    /// Re-fetch once the walker has advanced this far past the last anchor.
+    private static let walkRefineStepMeters: CLLocationDistance = 400
+
+    /// Refresh the near-path with real pedestrian routing when the walker has
+    /// moved enough. Only for an active walking ESTIMATE (a normal short
+    /// walking route is already exact; driving/transit don't apply).
+    func refineWalkingPathIfNeeded(from here: CLLocationCoordinate2D) {
+        guard navigation.route?.isWalkingEstimate == true else {
+            if !walkingRefinedPath.isEmpty { walkingRefinedPath = [] }
+            walkRefineAnchor = nil
+            return
+        }
+        if let anchor = walkRefineAnchor,
+           POIRanking.meters(anchor, here) < Self.walkRefineStepMeters,
+           !walkingRefinedPath.isEmpty {
+            return   // still on the last refined stretch
+        }
+        walkRefineAnchor = here
+        // Target = a point ~window-meters ahead ALONG the estimate route, so the
+        // pedestrian router hugs the intended corridor instead of shortcutting.
+        let target = navigation.coordinateAhead(meters: Self.walkRefineWindowMeters) ?? here
+        walkRefineTask?.cancel()
+        walkRefineTask = Task { [weak self] in
+            let req = MKDirections.Request()
+            req.source = MKMapItem(placemark: MKPlacemark(coordinate: here))
+            req.destination = MKMapItem(placemark: MKPlacemark(coordinate: target))
+            req.transportType = .walking
+            guard let route = (try? await MKDirections(request: req).calculate())?
+                .routes.first, !Task.isCancelled else { return }
+            let poly = route.polyline
+            let n = poly.pointCount
+            guard n > 1 else { return }
+            var coords = [CLLocationCoordinate2D](
+                repeating: kCLLocationCoordinate2DInvalid, count: n)
+            poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+            await MainActor.run { [weak self] in
+                guard let self, self.navigation.route?.isWalkingEstimate == true else { return }
+                self.walkingRefinedPath = coords
+            }
+        }
+    }
+
     init() {
         navigation = NavigationEngine(location: location)
         // SwiftUI does NOT observe nested ObservableObjects: a change to
@@ -813,6 +868,10 @@ final class AppModel: ObservableObject {
                 // Follow the closest NOAA transmitter as the truck moves
                 // (20% hysteresis inside — no boundary flapping).
                 self.retuneRadioIfNeeded(at: fix.coordinate)
+                // A long WALKING ESTIMATE keeps its big-picture road geometry
+                // for direction, but the stretch right in front of the walker
+                // is refreshed with Apple's real pedestrian network as they go.
+                self.refineWalkingPathIfNeeded(from: fix.coordinate)
                 // Stream guidance to the Apple Watch (map + wrist taps).
                 if let g = self.navigation.guidance {
                     let miles = g.distanceToManeuver / 1609.344
@@ -1519,6 +1578,9 @@ final class AppModel: ObservableObject {
     func endNavigation() {
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
+        walkRefineTask?.cancel()
+        walkingRefinedPath = []
+        walkRefineAnchor = nil
         navigation.stop()
         // Review finding: the corridor watch loop outlived navigation (its
         // Task kept polling NWS on the planning screen) — stop it here.

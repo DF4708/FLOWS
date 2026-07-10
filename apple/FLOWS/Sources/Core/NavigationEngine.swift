@@ -99,6 +99,18 @@ final class NavigationEngine: ObservableObject {
         location.endNavigationUpdates()
     }
 
+    /// The coordinate `meters` ahead of the current position ALONG the route —
+    /// the far end of the local window a walking-estimate refresh routes to.
+    /// Uses the cached nearest-index so it's O(window), not a full scan.
+    func coordinateAhead(meters: CLLocationDistance) -> CLLocationCoordinate2D? {
+        guard !points.isEmpty, lastNearestIndex < cumulative.count else { return nil }
+        let target = cumulative[lastNearestIndex] + meters
+        for i in lastNearestIndex..<cumulative.count where cumulative[i] >= target {
+            return points[i]
+        }
+        return points.last
+    }
+
     // MARK: per-fix update — the time-sensitive loop
 
     /// Last matched route index — the next fix searches a LOCAL WINDOW around
