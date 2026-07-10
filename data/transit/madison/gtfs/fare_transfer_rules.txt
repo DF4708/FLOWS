@@ -1,0 +1,6 @@
+from_leg_group_id,to_leg_group_id,duration_limit,duration_limit_type,fare_transfer_type,transfer_count,fare_product_id
+2Hour_Trip,2Hour_Trip,7200,1,0,-1,
+Free_Trip,Free_Trip,,,0,-1,Child
+UW_Trip,UW_Trip,,,0,-1,
+2Hour_Trip,UW_Trip,,,0,,
+UW_Trip,2Hour_Trip,,,0,,2Hour
