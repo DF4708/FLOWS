@@ -8,7 +8,7 @@
 //! Modules:
 //!   risk     — risk band classification (port of R/scoring.R)
 //!   scoring  — piecewise hazard scoring (port of R/scoring.R piecewise_score)
-//!   distance — Euclidean distance kernel (scalar + auto-vectorised)
+//!   distance — Euclidean distance kernel (scalar reference; R-bridge only)
 //!   polyline — encoded-polyline decoder (AArch64 asm hot loop + portable Rust)
 //!   ffi      — C-ABI exports for Swift
 //!
@@ -22,6 +22,7 @@ pub mod polyline;
 pub mod risk;
 pub mod routing;
 pub mod scoring;
+pub mod transit;
 
 pub use risk::{risk_band, RiskBand, RISK_GREEN_MIN, RISK_RED_MIN, RISK_YELLOW_MIN};
 pub use scoring::{piecewise_score, piecewise_score_rowwise, temperature_risk};

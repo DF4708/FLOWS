@@ -1,8 +1,35 @@
 # FLOWS — coding standards (performance + resource SOP)
 
-Standing operating procedure for the Rust core and the R reference
-implementation. These are not aspirations — they are how code gets written
-here, verified by the test harness and the resource governor.
+Standing operating procedure for the Rust core, the Swift app, and the R
+reference implementation. These are not aspirations — they are how code gets
+written here, verified by the test harness and the resource governor.
+
+---
+
+## 0. The stack rule: Rust + AArch64 assembly + Swift, nothing else in the product
+
+The product ships exactly three languages: **Rust** (core algorithms,
+training), **AArch64 inline assembly** (the rare proven hot loop, §1), and
+**Swift** (the app). No Python, no JS, no interpreter of any kind runs in or
+ships with the product. Python remains legitimate as *repo tooling* —
+verification scripts, one-off data checks — but never as a runtime dependency
+or a build step the product needs.
+
+The same rule extends to crates: prefer zero dependencies where std suffices.
+`rust/flows-train` (the on-device-model trainer and the national-bundle
+generator) is **pure std — its `[dependencies]` section is empty** — including
+its own JSON reading/writing. A dependency is a liability we take only when
+owning the code would be worse (see the memory rule: reduce dependencies, own
+our tools).
+
+**Corollary — dead code is deleted, not kept "just in case."** A fast variant
+with no caller rots and misleads. The `risk_band` branchless/bsearch variants
+and the distance NEON/autovec kernels were removed once nothing shipped
+through them; `rust/flows-core/src/risk.rs` keeps only the scalar `risk_band`
+reference (oracle-tested against R), and `rust/flows-core/src/distance.rs` is
+the scalar `distance_matrix_scalar` reference with a documented SIMD seam for
+the day a profile demands it. The *techniques* below remain SOP — they apply
+to code that actually runs, not to museum pieces.
 
 ---
 
@@ -35,8 +62,8 @@ the door is open when a profile mandates it.
 ## 2. Branchless is the default for hot classifiers
 
 Any function that classifies millions of values per build (risk bands, colour
-bands, feature gates) is written branchless. Example — `risk_band_branchless`
-in `rust/flows-core/src/risk.rs`:
+bands, feature gates) is written branchless. Historical example —
+`risk_band_branchless`, which lived in `rust/flows-core/src/risk.rs`:
 
 ```rust
 let finite = score.is_finite() as u8;
@@ -51,6 +78,12 @@ Rule: the branchless form is always accompanied by a test proving it equals
 the readable reference on a dense domain sweep + all boundaries. If they ever
 diverge, the branchless form is wrong and does not ship.
 
+**Superseded (2026-07):** the branchless and bsearch `risk_band` variants were
+deleted under the dead-code corollary (§0) — nothing on the shipping path
+called them, so only the readable scalar `risk_band` (still oracle-tested
+against the R band labels) remains in `risk.rs`. The pattern above is still
+the SOP for the next classifier that *does* sit on a hot path.
+
 ---
 
 ## 3. Many small files, never a monolith
@@ -60,8 +93,13 @@ module. This is already the discipline:
 
 - R: 38 modules in `R/`, each one concern (`scoring.R`, `families.R`,
   `wi511_*.R` split thematically, `resource_governor.R`, `region_config.R`).
-- Rust: `flows-core` is split `risk.rs` / `distance.rs` / `ffi.rs` / `lib.rs`
-  and grows by adding files, not by growing files.
+- Rust: `flows-core` is split `risk.rs` / `distance.rs` / `polyline.rs` /
+  `routing.rs` / `scoring.rs` / `ch.rs` / `ffi.rs` / `lib.rs` plus a
+  `transit/` module tree, and grows by adding files, not by growing files.
+- Swift: `apple/FLOWS/Sources/Core/` is one file per concern —
+  `RiskEquations.swift`, `ClimateProfiles.swift`, `SeasonalRiskModel.swift`,
+  `BadgeClustering.swift`, `TowingLimits.swift`, `LiveHazardFeeds.swift`, and
+  ~45 siblings — with UI in `Sources/UI/`. New capability = new file.
 
 Benefits that matter here: faster incremental compiles (Rust recompiles only
 the changed file), smaller diffs, cleaner ownership, and — critically for the
@@ -120,7 +158,16 @@ never scan linearly.
    inside another; the standard realisation is a **k-d tree / R-tree**, which
    is exactly what `sf::st_intersects` / `st_nearest_feature` use (39 call
    sites already). Do not hand-roll a nested scan where a spatial index
-   exists.
+   exists. **In Swift, where no library index applies, the house pattern is
+   the uniform lat/lon cell grid**: bucket points into `Dictionary<cell,
+   [index]>` at build time, then answer a query by scanning only the query's
+   cell and its neighbours (or expanding rings until no unscanned ring can
+   hold a closer point). Shipped instances: `RoutePath.nearest`
+   (`Core/POIRanking.swift` — expanding-ring, proven identical to the full
+   O(V) scan including tie-breaks), the 0.2° entry grid behind
+   `RiskFieldService.selectZips` (`Core/RiskFieldService.swift`), the shower
+   city tables, and the seasonal-model hub lookup. A per-query linear scan
+   over all points is the same defect as (4) below.
 4. **Linear scan O(n)** — **banned as a search.** The only O(n) passes that
    remain are (a) building the sorted array in the first place, and (b)
    *extremum finding on unsorted data* (`which.max` / `which.min` over a score
@@ -168,8 +215,8 @@ shows up as a shifted p95, not a lucky single run.
 Every faster path (branchless, SIMD, GPU) is held **byte-identical** (or
 within a documented float tolerance) to the readable reference by a test:
 
-- `risk_band_branchless` == `risk_band` on a dense sweep.
-- `distance_matrix_neon` == `distance_matrix_scalar` (aarch64 test).
+- `decode_deltas_asm` == `decode_deltas_rust` on 2,000 random + malformed
+  inputs (the shipped AArch64 hot loop vs. the portable Rust oracle).
 - `euclidean_distance_matrix` GPU path == CPU `outer()` (R oracle).
 
 If a fast path can't be proven equal to the reference, it does not replace

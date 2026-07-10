@@ -5,7 +5,7 @@
 # Keeps the local machine saturated with useful testing work so there is
 # never lull time or standby. Each pass runs a rotation of regression gates,
 # reference-load measurements, and the route-latency benchmark, appending
-# structured results to tests/continuous_results.jsonl. Over many passes
+# structured results to data/results/continuous_results.jsonl. Over many passes
 # these build DISTRIBUTIONS (p50/p95, variance) rather than single point
 # estimates — the statistical foundation for proving "cross-country loads
 # as fast as local".
@@ -36,6 +36,25 @@ HEARTBEAT="$PERSIST_DIR/runner_heartbeat"
 STOP_FLAG="tests/.stop_runner"
 RUNNER_LOG="$PERSIST_DIR/runner.log"
 LOCK_PID="$PERSIST_DIR/runner.lock.pid"
+
+# Size-based rollover for the append-only diagnostic files. A long-running loop
+# would otherwise grow ONE huge file whose cold tail wastes disk/page-cache
+# blocks; instead each file is capped at a block-aligned 8 MiB (2048 × 4 KiB fs
+# blocks) and rolls to .1/.2/.3, oldest discarded. Bounded total, full blocks,
+# recent data hot — the standard log-rotation shape.
+ROLL_BYTES=$((8 * 1024 * 1024))
+ROLL_KEEP=3
+rotate_if_big() {   # $1 = file path
+  local f="$1" sz i
+  [ -f "$f" ] || return 0
+  sz=$(wc -c < "$f" 2>/dev/null || echo 0)
+  [ "${sz:-0}" -lt "$ROLL_BYTES" ] && return 0
+  rm -f "$f.$ROLL_KEEP" 2>/dev/null
+  i="$ROLL_KEEP"
+  while [ "$i" -gt 1 ]; do mv -f "$f.$((i-1))" "$f.$i" 2>/dev/null; i=$((i-1)); done
+  mv -f "$f" "$f.1" 2>/dev/null
+  : > "$f"
+}
 
 # Singleton guard: FLOW.app AND launchd (and any manual launch) all target
 # this script, but only ONE runner may exist. If a live runner already owns
@@ -187,6 +206,8 @@ pass_number=0
 while true; do
   [ -f "$STOP_FLAG" ] && { echo "stop flag seen — exiting"; break; }
   pass_number=$((pass_number + 1))
+  rotate_if_big "$RESULTS"
+  rotate_if_big "$RUNNER_LOG"
   echo "=== pass $pass_number $(date -u '+%H:%M:%SZ') ===" | tee -a "$RUNNER_LOG"
   date -u '+%Y-%m-%dT%H:%M:%SZ' > "$HEARTBEAT"
   # Mark this pass in-progress so an interruption is detectable on next start.
@@ -205,9 +226,38 @@ while true; do
   # headroom and the previous pass's route_bench graph has been released. When
   # it ran after route_bench it always saw the post-build spike (88-90%) and
   # never caught the ~85% dip. Writes its own JSON (router_realgraph_equiv).
-  echo "[$(date -u '+%H:%M:%S')] router_realgraph: checking..."
-  Rscript tests/jobs/router_realgraph_equiv.R >> "$RUNNER_LOG" 2>&1 || \
-    log_result "router_realgraph_equiv" "fail" "0" "router_realgraph_equiv.R errored"
+  #
+  # Source-mtime gated (same pattern as rust_r0_gate): the validation is
+  # deterministic for a given code+graph, so re-proving it every pass was
+  # ~50s of redundant work per ~3min loop. It re-runs when any R source or
+  # Rust core source changes; the marker is only advanced on a PASS row so a
+  # deferred (memory) or failed attempt retries next pass.
+  # Gate hardening (review near-miss): (a) fail CLOSED — if the watched
+  # directories are missing (wrong cwd, partial checkout) run the validation
+  # rather than silently skipping forever; (b) watch the GRAPH too — the
+  # validation is deterministic for code+graph, and the snapshot is half of
+  # that pair; (c) only accept a pass row APPENDED BY THIS RUN — tail -5
+  # could match a stale pass row when the job deferred without writing.
+  realgraph_marker="$PERSIST_DIR/.realgraph_tested"
+  realgraph_snapshot="data/runtime_cache/startup_live_environmental.rds"
+  realgraph_new=1
+  if [ -f "$realgraph_marker" ] \
+     && [ -d R ] && [ -d tests/jobs ] && [ -d rust/flows-core/src ] \
+     && [ -z "$(find R tests/jobs -name '*.R' -newer "$realgraph_marker" -print -quit 2>/dev/null)" ] \
+     && [ -z "$(find rust/flows-core/src -name '*.rs' -newer "$realgraph_marker" -print -quit 2>/dev/null)" ] \
+     && { [ ! -f "$realgraph_snapshot" ] || [ ! "$realgraph_snapshot" -nt "$realgraph_marker" ]; }; then
+    realgraph_new=0
+  fi
+  if [ "$realgraph_new" -eq 1 ]; then
+    echo "[$(date -u '+%H:%M:%S')] router_realgraph: checking..."
+    realgraph_rows_before=$(wc -l < "$RESULTS" 2>/dev/null || echo 0)
+    Rscript tests/jobs/router_realgraph_equiv.R >> "$RUNNER_LOG" 2>&1 || \
+      log_result "router_realgraph_equiv" "fail" "0" "router_realgraph_equiv.R errored"
+    if tail -n +"$((realgraph_rows_before + 1))" "$RESULTS" \
+       | grep -q '"job":"router_realgraph_equiv"[^}]*"status":"pass"'; then
+      touch "$realgraph_marker"
+    fi
+  fi
   [ -f "$STOP_FLAG" ] && break
 
   # --- regression gates (fast, catch flakiness/variance across passes) ---
@@ -219,6 +269,12 @@ while true; do
   [ -f "$STOP_FLAG" ] && break
   run_gate "equiv"     "Rscript tests/test_modeled_road_risk.R"     "speedup: [0-9]"
   [ -f "$STOP_FLAG" ] && break
+  # Polyline decoder gate: the in-house overflow-safe decoder must stay
+  # byte-identical to the retired reference implementation (its Rust/asm twin
+  # is covered by rust_r0_gate's cargo suite).
+  run_gate "polyline"  "Rscript tests/test_polyline_decoder.R"       "PASS: polyline decoder gate"
+  [ -f "$STOP_FLAG" ] && break
+
   # Dependency-reduction gate: in-house tools must stay byte-identical to the
   # library functions they replaced (flows_bind_rows vs dplyr::bind_rows, ...).
   run_gate "dep_equiv"  "Rscript tests/jobs/dep_reduction_equiv.R"   "byte-identical \(0 fail\)"

@@ -27,6 +27,12 @@ pub struct ContractionHierarchy {
     /// Number of shortcut edges inserted during preprocessing (lower = faster
     /// queries; the whole point of a good node ordering).
     pub shortcuts: usize,
+    /// Shortcut-unpacking table: `middle[(a,b)]` (with a<b) is the contracted
+    /// node `v` that the current min-weight edge a<->b bypasses (a..v..b).
+    /// Absent => a<->b is an ORIGINAL graph edge. Populated as a pure by-product
+    /// of contraction (it never touches the cost/up-graph the query locks), so
+    /// `query` stays byte-identical; only `query_path` reads it.
+    middle: BTreeMap<(u32, u32), u32>,
 }
 
 impl ContractionHierarchy {
@@ -62,6 +68,7 @@ impl ContractionHierarchy {
         let mut rank = vec![0u32; n];
         let mut level = vec![0u32; n];
         let mut shortcuts = 0usize;
+        let mut middle: BTreeMap<(u32, u32), u32> = BTreeMap::new();
         let mut heap: BinaryHeap<Reverse<(i64, u32)>> = BinaryHeap::new();
         for v in 0..n {
             heap.push(Reverse((importance(&adj, &contracted, &level, v), v as u32)));
@@ -85,10 +92,10 @@ impl ContractionHierarchy {
             }
             rank[v] = order;
             order += 1;
-            shortcuts += contract_node(&mut adj, &contracted, v);
+            shortcuts += contract_node(&mut adj, &contracted, v, &mut middle);
             contracted[v] = true;
         }
-        ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts }
+        ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts, middle }
     }
 
     /// Preprocess contracting nodes in the given explicit order (order[k] gets
@@ -100,12 +107,13 @@ impl ContractionHierarchy {
         let mut contracted = vec![false; n];
         let mut rank = vec![0u32; n];
         let mut shortcuts = 0usize;
+        let mut middle: BTreeMap<(u32, u32), u32> = BTreeMap::new();
         for (k, &v) in order.iter().enumerate() {
             rank[v] = k as u32;
-            shortcuts += contract_node(&mut adj, &contracted, v);
+            shortcuts += contract_node(&mut adj, &contracted, v, &mut middle);
             contracted[v] = true;
         }
-        ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts }
+        ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts, middle }
     }
 
     /// Shortest-path cost from `s` to `t` via bidirectional upward search with
@@ -137,31 +145,121 @@ impl ContractionHierarchy {
                 let HeapItem { dist: d, node } = hf.pop().unwrap();
                 let u = node as usize;
                 if d > df[u] { continue; }
-                if db[u].is_finite() { let c = d + db[u]; if c < best { best = c; } }
+                if db[u].is_finite() { let c = d + db[u]; best = best.min(c); }
                 for &(x, w) in &self.up[u] {
                     let nd = d + w; let xi = x as usize;
                     if nd < df[xi] {
                         df[xi] = nd;
                         hf.push(HeapItem { dist: nd, node: x });
-                        if db[xi].is_finite() { let c = nd + db[xi]; if c < best { best = c; } }
+                        if db[xi].is_finite() { let c = nd + db[xi]; best = best.min(c); }
                     }
                 }
             } else {
                 let HeapItem { dist: d, node } = hb.pop().unwrap();
                 let u = node as usize;
                 if d > db[u] { continue; }
-                if df[u].is_finite() { let c = df[u] + d; if c < best { best = c; } }
+                if df[u].is_finite() { let c = df[u] + d; best = best.min(c); }
                 for &(x, w) in &self.up[u] {
                     let nd = d + w; let xi = x as usize;
                     if nd < db[xi] {
                         db[xi] = nd;
                         hb.push(HeapItem { dist: nd, node: x });
-                        if df[xi].is_finite() { let c = df[xi] + nd; if c < best { best = c; } }
+                        if df[xi].is_finite() { let c = df[xi] + nd; best = best.min(c); }
                     }
                 }
             }
         }
         best
+    }
+
+    /// Shortest path from `s` to `t` as a full node sequence in the ORIGINAL
+    /// graph, plus its cost. Same bidirectional upward search as `query`, but
+    /// tracks a predecessor on each side and the meeting node, reconstructs the
+    /// up-graph node sequence s→meet→t, then expands every shortcut edge back
+    /// into its two halves (recursively, via `middle`) so the result walks only
+    /// real edges. Returns `(cost, path)`; `path` is `[s]` when s==t and empty
+    /// when t is unreachable (cost `INFINITY`). Cost equals `query(s,t)`.
+    pub fn query_path(&self, s: usize, t: usize) -> (f64, Vec<u32>) {
+        let n = self.up.len();
+        if s >= n || t >= n { return (f64::INFINITY, Vec::new()); }
+        if s == t { return (0.0, vec![s as u32]); }
+        const NONE: u32 = u32::MAX;
+        let mut df = vec![f64::INFINITY; n]; df[s] = 0.0;
+        let mut db = vec![f64::INFINITY; n]; db[t] = 0.0;
+        let mut pf = vec![NONE; n]; // forward predecessor (toward s)
+        let mut pb = vec![NONE; n]; // backward predecessor (toward t)
+        let mut hf = BinaryHeap::new(); hf.push(HeapItem { dist: 0.0, node: s as u32 });
+        let mut hb = BinaryHeap::new(); hb.push(HeapItem { dist: 0.0, node: t as u32 });
+        let mut best = f64::INFINITY;
+        let mut meet = NONE;
+        loop {
+            let ftop = hf.peek().map(|h| h.dist);
+            let btop = hb.peek().map(|h| h.dist);
+            let f_live = ftop.is_some_and(|d| d < best);
+            let b_live = btop.is_some_and(|d| d < best);
+            let go_fwd = match (f_live, b_live) {
+                (true, true) => ftop.unwrap() <= btop.unwrap(),
+                (true, false) => true,
+                (false, true) => false,
+                (false, false) => break,
+            };
+            if go_fwd {
+                let HeapItem { dist: d, node } = hf.pop().unwrap();
+                let u = node as usize;
+                if d > df[u] { continue; }
+                if db[u].is_finite() { let c = d + db[u]; if c < best { best = c; meet = node; } }
+                for &(x, w) in &self.up[u] {
+                    let nd = d + w; let xi = x as usize;
+                    if nd < df[xi] {
+                        df[xi] = nd; pf[xi] = node;
+                        hf.push(HeapItem { dist: nd, node: x });
+                        if db[xi].is_finite() { let c = nd + db[xi]; if c < best { best = c; meet = x; } }
+                    }
+                }
+            } else {
+                let HeapItem { dist: d, node } = hb.pop().unwrap();
+                let u = node as usize;
+                if d > db[u] { continue; }
+                if df[u].is_finite() { let c = df[u] + d; if c < best { best = c; meet = node; } }
+                for &(x, w) in &self.up[u] {
+                    let nd = d + w; let xi = x as usize;
+                    if nd < db[xi] {
+                        db[xi] = nd; pb[xi] = node;
+                        hb.push(HeapItem { dist: nd, node: x });
+                        if df[xi].is_finite() { let c = df[xi] + nd; if c < best { best = c; meet = x; } }
+                    }
+                }
+            }
+        }
+        if meet == NONE || !best.is_finite() { return (f64::INFINITY, Vec::new()); }
+        // Reconstruct the up-graph node sequence s → meet (forward preds) then
+        // meet → t (backward preds). Each consecutive pair is one up-edge.
+        let mut up_nodes: Vec<u32> = Vec::new();
+        let mut x = meet;
+        while x != NONE { up_nodes.push(x); if x as usize == s { break; } x = pf[x as usize]; }
+        up_nodes.reverse(); // now s .. meet
+        let mut x = pb[meet as usize];
+        while x != NONE { up_nodes.push(x); if x as usize == t { break; } x = pb[x as usize]; }
+        // Expand every up-edge (some are shortcuts) into original edges.
+        let mut path: Vec<u32> = vec![up_nodes[0]];
+        for w in up_nodes.windows(2) { self.unpack_edge_into(w[0], w[1], &mut path); }
+        (best, path)
+    }
+
+    /// Append the interior + endpoint of edge (a,b) to `out` (everything AFTER
+    /// `a`, ending at `b`), expanding shortcuts recursively via `middle`.
+    /// Iterative (explicit stack) so deep shortcut nesting on a large graph
+    /// cannot overflow the call stack; the push order (right half, then left
+    /// half) makes the pops emit strictly left-to-right.
+    fn unpack_edge_into(&self, a: u32, b: u32, out: &mut Vec<u32>) {
+        let mut stack: Vec<(u32, u32)> = vec![(a, b)];
+        while let Some((x, y)) = stack.pop() {
+            let key = if x < y { (x, y) } else { (y, x) };
+            match self.middle.get(&key) {
+                Some(&mid) => { stack.push((mid, y)); stack.push((x, mid)); }
+                None => out.push(y), // original edge x->y
+            }
+        }
     }
 }
 
@@ -196,8 +294,16 @@ fn count_shortcuts_if_contracted(adj: &[BTreeMap<u32, f64>], contracted: &[bool]
 /// Contract node `v`: for each ordered live-neighbour pair (u, w), add an
 /// undirected shortcut u<->w of weight dist(u,v)+dist(v,w) unless a witness path
 /// avoiding v is already <= that. Returns the count of NEW shortcuts (each
-/// undirected shortcut once). Mutates `adj`.
-fn contract_node(adj: &mut [BTreeMap<u32, f64>], contracted: &[bool], v: usize) -> usize {
+/// undirected shortcut once). Mutates `adj`, and records the bypassed node `v`
+/// in `middle` for every shortcut that becomes the new min edge on its pair
+/// (exactly the `!existed` case — so path unpacking always resolves the min
+/// edge, and originals that stay cheapest keep no middle).
+fn contract_node(
+    adj: &mut [BTreeMap<u32, f64>],
+    contracted: &[bool],
+    v: usize,
+    middle: &mut BTreeMap<(u32, u32), u32>,
+) -> usize {
     let nbrs: Vec<(u32, f64)> = adj[v]
         .iter()
         .filter(|(&x, _)| !contracted[x as usize])
@@ -214,7 +320,11 @@ fn contract_node(adj: &mut [BTreeMap<u32, f64>], contracted: &[bool], v: usize) 
                 let existed = adj[u as usize].get(&w).is_some_and(|&e| e <= direct);
                 relax_min(&mut adj[u as usize], w, direct);
                 relax_min(&mut adj[w as usize], u, direct);
-                if !existed { added += 1; }
+                if !existed {
+                    added += 1;
+                    let key = if u < w { (u, w) } else { (w, u) };
+                    middle.insert(key, v as u32);
+                }
             }
         }
     }
@@ -451,6 +561,104 @@ mod tests {
             eprintln!("scale k={k} n={n} shortcuts={} ratio={:.2}x  (CH {:?} vs Dijkstra {:?})",
                       ch.shortcuts, dt.as_secs_f64() / ct.as_secs_f64().max(1e-12), ct, dt);
         }
+    }
+
+    /// Undirected min-weight adjacency read straight off the CsrGraph — the
+    /// ground-truth edge set a valid path may step along (parallel edges
+    /// collapsed to min, exactly as build_adj does).
+    fn min_edge_map(g: &CsrGraph) -> BTreeMap<(u32, u32), f64> {
+        let mut m: BTreeMap<(u32, u32), f64> = BTreeMap::new();
+        for u in 0..g.num_nodes() {
+            let (s, e) = (g.offsets[u] as usize, g.offsets[u + 1] as usize);
+            for k in s..e {
+                let v = g.targets[k]; let w = g.weights[k];
+                if !(w.is_finite() && w >= 0.0) { continue; }
+                let key = if (u as u32) < v { (u as u32, v) } else { (v, u as u32) };
+                m.entry(key).and_modify(|x| { if w < *x { *x = w; } }).or_insert(w);
+            }
+        }
+        m
+    }
+
+    /// A reconstructed path is VALID iff it starts at s, ends at t, and every
+    /// consecutive pair is a real (min-weight) edge; its cost is the summed
+    /// edge weights. Returns that cost (INF if any step isn't a real edge).
+    fn path_cost(edges: &BTreeMap<(u32, u32), f64>, path: &[u32], s: usize, t: usize) -> f64 {
+        if path.first() != Some(&(s as u32)) || path.last() != Some(&(t as u32)) {
+            return f64::INFINITY;
+        }
+        let mut total = 0.0;
+        for w in path.windows(2) {
+            let key = if w[0] < w[1] { (w[0], w[1]) } else { (w[1], w[0]) };
+            match edges.get(&key) { Some(&c) => total += c, None => return f64::INFINITY }
+        }
+        total
+    }
+
+    #[test]
+    fn ch_query_path_valid_and_cost_correct() {
+        // For random graphs: the unpacked path must be a real walk s..t whose
+        // summed original-edge cost equals both query() and Dijkstra. This is
+        // the non-circular gate for shortcut unpacking (Dijkstra is the oracle).
+        let mut seed: u64 = 0xD1CE_5EED_1234_5678;
+        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+        for _ in 0..60 {
+            let n = 4 + (next() % 22) as usize;
+            let mut edges = Vec::new();
+            let m = n + (next() % (3 * n as u64)) as usize;
+            for _ in 0..m {
+                let a = (next() % n as u64) as u32;
+                let b = (next() % n as u64) as u32;
+                if a == b { continue; }
+                let w = 1.0 + (next() % 1000) as f64 / 10.0;
+                edges.push((a, b, w));
+            }
+            let g = from_undirected(n, &edges);
+            let emap = min_edge_map(&g);
+            let ch = ContractionHierarchy::preprocess(&g);
+            for _ in 0..10 {
+                let s = (next() % n as u64) as usize;
+                let t = (next() % n as u64) as usize;
+                let dij = g.dijkstra(s)[t];
+                let (cost, path) = ch.query_path(s, t);
+                let q = ch.query(s, t);
+                // Cost channel: query_path == query == Dijkstra.
+                assert!((cost - q).abs() < 1e-9 || (cost.is_infinite() && q.is_infinite()),
+                        "n={n} s={s} t={t}: query_path cost={cost} query={q}");
+                assert!((cost - dij).abs() < 1e-9 || (cost.is_infinite() && dij.is_infinite()),
+                        "n={n} s={s} t={t}: query_path cost={cost} Dijkstra={dij}");
+                if dij.is_finite() {
+                    // Path channel: it's a real walk s..t and its edges sum to cost.
+                    let pc = path_cost(&emap, &path, s, t);
+                    assert!((pc - dij).abs() < 1e-9,
+                            "n={n} s={s} t={t}: unpacked path cost={pc} Dijkstra={dij} path={path:?}");
+                } else {
+                    assert!(path.is_empty(), "n={n} s={s} t={t}: unreachable but path={path:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ch_query_path_grid_and_edges() {
+        // Weighted grid (nontrivial shortcuts) + the s==t and single-edge cases.
+        let g = grid_graph(14); // 196 nodes
+        let emap = min_edge_map(&g);
+        let ch = ContractionHierarchy::preprocess(&g);
+        for s in [0usize, 5, 97, 195] {
+            let dij = g.dijkstra(s);
+            for (t, &e) in dij.iter().enumerate() {
+                let (cost, path) = ch.query_path(s, t);
+                assert!((cost - e).abs() < 1e-9,
+                        "grid s={s} t={t}: CH path cost={cost} Dijkstra={e}");
+                let pc = path_cost(&emap, &path, s, t);
+                assert!((pc - e).abs() < 1e-9,
+                        "grid s={s} t={t}: unpacked cost={pc} Dijkstra={e}");
+            }
+        }
+        // s == t is a length-1 path at zero cost.
+        let (c0, p0) = ch.query_path(42, 42);
+        assert_eq!((c0, p0), (0.0, vec![42u32]));
     }
 
     #[test]

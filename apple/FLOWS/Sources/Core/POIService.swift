@@ -10,95 +10,585 @@ import CoreLocation
 import Foundation
 import MapKit
 
-/// Gas / food along the selected corridor, from Apple Maps (MKLocalSearch).
-/// Searches are scoped to regions around the corridor AHEAD of the driver —
-/// never continent-wide — which keeps them fast and relevant.
+/// Stops along the corridor, from Apple Maps (MKLocalSearch) — ranked by
+/// POIRanking so results are ahead of the vehicle, on-corridor, and ordered
+/// the way a driver decides:
+///   Food → cuisine category first, then soonest-reachable restaurants.
+///   Gas  → remembered fuel type (electric/gas/diesel), stations ranked by
+///          fill cost + detour time (cheaper fuel justifies a longer detour).
 @MainActor
 final class POIService: ObservableObject {
     enum Kind: String, CaseIterable, Identifiable {
-        case gas = "Gas"
+        case gas = "Fuel"
         case food = "Food"
+        case stores = "Stores"
+        case tourist = "Tourist"
+        case rest = "Rest"
+        case hotel = "Hotels"
+        case medical = "Medical"
+        case shelter = "Shelter"
+        // Trucker-mode kinds.
+        case shower = "Showers"
+        case truckParking = "Truck parking"
+        case parking = "Parking"
+        case weighStation = "Weigh station"
         var id: String { rawValue }
-
-        var query: String {
-            switch self {
-            case .gas: return "gas station"
-            case .food: return "food"
-            }
-        }
-
-        var poiFilter: MKPointOfInterestFilter {
-            switch self {
-            case .gas: return MKPointOfInterestFilter(including: [.gasStation, .evCharger])
-            case .food: return MKPointOfInterestFilter(including: [.restaurant, .cafe, .foodMarket])
-            }
-        }
 
         var symbol: String {
             switch self {
             case .gas: return "fuelpump.fill"
             case .food: return "fork.knife"
+            case .stores: return "bag.fill"
+            case .tourist: return "star.fill"
+            case .rest: return "chair.lounge.fill"
+            case .hotel: return "bed.double.fill"
+            case .medical: return "cross.case.fill"
+            case .shelter: return "house.lodge.fill"
+            case .shower: return "shower.fill"
+            case .truckParking: return "truck.box.fill"
+            case .parking: return "parkingsign"
+            case .weighStation: return "scalemass.fill"
             }
+        }
+
+        /// The bottom-bar button sets per mode.
+        static let standardKinds: [Kind] = [.gas, .food, .stores, .rest, .parking,
+                                            .hotel, .medical, .shelter]
+        // Stores sits before hotel/food so it never scrolls out of first view
+        // on the wider trucker bar (it was technically present but off-screen).
+        static let truckerKinds: [Kind] = [.gas, .shower, .truckParking, .weighStation,
+                                           .stores, .rest, .hotel, .food, .medical,
+                                           .shelter]
+    }
+
+    /// Category constraint per kind — review finding: the natural-language
+    /// query alone let MKLocalSearch return name matches ("Hospital Bar &
+    /// Grill" for Medical). Rest areas and shelters have no MK category, so
+    /// those stay query-only.
+    private static func poiFilter(for kind: Kind, fuel: FuelType?) -> MKPointOfInterestFilter? {
+        switch kind {
+        case .gas:
+            return MKPointOfInterestFilter(
+                including: fuel == .electric ? [.evCharger] : [.gasStation])
+        case .food:
+            return MKPointOfInterestFilter(
+                including: [.restaurant, .cafe, .bakery, .foodMarket])
+        case .stores:
+            // No category filter: retail spans MK categories inconsistently
+            // (AutoZone ≠ .store; some chains carry no category at all), and
+            // the [.store, .foodMarket] filter silently dropped Best Buy /
+            // AutoZone / Publix. The brand-augmented queries constrain instead.
+            return nil
+        case .tourist:
+            return MKPointOfInterestFilter(
+                including: [.nationalPark, .museum, .amusementPark, .zoo, .aquarium])
+        case .medical:
+            return MKPointOfInterestFilter(including: [.hospital, .pharmacy])
+        case .hotel:
+            return MKPointOfInterestFilter(including: [.hotel])
+        case .shower:
+            // Showers live at truck stops — constrain to fuel to keep spas out.
+            return MKPointOfInterestFilter(including: [.gasStation])
+        case .parking:
+            return MKPointOfInterestFilter(including: [.parking])
+        case .rest, .shelter, .truckParking, .weighStation:
+            // No MK category models rest areas, shelters, truck parking, or
+            // weigh stations.
+            return nil
         }
     }
 
-    @Published private(set) var results: [MKMapItem] = []
-    @Published var activeKind: Kind?
+    /// A ranked result row for the list card.
+    struct RankedPOI: Identifiable {
+        let id = UUID()
+        let item: MKMapItem
+        let aheadMeters: CLLocationDistance
+        let detourMeters: CLLocationDistance
+        /// Fuel $/unit or hotel $/night, when a source is available.
+        let pricePerUnit: Double?
+        /// Public review rating 0…5 (hotels/food), when a source is available.
+        var rating: Double? = nil
+        /// Cost tier 1–5 ("$"…"$$$$$", income-anchored), when known.
+        var costTier: Int? = nil
+        /// Trucker shower availability (brand table).
+        var showers: ShowerAvailability = .unknown
+        /// Open right now (Yelp hours, when a key is configured).
+        var isOpenNow: Bool? = nil
+        /// True when pricePerUnit is a REAL posted price (CRE/TomTom), not
+        /// a state-average estimate — the HUD only headlines real prices.
+        var isLivePrice = false
+    }
 
+    @Published private(set) var results: [RankedPOI] = []
+    @Published var activeKind: Kind?
+    @Published private(set) var isSearching = false
+    @Published private(set) var emptyResultMessage: String?
+    /// Row the driver tapped — map zooms to it; Add Stop targets it.
+    @Published var selected: RankedPOI?
+
+    /// Food flow: category picker shown before searching.
+    @Published var pendingFoodChoice = false
+    @Published var activeFoodCategory: FoodCategory?
+
+    /// Stores flow: category picker (Grocery/Electronics/…) before searching.
+    @Published var pendingStoreChoice = false
+    @Published var activeStoreCategory: StoreCategory?
+
+    /// Gas flow: fuel type persisted after the first choice (Settings gear
+    /// can change it later); nil = never chosen → prompt once.
+    @Published var pendingFuelChoice = false
+    @Published var fuelType: FuelType? {
+        didSet {
+            UserDefaults.standard.set(fuelType?.rawValue, forKey: Self.fuelTypeKey)
+        }
+    }
+
+    /// Long-haul mode (Trucker route option): fuel searches favor truck
+    /// stops (Loves / Pilot / Flying J / TA), the allowed detour range grows
+    /// (savings justify distance on long hauls), and the fill size reflects
+    /// a long-haul tank so price dominates the cost model.
+    @Published var truckerMode = false
+
+    /// Shelter search query — swapped to tornado shelters by AppModel when a
+    /// tornado/severe warning is active near the corridor.
+    var shelterQuery: () -> String = { "emergency shelter" }
+
+    /// Station-level price source — nil prices until a licensed feed
+    /// (GasBuddy / OPIS) is wired in; the cost model then uses fleet averages
+    /// for comparability and the UI shows "price unavailable".
+    var priceProvider: (MKMapItem, FuelType) -> Double? = { _, _ in nil }
+    /// Async LIVE station price (TomTom when keyed) — overrides the estimate.
+    var livePriceProvider: (CLLocationCoordinate2D, FuelType) async -> Double? = { _, _ in nil }
+
+    /// Hotel review/price source — publicly available ratings need a
+    /// licensed places feed (Yelp Fusion / Google Places); until wired,
+    /// hotel ranking degrades to closest-to-corridor (POIRanking.rankHotels
+    /// treats unknowns as neutral).
+    var hotelInfoProvider: (MKMapItem) -> (rating: Double?, nightly: Double?) = { _ in (nil, nil) }
+
+    private static let fuelTypeKey = "flows.fuelType"
+
+    private var routePath: POIRanking.RoutePath?
     private var corridor: [CLLocationCoordinate2D] = []
+    /// Bundled per-location shower table (1,505 OSM truck stops).
+    private let showerTable = ShowerAvailability.LocationTable.loadBundled()
+    /// Verified city-keyed shower counts (scraped chain store pages).
+    // VERIFIED per-city shower counts, one table per chain (scraped from each
+    // brand's own store data) — kept separate so a Love's hit never matches a
+    // Pilot city key. Pilot/Flying J + Love's + TA/Petro are all verified now.
+    private let cityShowers = ShowerAvailability.CityTable.loadBundled()
+    private let lovesShowers = ShowerAvailability.CityTable.loadBundled(
+        resource: "loves_city_showers")
+    private let taShowers = ShowerAvailability.CityTable.loadBundled(
+        resource: "ta_petro_city_showers")
+
+    init() {
+        fuelType = UserDefaults.standard.string(forKey: Self.fuelTypeKey)
+            .flatMap(FuelType.init(rawValue:))
+    }
 
     func beginCorridorSearch(along route: PlannedRoute) {
-        corridor = RouteService.samplePoints(of: route.route.polyline, everyMeters: 30_000)
+        let part = RouteService.corridorPartition(of: route.route.polyline, everyMeters: 30_000)
+        corridor = part.samples
+        // Full-resolution path for ahead/detour ranking (decimated to ~1500
+        // points so nearest() stays sub-millisecond).
+        let poly = route.route.polyline
+        let n = poly.pointCount
+        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
+        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        if coords.count > 1500 {
+            let step = coords.count / 1500 + 1
+            coords = stride(from: 0, to: coords.count, by: step).map { coords[$0] }
+        }
+        routePath = POIRanking.RoutePath(coords: coords)
     }
 
     func reset() {
         corridor = []
-        results = []
-        activeKind = nil
+        routePath = nil
+        clearResults()
     }
 
-    /// Search for a POI kind near the corridor ahead of `progressIndex`
-    /// (how far along the sampled corridor the vehicle currently is).
-    func search(_ kind: Kind, aheadOf position: CLLocationCoordinate2D?) async {
+    /// Entry point for the HUD buttons. Food and first-time Gas divert into
+    /// their category pickers; everything else searches immediately.
+    func request(_ kind: Kind, aheadOf position: CLLocationCoordinate2D?) async {
+        // BUTTON ISOLATION: pressing any button clears every other kind's
+        // submenu, category state, and title — nothing bleeds across.
+        pendingFoodChoice = false
+        pendingFuelChoice = false
+        pendingStoreChoice = false
+        activeFoodCategory = nil
+        activeStoreCategory = nil
+        results = []
+        selected = nil
+        emptyResultMessage = nil
+        switch kind {
+        case .food:
+            activeKind = kind
+            pendingFoodChoice = true
+        case .stores:
+            activeKind = kind
+            pendingStoreChoice = true
+        case .tourist:
+            // Notable stops along the way: parks, monuments, museums —
+            // Mammoth Cave shows up on the Louisville→Nashville corridor.
+            await search(kind, queries: ["national park monument",
+                                         "tourist attraction landmark museum"],
+                         aheadOf: position)
+        case .gas:
+            activeKind = kind
+            if let fuel = fuelType {
+                await search(kind, queries: [fuelQuery(fuel)], fuel: fuel, aheadOf: position)
+            } else {
+                pendingFuelChoice = true   // first run only; persisted after
+            }
+        case .rest:
+            // State/county rest areas AND commercial stops: MKLocalSearch
+            // names official areas "rest area" / "welcome center" / "service
+            // plaza" depending on the state — search all three.
+            // (Trucker parking/scales have their own buttons — mixing
+            // "truck parking" here surfaced CAT Scales as rest areas.)
+            await search(kind, queries: ["rest area", "welcome center", "service plaza"],
+                         aheadOf: position)
+        case .hotel:
+            // Plain lodging queries — the category filter guarantees hotels;
+            // truck-friendliness comes from ranking bias, not the query (the
+            // old "motel truck parking" phrasing conflicted with the
+            // hotel-only filter and returned NOTHING).
+            await search(kind, queries: ["hotel", "motel"], aheadOf: position)
+        case .medical:
+            // Emergencies don't care about direction of travel: the list
+            // leads with the ABSOLUTE nearest ER, wide radius.
+            await search(kind, queries: ["emergency room hospital", "urgent care"],
+                         aheadOf: position)
+        case .shelter:
+            await search(kind, queries: [shelterQuery()], aheadOf: position)
+        case .shower:
+            await search(kind, queries: ["truck stop showers Loves Pilot Flying J TA"],
+                         aheadOf: position)
+        case .truckParking:
+            // Legal overnight parking: truck stops, official rest areas, and
+            // the signed ramp/weigh-station lots states allow.
+            await search(kind, queries: ["truck parking", "rest area truck parking"],
+                         aheadOf: position)
+        case .parking:
+            await search(kind, queries: ["parking", "free parking"], aheadOf: position)
+        case .weighStation:
+            await search(kind, queries: ["weigh station", "truck scales CAT scale"],
+                         aheadOf: position)
+        }
+    }
+
+    /// Food category chosen from the picker.
+    func chooseFood(_ category: FoodCategory, aheadOf position: CLLocationCoordinate2D?) async {
+        pendingFoodChoice = false
+        activeFoodCategory = category
+        await search(.food, queries: [category.searchQuery], aheadOf: position)
+    }
+
+    /// Store category chosen from the picker.
+    func chooseStore(_ category: StoreCategory, aheadOf position: CLLocationCoordinate2D?) async {
+        pendingStoreChoice = false
+        activeStoreCategory = category
+        await search(.stores, queries: [category.searchQuery], aheadOf: position)
+    }
+
+    /// Fuel type chosen (first run or from Settings).
+    func chooseFuel(_ fuel: FuelType, aheadOf position: CLLocationCoordinate2D?) async {
+        pendingFuelChoice = false
+        fuelType = fuel
+        await search(.gas, queries: [fuelQuery(fuel)], fuel: fuel, aheadOf: position)
+    }
+
+    /// One fuel-query builder (was copy-pasted in request() and chooseFuel()).
+    private func fuelQuery(_ fuel: FuelType) -> String {
+        truckerMode
+            ? "truck stop \(fuel.searchQuery) Loves Pilot Flying J TA"
+            : fuel.searchQuery
+    }
+
+    private func search(
+        _ kind: Kind, queries: [String], fuel: FuelType? = nil,
+        aheadOf position: CLLocationCoordinate2D?
+    ) async {
         activeKind = kind
+        isSearching = true
+        emptyResultMessage = nil
+        selected = nil
+        defer { isSearching = false }
+
         var found: [MKMapItem] = []
-        // Take up to 3 corridor windows ahead of the vehicle (~30–90 km out).
-        let ahead = corridorAhead(of: position).prefix(3)
-        for center in ahead {
-            let request = MKLocalSearch.Request()
-            request.naturalLanguageQuery = kind.query
-            request.pointOfInterestFilter = kind.poiFilter
-            request.resultTypes = .pointOfInterest
-            request.region = MKCoordinateRegion(
-                center: center,
-                latitudinalMeters: 20_000, longitudinalMeters: 20_000)
-            if let response = try? await MKLocalSearch(request: request).start() {
-                found.append(contentsOf: response.mapItems)
+        var centers: [CLLocationCoordinate2D] = position.map { [$0] } ?? []
+        // Multi-query kinds probe fewer centers so total request count stays
+        // level (3 centers x 3 queries ≈ 5 centers x 1 query + change).
+        let centerCap = queries.count > 1 ? 3 : 5
+        // Spread centers EVENLY along the remaining corridor (a GA→WI route
+        // used to search only near the start — hotels 800 mi ahead never
+        // appeared).
+        let ahead = corridorAhead(of: position)
+        if ahead.count <= centerCap - 1 {
+            centers.append(contentsOf: ahead)
+        } else {
+            let step = max(ahead.count / (centerCap - 1), 1)
+            centers.append(contentsOf: stride(from: 0, to: ahead.count, by: step)
+                .prefix(centerCap - 1).map { ahead[$0] })
+        }
+        // Hotels cluster in towns OFF the highway; ERs matter at any range —
+        // both search a wider box than roadside kinds.
+        let regionMeters: Double = switch kind {
+        case .hotel: 45_000
+        case .medical: 60_000
+        case .stores: 40_000   // chains cluster in towns OFF the highway, like hotels
+        case .tourist: 50_000  // parks/monuments sit well off the interstate
+        default: 24_000
+        }
+        for center in centers.prefix(centerCap) {
+            for query in queries {
+                let request = MKLocalSearch.Request()
+                request.naturalLanguageQuery = query
+                request.resultTypes = .pointOfInterest
+                request.pointOfInterestFilter = Self.poiFilter(for: kind, fuel: fuel)
+                request.region = MKCoordinateRegion(
+                    center: center,
+                    latitudinalMeters: regionMeters, longitudinalMeters: regionMeters)
+                if let response = try? await MKLocalSearch(request: request).start() {
+                    found.append(contentsOf: response.mapItems)
+                }
             }
         }
-        // Dedup by name+proximity, cap the pin count so the nav map stays clean.
+        // Dedup by name+proximity.
         var seen = Set<String>()
-        results = found.filter { item in
-            let key = "\(item.name ?? "?")|\(Int(item.placemark.coordinate.latitude * 500))|\(Int(item.placemark.coordinate.longitude * 500))"
+        let unique = found.filter { item in
+            let c = item.placemark.coordinate
+            let key = "\(item.name ?? "?")|\(Int(c.latitude * 500))|\(Int(c.longitude * 500))"
             return seen.insert(key).inserted
-        }.prefix(12).map { $0 }
+        }
+
+        // Prices/ratings come from main-actor state; the O(items × vertices)
+        // ranking hops off the main actor (review finding: it ran during
+        // navigation renders and stalled frames on long routes).
+        var prices: [Double?]
+        var ratings: [Double?]
+        var costTiers: [Int?] = unique.map { _ in nil }
+        var liveIDs = Set<ObjectIdentifier>()
+        var openFlags: [Bool?] = unique.map { _ in nil }
+        if kind == .hotel || kind == .food || kind == .stores {
+            // Public reviews + cost: Yelp Fusion when a key is configured
+            // (Settings → Data sources); stars/$ hide otherwise.
+            var r: [Double?] = []
+            var t: [Int?] = []
+            var open: [Bool?] = []
+            for item in unique {
+                let c = item.placemark.coordinate
+                if let info = await YelpLink.shared.info(
+                    name: item.name ?? "", latitude: c.latitude, longitude: c.longitude) {
+                    r.append(info.rating)
+                    t.append(info.price.map {
+                        RatingsAndCost.costTier(yelpPrice: $0, rating: info.rating)
+                    })
+                    open.append(info.isOpenNow)
+                } else {
+                    r.append(nil)
+                    t.append(nil)
+                    open.append(nil)
+                }
+            }
+            ratings = r
+            costTiers = t
+            openFlags = open
+            prices = kind == .hotel
+                ? unique.map { self.hotelInfoProvider($0).nightly }
+                : unique.map { _ in nil }
+        } else {
+            var p: [Double?] = []
+            for item in unique {
+                var value = fuel.flatMap { self.priceProvider(item, $0) }
+                if let fuel, let live = await self.livePriceProvider(
+                    item.placemark.coordinate, fuel) {
+                    value = live   // real station price wins over the estimate
+                    liveIDs.insert(ObjectIdentifier(item))
+                }
+                p.append(value)
+            }
+            prices = p
+            ratings = unique.map { _ in nil }
+        }
+        var ranked = await Self.rank(
+            unique, kind: kind, prices: prices, ratings: ratings, fuel: fuel,
+            position: position, path: routePath, trucker: truckerMode)
+        // Attach cost tiers + shower availability (brand table: Love's /
+        // Pilot / TA showers are brand standard unless disproven).
+        let tierByName = Dictionary(uniqueKeysWithValues:
+            zip(unique.map { ObjectIdentifier($0) }, costTiers))
+        let openByName = Dictionary(uniqueKeysWithValues:
+            zip(unique.map { ObjectIdentifier($0) }, openFlags))
+        ranked = ranked.map { row in
+            var r = row
+            r.costTier = tierByName[ObjectIdentifier(row.item)] ?? nil
+            r.isOpenNow = openByName[ObjectIdentifier(row.item)] ?? nil
+            r.isLivePrice = liveIDs.contains(ObjectIdentifier(row.item))
+            if kind == .gas || kind == .shower || kind == .truckParking {
+                let c = row.item.placemark.coordinate
+                // VERIFIED chain data first (each brand's own store data,
+                // keyed by the placemark's state+city), then the ladder.
+                let lower = (row.item.name ?? "").lowercased()
+                // Brand-anchored matches: bare substrings ("ta ", "love")
+                // false-positived on ordinary names (Vista Travel, Loveland).
+                let brandTable: ShowerAvailability.CityTable? =
+                    lower.contains("pilot") || lower.contains("flying j") ? cityShowers
+                    : (lower.contains("love's") || lower.contains("loves travel")) ? lovesShowers
+                    : (lower.hasPrefix("ta ") || lower.contains("travelcenters")
+                       || lower.contains("ta travel") || lower.contains("petro ")
+                       || lower.hasSuffix("petro")) ? taShowers
+                    : nil
+                if let table = brandTable,
+                   let count = table.showers(
+                        state: row.item.placemark.administrativeArea,
+                        city: row.item.placemark.locality) {
+                    r.showers = count > 0 ? .standard : .none
+                } else {
+                    r.showers = ShowerAvailability.forStop(
+                        named: row.item.name, lat: c.latitude, lon: c.longitude,
+                        table: showerTable)
+                }
+            }
+            return r
+        }
+        guard activeKind == kind else { return }   // superseded by a newer tap
+        // Never offer a stop that's outside its operating hours (unknown
+        // hours stay listed).
+        var finalRanked = ranked.filter { $0.isOpenNow != false }
+        // ...but for ESSENTIAL categories, never tell a driver "none found" when
+        // stations exist and were only filtered out as closed — Yelp hours are
+        // frequently stale/wrong, and stranding someone low on fuel at 2am on bad
+        // hours data is worse than showing a maybe-closed option. Fall back to the
+        // full ranked list (closest first) instead of an empty result.
+        if finalRanked.isEmpty, !ranked.isEmpty,
+           kind == .gas || kind == .food || kind == .medical || kind == .stores {
+            finalRanked = ranked
+        }
+        // Medical rule: the ABSOLUTE nearest hospital/ER leads, regardless
+        // of route direction — straight-line from the vehicle.
+        if kind == .medical, let position {
+            if let nearest = unique.min(by: {
+                POIRanking.meters($0.placemark.coordinate, position)
+                    < POIRanking.meters($1.placemark.coordinate, position)
+            }) {
+                let d = POIRanking.meters(nearest.placemark.coordinate, position)
+                let top = RankedPOI(item: nearest, aheadMeters: d, detourMeters: 0,
+                                    pricePerUnit: nil)
+                finalRanked = [top] + finalRanked.filter { $0.item !== nearest }
+            }
+        }
+        results = finalRanked
+        selected = results.first
+        if results.isEmpty {
+            emptyResultMessage = "No \(kind.rawValue.lowercased()) found ahead on this route."
+            activeKind = nil
+        }
+    }
+
+    /// Route-aware ranking: ahead-only, capped detour, ordered per kind.
+    /// nonisolated + async → runs on the global concurrent executor, off the
+    /// main actor.
+    private nonisolated static func rank(
+        _ items: [MKMapItem], kind: Kind, prices: [Double?], ratings: [Double?],
+        fuel: FuelType?, position: CLLocationCoordinate2D?,
+        path: POIRanking.RoutePath?, trucker: Bool
+    ) async -> [RankedPOI] {
+        guard let path else {
+            // No active route (shouldn't happen in nav): fall back to
+            // straight-line distance from the vehicle.
+            guard let position else { return [] }
+            return items
+                .map { ($0, POIRanking.meters($0.placemark.coordinate, position)) }
+                .sorted { $0.1 < $1.1 }
+                .prefix(8)
+                .map { RankedPOI(item: $0.0, aheadMeters: $0.1, detourMeters: 0,
+                                 pricePerUnit: nil) }
+        }
+        let vehicleAlong: CLLocationDistance
+        if let position, let hit = path.nearest(to: position) {
+            vehicleAlong = path.cumulative[hit.index]
+        } else {
+            vehicleAlong = 0
+        }
+        let candidates = zip(items, zip(prices, ratings)).compactMap { item, info in
+            POIRanking.annotate(
+                item: item, at: item.placemark.coordinate,
+                route: path, vehicleAlong: vehicleAlong,
+                pricePerUnit: info.0, rating: info.1)
+        }
+        let ranked: [POIRanking.Candidate<MKMapItem>]
+        // Hotels/medical justify longer detours than a coffee stop.
+        let maxDetour: Double = switch kind {
+        case .hotel: trucker ? 45_000 : 25_000
+        case .medical: 60_000
+        // Stores cluster in towns off the highway like hotels — the default
+        // roadside detour cap filtered every national chain out ("no stores
+        // showing up along routes").
+        case .stores: trucker ? 45_000 : 25_000
+        case .tourist: 50_000   // a worthwhile detour by definition
+        default: trucker ? 32_000 : POIRanking.maxDetourMeters
+        }
+        if kind == .parking {
+            // Free-and-close beats expensive-and-far.
+            ranked = POIRanking.rankParking(
+                candidates, costTier: { POIRanking.parkingCostTier(name: $0.name) },
+                maxDetour: maxDetour)
+        } else if kind == .stores {
+            // Highest Yelp rating first; unrated fall back to national market
+            // share (Walmart before Target), then corridor position.
+            ranked = POIRanking.rankStores(candidates, name: { $0.name },
+                                           maxDetour: maxDetour)
+        } else if kind == .hotel {
+            // Review/cost balance (neutral until a ratings feed is wired).
+            ranked = POIRanking.rankHotels(candidates, maxDetour: maxDetour)
+        } else if let fuel {
+            // Long-haul tanks make fill cost dominate → cheap-but-farther wins.
+            let fill = fuel.fillUnits * (trucker ? 4 : 1)
+            ranked = POIRanking.rankFuel(candidates, fillUnits: fill,
+                                         averagePricePerUnit: fuel.averagePricePerUnit,
+                                         maxDetour: maxDetour)
+        } else {
+            ranked = POIRanking.rankFood(candidates, maxDetour: maxDetour)
+        }
+        return ranked.prefix(8).map {
+            RankedPOI(item: $0.item, aheadMeters: $0.aheadMeters,
+                      detourMeters: $0.detourMeters, pricePerUnit: $0.pricePerUnit,
+                      rating: $0.rating)
+        }
     }
 
     func clearResults() {
         results = []
         activeKind = nil
+        activeFoodCategory = nil
+        activeStoreCategory = nil
+        selected = nil
+        emptyResultMessage = nil
+        pendingFoodChoice = false
+        pendingFuelChoice = false
+        pendingStoreChoice = false
     }
 
     private func corridorAhead(of position: CLLocationCoordinate2D?) -> [CLLocationCoordinate2D] {
         guard let position else { return corridor }
         guard let nearestIdx = corridor.indices.min(by: { i, j in
-            distance(corridor[i], position) < distance(corridor[j], position)
+            POIRanking.meters(corridor[i], position) < POIRanking.meters(corridor[j], position)
         }) else { return corridor }
         return Array(corridor[nearestIdx...])
     }
+}
 
-    private func distance(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> CLLocationDistance {
-        CLLocation(latitude: a.latitude, longitude: a.longitude)
-            .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+/// Which POI button a scheduled trip need presses (kept out of
+/// TripNeeds.swift so the trip-needs engine compiles headless for tests).
+extension TripNeeds.Need {
+    var poiKind: POIService.Kind {
+        switch self {
+        case .fuel: return .gas
+        case .food: return .food
+        case .rest: return .rest
+        }
     }
 }

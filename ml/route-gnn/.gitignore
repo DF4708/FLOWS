@@ -1,0 +1,11 @@
+# Trained models and run logs are LOCAL, per-device artifacts — never commit.
+# The training export mirrors the driver's own trip origins/destinations
+# (personal location history) and must stay off the repo/mirror.
+models/
+logs/
+data/
+*.json
+*.csv
+*.mlpackage
+*.mlmodel
+*.mlmodelc

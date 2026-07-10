@@ -114,6 +114,11 @@ fn decode_deltas_asm(bytes: &[u8], out: &mut Vec<i64>) {
             t = out(reg) _,
             options(nostack),
         );
+        // SAFETY: `count` <= `bytes.len()`. A delta is stored exactly once per
+        // terminator byte (the `str` at label 4 runs only when b < 0x20), each
+        // terminator consumes one input byte, and no byte is reprocessed — so the
+        // number of stores never exceeds the byte count we `reserve`d above. The
+        // writes therefore stay within the reserved capacity; `set_len` is sound.
         out.set_len(out.len() + count);
     }
 }

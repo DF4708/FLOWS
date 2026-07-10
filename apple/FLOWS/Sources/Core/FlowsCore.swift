@@ -58,6 +58,34 @@ enum FlowsCore {
     /// True when the Rust core (asm hot loops) is live rather than fallback.
     static var rustCoreLoaded: Bool { polylineDecodeFn != nil }
 
+    // C ABI: int64_t flows_transit_selftest(void) — runs the RAPTOR engine
+    // through the boundary and returns a canonical transfer plan's arrival time.
+    private typealias TransitSelfTestFn = @convention(c) () -> Int64
+    private static let transitSelfTestFn: TransitSelfTestFn? = {
+        for path in candidateLibraryPaths() {
+            var st = stat()
+            guard stat(path, &st) == 0, st.st_uid == getuid(),
+                  (st.st_mode & 0o022) == 0,
+                  let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL),
+                  let sym = dlsym(handle, "flows_transit_selftest")
+            else { continue }
+            return unsafeBitCast(sym, to: TransitSelfTestFn.self)
+        }
+        if let sym = dlsym(dlopen(nil, RTLD_NOW), "flows_transit_selftest") {
+            return unsafeBitCast(sym, to: TransitSelfTestFn.self)
+        }
+        return nil
+    }()
+
+    /// Proof the Rust RAPTOR transit engine is linked and executes through the C
+    /// ABI: returns the arrival time (1500) of a canonical 2-leg transfer plan,
+    /// or -1 if the engine failed or the symbol isn't linked. (`flows_transit_plan`
+    /// is the real per-query surface; it goes live once GTFS timetables load.)
+    static func transitSelfTest() -> Int64 { transitSelfTestFn?() ?? -1 }
+
+    /// True when the on-device RAPTOR transit engine is linked and runnable.
+    static var transitEngineLoaded: Bool { transitSelfTest() == 1500 }
+
     /// Decode a Google encoded polyline into (lon, lat) pairs.
     /// Rust/asm when available; the Swift fallback implements the identical
     /// overflow-safe algorithm (64-bit accumulate, MAX_CHUNKS guard) so both

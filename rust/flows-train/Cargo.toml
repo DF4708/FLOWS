@@ -1,0 +1,19 @@
+[package]
+name = "flows-train"
+version = "0.1.0"
+edition = "2021"
+
+# The on-device route-risk head trainer (phase 2a). Pure std, ZERO external
+# crates — same discipline as flows-core. Produces the weights that Swift
+# `LearnedHead` runs. See ml/route-gnn/README.md.
+[[bin]]
+name = "flows-train"
+path = "src/main.rs"
+
+# National per-ZIP seasonal-climatology baseline merged into the app risk
+# bundle (dense CONUS choropleth). Pure std, zero crates.
+[[bin]]
+name = "national-bundle"
+path = "src/bin/national-bundle.rs"
+
+[dependencies]
