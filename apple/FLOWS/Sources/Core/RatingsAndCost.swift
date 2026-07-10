@@ -172,6 +172,85 @@ actor YelpLink {
     }
 }
 
+/// Google Places API (New) as an ALTERNATE ratings source — Yelp Fusion moved
+/// to paid plans, while Places carries a real free monthly quota per SKU
+/// (thousands of Text Search calls/month), plenty for per-search live lookups.
+/// Same optional-key model as Yelp: no key → provider skipped. Results are
+/// fetched live per search and cached ONLY in memory for the session —
+/// Google's terms prohibit persisting/redistributing Places content, so
+/// nothing is stored or shipped.
+actor GooglePlacesLink {
+    static let shared = GooglePlacesLink()
+
+    var apiKey: String = ""
+    func setKey(_ key: String) { apiKey = key }
+
+    private var cache: [String: YelpLink.BusinessInfo] = [:]
+
+    /// Text Search (New), field-masked to exactly what the rows display:
+    /// rating, price level, open-now. Location-biased to the placemark.
+    func info(name: String, latitude: Double, longitude: Double)
+        async -> YelpLink.BusinessInfo? {
+        guard !apiKey.isEmpty else { return nil }
+        let key = "\(name)|\(Int(latitude * 500))|\(Int(longitude * 500))"
+        if let hit = cache[key] { return hit }
+        guard let url = URL(string: "https://places.googleapis.com/v1/places:searchText")
+        else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
+        request.setValue(
+            "places.rating,places.priceLevel,places.currentOpeningHours.openNow",
+            forHTTPHeaderField: "X-Goog-FieldMask")
+        let body: [String: Any] = [
+            "textQuery": name,
+            "pageSize": 1,
+            "locationBias": ["circle": [
+                "center": ["latitude": latitude, "longitude": longitude],
+                "radius": 5_000.0,
+            ]],
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let (data, resp) = try? await ThrottledNet.fetch(request),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let places = json["places"] as? [[String: Any]],
+              let first = places.first else { return nil }
+        // PRICE_LEVEL_* → the "$"…"$$$$" string the cost-tier mapper expects.
+        let price: String? = (first["priceLevel"] as? String).flatMap {
+            switch $0 {
+            case "PRICE_LEVEL_INEXPENSIVE": return "$"
+            case "PRICE_LEVEL_MODERATE": return "$$"
+            case "PRICE_LEVEL_EXPENSIVE": return "$$$"
+            case "PRICE_LEVEL_VERY_EXPENSIVE": return "$$$$"
+            default: return nil
+            }
+        }
+        let openNow = (first["currentOpeningHours"] as? [String: Any])?["openNow"] as? Bool
+        let info = YelpLink.BusinessInfo(rating: first["rating"] as? Double,
+                                         price: price, isOpenNow: openNow)
+        cache[key] = info
+        if cache.count > 300 { cache = [:] }
+        return info
+    }
+}
+
+/// One ratings front door: Google Places first (bigger free quota), Yelp as
+/// the fallback — whichever the user has keyed. POI code asks HERE, not a
+/// specific provider.
+enum RatingsProvider {
+    static func info(name: String, latitude: Double, longitude: Double)
+        async -> YelpLink.BusinessInfo? {
+        if let g = await GooglePlacesLink.shared.info(
+            name: name, latitude: latitude, longitude: longitude) {
+            return g
+        }
+        return await YelpLink.shared.info(
+            name: name, latitude: latitude, longitude: longitude)
+    }
+}
+
 /// Trucker shower availability by BRAND — the documented industry standard
 /// per chain (Love's, Pilot/Flying J, TA/Petro all provide showers at
 /// effectively every travel-center location; Buc-ee's famously does not).

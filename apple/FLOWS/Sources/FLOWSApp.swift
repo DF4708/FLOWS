@@ -159,6 +159,17 @@ final class AppModel: ObservableObject {
     var riskDisplayFloor: Double { walkingMode ? 0.15 : 0.25 }
 
     /// Yelp Fusion key (free: yelp.com/developers) → stars + $ tiers.
+    /// Google Places API (New) key — the alternate ratings source (free
+    /// monthly quota; Yelp Fusion went paid). Either key lights up stars/$.
+    @Published var googlePlacesAPIKey: String =
+        UserDefaults.standard.string(forKey: "flows.googlePlacesKey") ?? "" {
+        didSet {
+            UserDefaults.standard.set(googlePlacesAPIKey, forKey: "flows.googlePlacesKey")
+            let key = googlePlacesAPIKey
+            Task { await GooglePlacesLink.shared.setKey(key) }
+        }
+    }
+
     @Published var yelpAPIKey: String =
         UserDefaults.standard.string(forKey: "flows.yelpKey") ?? "" {
         didSet {
@@ -904,6 +915,8 @@ final class AppModel: ObservableObject {
         }
         let key = yelpAPIKey
         Task { await YelpLink.shared.setKey(key) }
+        let gKey = googlePlacesAPIKey
+        Task { await GooglePlacesLink.shared.setKey(gKey) }
         Task { await self.smartcar.refreshData() }   // reconnects silently if tokens exist
         Self.shared = self
     }

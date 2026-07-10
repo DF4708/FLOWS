@@ -380,7 +380,8 @@ final class POIService: ObservableObject {
             var open: [Bool?] = []
             for item in unique {
                 let c = item.placemark.coordinate
-                if let info = await YelpLink.shared.info(
+                // Provider ladder: Google Places (bigger free quota) → Yelp.
+                if let info = await RatingsProvider.info(
                     name: item.name ?? "", latitude: c.latitude, longitude: c.longitude) {
                     r.append(info.rating)
                     t.append(info.price.map {

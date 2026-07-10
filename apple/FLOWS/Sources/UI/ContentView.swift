@@ -1936,7 +1936,11 @@ struct SettingsSheet: View {
             Divider()
             Text("Data sources")
                 .font(.system(size: 14, weight: .semibold))
-            TextField("Yelp Fusion API key (free: yelp.com/developers) — stars + $",
+            TextField("Google Places API key (free monthly quota: console.cloud.google.com) — stars + $",
+                      text: $model.googlePlacesAPIKey)
+                .textFieldStyle(.roundedBorder)
+                .font(.caption)
+            TextField("Yelp Fusion API key (paid plans; used as fallback) — stars + $",
                       text: $model.yelpAPIKey)
                 .textFieldStyle(.roundedBorder)
                 .font(.caption)
