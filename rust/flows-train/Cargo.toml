@@ -16,4 +16,11 @@ path = "src/main.rs"
 name = "national-bundle"
 path = "src/bin/national-bundle.rs"
 
+# 20-year NOAA Storm Events historical hazard baseline: real per-ZIP x week x
+# family frequencies replacing the hand-encoded climatology. Pure std, zero
+# crates. See scripts/build_history_baseline.sh for the download-and-run flow.
+[[bin]]
+name = "history-baseline"
+path = "src/bin/history-baseline.rs"
+
 [dependencies]

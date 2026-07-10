@@ -151,15 +151,25 @@ final class SeasonalModelTests: XCTestCase {
                        1 / (1 + exp(-0.5)), accuracy: 1e-9)
     }
 
-    // Feature vector shape/order matches the trainer's `features(...)`.
+    // Feature vector shape/order matches the trainer's `features(...)` — the
+    // v2 contract with longitudes (the Phoenix-vs-Moore fix).
     func testRouteFeatureVector() {
         let x = RouteFeatures.vector(oLat: 43, oLon: -89, dLat: 44, dLon: -88,
                                      week: 0, crossCountry: false)
         XCTAssertEqual(x.count, RouteFeatures.count)
-        XCTAssertEqual(x[0], 0, accuracy: 1e-9)          // sin(0)
-        XCTAssertEqual(x[1], 1, accuracy: 1e-9)          // cos(0)
-        XCTAssertEqual(x[2], 43.0 / 90, accuracy: 1e-9)  // oLat/90
-        XCTAssertEqual(x[5], 0)                          // not cross-country
+        XCTAssertEqual(RouteFeatures.count, 8)
+        XCTAssertEqual(x[0], 0, accuracy: 1e-9)            // sin(0)
+        XCTAssertEqual(x[1], 1, accuracy: 1e-9)            // cos(0)
+        XCTAssertEqual(x[2], 43.0 / 90, accuracy: 1e-9)    // oLat/90
+        XCTAssertEqual(x[4], -89.0 / 180, accuracy: 1e-9)  // v2: origin lon
+        XCTAssertEqual(x[5], -88.0 / 180, accuracy: 1e-9)  // v2: dest lon
+        XCTAssertEqual(x[7], 0)                            // crossCountry (tail)
+        // Same latitude, different longitude must differ (desert ≠ tornado alley).
+        let phx = RouteFeatures.vector(oLat: 33.45, oLon: -112.07, dLat: 33.45,
+                                       dLon: -112.07, week: 26, crossCountry: false)
+        let moore = RouteFeatures.vector(oLat: 33.45, oLon: -97.49, dLat: 33.45,
+                                         dLon: -97.49, week: 26, crossCountry: false)
+        XCTAssertNotEqual(phx, moore)
     }
 
     // Learned home = the most-frequent trip origin, once past the threshold.
