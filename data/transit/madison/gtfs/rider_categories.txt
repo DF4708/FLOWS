@@ -1,0 +1,8 @@
+rider_category_id,rider_category_name,is_default_fare_category,min_age,max_age,eligibility_url
+Full,Full Fare,1,,,https://www.cityofmadison.com/metro/fares
+Half_D,Half-price Fare for those with Disabilites,0,,,https://www.cityofmadison.com/metro/fares/half-price-fare
+Half_I,Half-price Fare for those with Low Incomes,0,,,https://www.cityofmadison.com/metro/fares/half-price-fare
+Half_S,Half-price Fare for Ages 65 and up,0,65,,https://www.cityofmadison.com/metro/fares/half-price-fare
+Half_Y,Half-price Fare for Ages 5–17 or still in high school,0,5,17,https://www.cityofmadison.com/metro/fares/half-price-fare
+Free_U,Free Fare for UW Madison students/faculty/employees/visitors,0,,,https://www.cityofmadison.com/metro/fares
+Free_C,Free Fare for Children Under 5 with Passenger Ages 18 and up,0,0,4,https://www.cityofmadison.com/metro/fares

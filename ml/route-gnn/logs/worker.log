@@ -1,0 +1,6 @@
+[2026-07-09T20-15-08] building + training route-risk head (Rust, zero-crate)…
+    Finished `release` profile [optimized] target(s) in 0.76s
+training on 520 rows (0 real on-device, 520 seed)
+  train RMSE = 0.0263
+  wrote v2 -> /Users/soulary/Library/Application Support/flows_route_head.json
+[2026-07-09T20-15-08] ok

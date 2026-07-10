@@ -1,0 +1,7 @@
+leg_group_id,network_id,fare_product_id
+2Hour_Trip,MMT,2Hour
+24Hour_Trip,MMT,24Hour
+7Day_Trip,MMT,7Day
+31Day_Trip,MMT,31Day
+Free_Trip,MMT,Child
+UW_Trip,MUW,UWisc

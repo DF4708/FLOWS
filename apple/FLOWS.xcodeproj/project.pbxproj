@@ -1,0 +1,1189 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		004FDE0527A7C5DD50ABC934 /* LatitudeBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFE64796AB0A24A80F77ED3 /* LatitudeBands.swift */; };
+		010034D00B2174D20CA1F122 /* loves_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */; };
+		030EAF210B0FCE26193C10A3 /* CrashDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A12A70BF2FE71B85B917003 /* CrashDetectionService.swift */; };
+		0310A2C51C53929859B7996A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1108C8F33063CF53E8D40780 /* ContentView.swift */; };
+		04D82FF419F1E30ADEA4A780 /* Favorites.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28ECBE56F183452C216AADC /* Favorites.swift */; };
+		05E4DA1934F584ECD9A40BE0 /* SmartcarLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99E1492ECA44B7A868CE409 /* SmartcarLink.swift */; };
+		061E5380FCEDC52E29B02651 /* RiskEquations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 608F949633BA438344BADA7B /* RiskEquations.swift */; };
+		081C7393A6AA350BFE800F48 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D270A4D35CC38D9CEDC327 /* WatchLink.swift */; };
+		09A0F477A65A8311F75F6A2C /* ThrottledNet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */; };
+		0D1D107640FD08B5488762CF /* truckstop_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = AB05FCE6C6411AC6C6E9D236 /* truckstop_showers.json */; };
+		11570540AD1F7A4D714F13AB /* RatingsAndCost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B43AC2E39D3B9A3A553597 /* RatingsAndCost.swift */; };
+		1279DA0F6D686C4AECF0FD1C /* BreadcrumbTrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA10025CB1A206B47D99C1FE /* BreadcrumbTrail.swift */; };
+		13345D60F3F742436161BBDF /* AlertEntityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */; };
+		1358E5D621CB66E6538ED943 /* TowingLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */; };
+		14A4FF0344CF9C3A5070BB5A /* HazardStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F7CC1237BC384F3E7BCD00 /* HazardStyle.swift */; };
+		1503DA25723766643E5E3711 /* TripCosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD9764EC4A927905A1053DE /* TripCosts.swift */; };
+		171B4533351A78F1308BA449 /* ThrottledNet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */; };
+		1742FFF8552A2188FE09A0C9 /* MusicController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FEE024E49714F6E7FEFCC5 /* MusicController.swift */; };
+		184A3C4AD4CA990EC7E8B455 /* PlannerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D241E02FF76FBC66A5408982 /* PlannerPanel.swift */; };
+		1903307AC4489A1E42C85769 /* RiskEquations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 608F949633BA438344BADA7B /* RiskEquations.swift */; };
+		197194ECC918FAB748F05AE5 /* FlowsCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ECF897B5191C189DA09896 /* FlowsCore.swift */; };
+		1AFAEE676357D7B543346690 /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4733E31C33ADB3C027FDB4 /* WeatherAlertService.swift */; };
+		1BB65DB8214A1FCBA5655348 /* EPAVehicleDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */; };
+		1CF2FDAFE2379F36E3E73A80 /* FLOWSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D62908F6F7FC3F7A266D83E /* FLOWSApp.swift */; };
+		1D426A8BA1080D1DA4B26430 /* POIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F96A5B64C54FCF03FA44A6A /* POIService.swift */; };
+		1E7C8182E23277114E5F030C /* FlowsCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ECF897B5191C189DA09896 /* FlowsCore.swift */; };
+		1F3C3F5B233F5856BA2E7309 /* PrimarySources.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */; };
+		2080E68AB7AB2AD859759BF9 /* SeasonalRiskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CAD2963165FE9441694108 /* SeasonalRiskModel.swift */; };
+		22FE4347F32E6604B1C81FD2 /* TruckerRadio.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BE6A60E54AD418C7E7E6EE /* TruckerRadio.swift */; };
+		2A85E17486B536522BBD643C /* RatingsAndCost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B43AC2E39D3B9A3A553597 /* RatingsAndCost.swift */; };
+		2B4DED3735C02379F988EF1C /* NWSForecastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */; };
+		2DF8E0A837B75BC25C9E1798 /* BadgeClusteringTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37D797B01C98138D2A4941A8 /* BadgeClusteringTests.swift */; };
+		301EE2066A152EAB2EDD6E6E /* RiskFieldService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECD57DF5327312E358BC175 /* RiskFieldService.swift */; };
+		320AEB655CAFD2249F67B5DE /* FuelPrices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94900C29B51436EB845A8017 /* FuelPrices.swift */; };
+		365C3296D6244498D8C5440B /* GradeProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */; };
+		3779A3839E8B2F7C189B4320 /* RouteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806CEE6B6414930742FF6944 /* RouteService.swift */; };
+		3AF06168E4F90B4D419D0BF6 /* FilterLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EDC9355A222A2C521A1FB4 /* FilterLimits.swift */; };
+		3B14C1960C0EDAB0D793CDC3 /* RiskTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95263D85EADD34E854E37234 /* RiskTiming.swift */; };
+		3BE6F6ED6FC2136FE5CAE996 /* nwr_stations.json in Resources */ = {isa = PBXBuildFile; fileRef = 2DD80CC155E7A70DB135E1C3 /* nwr_stations.json */; };
+		3DE0EDF31263DC1604FF64F2 /* RiskFieldService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECD57DF5327312E358BC175 /* RiskFieldService.swift */; };
+		3FA5C94B074EC776E9BEDD7C /* WeatherAlertService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED4733E31C33ADB3C027FDB4 /* WeatherAlertService.swift */; };
+		401D137F7C1F5D6A9EC7A827 /* StoresAndCostsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F32FE3D4D911C97E346CE1E /* StoresAndCostsTests.swift */; };
+		4023C6391BF28B32CCA1DD27 /* CrashLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4840B504301BB03ADEE64984 /* CrashLogic.swift */; };
+		413D1B070FFE12F5D21F37E9 /* ClimateProfilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498C7D51DCCCB8C68F30B651 /* ClimateProfilesTests.swift */; };
+		415A8A4254D607A8C10017E8 /* RouteChoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3243FAC8D76AFEF091B42EA4 /* RouteChoicesView.swift */; };
+		44FD7B626FDDF3298EFB681A /* SeasonalRiskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CAD2963165FE9441694108 /* SeasonalRiskModel.swift */; };
+		46AC7FC072E5F0CC473D3C22 /* PursuitReach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */; };
+		46CF1ACD43CDFB232FAE573A /* GradeProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */; };
+		4BD91F6F4157DA424CA3608E /* RefuelLearning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 383D9154F5B3C3172119CE96 /* RefuelLearning.swift */; };
+		4D3D10A7B03ADBB7FF6272A9 /* VehicleProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92059E95929EBF8526200AFB /* VehicleProfile.swift */; };
+		4D9415875F4ABEFA032C7DEB /* RiskTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95263D85EADD34E854E37234 /* RiskTiming.swift */; };
+		524E402917F0E7A063F22B19 /* EPAVehicleDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */; };
+		52E499EA4952D1C9DA646B33 /* InternationalWeather.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAEA23440AB17AFF40DFE6E /* InternationalWeather.swift */; };
+		561463EC10B48168D8557407 /* FLOWS-Watch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 5FE6052A01B49BDF4043CCED /* FLOWS-Watch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		570A9DD4A9104C9E8C0139FB /* SafetyAndGradeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E809B4608904D3C0EA6C78A1 /* SafetyAndGradeTests.swift */; };
+		58499AC20E22348A50EDEE18 /* VehicleProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92059E95929EBF8526200AFB /* VehicleProfile.swift */; };
+		5DA1AC16B6B102530AD91CD3 /* TransitItinerary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19E5CB1DF5BC357124CBC31 /* TransitItinerary.swift */; };
+		5DD3E085C1CCD00507282756 /* FLOWSIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D780B10436F13E4DEDBA089 /* FLOWSIntents.swift */; };
+		5E871BDA32021FDA80C14152 /* RouteChoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3243FAC8D76AFEF091B42EA4 /* RouteChoicesView.swift */; };
+		5F44D5C31633F49754BA83AA /* AlertEntityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */; };
+		5FECCED419AA387017DA1E52 /* ImminentAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */; };
+		625E135D51D7B7EB2EBEE9DF /* LatitudeBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFE64796AB0A24A80F77ED3 /* LatitudeBands.swift */; };
+		631CD3A5DA8F8652488CC509 /* LiveHazardFeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */; };
+		665312EC58A8BCAD00DD9885 /* VehicleSpecs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDB7A95B830D374447FC250 /* VehicleSpecs.swift */; };
+		66980B460BE0B474C2D6CA05 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */; };
+		681C3F2F93143D41B3DBB0B1 /* InternationalWeather.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAEA23440AB17AFF40DFE6E /* InternationalWeather.swift */; };
+		68630AB2C37A33DF86860B83 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989F872639CCB7CA528CE5BD /* Theme.swift */; };
+		6A713104D4C7CC8C74DB1ADB /* RouteAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE795F7E4EE79FE1CE8B949 /* RouteAttributes.swift */; };
+		6DAFAB606C2AE792FF51404F /* RiskFieldService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECD57DF5327312E358BC175 /* RiskFieldService.swift */; };
+		6E568195741992379E6D4138 /* TransitItinerary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19E5CB1DF5BC357124CBC31 /* TransitItinerary.swift */; };
+		718C0861C49773731EB9168A /* ta_petro_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 632AB1C1790765011C5EABEE /* ta_petro_city_showers.json */; };
+		71C40D91BB6C14ABD5F4BEFD /* WMOAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */; };
+		71DBB04A9013C15FA8B160F2 /* HybridVanScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404296F265115CEEC15BD520 /* HybridVanScenarioTests.swift */; };
+		7249F7E75C5CEA681908B7B1 /* RouteAttributesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B8206B116C735B809D578F /* RouteAttributesTests.swift */; };
+		7273A3DCAA01BBA67E573F42 /* NWSForecastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */; };
+		73526BF97C0527409E6061A7 /* RiskAdvice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8D352D8475825EDF70ED41 /* RiskAdvice.swift */; };
+		73BBB96428C3A7E3A4D57C5D /* TowingLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */; };
+		74461F51DAF9DBFEDB13F2D7 /* ThrottledNet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */; };
+		75965E9FE0F1437F2C22327D /* ImminentAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */; };
+		77238B6E275E63192D658AB2 /* FilterLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EDC9355A222A2C521A1FB4 /* FilterLimits.swift */; };
+		77D805A4E8A0F7E64D55C6B2 /* POIRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660C3752BEC9BCB24CCBE592 /* POIRanking.swift */; };
+		785F1EAB0FC453D1A6E05570 /* TowingLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */; };
+		7869D1BCA1BD5EF8E887C533 /* app_risk_bundle.json in Resources */ = {isa = PBXBuildFile; fileRef = F1B1558593E1236C5903FC8F /* app_risk_bundle.json */; };
+		7C83F59B6812832493327A60 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98F1803FA29F2721B8CF0DA /* LocationService.swift */; };
+		7C89F9027F44BC05B3726EBF /* FuelPrices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94900C29B51436EB845A8017 /* FuelPrices.swift */; };
+		7D1C3258E6ABB49967ACA3A3 /* pilot_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */; };
+		7D354BC20604F11448904550 /* AlertBanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7621CED0B29E4E32AA671 /* AlertBanners.swift */; };
+		7E04AA0A4AE4C5664C8CCBCB /* VehicleLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957EC938EF77F8E1C6D9CF1B /* VehicleLink.swift */; };
+		7E471AEB06A805F1644E39E3 /* ClimateProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */; };
+		7F94C04F6CEFD98FC4A27A36 /* VehicleLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957EC938EF77F8E1C6D9CF1B /* VehicleLink.swift */; };
+		82CA1F4CB10335D2E4E8BE58 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98F1803FA29F2721B8CF0DA /* LocationService.swift */; };
+		86635AC86026D781C4475FCF /* PrimarySources.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */; };
+		880E39A625D9D5C389F6B023 /* RouteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806CEE6B6414930742FF6944 /* RouteService.swift */; };
+		887288077C6C4AE5B536B2D4 /* app_risk_bundle.json in Resources */ = {isa = PBXBuildFile; fileRef = F1B1558593E1236C5903FC8F /* app_risk_bundle.json */; };
+		8B8244A524B20CAB214FB89E /* VehicleSpecs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDB7A95B830D374447FC250 /* VehicleSpecs.swift */; };
+		8B8EAF4AD0B7BE039D0BC1C2 /* pilot_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */; };
+		8C57618A815F591C16A61004 /* BadgeClustering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FA4730BF33DCE1D5A1FD1A5 /* BadgeClustering.swift */; };
+		8D7E3BA875320DFE61429E16 /* RiskEquations.swift in Sources */ = {isa = PBXBuildFile; fileRef = 608F949633BA438344BADA7B /* RiskEquations.swift */; };
+		8D9EC270F22C1471CC017D40 /* RiskEquationVectors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44F3AEAFEDE264D6C97F91D1 /* RiskEquationVectors.swift */; };
+		8E659DED44B9215581392DC4 /* RiskRealizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5659182CBDE9A3687B1B874 /* RiskRealizationTests.swift */; };
+		8EA07886493D87546ED7DE97 /* SmartcarLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99E1492ECA44B7A868CE409 /* SmartcarLink.swift */; };
+		8F6FABE5F6E3F478DE2F8586 /* IntlWeatherParsingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9788A5323906C6CC57E713D7 /* IntlWeatherParsingTests.swift */; };
+		918F66CB19B302699E9034A7 /* Favorites.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28ECBE56F183452C216AADC /* Favorites.swift */; };
+		93835C43B8F98766F1E87105 /* Mobility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5D8E2CA6888FA3CFDB9C2B8 /* Mobility.swift */; };
+		965BD532301572C27D8234FA /* ZipBordersAndTransit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35065E2E293E04B3080DA2BD /* ZipBordersAndTransit.swift */; };
+		988FE7C77C21A91CE78E63CA /* LatitudeBandsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12B0928B1B52B3C040A82C88 /* LatitudeBandsTests.swift */; };
+		99C6AEB2E77B4D3DCCF308B2 /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A1625FE016A49A6544C167 /* CarPlaySceneDelegate.swift */; };
+		9A567162750D958FA83CF510 /* VehicleSpecs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDB7A95B830D374447FC250 /* VehicleSpecs.swift */; };
+		9BAA9F458D434C4B0EAF309D /* FLOWSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D62908F6F7FC3F7A266D83E /* FLOWSApp.swift */; };
+		9C33E064B6CB1994CC0CC96F /* CarPlaySceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28A1625FE016A49A6544C167 /* CarPlaySceneDelegate.swift */; };
+		9D83B9F840D7AC9EC982296B /* TripCosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD9764EC4A927905A1053DE /* TripCosts.swift */; };
+		9DBA5EDAA33C82AC715F98C3 /* MusicController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FEE024E49714F6E7FEFCC5 /* MusicController.swift */; };
+		9E13F5D3462914ADD7AC9616 /* LiveHazardFeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */; };
+		9F73AA9AA2A957A932B3CE9D /* PrimarySources.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */; };
+		A29396CF4B5A135CE6CA4CED /* RatingsAndCost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B43AC2E39D3B9A3A553597 /* RatingsAndCost.swift */; };
+		A4521612BE8FCEACFEA5CDC1 /* FLOWSIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D780B10436F13E4DEDBA089 /* FLOWSIntents.swift */; };
+		A6035A3147A61B082F59BB3F /* CrashLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4840B504301BB03ADEE64984 /* CrashLogic.swift */; };
+		A66F1D80DB49213AF776EE08 /* RefuelLearning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 383D9154F5B3C3172119CE96 /* RefuelLearning.swift */; };
+		A8C4F6A2F7538715FF26E2CF /* SeasonalModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E622A3A8CCD46CD59FF2E67B /* SeasonalModelTests.swift */; };
+		A95B4B23B8F016A878181F92 /* AdaptiveTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98474CBCECA20ECA0F80AA3C /* AdaptiveTuning.swift */; };
+		A9D80E190D055FE67AE2D2AF /* RefuelLearning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 383D9154F5B3C3172119CE96 /* RefuelLearning.swift */; };
+		AC59BC88BC8D5919E790CC37 /* AlertEntityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */; };
+		ADB3F039DFA57DD9FAF561A0 /* Favorites.swift in Sources */ = {isa = PBXBuildFile; fileRef = F28ECBE56F183452C216AADC /* Favorites.swift */; };
+		AFF866AD33FA0557E8523FC7 /* TripNeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B29AF923878F8DC45AA9E25 /* TripNeeds.swift */; };
+		B0CFCF912028157796B4A7B9 /* RiskEquationsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 631CB6CB23C47B6C896233F7 /* RiskEquationsTests.swift */; };
+		B205A34E1B95C0F486C445B6 /* AdaptiveTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98474CBCECA20ECA0F80AA3C /* AdaptiveTuning.swift */; };
+		B2C073221861263D51546CBC /* TruckerRadio.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BE6A60E54AD418C7E7E6EE /* TruckerRadio.swift */; };
+		B4F2D68B4AA9EA32E39BC498 /* SeasonalRiskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CAD2963165FE9441694108 /* SeasonalRiskModel.swift */; };
+		B7BE2CE331F05F11F6FE96EE /* POIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F96A5B64C54FCF03FA44A6A /* POIService.swift */; };
+		B7C8FA99AE047DE30F6C94D6 /* NavigationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC3EA401E6BE217380A0C4F /* NavigationHUD.swift */; };
+		BBE74598D75C120739804AA2 /* PursuitReach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */; };
+		BBFB4503921B6CDE7C898574 /* truckstop_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = AB05FCE6C6411AC6C6E9D236 /* truckstop_showers.json */; };
+		BC99BD4AF7EDCA3E623A7673 /* ta_petro_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 632AB1C1790765011C5EABEE /* ta_petro_city_showers.json */; };
+		BEFCAA5161DCBDC26C66A681 /* WMOAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */; };
+		C0AEE469D43AFD4378B17C60 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 989F872639CCB7CA528CE5BD /* Theme.swift */; };
+		C35B494636536E3FC137FC88 /* TripNeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B29AF923878F8DC45AA9E25 /* TripNeeds.swift */; };
+		C4F5CD5CD5771E13D3344B8C /* POIRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660C3752BEC9BCB24CCBE592 /* POIRanking.swift */; };
+		C564A8D0331C8C005BBC4A31 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */; };
+		C5CE51F3962B9E517372E028 /* ImminentAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */; };
+		C6F008A3AAE8AB1E085E2CA6 /* NavigationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3FCCB9BAC0B87101B634C86 /* NavigationEngine.swift */; };
+		C73E07362F8731EC924D04E5 /* loves_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */; };
+		C77F19C7CE5576B634FDEF3B /* TripNeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B29AF923878F8DC45AA9E25 /* TripNeeds.swift */; };
+		C89953D73BA9BED62B2360FD /* ZipBordersAndTransit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35065E2E293E04B3080DA2BD /* ZipBordersAndTransit.swift */; };
+		C984AE7BD4D0E64ACFF24F8D /* PlannerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D241E02FF76FBC66A5408982 /* PlannerPanel.swift */; };
+		CA129A41CBF8FF1D4862AFFE /* CrashDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A12A70BF2FE71B85B917003 /* CrashDetectionService.swift */; };
+		CBF544777B2D5F7F920F13A6 /* CrashLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4840B504301BB03ADEE64984 /* CrashLogic.swift */; };
+		CE5AD29464EB287552370095 /* POIRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660C3752BEC9BCB24CCBE592 /* POIRanking.swift */; };
+		CF0BBE2B4397098CEF789F9B /* HazardStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F7CC1237BC384F3E7BCD00 /* HazardStyle.swift */; };
+		CFFA1820D852FB93C85DBF7C /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1108C8F33063CF53E8D40780 /* ContentView.swift */; };
+		D03422DCBFC24ADE1D41CDFF /* RiskAdvice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8D352D8475825EDF70ED41 /* RiskAdvice.swift */; };
+		D0F01AE6A4226BC24972D947 /* InternationalWeather.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EAEA23440AB17AFF40DFE6E /* InternationalWeather.swift */; };
+		D1E525CF8364FC1F03F51248 /* BadgeClustering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FA4730BF33DCE1D5A1FD1A5 /* BadgeClustering.swift */; };
+		D56295E31E3866E669467657 /* CoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80CC13F27F247797796E314 /* CoreTests.swift */; };
+		D65BBE4BC8CC6259E1493CF7 /* FlowsCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ECF897B5191C189DA09896 /* FlowsCore.swift */; };
+		D6DBB85315CEF92BCCC2F190 /* NavigationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3FCCB9BAC0B87101B634C86 /* NavigationEngine.swift */; };
+		D92EADB109C9F500A6D4116B /* NWSForecastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */; };
+		D94FCBB14D0CCB9184D7D3BA /* VehicleProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92059E95929EBF8526200AFB /* VehicleProfile.swift */; };
+		D9844CDB5730CD0FCE34AAA1 /* WMOAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */; };
+		D9BBD25136FC685A78FAAE76 /* PursuitReach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */; };
+		D9F0C18C1268C424CD4064D6 /* GradeProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */; };
+		DD3F8BB1EA4C3DDDE6E1F03F /* nwr_stations.json in Resources */ = {isa = PBXBuildFile; fileRef = 2DD80CC155E7A70DB135E1C3 /* nwr_stations.json */; };
+		DFBCEE154B197D7846A8FFCA /* AdaptiveTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98474CBCECA20ECA0F80AA3C /* AdaptiveTuning.swift */; };
+		E09F04ED5A3E638A0FD52D8C /* TransitItinerary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19E5CB1DF5BC357124CBC31 /* TransitItinerary.swift */; };
+		E0A630190713794C6D027A87 /* Mobility.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5D8E2CA6888FA3CFDB9C2B8 /* Mobility.swift */; };
+		E0EEFF83D8B3E54DCFC85541 /* BreadcrumbTrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA10025CB1A206B47D99C1FE /* BreadcrumbTrail.swift */; };
+		E14B90680FAA23A0580BF1B6 /* BadgeClustering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FA4730BF33DCE1D5A1FD1A5 /* BadgeClustering.swift */; };
+		E33326532B3FE275A353B3E7 /* POIRankingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 012F8F7863B7F0C83AC7D26C /* POIRankingTests.swift */; };
+		E46E1C1421CA9FAD04C2A879 /* RouteAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE795F7E4EE79FE1CE8B949 /* RouteAttributes.swift */; };
+		E4AF1145C938AFD0C864F5D7 /* LatitudeBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFE64796AB0A24A80F77ED3 /* LatitudeBands.swift */; };
+		E64EDEAC94E9BC49C40B95AE /* NavigationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC3EA401E6BE217380A0C4F /* NavigationHUD.swift */; };
+		EB7E59E4886D92E322C0945E /* RouteAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE795F7E4EE79FE1CE8B949 /* RouteAttributes.swift */; };
+		ED27D7FDFCED68922EA71B6E /* FuelPrices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94900C29B51436EB845A8017 /* FuelPrices.swift */; };
+		EEEC129E282C72CE5999125C /* AlertBanners.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52E7621CED0B29E4E32AA671 /* AlertBanners.swift */; };
+		EF1EBA98D9A86DF36009A4B7 /* RiskTiming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95263D85EADD34E854E37234 /* RiskTiming.swift */; };
+		F21C519F913273E5A3F9EDE0 /* TripCosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD9764EC4A927905A1053DE /* TripCosts.swift */; };
+		F2A638CD0A7CE57D90692756 /* DriverFeaturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B721807ED6A56A943CAFE7 /* DriverFeaturesTests.swift */; };
+		F6151D4635E5B25DDE4FEDD1 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D270A4D35CC38D9CEDC327 /* WatchLink.swift */; };
+		F646A5D19711B3A2C7BD27CB /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57322EEEDA214E20080BA2B /* WatchApp.swift */; };
+		F76E6C8F642EC11B46BB4A6C /* ClimateProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */; };
+		F988317D4413E99F78A2B2A8 /* ClimateProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */; };
+		FBA811E46E61A27F6B365756 /* FilterLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EDC9355A222A2C521A1FB4 /* FilterLimits.swift */; };
+		FBAFF13C64A975E0FB300EF2 /* EPAVehicleDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */; };
+		FD5F21BC42BAF96C94849983 /* LiveHazardFeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */; };
+		FD9169634DF9F4C33099F864 /* VehicleLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957EC938EF77F8E1C6D9CF1B /* VehicleLink.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9170351C34FCB101873CA288 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3F02285F34192AD14F01A9DF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0D140FCC8CD87688C2B43C7B;
+			remoteInfo = "FLOWS-Watch";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		627F108F300A2432E8A739B8 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				561463EC10B48168D8557407 /* FLOWS-Watch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		012F8F7863B7F0C83AC7D26C /* POIRankingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = POIRankingTests.swift; sourceTree = "<group>"; };
+		03CAD2963165FE9441694108 /* SeasonalRiskModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeasonalRiskModel.swift; sourceTree = "<group>"; };
+		05FEE024E49714F6E7FEFCC5 /* MusicController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicController.swift; sourceTree = "<group>"; };
+		0A057D409A523B8FE197C8EE /* FLOWS-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "FLOWS-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0D62908F6F7FC3F7A266D83E /* FLOWSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FLOWSApp.swift; sourceTree = "<group>"; };
+		0DFE64796AB0A24A80F77ED3 /* LatitudeBands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatitudeBands.swift; sourceTree = "<group>"; };
+		0EAEA23440AB17AFF40DFE6E /* InternationalWeather.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InternationalWeather.swift; sourceTree = "<group>"; };
+		0F96A5B64C54FCF03FA44A6A /* POIService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = POIService.swift; sourceTree = "<group>"; };
+		1108C8F33063CF53E8D40780 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		12B0928B1B52B3C040A82C88 /* LatitudeBandsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LatitudeBandsTests.swift; sourceTree = "<group>"; };
+		13EDC9355A222A2C521A1FB4 /* FilterLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilterLimits.swift; sourceTree = "<group>"; };
+		14B43AC2E39D3B9A3A553597 /* RatingsAndCost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RatingsAndCost.swift; sourceTree = "<group>"; };
+		1ECD57DF5327312E358BC175 /* RiskFieldService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskFieldService.swift; sourceTree = "<group>"; };
+		1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = loves_city_showers.json; sourceTree = "<group>"; };
+		1F32FE3D4D911C97E346CE1E /* StoresAndCostsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoresAndCostsTests.swift; sourceTree = "<group>"; };
+		1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NWSForecastService.swift; sourceTree = "<group>"; };
+		28A1625FE016A49A6544C167 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
+		2D780B10436F13E4DEDBA089 /* FLOWSIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FLOWSIntents.swift; sourceTree = "<group>"; };
+		2DD80CC155E7A70DB135E1C3 /* nwr_stations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = nwr_stations.json; sourceTree = "<group>"; };
+		3243FAC8D76AFEF091B42EA4 /* RouteChoicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteChoicesView.swift; sourceTree = "<group>"; };
+		35065E2E293E04B3080DA2BD /* ZipBordersAndTransit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipBordersAndTransit.swift; sourceTree = "<group>"; };
+		37D797B01C98138D2A4941A8 /* BadgeClusteringTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeClusteringTests.swift; sourceTree = "<group>"; };
+		383D9154F5B3C3172119CE96 /* RefuelLearning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefuelLearning.swift; sourceTree = "<group>"; };
+		3C8D352D8475825EDF70ED41 /* RiskAdvice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskAdvice.swift; sourceTree = "<group>"; };
+		3FE795F7E4EE79FE1CE8B949 /* RouteAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteAttributes.swift; sourceTree = "<group>"; };
+		404296F265115CEEC15BD520 /* HybridVanScenarioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HybridVanScenarioTests.swift; sourceTree = "<group>"; };
+		44F3AEAFEDE264D6C97F91D1 /* RiskEquationVectors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskEquationVectors.swift; sourceTree = "<group>"; };
+		4840B504301BB03ADEE64984 /* CrashLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashLogic.swift; sourceTree = "<group>"; };
+		488CA09ED049E5E656E5F74A /* FLOWS-macOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FLOWS-macOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		498C7D51DCCCB8C68F30B651 /* ClimateProfilesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClimateProfilesTests.swift; sourceTree = "<group>"; };
+		4B29AF923878F8DC45AA9E25 /* TripNeeds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripNeeds.swift; sourceTree = "<group>"; };
+		52E7621CED0B29E4E32AA671 /* AlertBanners.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertBanners.swift; sourceTree = "<group>"; };
+		5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveHazardFeeds.swift; sourceTree = "<group>"; };
+		5CD9764EC4A927905A1053DE /* TripCosts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripCosts.swift; sourceTree = "<group>"; };
+		5FE6052A01B49BDF4043CCED /* FLOWS-Watch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "FLOWS-Watch.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		608F949633BA438344BADA7B /* RiskEquations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskEquations.swift; sourceTree = "<group>"; };
+		631CB6CB23C47B6C896233F7 /* RiskEquationsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskEquationsTests.swift; sourceTree = "<group>"; };
+		632AB1C1790765011C5EABEE /* ta_petro_city_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ta_petro_city_showers.json; sourceTree = "<group>"; };
+		660C3752BEC9BCB24CCBE592 /* POIRanking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = POIRanking.swift; sourceTree = "<group>"; };
+		66ECF897B5191C189DA09896 /* FlowsCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowsCore.swift; sourceTree = "<group>"; };
+		6A12A70BF2FE71B85B917003 /* CrashDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDetectionService.swift; sourceTree = "<group>"; };
+		74AA571CE51632FF23C95AF6 /* FLOWSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FLOWSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPAVehicleDatabase.swift; sourceTree = "<group>"; };
+		777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WMOAlerts.swift; sourceTree = "<group>"; };
+		806CEE6B6414930742FF6944 /* RouteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteService.swift; sourceTree = "<group>"; };
+		80F7CC1237BC384F3E7BCD00 /* HazardStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HazardStyle.swift; sourceTree = "<group>"; };
+		821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = pilot_city_showers.json; sourceTree = "<group>"; };
+		89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImminentAlerts.swift; sourceTree = "<group>"; };
+		8FA4730BF33DCE1D5A1FD1A5 /* BadgeClustering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeClustering.swift; sourceTree = "<group>"; };
+		92059E95929EBF8526200AFB /* VehicleProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleProfile.swift; sourceTree = "<group>"; };
+		927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClimateProfiles.swift; sourceTree = "<group>"; };
+		94900C29B51436EB845A8017 /* FuelPrices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuelPrices.swift; sourceTree = "<group>"; };
+		95263D85EADD34E854E37234 /* RiskTiming.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskTiming.swift; sourceTree = "<group>"; };
+		957EC938EF77F8E1C6D9CF1B /* VehicleLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleLink.swift; sourceTree = "<group>"; };
+		9788A5323906C6CC57E713D7 /* IntlWeatherParsingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntlWeatherParsingTests.swift; sourceTree = "<group>"; };
+		98474CBCECA20ECA0F80AA3C /* AdaptiveTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdaptiveTuning.swift; sourceTree = "<group>"; };
+		989F872639CCB7CA528CE5BD /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PursuitReach.swift; sourceTree = "<group>"; };
+		AB05FCE6C6411AC6C6E9D236 /* truckstop_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = truckstop_showers.json; sourceTree = "<group>"; };
+		B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GradeProfile.swift; sourceTree = "<group>"; };
+		C5D8E2CA6888FA3CFDB9C2B8 /* Mobility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mobility.swift; sourceTree = "<group>"; };
+		C7BE6A60E54AD418C7E7E6EE /* TruckerRadio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TruckerRadio.swift; sourceTree = "<group>"; };
+		CFDB7A95B830D374447FC250 /* VehicleSpecs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleSpecs.swift; sourceTree = "<group>"; };
+		D19E5CB1DF5BC357124CBC31 /* TransitItinerary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitItinerary.swift; sourceTree = "<group>"; };
+		D241E02FF76FBC66A5408982 /* PlannerPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlannerPanel.swift; sourceTree = "<group>"; };
+		D3FCCB9BAC0B87101B634C86 /* NavigationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationEngine.swift; sourceTree = "<group>"; };
+		D5659182CBDE9A3687B1B874 /* RiskRealizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskRealizationTests.swift; sourceTree = "<group>"; };
+		D57322EEEDA214E20080BA2B /* WatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchApp.swift; sourceTree = "<group>"; };
+		D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TowingLimits.swift; sourceTree = "<group>"; };
+		D8B8206B116C735B809D578F /* RouteAttributesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteAttributesTests.swift; sourceTree = "<group>"; };
+		D99E1492ECA44B7A868CE409 /* SmartcarLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartcarLink.swift; sourceTree = "<group>"; };
+		DA10025CB1A206B47D99C1FE /* BreadcrumbTrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadcrumbTrail.swift; sourceTree = "<group>"; };
+		DAC3EA401E6BE217380A0C4F /* NavigationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationHUD.swift; sourceTree = "<group>"; };
+		E2B721807ED6A56A943CAFE7 /* DriverFeaturesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverFeaturesTests.swift; sourceTree = "<group>"; };
+		E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertEntityParser.swift; sourceTree = "<group>"; };
+		E622A3A8CCD46CD59FF2E67B /* SeasonalModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeasonalModelTests.swift; sourceTree = "<group>"; };
+		E809B4608904D3C0EA6C78A1 /* SafetyAndGradeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyAndGradeTests.swift; sourceTree = "<group>"; };
+		E8D270A4D35CC38D9CEDC327 /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
+		ED4733E31C33ADB3C027FDB4 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
+		F1B1558593E1236C5903FC8F /* app_risk_bundle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = app_risk_bundle.json; sourceTree = "<group>"; };
+		F28ECBE56F183452C216AADC /* Favorites.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Favorites.swift; sourceTree = "<group>"; };
+		F80CC13F27F247797796E314 /* CoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreTests.swift; sourceTree = "<group>"; };
+		F98F1803FA29F2721B8CF0DA /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
+		FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimarySources.swift; sourceTree = "<group>"; };
+		FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThrottledNet.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0A12F509C416A6C4EB545583 /* CarPlay */ = {
+			isa = PBXGroup;
+			children = (
+				28A1625FE016A49A6544C167 /* CarPlaySceneDelegate.swift */,
+			);
+			path = CarPlay;
+			sourceTree = "<group>";
+		};
+		0CEDA4DF4033A967893F1C93 /* FLOWSWatch */ = {
+			isa = PBXGroup;
+			children = (
+				D57322EEEDA214E20080BA2B /* WatchApp.swift */,
+			);
+			path = FLOWSWatch;
+			sourceTree = "<group>";
+		};
+		45F2F79B01B0B7402A43BD26 /* FLOWS */ = {
+			isa = PBXGroup;
+			children = (
+				7567981AFBF2B75D8BE9E6EA /* Resources */,
+				C7F2FE9CDE65A175A2329439 /* Sources */,
+			);
+			path = FLOWS;
+			sourceTree = "<group>";
+		};
+		6F72DCE98C45CB67883F55F1 = {
+			isa = PBXGroup;
+			children = (
+				45F2F79B01B0B7402A43BD26 /* FLOWS */,
+				7F0C08F4CAFC7058874BF103 /* FLOWSTests */,
+				0CEDA4DF4033A967893F1C93 /* FLOWSWatch */,
+				D6965EB72855D8CB7FE8B267 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7567981AFBF2B75D8BE9E6EA /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				F1B1558593E1236C5903FC8F /* app_risk_bundle.json */,
+				B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */,
+				1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */,
+				2DD80CC155E7A70DB135E1C3 /* nwr_stations.json */,
+				821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */,
+				632AB1C1790765011C5EABEE /* ta_petro_city_showers.json */,
+				AB05FCE6C6411AC6C6E9D236 /* truckstop_showers.json */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		7F0C08F4CAFC7058874BF103 /* FLOWSTests */ = {
+			isa = PBXGroup;
+			children = (
+				37D797B01C98138D2A4941A8 /* BadgeClusteringTests.swift */,
+				498C7D51DCCCB8C68F30B651 /* ClimateProfilesTests.swift */,
+				F80CC13F27F247797796E314 /* CoreTests.swift */,
+				E2B721807ED6A56A943CAFE7 /* DriverFeaturesTests.swift */,
+				404296F265115CEEC15BD520 /* HybridVanScenarioTests.swift */,
+				9788A5323906C6CC57E713D7 /* IntlWeatherParsingTests.swift */,
+				12B0928B1B52B3C040A82C88 /* LatitudeBandsTests.swift */,
+				012F8F7863B7F0C83AC7D26C /* POIRankingTests.swift */,
+				631CB6CB23C47B6C896233F7 /* RiskEquationsTests.swift */,
+				44F3AEAFEDE264D6C97F91D1 /* RiskEquationVectors.swift */,
+				D5659182CBDE9A3687B1B874 /* RiskRealizationTests.swift */,
+				D8B8206B116C735B809D578F /* RouteAttributesTests.swift */,
+				E809B4608904D3C0EA6C78A1 /* SafetyAndGradeTests.swift */,
+				E622A3A8CCD46CD59FF2E67B /* SeasonalModelTests.swift */,
+				1F32FE3D4D911C97E346CE1E /* StoresAndCostsTests.swift */,
+			);
+			path = FLOWSTests;
+			sourceTree = "<group>";
+		};
+		8DAEFC69FE32E11CD2EF3C02 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				98474CBCECA20ECA0F80AA3C /* AdaptiveTuning.swift */,
+				E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */,
+				8FA4730BF33DCE1D5A1FD1A5 /* BadgeClustering.swift */,
+				DA10025CB1A206B47D99C1FE /* BreadcrumbTrail.swift */,
+				927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */,
+				6A12A70BF2FE71B85B917003 /* CrashDetectionService.swift */,
+				4840B504301BB03ADEE64984 /* CrashLogic.swift */,
+				77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */,
+				F28ECBE56F183452C216AADC /* Favorites.swift */,
+				13EDC9355A222A2C521A1FB4 /* FilterLimits.swift */,
+				66ECF897B5191C189DA09896 /* FlowsCore.swift */,
+				94900C29B51436EB845A8017 /* FuelPrices.swift */,
+				BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */,
+				89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */,
+				0EAEA23440AB17AFF40DFE6E /* InternationalWeather.swift */,
+				0DFE64796AB0A24A80F77ED3 /* LatitudeBands.swift */,
+				5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */,
+				F98F1803FA29F2721B8CF0DA /* LocationService.swift */,
+				C5D8E2CA6888FA3CFDB9C2B8 /* Mobility.swift */,
+				05FEE024E49714F6E7FEFCC5 /* MusicController.swift */,
+				D3FCCB9BAC0B87101B634C86 /* NavigationEngine.swift */,
+				1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */,
+				660C3752BEC9BCB24CCBE592 /* POIRanking.swift */,
+				0F96A5B64C54FCF03FA44A6A /* POIService.swift */,
+				FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */,
+				9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */,
+				14B43AC2E39D3B9A3A553597 /* RatingsAndCost.swift */,
+				383D9154F5B3C3172119CE96 /* RefuelLearning.swift */,
+				3C8D352D8475825EDF70ED41 /* RiskAdvice.swift */,
+				608F949633BA438344BADA7B /* RiskEquations.swift */,
+				1ECD57DF5327312E358BC175 /* RiskFieldService.swift */,
+				95263D85EADD34E854E37234 /* RiskTiming.swift */,
+				3FE795F7E4EE79FE1CE8B949 /* RouteAttributes.swift */,
+				806CEE6B6414930742FF6944 /* RouteService.swift */,
+				03CAD2963165FE9441694108 /* SeasonalRiskModel.swift */,
+				D99E1492ECA44B7A868CE409 /* SmartcarLink.swift */,
+				FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */,
+				D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */,
+				D19E5CB1DF5BC357124CBC31 /* TransitItinerary.swift */,
+				5CD9764EC4A927905A1053DE /* TripCosts.swift */,
+				4B29AF923878F8DC45AA9E25 /* TripNeeds.swift */,
+				C7BE6A60E54AD418C7E7E6EE /* TruckerRadio.swift */,
+				957EC938EF77F8E1C6D9CF1B /* VehicleLink.swift */,
+				92059E95929EBF8526200AFB /* VehicleProfile.swift */,
+				CFDB7A95B830D374447FC250 /* VehicleSpecs.swift */,
+				E8D270A4D35CC38D9CEDC327 /* WatchLink.swift */,
+				ED4733E31C33ADB3C027FDB4 /* WeatherAlertService.swift */,
+				777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */,
+				35065E2E293E04B3080DA2BD /* ZipBordersAndTransit.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		92BE6E5C9C8DA6B7645FA1FA /* UI */ = {
+			isa = PBXGroup;
+			children = (
+				52E7621CED0B29E4E32AA671 /* AlertBanners.swift */,
+				1108C8F33063CF53E8D40780 /* ContentView.swift */,
+				80F7CC1237BC384F3E7BCD00 /* HazardStyle.swift */,
+				DAC3EA401E6BE217380A0C4F /* NavigationHUD.swift */,
+				D241E02FF76FBC66A5408982 /* PlannerPanel.swift */,
+				3243FAC8D76AFEF091B42EA4 /* RouteChoicesView.swift */,
+			);
+			path = UI;
+			sourceTree = "<group>";
+		};
+		C7F2FE9CDE65A175A2329439 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				0D62908F6F7FC3F7A266D83E /* FLOWSApp.swift */,
+				2D780B10436F13E4DEDBA089 /* FLOWSIntents.swift */,
+				989F872639CCB7CA528CE5BD /* Theme.swift */,
+				0A12F509C416A6C4EB545583 /* CarPlay */,
+				8DAEFC69FE32E11CD2EF3C02 /* Core */,
+				92BE6E5C9C8DA6B7645FA1FA /* UI */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		D6965EB72855D8CB7FE8B267 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0A057D409A523B8FE197C8EE /* FLOWS-iOS.app */,
+				488CA09ED049E5E656E5F74A /* FLOWS-macOS.app */,
+				5FE6052A01B49BDF4043CCED /* FLOWS-Watch.app */,
+				74AA571CE51632FF23C95AF6 /* FLOWSTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0D140FCC8CD87688C2B43C7B /* FLOWS-Watch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3D927099FD9012C0A9C71586 /* Build configuration list for PBXNativeTarget "FLOWS-Watch" */;
+			buildPhases = (
+				32ACD2C25709377E8BF32945 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "FLOWS-Watch";
+			packageProductDependencies = (
+			);
+			productName = "FLOWS-Watch";
+			productReference = 5FE6052A01B49BDF4043CCED /* FLOWS-Watch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E17DA01B583B5FF59C598D7E /* FLOWS-macOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6B69D4F385C5870478C3EAC0 /* Build configuration list for PBXNativeTarget "FLOWS-macOS" */;
+			buildPhases = (
+				334A595343AC371E6D689E3E /* Build Rust flows-core (asm hot loops) */,
+				734D0951850C5F877367BAFA /* Sources */,
+				83D3F616C8408C12B1BD2EC7 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "FLOWS-macOS";
+			packageProductDependencies = (
+			);
+			productName = "FLOWS-macOS";
+			productReference = 488CA09ED049E5E656E5F74A /* FLOWS-macOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		EC79D01F6795E353F4A0EE04 /* FLOWS-iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D3F52B63F9AAFF826EF4E36A /* Build configuration list for PBXNativeTarget "FLOWS-iOS" */;
+			buildPhases = (
+				02530C4E30C1DE4CB7344D77 /* Build Rust flows-core (iOS device + simulator) */,
+				B8F5EC6B1AED9DD6A279C2EA /* Sources */,
+				E320EF275A0A557AACFFA946 /* Resources */,
+				627F108F300A2432E8A739B8 /* Embed Watch Content */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				29E0ABB450B14B100BD95F67 /* PBXTargetDependency */,
+			);
+			name = "FLOWS-iOS";
+			packageProductDependencies = (
+			);
+			productName = "FLOWS-iOS";
+			productReference = 0A057D409A523B8FE197C8EE /* FLOWS-iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		FA0E68AB139D923961D7E50E /* FLOWSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2EEA0F1F00AE0565A192AA14 /* Build configuration list for PBXNativeTarget "FLOWSTests" */;
+			buildPhases = (
+				39E8CDCD77D6FE72099A4850 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FLOWSTests;
+			packageProductDependencies = (
+			);
+			productName = FLOWSTests;
+			productReference = 74AA571CE51632FF23C95AF6 /* FLOWSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		3F02285F34192AD14F01A9DF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = F4602BDA71AF5EC8F782D078 /* Build configuration list for PBXProject "FLOWS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 6F72DCE98C45CB67883F55F1;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = D6965EB72855D8CB7FE8B267 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0D140FCC8CD87688C2B43C7B /* FLOWS-Watch */,
+				EC79D01F6795E353F4A0EE04 /* FLOWS-iOS */,
+				E17DA01B583B5FF59C598D7E /* FLOWS-macOS */,
+				FA0E68AB139D923961D7E50E /* FLOWSTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		83D3F616C8408C12B1BD2EC7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				66980B460BE0B474C2D6CA05 /* Assets.xcassets in Resources */,
+				7869D1BCA1BD5EF8E887C533 /* app_risk_bundle.json in Resources */,
+				C73E07362F8731EC924D04E5 /* loves_city_showers.json in Resources */,
+				3BE6F6ED6FC2136FE5CAE996 /* nwr_stations.json in Resources */,
+				8B8EAF4AD0B7BE039D0BC1C2 /* pilot_city_showers.json in Resources */,
+				718C0861C49773731EB9168A /* ta_petro_city_showers.json in Resources */,
+				0D1D107640FD08B5488762CF /* truckstop_showers.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E320EF275A0A557AACFFA946 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C564A8D0331C8C005BBC4A31 /* Assets.xcassets in Resources */,
+				887288077C6C4AE5B536B2D4 /* app_risk_bundle.json in Resources */,
+				010034D00B2174D20CA1F122 /* loves_city_showers.json in Resources */,
+				DD3F8BB1EA4C3DDDE6E1F03F /* nwr_stations.json in Resources */,
+				7D1C3258E6ABB49967ACA3A3 /* pilot_city_showers.json in Resources */,
+				BC99BD4AF7EDCA3E623A7673 /* ta_petro_city_showers.json in Resources */,
+				BBFB4503921B6CDE7C898574 /* truckstop_showers.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		02530C4E30C1DE4CB7344D77 /* Build Rust flows-core (iOS device + simulator) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust flows-core (iOS device + simulator)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"$HOME/.cargo/bin:$PATH\"\ncommand -v cargo >/dev/null 2>&1 || { echo \"cargo not on PATH — linking existing libflows_core.a\"; exit 0; }\ncd \"$SRCROOT/../rust\"\ncargo build --release --target aarch64-apple-ios || echo \"device slice build failed\"\ncargo build --release --target aarch64-apple-ios-sim || echo \"sim slice build failed\"\n";
+		};
+		334A595343AC371E6D689E3E /* Build Rust flows-core (asm hot loops) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust flows-core (asm hot loops)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"$HOME/.cargo/bin:$PATH\"\nif command -v cargo >/dev/null 2>&1; then\n  (cd \"$SRCROOT/../rust\" && cargo build --release) \\\n    || echo \"flows-core build failed — linking existing libflows_core.a\"\nelse\n  echo \"cargo not on PATH — linking existing libflows_core.a\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		32ACD2C25709377E8BF32945 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F646A5D19711B3A2C7BD27CB /* WatchApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		39E8CDCD77D6FE72099A4850 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DFBCEE154B197D7846A8FFCA /* AdaptiveTuning.swift in Sources */,
+				AC59BC88BC8D5919E790CC37 /* AlertEntityParser.swift in Sources */,
+				E14B90680FAA23A0580BF1B6 /* BadgeClustering.swift in Sources */,
+				2DF8E0A837B75BC25C9E1798 /* BadgeClusteringTests.swift in Sources */,
+				F988317D4413E99F78A2B2A8 /* ClimateProfiles.swift in Sources */,
+				413D1B070FFE12F5D21F37E9 /* ClimateProfilesTests.swift in Sources */,
+				D56295E31E3866E669467657 /* CoreTests.swift in Sources */,
+				CBF544777B2D5F7F920F13A6 /* CrashLogic.swift in Sources */,
+				F2A638CD0A7CE57D90692756 /* DriverFeaturesTests.swift in Sources */,
+				524E402917F0E7A063F22B19 /* EPAVehicleDatabase.swift in Sources */,
+				04D82FF419F1E30ADEA4A780 /* Favorites.swift in Sources */,
+				FBA811E46E61A27F6B365756 /* FilterLimits.swift in Sources */,
+				197194ECC918FAB748F05AE5 /* FlowsCore.swift in Sources */,
+				ED27D7FDFCED68922EA71B6E /* FuelPrices.swift in Sources */,
+				46CF1ACD43CDFB232FAE573A /* GradeProfile.swift in Sources */,
+				71DBB04A9013C15FA8B160F2 /* HybridVanScenarioTests.swift in Sources */,
+				75965E9FE0F1437F2C22327D /* ImminentAlerts.swift in Sources */,
+				52E499EA4952D1C9DA646B33 /* InternationalWeather.swift in Sources */,
+				8F6FABE5F6E3F478DE2F8586 /* IntlWeatherParsingTests.swift in Sources */,
+				625E135D51D7B7EB2EBEE9DF /* LatitudeBands.swift in Sources */,
+				988FE7C77C21A91CE78E63CA /* LatitudeBandsTests.swift in Sources */,
+				631CD3A5DA8F8652488CC509 /* LiveHazardFeeds.swift in Sources */,
+				2B4DED3735C02379F988EF1C /* NWSForecastService.swift in Sources */,
+				CE5AD29464EB287552370095 /* POIRanking.swift in Sources */,
+				E33326532B3FE275A353B3E7 /* POIRankingTests.swift in Sources */,
+				9F73AA9AA2A957A932B3CE9D /* PrimarySources.swift in Sources */,
+				46AC7FC072E5F0CC473D3C22 /* PursuitReach.swift in Sources */,
+				2A85E17486B536522BBD643C /* RatingsAndCost.swift in Sources */,
+				A66F1D80DB49213AF776EE08 /* RefuelLearning.swift in Sources */,
+				8D9EC270F22C1471CC017D40 /* RiskEquationVectors.swift in Sources */,
+				061E5380FCEDC52E29B02651 /* RiskEquations.swift in Sources */,
+				B0CFCF912028157796B4A7B9 /* RiskEquationsTests.swift in Sources */,
+				3DE0EDF31263DC1604FF64F2 /* RiskFieldService.swift in Sources */,
+				8E659DED44B9215581392DC4 /* RiskRealizationTests.swift in Sources */,
+				EF1EBA98D9A86DF36009A4B7 /* RiskTiming.swift in Sources */,
+				EB7E59E4886D92E322C0945E /* RouteAttributes.swift in Sources */,
+				7249F7E75C5CEA681908B7B1 /* RouteAttributesTests.swift in Sources */,
+				570A9DD4A9104C9E8C0139FB /* SafetyAndGradeTests.swift in Sources */,
+				A8C4F6A2F7538715FF26E2CF /* SeasonalModelTests.swift in Sources */,
+				B4F2D68B4AA9EA32E39BC498 /* SeasonalRiskModel.swift in Sources */,
+				401D137F7C1F5D6A9EC7A827 /* StoresAndCostsTests.swift in Sources */,
+				09A0F477A65A8311F75F6A2C /* ThrottledNet.swift in Sources */,
+				1358E5D621CB66E6538ED943 /* TowingLimits.swift in Sources */,
+				5DA1AC16B6B102530AD91CD3 /* TransitItinerary.swift in Sources */,
+				1503DA25723766643E5E3711 /* TripCosts.swift in Sources */,
+				C77F19C7CE5576B634FDEF3B /* TripNeeds.swift in Sources */,
+				FD9169634DF9F4C33099F864 /* VehicleLink.swift in Sources */,
+				4D3D10A7B03ADBB7FF6272A9 /* VehicleProfile.swift in Sources */,
+				9A567162750D958FA83CF510 /* VehicleSpecs.swift in Sources */,
+				BEFCAA5161DCBDC26C66A681 /* WMOAlerts.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		734D0951850C5F877367BAFA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A95B4B23B8F016A878181F92 /* AdaptiveTuning.swift in Sources */,
+				EEEC129E282C72CE5999125C /* AlertBanners.swift in Sources */,
+				5F44D5C31633F49754BA83AA /* AlertEntityParser.swift in Sources */,
+				D1E525CF8364FC1F03F51248 /* BadgeClustering.swift in Sources */,
+				E0EEFF83D8B3E54DCFC85541 /* BreadcrumbTrail.swift in Sources */,
+				99C6AEB2E77B4D3DCCF308B2 /* CarPlaySceneDelegate.swift in Sources */,
+				F76E6C8F642EC11B46BB4A6C /* ClimateProfiles.swift in Sources */,
+				CFFA1820D852FB93C85DBF7C /* ContentView.swift in Sources */,
+				030EAF210B0FCE26193C10A3 /* CrashDetectionService.swift in Sources */,
+				A6035A3147A61B082F59BB3F /* CrashLogic.swift in Sources */,
+				1BB65DB8214A1FCBA5655348 /* EPAVehicleDatabase.swift in Sources */,
+				1CF2FDAFE2379F36E3E73A80 /* FLOWSApp.swift in Sources */,
+				5DD3E085C1CCD00507282756 /* FLOWSIntents.swift in Sources */,
+				918F66CB19B302699E9034A7 /* Favorites.swift in Sources */,
+				77238B6E275E63192D658AB2 /* FilterLimits.swift in Sources */,
+				1E7C8182E23277114E5F030C /* FlowsCore.swift in Sources */,
+				320AEB655CAFD2249F67B5DE /* FuelPrices.swift in Sources */,
+				365C3296D6244498D8C5440B /* GradeProfile.swift in Sources */,
+				CF0BBE2B4397098CEF789F9B /* HazardStyle.swift in Sources */,
+				5FECCED419AA387017DA1E52 /* ImminentAlerts.swift in Sources */,
+				D0F01AE6A4226BC24972D947 /* InternationalWeather.swift in Sources */,
+				004FDE0527A7C5DD50ABC934 /* LatitudeBands.swift in Sources */,
+				FD5F21BC42BAF96C94849983 /* LiveHazardFeeds.swift in Sources */,
+				7C83F59B6812832493327A60 /* LocationService.swift in Sources */,
+				93835C43B8F98766F1E87105 /* Mobility.swift in Sources */,
+				9DBA5EDAA33C82AC715F98C3 /* MusicController.swift in Sources */,
+				7273A3DCAA01BBA67E573F42 /* NWSForecastService.swift in Sources */,
+				D6DBB85315CEF92BCCC2F190 /* NavigationEngine.swift in Sources */,
+				E64EDEAC94E9BC49C40B95AE /* NavigationHUD.swift in Sources */,
+				77D805A4E8A0F7E64D55C6B2 /* POIRanking.swift in Sources */,
+				1D426A8BA1080D1DA4B26430 /* POIService.swift in Sources */,
+				C984AE7BD4D0E64ACFF24F8D /* PlannerPanel.swift in Sources */,
+				1F3C3F5B233F5856BA2E7309 /* PrimarySources.swift in Sources */,
+				D9BBD25136FC685A78FAAE76 /* PursuitReach.swift in Sources */,
+				A29396CF4B5A135CE6CA4CED /* RatingsAndCost.swift in Sources */,
+				A9D80E190D055FE67AE2D2AF /* RefuelLearning.swift in Sources */,
+				73526BF97C0527409E6061A7 /* RiskAdvice.swift in Sources */,
+				8D7E3BA875320DFE61429E16 /* RiskEquations.swift in Sources */,
+				301EE2066A152EAB2EDD6E6E /* RiskFieldService.swift in Sources */,
+				3B14C1960C0EDAB0D793CDC3 /* RiskTiming.swift in Sources */,
+				E46E1C1421CA9FAD04C2A879 /* RouteAttributes.swift in Sources */,
+				415A8A4254D607A8C10017E8 /* RouteChoicesView.swift in Sources */,
+				3779A3839E8B2F7C189B4320 /* RouteService.swift in Sources */,
+				2080E68AB7AB2AD859759BF9 /* SeasonalRiskModel.swift in Sources */,
+				05E4DA1934F584ECD9A40BE0 /* SmartcarLink.swift in Sources */,
+				C0AEE469D43AFD4378B17C60 /* Theme.swift in Sources */,
+				74461F51DAF9DBFEDB13F2D7 /* ThrottledNet.swift in Sources */,
+				785F1EAB0FC453D1A6E05570 /* TowingLimits.swift in Sources */,
+				6E568195741992379E6D4138 /* TransitItinerary.swift in Sources */,
+				9D83B9F840D7AC9EC982296B /* TripCosts.swift in Sources */,
+				C35B494636536E3FC137FC88 /* TripNeeds.swift in Sources */,
+				B2C073221861263D51546CBC /* TruckerRadio.swift in Sources */,
+				7F94C04F6CEFD98FC4A27A36 /* VehicleLink.swift in Sources */,
+				58499AC20E22348A50EDEE18 /* VehicleProfile.swift in Sources */,
+				8B8244A524B20CAB214FB89E /* VehicleSpecs.swift in Sources */,
+				71C40D91BB6C14ABD5F4BEFD /* WMOAlerts.swift in Sources */,
+				081C7393A6AA350BFE800F48 /* WatchLink.swift in Sources */,
+				3FA5C94B074EC776E9BEDD7C /* WeatherAlertService.swift in Sources */,
+				965BD532301572C27D8234FA /* ZipBordersAndTransit.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B8F5EC6B1AED9DD6A279C2EA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B205A34E1B95C0F486C445B6 /* AdaptiveTuning.swift in Sources */,
+				7D354BC20604F11448904550 /* AlertBanners.swift in Sources */,
+				13345D60F3F742436161BBDF /* AlertEntityParser.swift in Sources */,
+				8C57618A815F591C16A61004 /* BadgeClustering.swift in Sources */,
+				1279DA0F6D686C4AECF0FD1C /* BreadcrumbTrail.swift in Sources */,
+				9C33E064B6CB1994CC0CC96F /* CarPlaySceneDelegate.swift in Sources */,
+				7E471AEB06A805F1644E39E3 /* ClimateProfiles.swift in Sources */,
+				0310A2C51C53929859B7996A /* ContentView.swift in Sources */,
+				CA129A41CBF8FF1D4862AFFE /* CrashDetectionService.swift in Sources */,
+				4023C6391BF28B32CCA1DD27 /* CrashLogic.swift in Sources */,
+				FBAFF13C64A975E0FB300EF2 /* EPAVehicleDatabase.swift in Sources */,
+				9BAA9F458D434C4B0EAF309D /* FLOWSApp.swift in Sources */,
+				A4521612BE8FCEACFEA5CDC1 /* FLOWSIntents.swift in Sources */,
+				ADB3F039DFA57DD9FAF561A0 /* Favorites.swift in Sources */,
+				3AF06168E4F90B4D419D0BF6 /* FilterLimits.swift in Sources */,
+				D65BBE4BC8CC6259E1493CF7 /* FlowsCore.swift in Sources */,
+				7C89F9027F44BC05B3726EBF /* FuelPrices.swift in Sources */,
+				D9F0C18C1268C424CD4064D6 /* GradeProfile.swift in Sources */,
+				14A4FF0344CF9C3A5070BB5A /* HazardStyle.swift in Sources */,
+				C5CE51F3962B9E517372E028 /* ImminentAlerts.swift in Sources */,
+				681C3F2F93143D41B3DBB0B1 /* InternationalWeather.swift in Sources */,
+				E4AF1145C938AFD0C864F5D7 /* LatitudeBands.swift in Sources */,
+				9E13F5D3462914ADD7AC9616 /* LiveHazardFeeds.swift in Sources */,
+				82CA1F4CB10335D2E4E8BE58 /* LocationService.swift in Sources */,
+				E0A630190713794C6D027A87 /* Mobility.swift in Sources */,
+				1742FFF8552A2188FE09A0C9 /* MusicController.swift in Sources */,
+				D92EADB109C9F500A6D4116B /* NWSForecastService.swift in Sources */,
+				C6F008A3AAE8AB1E085E2CA6 /* NavigationEngine.swift in Sources */,
+				B7C8FA99AE047DE30F6C94D6 /* NavigationHUD.swift in Sources */,
+				C4F5CD5CD5771E13D3344B8C /* POIRanking.swift in Sources */,
+				B7BE2CE331F05F11F6FE96EE /* POIService.swift in Sources */,
+				184A3C4AD4CA990EC7E8B455 /* PlannerPanel.swift in Sources */,
+				86635AC86026D781C4475FCF /* PrimarySources.swift in Sources */,
+				BBE74598D75C120739804AA2 /* PursuitReach.swift in Sources */,
+				11570540AD1F7A4D714F13AB /* RatingsAndCost.swift in Sources */,
+				4BD91F6F4157DA424CA3608E /* RefuelLearning.swift in Sources */,
+				D03422DCBFC24ADE1D41CDFF /* RiskAdvice.swift in Sources */,
+				1903307AC4489A1E42C85769 /* RiskEquations.swift in Sources */,
+				6DAFAB606C2AE792FF51404F /* RiskFieldService.swift in Sources */,
+				4D9415875F4ABEFA032C7DEB /* RiskTiming.swift in Sources */,
+				6A713104D4C7CC8C74DB1ADB /* RouteAttributes.swift in Sources */,
+				5E871BDA32021FDA80C14152 /* RouteChoicesView.swift in Sources */,
+				880E39A625D9D5C389F6B023 /* RouteService.swift in Sources */,
+				44FD7B626FDDF3298EFB681A /* SeasonalRiskModel.swift in Sources */,
+				8EA07886493D87546ED7DE97 /* SmartcarLink.swift in Sources */,
+				68630AB2C37A33DF86860B83 /* Theme.swift in Sources */,
+				171B4533351A78F1308BA449 /* ThrottledNet.swift in Sources */,
+				73BBB96428C3A7E3A4D57C5D /* TowingLimits.swift in Sources */,
+				E09F04ED5A3E638A0FD52D8C /* TransitItinerary.swift in Sources */,
+				F21C519F913273E5A3F9EDE0 /* TripCosts.swift in Sources */,
+				AFF866AD33FA0557E8523FC7 /* TripNeeds.swift in Sources */,
+				22FE4347F32E6604B1C81FD2 /* TruckerRadio.swift in Sources */,
+				7E04AA0A4AE4C5664C8CCBCB /* VehicleLink.swift in Sources */,
+				D94FCBB14D0CCB9184D7D3BA /* VehicleProfile.swift in Sources */,
+				665312EC58A8BCAD00DD9885 /* VehicleSpecs.swift in Sources */,
+				D9844CDB5730CD0FCE34AAA1 /* WMOAlerts.swift in Sources */,
+				F6151D4635E5B25DDE4FEDD1 /* WatchLink.swift in Sources */,
+				1AFAEE676357D7B543346690 /* WeatherAlertService.swift in Sources */,
+				C89953D73BA9BED62B2360FD /* ZipBordersAndTransit.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		29E0ABB450B14B100BD95F67 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0D140FCC8CD87688C2B43C7B /* FLOWS-Watch */;
+			targetProxy = 9170351C34FCB101873CA288 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		21B40C111A5989A5C5C46F04 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "FLOWS/Generated/FLOWS-macOS.entitlements";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "FLOWS/Generated/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = "$(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app.mac;
+				PRODUCT_NAME = FLOWS;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		3F9E8C7441EBA26FB2FFECDC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = "$(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app.tests;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		498C488A3296410EEB94FEE6 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		5D4C993CF7FCF3FF3E3C8ECF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "FLOWS/Generated/Info-Watch.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app.watchkitapp;
+				PRODUCT_NAME = FLOWS;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		5D96463C8F601DFC88EE460C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8F1628FDC8E214798CE347FF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "FLOWS/Generated/Info-iOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "$(SRCROOT)/../rust/target/aarch64-apple-ios/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "$(SRCROOT)/../rust/target/aarch64-apple-ios-sim/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app;
+				PRODUCT_NAME = FLOWS;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		928664945E6E569048D7A35D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "FLOWS/Generated/Info-Watch.plist";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app.watchkitapp;
+				PRODUCT_NAME = FLOWS;
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		C288F1F591A3F334C79AEB90 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "FLOWS/Generated/Info-iOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				"OTHER_LDFLAGS[sdk=iphoneos*]" = "$(SRCROOT)/../rust/target/aarch64-apple-ios/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				"OTHER_LDFLAGS[sdk=iphonesimulator*]" = "$(SRCROOT)/../rust/target/aarch64-apple-ios-sim/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app;
+				PRODUCT_NAME = FLOWS;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DCCACCAC962DB3CF3C54435F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = "$(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app.tests;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		E7587DF1087425F955B1F073 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = "FLOWS/Generated/FLOWS-macOS.entitlements";
+				CODE_SIGN_IDENTITY = "-";
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = "FLOWS/Generated/Info-macOS.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				OTHER_LDFLAGS = "$(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest";
+				PRODUCT_BUNDLE_IDENTIFIER = com.flows.app.mac;
+				PRODUCT_NAME = FLOWS;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2EEA0F1F00AE0565A192AA14 /* Build configuration list for PBXNativeTarget "FLOWSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DCCACCAC962DB3CF3C54435F /* Debug */,
+				3F9E8C7441EBA26FB2FFECDC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3D927099FD9012C0A9C71586 /* Build configuration list for PBXNativeTarget "FLOWS-Watch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				928664945E6E569048D7A35D /* Debug */,
+				5D4C993CF7FCF3FF3E3C8ECF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6B69D4F385C5870478C3EAC0 /* Build configuration list for PBXNativeTarget "FLOWS-macOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E7587DF1087425F955B1F073 /* Debug */,
+				21B40C111A5989A5C5C46F04 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D3F52B63F9AAFF826EF4E36A /* Build configuration list for PBXNativeTarget "FLOWS-iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C288F1F591A3F334C79AEB90 /* Debug */,
+				8F1628FDC8E214798CE347FF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F4602BDA71AF5EC8F782D078 /* Build configuration list for PBXProject "FLOWS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5D96463C8F601DFC88EE460C /* Debug */,
+				498C488A3296410EEB94FEE6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 3F02285F34192AD14F01A9DF /* Project object */;
+}
