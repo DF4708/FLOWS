@@ -65,6 +65,13 @@ apple/FLOWS/Resources/app_risk_bundle.json
 data/reference/
 data/runtime_cache/app_risk_bundle.wi_only.json
 
+# Offline POI shards built from the FSQ OS Places TSV (regenerable:
+# scripts/build_places_shards.sh). Glob + negation so the Apache-2.0
+# attribution NOTICE stays tracked (git does not descend into a fully
+# ignored directory — same trap as data/results above).
+data/places/*
+!data/places/ATTRIBUTION.txt
+
 # 20-year history pipeline artifacts (regenerable: scripts/build_history_baseline.sh)
 data/runtime_cache/history_dense.bin
 data/runtime_cache/history_harmonic.bin
