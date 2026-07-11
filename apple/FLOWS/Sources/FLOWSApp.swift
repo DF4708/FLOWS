@@ -95,7 +95,14 @@ final class AppModel: ObservableObject {
     private var lastRadioState: String?
     /// Two-letter state the vehicle is currently in (reverse-geocoded on
     /// corridor updates) — drives radio nearest-station defaults.
-    @Published private(set) var currentStateCode: String?
+    @Published private(set) var currentStateCode: String? {
+        didSet {
+            // Pin the home/current state's offline-places shard (never evicted).
+            if let code = currentStateCode, code.count == 2 {
+                PlacesStore.shared.pinnedState = code.uppercased()
+            }
+        }
+    }
 
     /// Called on corridor updates: retune to the nearest station when the
     /// vehicle's state changes (auto-switch on + something already playing).
@@ -1619,17 +1626,20 @@ final class AppModel: ObservableObject {
     /// selection, surface a flashing prompt — never reroute silently.
     private func handleCorridorUpdate(_ score: WeatherAlertService.CorridorScore) {
         guard mode == .navigating else { return }
-        // Same realizedRisk logic as route scoring, so the escalation comparison
-        // is like-for-like with the baseline the driver accepted: each sample's
-        // realized risk, then worst exposure ⊕ sustained average.
+        // LIKE-FOR-LIKE with the baseline the driver accepted: the route band
+        // is DISTANCE-WEIGHTED, and the watch window's samples are uniformly
+        // spaced, so the comparable live number is the plain sample MEAN — the
+        // old peak⊕avg blend sat above the weighted baseline by construction
+        // and manufactured escalations on quiet routes.
         let sampleRisks = score.samples.map {
             sampleRealizedRisk(at: $0.coordinate, alertEvent: $0.worstEvent,
                                alertSeverity: $0.risk)
         }
         let peakR = sampleRisks.max() ?? 0
-        let avgR = sampleRisks.isEmpty ? 0 : sampleRisks.reduce(0, +) / Double(sampleRisks.count)
-        let risk = 1 - (1 - peakR) * (1 - avgR)
-        tripObservedPeak = max(tripObservedPeak, risk)   // worst actually encountered
+        let risk = sampleRisks.isEmpty ? 0 : sampleRisks.reduce(0, +) / Double(sampleRisks.count)
+        // The worst actually ENCOUNTERED is the peak sample, not the blend —
+        // it feeds the seasonal model's predicted-vs-observed record.
+        tripObservedPeak = max(tripObservedPeak, peakR)
         if notifyImminent { updateImminentWarning(from: score) }
         // Reverse-geocode the current state on corridor updates — the
         // trucker radio retune AND the DOT work-zone feed both key off it.
@@ -1674,12 +1684,17 @@ final class AppModel: ObservableObject {
             if score.complete { escalationBaseline = risk }
             return
         }
-        let escalated = risk >= FlowsCore.riskYellowMin
+        // Two triggers: sustained worsening (mean up 0.12+ into yellow) OR a
+        // realized RED anywhere in the window — a tornado warning on one
+        // stretch must escalate even when the rest of the window is quiet.
+        let sustained = risk >= FlowsCore.riskYellowMin
             && risk > escalationBaseline + 0.12
             && risk > dismissedEscalationRisk + 0.05
+        let acuteRed = peakR > 0.8751 && peakR > dismissedEscalationRisk + 0.05
+        let escalated = sustained || acuteRed
         if escalated, notifyEscalation {
             escalation = Escalation(
-                newRisk: risk,
+                newRisk: acuteRed ? peakR : risk,
                 headline: score.headlines.first ?? "Conditions worsening along this route")
         }
     }
@@ -1948,6 +1963,32 @@ final class AppModel: ObservableObject {
             upcomingLeg = nil
             pendingStopName = nil
             startLeg(next)
+            return
+        }
+        // Arrived at an ADDED STOP whose continuation leg isn't ready (the
+        // background plan failed or hasn't landed) — this is NOT the final
+        // destination: no arrived banner, no trip record. Replan the
+        // continuation from here; only a second failure surfaces honestly.
+        if let stopName = pendingStopName, let dest = finalDestination {
+            if pendingStopKind == .gas { vehicle.filledUp() }
+            pendingStopKind = nil
+            pendingStopName = nil
+            Task { [weak self] in
+                guard let self else { return }
+                let from = self.effectivePosition ?? dest.coordinate
+                if let leg = (try? await self.router.planRoutes(
+                    from: from, fromName: stopName,
+                    to: dest.coordinate, toName: dest.name))?.first {
+                    guard self.mode == .navigating else { return }
+                    let scored = await self.scored(leg)
+                    guard self.mode == .navigating else { return }
+                    self.startLeg(scored)
+                } else {
+                    // Honest state: at the stop, continuation unavailable.
+                    self.arrivedAt = "\(stopName) — couldn't plan the leg to "
+                        + "\(dest.name); plan again from here"
+                }
+            }
             return
         }
         arrivedAt = finalDestination?.name ?? navigation.route?.destinationName

@@ -192,6 +192,11 @@ final class PlacesStore: ObservableObject {
     private var cache: [String: PlacesShard] = [:]
     private var lru: [String] = []
 
+    /// The driver's home/current state — its shard stays resident (the user's
+    /// rule: the home region keeps a permanently cached radius; everything
+    /// else loads on demand and can be evicted).
+    var pinnedState: String?
+
     /// Offline places near a point: resolve the state shard(s) whose bbox
     /// contains the query, load (cached), query. Returns [] when no shard
     /// file is present — the online path continues to serve alone.
@@ -220,7 +225,12 @@ final class PlacesStore: ObservableObject {
             cache[state] = shard
             lru.append(state)
             if lru.count > 3 {                    // LRU cap: 3 parsed states
-                cache.removeValue(forKey: lru.removeFirst())
+                // Never evict the pinned (home/current) state's shard.
+                if let evict = lru.firstIndex(where: { $0 != pinnedState }) {
+                    cache.removeValue(forKey: lru.remove(at: evict))
+                } else {
+                    lru.removeFirst()
+                }
             }
             return shard
         }

@@ -163,6 +163,9 @@ final class POIService: ObservableObject {
     /// a long-haul tank so price dominates the cost model.
     @Published var truckerMode = false
 
+    /// Monotonic search id — see the generation guard in `search()`.
+    private var searchGeneration = 0
+
     /// Shelter search query — swapped to tornado shelters by AppModel when a
     /// tornado/severe warning is active near the corridor.
     var shelterQuery: () -> String = { "emergency shelter" }
@@ -326,10 +329,15 @@ final class POIService: ObservableObject {
         aheadOf position: CLLocationCoordinate2D?
     ) async {
         activeKind = kind
+        // Generation guard: a rapid same-kind re-tap starts a NEWER search;
+        // the superseded one must neither clear the shared isSearching flag
+        // mid-flight nor repopulate stale results behind a fresh picker.
+        searchGeneration += 1
+        let gen = searchGeneration
         isSearching = true
         emptyResultMessage = nil
         selected = nil
-        defer { isSearching = false }
+        defer { if gen == searchGeneration { isSearching = false } }
 
         var found: [MKMapItem] = []
         var centers: [CLLocationCoordinate2D] = position.map { [$0] } ?? []
@@ -490,7 +498,7 @@ final class POIService: ObservableObject {
             }
             return r
         }
-        guard activeKind == kind else { return }   // superseded by a newer tap
+        guard gen == searchGeneration, activeKind == kind else { return }   // superseded
         // Never offer a stop that's outside its operating hours (unknown
         // hours stay listed).
         var finalRanked = ranked.filter { $0.isOpenNow != false }
@@ -597,6 +605,7 @@ final class POIService: ObservableObject {
     }
 
     func clearResults() {
+        searchGeneration += 1   // invalidate any in-flight search
         results = []
         activeKind = nil
         activeFoodCategory = nil
