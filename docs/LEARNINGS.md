@@ -583,15 +583,20 @@ neighborhood, reroute-task lifecycle, brand-match tightening, Yelp term
 encoding, HOS stationary-fix speed guard, towing-banner clear, badge identity,
 sweep retry/cancellation.
 
-Deliberately DEFERRED (known, documented, not yet fixed):
-- addStop(): leg-2 plan failure can fire a false final-arrival banner
-  (FLOWSApp.swift ~1757) — needs an arrival-state machine rework.
-- Escalation baseline vs corridor-window risk is not strictly like-for-like
-  (window slice omits onDevice/flood/closure terms).
-- POIService isSearching/stale-results race on rapid same-kind re-taps.
-- NavigationEngine.advance() O(n) nearest-vertex scan per fix on long routes
-  (correct, but allocation-heavy; candidate for the RoutePath grid).
-- corridorHazardShapes badge clustering still runs in mapContent per render
-  (bounded ≤ ~50 samples; candidate for per-route memoization).
-- First rebuildRiskOverlays after a sweep briefly pairs new hazards with
-  stale ZCTA rings until ring resolution lands (~1 s visual).
+Deferred-findings register — CLOSED OUT 2026-07-11 (all fixed except the
+last, deliberately accepted):
+- addStop() false final-arrival: FIXED — arriving at an added stop with no
+  continuation leg now replans from the stop; never fires the final banner
+  or a bogus trip record.
+- Escalation like-for-like: FIXED — the live monitor now compares the same
+  distance-weighted mean the baseline uses (the old peak⊕avg blend sat above
+  the weighted baseline by construction), tripObservedPeak records the true
+  peak sample, and a realized RED anywhere in the window escalates on its own.
+- POIService search race: FIXED — generation counter; superseded searches
+  can't clear isSearching or repopulate stale results.
+- NavigationEngine.advance(): FIXED earlier (windowed match).
+- corridorHazardShapes clustering: FIXED — badges computed once per route
+  change alongside the corridor ZIP areas, stable identity, off the render
+  path.
+- First rebuildRiskOverlays stale-ring pairing (~1 s visual): ACCEPTED —
+  self-corrects on ring resolution; a fix would delay first paint.

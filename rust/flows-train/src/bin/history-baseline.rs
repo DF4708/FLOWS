@@ -495,8 +495,10 @@ fn families_for(event_type: &str) -> Vec<usize> {
     let has = |s: &str| t.contains(s);
     if has("tornado") || has("thunderstorm wind") || has("hail") || has("lightning") || has("waterspout") {
         vec![F_CONV]
-    } else if has("flood") || has("tsunami") || has("seiche") {
-        // flash flood / coastal flood / lakeshore flood all contain "flood"
+    } else if has("flood") || has("tsunami") || has("seiche") || has("heavy rain") {
+        // flash flood / coastal flood / lakeshore flood all contain "flood";
+        // Heavy Rain (24k events, previously unmapped) is flood-precursor
+        // signal — the one defensible addition from the ingestion report.
         vec![F_QPF]
     } else if has("winter storm")
         || has("heavy snow")

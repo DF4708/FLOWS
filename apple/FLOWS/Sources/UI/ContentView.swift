@@ -1169,13 +1169,16 @@ struct ContentView: View {
                     .stroke(corridorKind(sample).color.opacity(0.6), lineWidth: 1.5)
             }
         }
-        // ONE symbol at the center of each contiguous risk area — not a
-        // badge per sample (BadgeClustering merges same-kind neighbors).
-        let badges = BadgeClustering.cluster(
-            risky.map { BadgeClustering.Item(coordinate: $0.coordinate,
-                                             kind: corridorKind($0), score: $0.risk) },
-            minSeparationMeters: 80_000)
-        ForEach(Array(badges.enumerated()), id: \.offset) { _, badge in
+        // ONE symbol at the center of each contiguous risk area — clustered
+        // once per route change (rebuildCorridorAreas), never per frame; falls
+        // back to a live cluster only until that first rebuild lands.
+        let badges = corridorAreaRouteID == route.id
+            ? corridorBadges
+            : BadgeClustering.cluster(
+                risky.map { BadgeClustering.Item(coordinate: $0.coordinate,
+                                                 kind: corridorKind($0), score: $0.risk) },
+                minSeparationMeters: 80_000)
+        ForEach(badges, id: \.stableID) { badge in
             Annotation("", coordinate: badge.coordinate) {
                 hazardBadge(badge.kind, at: badge.coordinate, score: badge.score)
             }
@@ -1339,6 +1342,7 @@ struct ContentView: View {
     @State private var corridorAreas: [CorridorHazardArea] = []
     @State private var corridorAreaRouteID: UUID?
     @State private var corridorCoveredSamples: Set<Int> = []
+    @State private var corridorBadges: [BadgeClustering.Item<HazardKind>] = []
 
     private func rebuildCorridorAreas(for route: PlannedRoute) async {
         // Index space = the FILTERED list, matching the renderer's enumeration.
@@ -1356,6 +1360,12 @@ struct ContentView: View {
         }
         corridorAreas = areas
         corridorCoveredSamples = covered
+        // Badge clustering moved OFF the render path: computed once per route
+        // change here instead of inside mapContent on every frame.
+        corridorBadges = BadgeClustering.cluster(
+            risky.map { BadgeClustering.Item(coordinate: $0.coordinate,
+                                             kind: corridorKind($0), score: $0.risk) },
+            minSeparationMeters: 80_000)
         corridorAreaRouteID = route.id
     }
 
