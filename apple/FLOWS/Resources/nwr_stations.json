@@ -1,0 +1,471 @@
+[
+ {
+  "name": "NOAA WX AL-Mobile: KEC61",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEC61_2.mp3",
+  "latitude": 30.69,
+  "longitude": -88.04
+ },
+ {
+  "name": "NOAA WX AZ-Yuma: WXL87",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXL87.mp3",
+  "latitude": 32.69,
+  "longitude": -114.63
+ },
+ {
+  "name": "NOAA WX CA-Apple Valley: WXM66",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXM66.mp3",
+  "latitude": 34.5,
+  "longitude": -117.19
+ },
+ {
+  "name": "NOAA WX CA-Coachella: KIG78",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIG78_2.mp3",
+  "latitude": 33.68,
+  "longitude": -116.17
+ },
+ {
+  "name": "NOAA WX CA-Fresno: KIH62",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIH62_2.mp3",
+  "latitude": 36.74,
+  "longitude": -119.79
+ },
+ {
+  "name": "NOAA WX CA-San Diego Marine: WNG637",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WNG637_2.mp3",
+  "latitude": 32.72,
+  "longitude": -117.16
+ },
+ {
+  "name": "NOAA WX CA-San Diego: KEC62",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEC62_2.mp3",
+  "latitude": 32.72,
+  "longitude": -117.16
+ },
+ {
+  "name": "NOAA WX CO-Durango: KWN54",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KWN54.mp3",
+  "latitude": 37.28,
+  "longitude": -107.88
+ },
+ {
+  "name": "NOAA WX GA-Columbus: WXM32",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXM32.mp3",
+  "latitude": 32.46,
+  "longitude": -84.99
+ },
+ {
+  "name": "NOAA WX IA-Des Moines: WXL57",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXL57.mp3",
+  "latitude": 41.59,
+  "longitude": -93.62
+ },
+ {
+  "name": "NOAA WX IL-Dixon: KZZ55",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KZZ55.mp3",
+  "latitude": 41.84,
+  "longitude": -89.48
+ },
+ {
+  "name": "NOAA WX IL-Plano: KXI58",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KXI58.mp3",
+  "latitude": 41.66,
+  "longitude": -88.54
+ },
+ {
+  "name": "NOAA WX IL-Springfield: WXJ75",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXJ75.mp3",
+  "latitude": 39.8,
+  "longitude": -89.64
+ },
+ {
+  "name": "NOAA WX LA-Baton Rouge: KHB46",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KHB46.mp3",
+  "latitude": 30.45,
+  "longitude": -91.15
+ },
+ {
+  "name": "NOAA WX LA-Lafayette: WXK80",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK80.mp3",
+  "latitude": 30.22,
+  "longitude": -92.02
+ },
+ {
+  "name": "NOAA WX LA-Monroe: WXJ96",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXJ96_2.mp3",
+  "latitude": 32.51,
+  "longitude": -92.12
+ },
+ {
+  "name": "NOAA WX MA-Boston: KHB35",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KHB35_3.mp3",
+  "latitude": 42.36,
+  "longitude": -71.06
+ },
+ {
+  "name": "NOAA WX MA-Gloucester: WNG574",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WNG574.mp3",
+  "latitude": 42.61,
+  "longitude": -70.66
+ },
+ {
+  "name": "NOAA WX MD-Baltimore: KEC83",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEC83_3.mp3",
+  "latitude": 39.29,
+  "longitude": -76.61
+ },
+ {
+  "name": "NOAA WX ME-Falmouth/Portland: KDO95",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KDO95.mp3",
+  "latitude": 43.66,
+  "longitude": -70.26
+ },
+ {
+  "name": "NOAA WX MI-Detroit: KEC63",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEC63.mp3",
+  "latitude": 42.33,
+  "longitude": -83.05
+ },
+ {
+  "name": "NOAA WX MI-West Olive: WXN99",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXN99.mp3",
+  "latitude": 42.93,
+  "longitude": -86.12
+ },
+ {
+  "name": "NOAA WX MN-Clearwater: WNG676",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WNG676.mp3",
+  "latitude": 45.42,
+  "longitude": -94.05
+ },
+ {
+  "name": "NOAA WX MN-Minneapolis: KEC65",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEC65.mp3",
+  "latitude": 44.98,
+  "longitude": -93.27
+ },
+ {
+  "name": "NOAA WX MO-Kansas City: KID77",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KID77_3.mp3",
+  "latitude": 39.1,
+  "longitude": -94.58
+ },
+ {
+  "name": "NOAA WX MS-Tupelo: KIH53",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIH53.mp3",
+  "latitude": 34.26,
+  "longitude": -88.7
+ },
+ {
+  "name": "NOAA WX NC-Wilmington: KHB31",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KHB31_3.mp3",
+  "latitude": 34.23,
+  "longitude": -77.94
+ },
+ {
+  "name": "NOAA WX NE-Beatrice: KZZ69",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KZZ69.mp3",
+  "latitude": 40.27,
+  "longitude": -96.75
+ },
+ {
+  "name": "NOAA WX NE-Omaha: KIH61",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIH61.mp3",
+  "latitude": 41.26,
+  "longitude": -95.94
+ },
+ {
+  "name": "NOAA WX NM-Farmington: WXJ37",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXJ37.mp3",
+  "latitude": 36.73,
+  "longitude": -108.22
+ },
+ {
+  "name": "NOAA WX NV-Fernley: WWG20",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WWG20.mp3",
+  "latitude": 39.61,
+  "longitude": -119.25
+ },
+ {
+  "name": "NOAA WX NV-Reno: WXK58",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK58.mp3",
+  "latitude": 39.53,
+  "longitude": -119.81
+ },
+ {
+  "name": "NOAA WX NY-Buffalo: KEB98",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEB98.mp3",
+  "latitude": 42.89,
+  "longitude": -78.88
+ },
+ {
+  "name": "NOAA WX NY-Highland: WXL37",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXL37.mp3",
+  "latitude": 41.72,
+  "longitude": -73.96
+ },
+ {
+  "name": "NOAA WX NY-Middleville: WXM45",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXM45.mp3",
+  "latitude": 43.14,
+  "longitude": -74.97
+ },
+ {
+  "name": "NOAA WX OH-Akron: KDO94",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KDO94.mp3",
+  "latitude": 41.08,
+  "longitude": -81.52
+ },
+ {
+  "name": "NOAA WX OH-Columbus: KIG86",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIG86.mp3",
+  "latitude": 39.96,
+  "longitude": -83.0
+ },
+ {
+  "name": "NOAA WX OK-Lawton: WXK86",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK86.mp3",
+  "latitude": 34.61,
+  "longitude": -98.39
+ },
+ {
+  "name": "NOAA WX OK-Oklahoma City: WXK85",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK85.mp3",
+  "latitude": 35.47,
+  "longitude": -97.52
+ },
+ {
+  "name": "NOAA WX PA-Philadelphia: KIH28",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIH28_3.mp3",
+  "latitude": 39.95,
+  "longitude": -75.17
+ },
+ {
+  "name": "NOAA WX PA-Pittsburgh: KIH35",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIH35.mp3",
+  "latitude": 40.44,
+  "longitude": -80.0
+ },
+ {
+  "name": "NOAA WX TN-Bristol: WXK47",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK47_2.mp3",
+  "latitude": 36.6,
+  "longitude": -82.19
+ },
+ {
+  "name": "NOAA WX TN-Shelbyville: WXK63",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK63.mp3",
+  "latitude": 35.48,
+  "longitude": -86.46
+ },
+ {
+  "name": "NOAA WX TN-White House: KIG79",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KIG79_2.mp3",
+  "latitude": 36.47,
+  "longitude": -86.65
+ },
+ {
+  "name": "NOAA WX TX-Amarillo: WXK38",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK38_2.mp3",
+  "latitude": 35.19,
+  "longitude": -101.83
+ },
+ {
+  "name": "NOAA WX TX-College Station: WXK30",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK30.mp3",
+  "latitude": 30.63,
+  "longitude": -96.33
+ },
+ {
+  "name": "NOAA WX TX-Corpus Christi: KHB41",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KHB41_2.mp3",
+  "latitude": 27.8,
+  "longitude": -97.4
+ },
+ {
+  "name": "NOAA WX TX-Corsicana: KXI87",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KXI87.mp3",
+  "latitude": 32.1,
+  "longitude": -96.47
+ },
+ {
+  "name": "NOAA WX TX-Dallas: KEC56",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEC56_3.mp3",
+  "latitude": 32.78,
+  "longitude": -96.8
+ },
+ {
+  "name": "NOAA WX TX-Fort Worth: KEC55",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KEC55_2.mp3",
+  "latitude": 32.76,
+  "longitude": -97.33
+ },
+ {
+  "name": "NOAA WX TX-Galveston: KHB40",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KHB40.mp3",
+  "latitude": 29.3,
+  "longitude": -94.8
+ },
+ {
+  "name": "NOAA WX TX-Houston/Tomball: KGG68",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KGG68.mp3",
+  "latitude": 30.1,
+  "longitude": -95.62
+ },
+ {
+  "name": "NOAA WX TX-Lufkin: WXK23",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK23.mp3",
+  "latitude": 31.34,
+  "longitude": -94.73
+ },
+ {
+  "name": "NOAA WX TX-Odessa: WXK32",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK32.mp3",
+  "latitude": 31.85,
+  "longitude": -102.37
+ },
+ {
+  "name": "NOAA WX TX-Palestine: KWN34",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KWN34.mp3",
+  "latitude": 31.76,
+  "longitude": -95.63
+ },
+ {
+  "name": "NOAA WX TX-San Angelo: WXK33",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK33_2.ogg",
+  "latitude": 31.46,
+  "longitude": -100.44
+ },
+ {
+  "name": "NOAA WX TX-Tyler: WXK36",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXK36_2.mp3",
+  "latitude": 32.35,
+  "longitude": -95.3
+ },
+ {
+  "name": "NOAA WX TX-Waco: WXK35",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/EW6308.mp3",
+  "latitude": 31.55,
+  "longitude": -97.15
+ },
+ {
+  "name": "NOAA WX VA-Emporia: WWG33",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/AKQ.mp3",
+  "latitude": 36.69,
+  "longitude": -77.54
+ },
+ {
+  "name": "NOAA WX VA-Roanoke: WXL60",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXL60.mp3",
+  "latitude": 37.27,
+  "longitude": -79.94
+ },
+ {
+  "name": "NOAA WX VA-Virginia Beach: KHB37",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KHB37_3.mp3",
+  "latitude": 36.85,
+  "longitude": -75.98
+ },
+ {
+  "name": "NOAA WX WA-Davis Peak: WNG604",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WNG604_2.mp3",
+  "latitude": 45.72,
+  "longitude": -121.85
+ },
+ {
+  "name": "NOAA WX WA-Richland: WWF56",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WWF56_2.mp3",
+  "latitude": 46.29,
+  "longitude": -119.28
+ },
+ {
+  "name": "NOAA WX WI-Menomonie: WXJ88",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXJ88.mp3",
+  "latitude": 44.88,
+  "longitude": -91.92
+ },
+ {
+  "name": "NOAA WX WI-Winona: KGG95",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KGG95.mp3",
+  "latitude": 44.05,
+  "longitude": -91.64
+ },
+ {
+  "name": "NOAA WX WV-Parkersburg: WXM70",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/KWN75.mp3",
+  "latitude": 39.27,
+  "longitude": -81.56
+ },
+ {
+  "name": "NOAA WX WY-Lander: WXM61",
+  "detail": "NOAA Weather Radio relay (weatherusa.net)",
+  "url": "https://radio.weatherusa.net/NWR/WXM61.mp3",
+  "latitude": 42.83,
+  "longitude": -108.73
+ }
+]

@@ -1,0 +1,48 @@
+FLOWS offline POI shards (.fps) — data attribution
+===================================================
+
+The place records in this directory are derived from the Foursquare OS Places
+dataset, (c) 2025 Foursquare Labs, Inc., licensed under the Apache License,
+Version 2.0. You may obtain a copy of the License at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+FLOWS's modifications to the Data: filtered to open United States places in
+eight point-of-interest groups (fuel, food, stores, hotel, medical, tourist,
+transit, rest/truckstop), reduced to the fields FLOWS displays (name, street,
+city, state, ZIP, website, telephone), and re-encoded into the FLOWS .fps
+binary shard format (one shard per state, 0.2 degree grid index). No place
+attributes were altered beyond whitespace normalization and field truncation.
+
+Upstream NOTICE (preserved per Apache 2.0), from Foursquare:
+
+  (c) 2025 Foursquare Labs, Inc. All rights reserved.
+
+  The Foursquare OS Places dataset (the "Data") is licensed under the Apache
+  License, Version 2.0 (the "License"). You may not use, modify, or
+  distribute the Data except in compliance with the License.
+
+  As set forth more fully in the License, if you use, modify, or distribute
+  the Data, you must:
+  * provide recipients with a copy of the License.
+  * if applicable, include prominent notices to the extent you've changed
+    the Data.
+  * preserve attribution to Foursquare, including preserving the full
+    content of this NOTICE.txt file.
+
+  You may obtain a copy of the License at:
+  http://www.apache.org/licenses/LICENSE-2.0. Unless required by applicable
+  law or agreed to in writing, the Data distributed under the License is
+  distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+  KIND, either express or implied.
+
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+  We also encourage you to join our Placemaker community
+  (https://opensource.foursquare.com/placemaker/) — where you can contribute
+  and provide suggestions to improve the accuracy of the Data for future
+  releases for yourself and others.
+
+This file must ship alongside any distribution of the .fps shards (including
+inside the app bundle) — it is the Apache 2.0 NOTICE carry-through.

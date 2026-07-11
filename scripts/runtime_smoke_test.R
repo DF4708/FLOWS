@@ -17,7 +17,7 @@ fail <- function(message) {
   quit(save = "no", status = 1)
 }
 
-required_packages <- c("sf", "dplyr", "httr2", "jsonlite", "htmltools", "shiny", "leaflet")
+required_packages <- c("sf", "httr2", "jsonlite", "htmltools", "shiny", "leaflet")
 missing_packages <- required_packages[!vapply(required_packages, requireNamespace, logical(1), quietly = TRUE)]
 if (length(missing_packages) > 0) {
   fail(sprintf("Missing required R packages: %s", paste(missing_packages, collapse = ", ")))

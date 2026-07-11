@@ -39,7 +39,7 @@ flatten_numeric_paths <- function(obj, prefix = "") {
   }
   recurse(obj, prefix)
   if (length(rows) == 0) return(data.frame(path = character(), value = numeric(), stringsAsFactors = FALSE))
-  dplyr::bind_rows(rows)
+  flows_bind_rows(rows)
 }
 
 # Why: NWPS payloads bundle observed/forecast/NWM values in inconsistent
@@ -282,7 +282,7 @@ fetch_nwps_gauge_context <- function() {
     cache_put("derived", key, out, ttl_seconds = 900)
     return(out)
   }
-  gauges_df <- dplyr::bind_rows(lapply(gauge_rows, as.data.frame))
+  gauges_df <- flows_bind_rows(lapply(gauge_rows, as.data.frame))
   gauges_sf <- sf::st_as_sf(gauges_df, coords = c("lon", "lat"), crs = 4326)
   observed_scores <- rep(0, nrow(gauges_sf))
   forecast_scores <- rep(0, nrow(gauges_sf))
@@ -316,7 +316,16 @@ fetch_nwps_gauge_context <- function() {
   # cores at 4 s timeout caps worst case at ~76 s but typical drops to
   # ~15-25 s. NWPS handles the higher concurrency without throttling at
   # this volume. CPU cost is negligible — each worker waits on I/O.
-  mc_cores <- if (.Platform$OS.type == "windows") 1L else min(24L, max(1L, n_gauges))
+  # Concurrency is memory-governed: cap at 24 (I/O-bound sweet spot) but
+  # scale down when the system is near its memory ceiling so 455 forks can't
+  # tip a busy machine past 90%. Each gauge-fetch fork is light (~0.25 GB
+  # incremental RSS), so under normal memory this still resolves to the full
+  # cap; only real pressure throttles it.
+  mc_cores <- if (.Platform$OS.type == "windows") 1L else {
+    gov <- tryCatch(dynamic_mc_cores(mem_per_worker_gb = 0.25, cpu_cap = 24L),
+                    error = function(e) 24L)
+    min(24L, max(1L, n_gauges), gov)
+  }
   comps_list <- if (mc_cores > 1L) {
     parallel::mclapply(seq_len(n_gauges), fetch_one, mc.cores = mc_cores, mc.preschedule = FALSE)
   } else {

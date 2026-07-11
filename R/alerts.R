@@ -406,7 +406,7 @@ fetch_wisconsin_alerts <- function(force_refresh = FALSE, timeout_seconds = 12L,
     geoms[[i]] <- geojson_geometry_to_sfc(feat$geometry)
     learn_zone_counties_from_geometry(rows[[i]]$ugc_csv[1], geoms[[i]])
   }
-  alert_df <- dplyr::bind_rows(rows)
+  alert_df <- flows_bind_rows(rows)
   sfc <- do.call(c, geoms)
   alerts_sf_all <- sf::st_sf(alert_df, geometry = sfc, crs = 4326)
   alerts_sf_all <- ensure_crs_4326(alerts_sf_all)

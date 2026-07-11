@@ -18,12 +18,28 @@
 # any other module needing raw text from a URL.
 # Impact: changing defaults here ripples to every feed - a too-short timeout
 # starves alerts/forecasts; missing UA can get the app blocked by NOAA.
+# Why: httr2/libcurl follow redirects by default and, unless constrained, will
+# follow an https feed to a plaintext http:// (or ftp://) location — silently
+# stripping TLS on the hop whose body we actually parse (JSON / NetCDF).
+# What: restricts redirect-following to https only via CURLOPT_REDIR_PROTOCOLS
+# (numeric bitmask; CURLPROTO_HTTPS = 2). The string form (REDIR_PROTOCOLS_STR)
+# is rejected by older curl builds — the numeric option is universally
+# supported (curl >= 7.19.4). The initial request URL is unaffected (this
+# governs redirect TARGETS only), and our feeds are already https.
+# When: applied by http_text / download_to_tempfile to every outbound fetch.
+# Impact: a MITM or compromised feed can no longer downgrade a hop to http.
+FLOWS_CURLPROTO_HTTPS <- 2L
+https_only_redirects <- function(req) {
+  httr2::req_options(req, redir_protocols = FLOWS_CURLPROTO_HTTPS)
+}
+
 http_text <- function(url, user_agent = NOAA_USER_AGENT, timeout_seconds = DEFAULT_HTTP_TIMEOUT_SECONDS, max_tries = DEFAULT_HTTP_MAX_TRIES) {
   req <- httr2::request(url)
   req <- httr2::req_user_agent(req, user_agent)
   req <- httr2::req_headers(req, Accept = "application/geo+json, application/ld+json, application/json, */*")
   req <- httr2::req_timeout(req, max(5, safe_numeric(timeout_seconds %||% DEFAULT_HTTP_TIMEOUT_SECONDS)))
   req <- httr2::req_retry(req, max_tries = max(1, suppressWarnings(as.integer(max_tries %||% DEFAULT_HTTP_MAX_TRIES))))
+  req <- https_only_redirects(req)  # no TLS-stripping redirect to http://
   resp <- httr2::req_perform(req)
   httr2::resp_body_string(resp)
 }
@@ -72,6 +88,7 @@ download_to_tempfile <- function(url, fileext = "", user_agent = NOAA_USER_AGENT
   req <- httr2::req_headers(req, Accept = "*/*")
   req <- httr2::req_timeout(req, max(10, safe_numeric(timeout_seconds %||% DEFAULT_DOWNLOAD_TIMEOUT_SECONDS)))
   req <- httr2::req_retry(req, max_tries = max(1, suppressWarnings(as.integer(max_tries %||% DEFAULT_HTTP_MAX_TRIES))))
+  req <- https_only_redirects(req)  # no TLS-stripping redirect to http://
   httr2::req_perform(req, path = tmp_file)
   tmp_file
 }

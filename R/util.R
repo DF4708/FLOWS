@@ -151,3 +151,99 @@ is_nontrivial_string <- function(x) {
 # Impact: drop-in for the lambda pattern; does NOT log the error (callers
 # wanting visibility should still write tryCatch with their own handler).
 safely <- function(expr) tryCatch(expr, error = function(e) NULL)
+
+# Why: `dplyr::bind_rows` was the ONLY use of dplyr in FLOWS (16 call sites),
+# and dplyr drags in a large dependency tree (rlang, vctrs, tibble, cli,
+# pillar, glue, lifecycle). Owning this one primitive lets us drop the whole
+# tree — fewer moving parts, faster load, no version churn. (Dependency-
+# reduction SOP: replace convenience deps with a verified in-house tool; keep
+# load-bearing ones like sf/httr2/shiny.)
+# What: row-binds data.frames into one, mirroring bind_rows for the shapes
+# FLOWS produces. Matches bind_rows' `...` signature: accepts EITHER a single
+# list of data.frames (spliced) OR multiple data.frame arguments. Tolerates
+# NULL / zero-column / zero-row elements, unions columns in first-appearance
+# order, NA-fills missing columns, and concatenates rows in order. Returns a
+# base data.frame (callers consume it directly or via sf::st_sf, both of which
+# accept a plain data.frame identically to a tibble).
+# How: normalise `...` to a list (single list arg is spliced, like bind_rows),
+# then fast path when every element shares the same column vector
+# (do.call(rbind)); general path adds missing columns as NA, reorders to the
+# union, then rbinds. Row names are reset to match bind_rows' 1..n.
+# When: anywhere the codebase previously called dplyr::bind_rows(...) — both
+# the list form bind_rows(rows) and the multi-arg form bind_rows(a, b, c).
+# Impact: proven byte-identical (as.data.frame-normalised) to dplyr::bind_rows
+# across FLOWS' input shapes in tests/jobs/dep_reduction_equiv.R — re-run that
+# gate if you extend this to new input patterns (e.g. factor columns).
+flows_bind_rows <- function(...) {
+  args <- list(...)
+  # bind_rows(...) semantics: a single list-but-not-data.frame arg is spliced;
+  # otherwise the args themselves are the frames to bind.
+  dfs <- if (length(args) == 1L && is.list(args[[1L]]) && !is.data.frame(args[[1L]])) {
+    args[[1L]]
+  } else {
+    args
+  }
+  if (length(dfs) == 0L) return(data.frame())
+  dfs <- Filter(function(d) is.data.frame(d) && ncol(d) > 0L, dfs)
+  if (length(dfs) == 0L) return(data.frame())
+  cols <- unique(unlist(lapply(dfs, names), use.names = FALSE))
+  same <- all(vapply(dfs, function(d) identical(names(d), cols), logical(1)))
+  if (!same) {
+    dfs <- lapply(dfs, function(d) {
+      miss <- setdiff(cols, names(d))
+      # rep(NA, nrow(d)), not bare NA: assigning a length-1 NA into a ZERO-row
+      # data.frame errors ("replacement has 1 row, data has 0"), a case
+      # dplyr::bind_rows handled. rep(NA, 0) = logical(0) works for 0 rows and
+      # is identical to the recycled NA for n > 0.
+      for (m in miss) d[[m]] <- rep(NA, nrow(d))
+      d[, cols, drop = FALSE]
+    })
+  }
+  out <- do.call(rbind, c(dfs, list(make.row.names = FALSE)))
+  rownames(out) <- NULL
+  out
+}
+
+# Why: the last two dplyr uses in FLOWS are group_by |> summarise (global.R
+# lat_band reps; wi_loaders.R road_id/zipcode length aggregate). Owning this
+# lets us drop library(dplyr) entirely (dependency-reduction SOP).
+# What: groups df by the `by` columns and computes one row per distinct group
+# with the named aggregations, ordered ASCENDING by the group columns — exactly
+# matching dplyr::group_by(by) |> summarise(aggs, .groups = "drop"). Group
+# columns come first (original types preserved), then the aggregation columns
+# in definition order. Returns a base data.frame.
+# How: split row indices by the group tuple, apply each aggregation to the
+# group's sub-data.frame (original row order preserved, so an aggregation like
+# `\d d$col[1]` reproduces dplyr::first), rbind, then sort by the group columns
+# to reproduce dplyr's ascending group order.
+# When: replaces dplyr group_by/summarise call sites.
+# Impact: proven byte-identical to the two dplyr calls it replaces in
+# tests/jobs/dep_reduction_equiv.R. The group key uses a "\r" paste separator;
+# safe for FLOWS keys (numeric lat_band, character road_id/zipcode) which never
+# contain it. Re-run the gate if grouping by free-text columns.
+flows_group_aggregate <- function(df, by, aggs) {
+  stopifnot(is.data.frame(df), length(by) >= 1L, is.list(aggs), length(aggs) >= 1L)
+  if (nrow(df) == 0L) {
+    empty <- df[0L, by, drop = FALSE]
+    for (nm in names(aggs)) empty[[nm]] <- numeric(0)
+    rownames(empty) <- NULL
+    return(empty)
+  }
+  key <- do.call(paste, c(lapply(by, function(b) as.character(df[[b]])), sep = "\r"))
+  idx <- split(seq_len(nrow(df)), key)
+  # Build the result COLUMNWISE (group-key rows in one subset + one unlist per
+  # aggregation) instead of one 1-row data.frame per group fed to rbind — the
+  # rbind form was O(groups^2)-ish and the road_id/zipcode call site has ~100k
+  # groups. Aggregations must return a length-1 atomic (non-factor) value,
+  # which is the dplyr::summarise contract the dep_equiv gate proves.
+  firsts <- vapply(idx, function(ix) ix[[1L]], integer(1))
+  out <- df[firsts, by, drop = FALSE]
+  for (nm in names(aggs)) {
+    f <- aggs[[nm]]
+    out[[nm]] <- unlist(lapply(idx, function(ix) f(df[ix, , drop = FALSE])), use.names = FALSE)
+  }
+  ord <- do.call(order, lapply(by, function(b) out[[b]]))
+  out <- out[ord, , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}

@@ -463,7 +463,7 @@ shinyServer(function(input, output, session) {
     if (!is.null(res$start_point)) pts[[length(pts) + 1L]] <- data.frame(lng = res$start_point$lon, lat = res$start_point$lat, label = paste0("Start: ", res$start_point$label), stringsAsFactors = FALSE)
     if (!is.null(res$end_point)) pts[[length(pts) + 1L]] <- data.frame(lng = res$end_point$lon, lat = res$end_point$lat, label = paste0("Destination: ", res$end_point$label), stringsAsFactors = FALSE)
     if (length(pts) > 0) {
-      pt_df <- dplyr::bind_rows(pts)
+      pt_df <- flows_bind_rows(pts)
       proxy <- proxy %>% addCircleMarkers(
         data = pt_df,
         lng = ~lng,
