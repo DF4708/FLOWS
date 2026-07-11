@@ -29202,3 +29202,2297 @@ route_bench: n=8 p50=1.494s p95=2.419s max=2.708s graph=13.68s
 route_bench: n=8 p50=1.572s p95=2.029s max=2.116s graph=13.23s
 === pass 4320 10:25:47Z ===
 [FLOWS-TIMING] build_route_segments cold body (live)                           9.949 s [route]
+route_bench: n=8 p50=1.825s p95=13.705s max=17.874s graph=14.28s
+=== pass 4321 10:27:07Z ===
+router_realgraph: deferred (mem 89.2% >= 86% headroom) — PASS
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.293 s [route]
+route_bench: n=8 p50=2.761s p95=4.002s max=4.405s graph=21.97s
+=== pass 4322 10:28:24Z ===
+router_realgraph: deferred (mem 89.2% >= 86% headroom) — PASS
+[FLOWS-TIMING] build_route_segments cold body (live)                          36.172 s [route]
+route_bench: n=8 p50=5.070s p95=15.587s max=19.026s graph=44.83s
+=== pass 4323 10:32:16Z ===
+router_realgraph: deferred (mem 87.6% >= 86% headroom) — PASS
+[FLOWS-TIMING] build_route_segments cold body (live)                          30.237 s [route]
+route_bench: n=8 p50=2.748s p95=3.651s max=3.723s graph=44.05s
+=== pass 4324 10:35:30Z ===
+router_realgraph: deferred (mem 93.6% >= 86% headroom) — PASS
+[FLOWS-TIMING] build_route_segments cold body (live)                          31.792 s [route]
+route_bench: n=8 p50=4.188s p95=5.955s max=6.055s graph=43.83s
+=== pass 4325 10:39:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          24.150 s [route]
+router_realgraph: 4/4 OD costs match (rust Dijkstra vs admissible A*) | nodes=80441 edges=97336 | rust SSSP 0.055s, A* 5.903s/OD
+[FLOWS-TIMING] build_route_segments cold body (live)                          30.967 s [route]
+route_bench: n=8 p50=3.914s p95=4.308s max=4.356s graph=38.83s
+=== pass 4326 10:43:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          34.924 s [route]
+route_bench: n=8 p50=5.075s p95=8.320s max=9.291s graph=43.33s
+=== pass 4327 10:45:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          60.069 s [route]
+route_bench: n=8 p50=6.259s p95=11.495s max=12.555s graph=78.64s
+=== pass 4328 10:48:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          34.119 s [route]
+route_bench: n=8 p50=6.926s p95=13.595s max=14.779s graph=40.32s
+=== pass 4329 10:53:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          32.866 s [route]
+route_bench: n=8 p50=5.449s p95=7.916s max=8.683s graph=44.23s
+=== pass 4330 10:57:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.138 s [route]
+route_bench: n=8 p50=1.349s p95=2.113s max=2.419s graph=17.18s
+=== pass 4331 10:59:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.201 s [route]
+route_bench: n=8 p50=1.297s p95=1.728s max=1.919s graph=13.00s
+=== pass 4332 11:00:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.573 s [route]
+route_bench: n=8 p50=1.077s p95=1.354s max=1.429s graph=10.88s
+=== pass 4333 11:00:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.501 s [route]
+route_bench: n=8 p50=1.140s p95=1.625s max=1.790s graph=12.12s
+=== pass 4334 11:01:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.579 s [route]
+route_bench: n=8 p50=1.641s p95=4.052s max=4.585s graph=12.46s
+=== pass 4335 11:01:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.109 s [route]
+route_bench: n=8 p50=4.466s p95=5.162s max=5.205s graph=23.29s
+=== pass 4336 11:03:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          30.203 s [route]
+route_bench: n=8 p50=1.590s p95=2.124s max=2.375s graph=46.51s
+=== pass 4337 11:04:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.473 s [route]
+route_bench: n=8 p50=4.254s p95=7.282s max=7.586s graph=16.49s
+=== pass 4338 11:06:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.263 s [route]
+route_bench: n=8 p50=1.130s p95=1.488s max=1.625s graph=11.74s
+=== pass 4339 11:07:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.298 s [route]
+route_bench: n=8 p50=1.141s p95=1.393s max=1.525s graph=13.26s
+=== pass 4340 11:07:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.433 s [route]
+route_bench: n=8 p50=1.511s p95=2.315s max=2.391s graph=12.39s
+=== pass 4341 11:08:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.104 s [route]
+route_bench: n=8 p50=1.377s p95=2.220s max=2.492s graph=13.80s
+=== pass 4342 11:09:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.293 s [route]
+route_bench: n=8 p50=1.250s p95=1.684s max=1.704s graph=13.04s
+=== pass 4343 11:09:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.947 s [route]
+route_bench: n=8 p50=1.232s p95=1.727s max=1.867s graph=14.23s
+=== pass 4344 11:10:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.476 s [route]
+route_bench: n=8 p50=1.278s p95=1.913s max=2.076s graph=13.22s
+=== pass 4345 11:11:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.134 s [route]
+route_bench: n=8 p50=1.215s p95=1.500s max=1.540s graph=11.56s
+=== pass 4346 11:11:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.030 s [route]
+route_bench: n=8 p50=1.229s p95=2.330s max=2.834s graph=12.06s
+=== pass 4347 11:12:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.703 s [route]
+route_bench: n=8 p50=1.180s p95=1.624s max=1.720s graph=12.29s
+=== pass 4348 11:12:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.636 s [route]
+route_bench: n=8 p50=1.609s p95=2.029s max=2.037s graph=13.39s
+=== pass 4349 11:13:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.640 s [route]
+route_bench: n=8 p50=1.356s p95=2.989s max=3.604s graph=14.50s
+=== pass 4350 11:14:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.793 s [route]
+route_bench: n=8 p50=1.026s p95=1.468s max=1.666s graph=11.15s
+=== pass 4351 11:14:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.492 s [route]
+route_bench: n=8 p50=1.259s p95=1.624s max=1.651s graph=14.56s
+=== pass 4352 11:15:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.446 s [route]
+route_bench: n=8 p50=1.294s p95=2.604s max=2.815s graph=15.19s
+=== pass 4353 11:16:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.283 s [route]
+route_bench: n=8 p50=1.466s p95=2.080s max=2.197s graph=16.78s
+=== pass 4354 11:17:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.469 s [route]
+route_bench: n=8 p50=1.127s p95=1.575s max=1.809s graph=12.54s
+=== pass 4355 11:17:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.124 s [route]
+route_bench: n=8 p50=1.310s p95=1.869s max=2.108s graph=13.38s
+=== pass 4356 11:18:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.362 s [route]
+route_bench: n=8 p50=1.571s p95=1.811s max=1.815s graph=11.84s
+=== pass 4357 11:18:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.970 s [route]
+route_bench: n=8 p50=1.281s p95=1.856s max=1.995s graph=14.96s
+=== pass 4358 11:19:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.169 s [route]
+route_bench: n=8 p50=1.305s p95=2.689s max=2.726s graph=12.68s
+=== pass 4359 11:20:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.121 s [route]
+route_bench: n=8 p50=1.218s p95=1.523s max=1.644s graph=13.24s
+=== pass 4360 11:21:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.039 s [route]
+route_bench: n=8 p50=1.188s p95=1.700s max=1.726s graph=12.14s
+=== pass 4361 11:21:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.690 s [route]
+route_bench: n=8 p50=1.274s p95=1.844s max=1.962s graph=12.30s
+=== pass 4362 11:22:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.052 s [route]
+route_bench: n=8 p50=1.695s p95=2.144s max=2.309s graph=14.80s
+=== pass 4363 11:23:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.319 s [route]
+route_bench: n=8 p50=1.241s p95=2.413s max=2.733s graph=12.76s
+=== pass 4364 11:23:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.050 s [route]
+route_bench: n=8 p50=1.123s p95=1.519s max=1.658s graph=13.14s
+=== pass 4365 11:24:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.931 s [route]
+route_bench: n=8 p50=1.393s p95=6.893s max=9.763s graph=13.52s
+=== pass 4366 11:25:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.195 s [route]
+route_bench: n=8 p50=1.804s p95=7.404s max=7.751s graph=15.95s
+=== pass 4367 11:26:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.941 s [route]
+route_bench: n=8 p50=1.356s p95=4.738s max=5.976s graph=27.36s
+=== pass 4368 11:27:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.640 s [route]
+route_bench: n=8 p50=1.541s p95=1.957s max=1.976s graph=20.73s
+=== pass 4369 11:28:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.461 s [route]
+route_bench: n=8 p50=2.037s p95=7.944s max=9.613s graph=19.29s
+=== pass 4370 11:29:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          31.310 s [route]
+route_bench: n=8 p50=3.204s p95=6.434s max=7.372s graph=42.45s
+=== pass 4371 11:31:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          83.544 s [route]
+route_bench: n=8 p50=3.423s p95=13.637s max=18.396s graph=98.31s
+=== pass 4372 11:34:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          68.134 s [route]
+route_bench: n=8 p50=8.592s p95=32.079s max=36.521s graph=101.57s
+=== pass 4373 11:41:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.730 s [route]
+R(8029) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8030) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8031) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8040) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8041) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8042) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8053) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8054) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8055) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8066) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8067) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8068) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8077) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8078) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8079) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8088) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8089) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8090) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8099) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8100) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+R(8101) MallocStackLogging: can't turn off malloc stack logging because it was not enabled.
+route_bench: n=8 p50=1.678s p95=16.264s max=23.966s graph=18.99s
+=== pass 4374 11:43:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.867 s [route]
+route_bench: n=8 p50=1.307s p95=1.940s max=1.995s graph=13.61s
+=== pass 4375 11:44:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.313 s [route]
+route_bench: n=8 p50=1.123s p95=1.583s max=1.749s graph=12.97s
+=== pass 4376 11:44:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.884 s [route]
+route_bench: n=8 p50=1.100s p95=1.615s max=1.799s graph=12.87s
+=== pass 4377 11:46:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.631 s [route]
+router_realgraph: 4/4 OD costs match (rust Dijkstra vs admissible A*) | nodes=80441 edges=97336 | rust SSSP 0.010s, A* 1.012s/OD
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.742 s [route]
+route_bench: n=8 p50=1.060s p95=1.642s max=1.918s graph=11.04s
+=== pass 4378 11:47:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.623 s [route]
+route_bench: n=8 p50=1.082s p95=1.445s max=1.461s graph=11.13s
+=== pass 4379 11:47:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.499 s [route]
+route_bench: n=8 p50=0.978s p95=1.270s max=1.381s graph=12.04s
+=== pass 4380 11:48:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.605 s [route]
+route_bench: n=8 p50=1.030s p95=1.470s max=1.499s graph=10.93s
+=== pass 4381 11:48:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.423 s [route]
+route_bench: n=8 p50=1.324s p95=1.688s max=1.749s graph=15.21s
+=== pass 4382 11:49:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.745 s [route]
+route_bench: n=8 p50=0.997s p95=1.397s max=1.513s graph=11.37s
+=== pass 4383 11:50:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.231 s [route]
+route_bench: n=8 p50=1.028s p95=1.386s max=1.524s graph=11.65s
+=== pass 4384 11:50:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.323 s [route]
+route_bench: n=8 p50=1.324s p95=1.968s max=2.196s graph=13.97s
+=== pass 4385 11:51:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.706 s [route]
+route_bench: n=8 p50=1.288s p95=1.709s max=1.834s graph=17.54s
+=== pass 4386 11:52:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.052 s [route]
+router_realgraph: 4/4 OD costs match (rust Dijkstra vs admissible A*) | nodes=80441 edges=97336 | rust SSSP 0.009s, A* 1.083s/OD
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.108 s [route]
+route_bench: n=8 p50=1.193s p95=1.648s max=1.850s graph=11.43s
+=== pass 4387 11:53:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.083 s [route]
+route_bench: n=8 p50=1.171s p95=1.572s max=1.724s graph=11.98s
+=== pass 4388 11:54:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.664 s [route]
+route_bench: n=8 p50=0.986s p95=1.411s max=1.628s graph=12.32s
+=== pass 4389 11:54:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.535 s [route]
+route_bench: n=8 p50=1.143s p95=1.529s max=1.675s graph=11.94s
+=== pass 4390 11:55:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.678 s [route]
+route_bench: n=8 p50=1.097s p95=1.508s max=1.671s graph=11.33s
+=== pass 4391 11:55:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.675 s [route]
+route_bench: n=8 p50=1.098s p95=1.462s max=1.555s graph=12.49s
+=== pass 4392 11:56:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.809 s [route]
+route_bench: n=8 p50=1.130s p95=1.529s max=1.686s graph=12.61s
+=== pass 4393 11:57:02Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.767 s [route]
+route_bench: n=8 p50=1.011s p95=1.370s max=1.532s graph=11.11s
+=== pass 4394 11:57:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.844 s [route]
+route_bench: n=8 p50=1.177s p95=1.513s max=1.678s graph=11.05s
+=== pass 4395 11:58:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.056 s [route]
+route_bench: n=8 p50=0.985s p95=1.333s max=1.504s graph=12.30s
+=== pass 4396 11:58:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.378 s [route]
+route_bench: n=8 p50=1.029s p95=1.322s max=1.419s graph=12.22s
+=== pass 4397 11:59:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.905 s [route]
+route_bench: n=8 p50=1.172s p95=1.466s max=1.607s graph=11.66s
+=== pass 4398 11:59:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.807 s [route]
+route_bench: n=8 p50=1.255s p95=1.744s max=1.957s graph=12.41s
+=== pass 4399 12:00:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.225 s [route]
+route_bench: n=8 p50=1.090s p95=1.402s max=1.562s graph=11.90s
+=== pass 4400 12:01:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.771 s [route]
+route_bench: n=8 p50=1.135s p95=1.495s max=1.608s graph=13.48s
+=== pass 4401 12:01:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.521 s [route]
+route_bench: n=8 p50=1.169s p95=1.580s max=1.654s graph=13.36s
+=== pass 4402 12:02:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.477 s [route]
+route_bench: n=8 p50=1.456s p95=1.718s max=1.755s graph=11.92s
+=== pass 4403 12:03:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.676 s [route]
+route_bench: n=8 p50=1.404s p95=1.954s max=2.156s graph=13.82s
+=== pass 4404 12:03:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.545 s [route]
+route_bench: n=8 p50=1.207s p95=1.518s max=1.630s graph=12.36s
+=== pass 4405 12:04:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.089 s [route]
+route_bench: n=8 p50=1.307s p95=1.667s max=1.801s graph=12.92s
+=== pass 4406 12:04:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.491 s [route]
+route_bench: n=8 p50=1.390s p95=1.914s max=2.078s graph=13.72s
+=== pass 4407 12:05:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.671 s [route]
+route_bench: n=8 p50=1.349s p95=1.749s max=1.910s graph=14.82s
+=== pass 4408 12:06:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.491 s [route]
+route_bench: n=8 p50=1.774s p95=2.392s max=2.631s graph=17.24s
+=== pass 4409 12:07:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.113 s [route]
+route_bench: n=8 p50=1.412s p95=2.587s max=2.914s graph=16.57s
+=== pass 4410 12:08:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.099 s [route]
+route_bench: n=8 p50=1.583s p95=2.867s max=2.989s graph=15.98s
+=== pass 4411 12:08:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.961 s [route]
+route_bench: n=8 p50=1.866s p95=2.980s max=3.252s graph=19.38s
+=== pass 4412 12:09:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.806 s [route]
+route_bench: n=8 p50=1.801s p95=2.242s max=2.329s graph=17.74s
+=== pass 4413 12:10:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.548 s [route]
+route_bench: n=8 p50=1.388s p95=1.853s max=2.047s graph=16.11s
+=== pass 4414 12:11:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.490 s [route]
+route_bench: n=8 p50=1.369s p95=1.912s max=2.128s graph=13.69s
+=== pass 4415 12:12:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.892 s [route]
+route_bench: n=8 p50=1.286s p95=1.826s max=2.075s graph=14.07s
+=== pass 4416 12:13:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.542 s [route]
+route_bench: n=8 p50=2.070s p95=4.436s max=5.491s graph=20.15s
+=== pass 4417 12:16:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.781 s [route]
+route_bench: n=8 p50=2.117s p95=5.837s max=6.108s graph=23.91s
+=== pass 4418 12:19:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.246 s [route]
+route_bench: n=8 p50=2.681s p95=3.859s max=4.104s graph=17.15s
+=== pass 4419 12:21:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.678 s [route]
+route_bench: n=8 p50=2.178s p95=4.310s max=4.671s graph=18.79s
+=== pass 4420 12:24:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.931 s [route]
+route_bench: n=8 p50=1.327s p95=2.008s max=2.138s graph=12.46s
+=== pass 4421 12:26:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          15.275 s [route]
+route_bench: n=8 p50=2.187s p95=5.880s max=7.245s graph=21.13s
+=== pass 4422 12:27:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.906 s [route]
+route_bench: n=8 p50=1.637s p95=2.112s max=2.259s graph=16.02s
+=== pass 4423 12:28:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.526 s [route]
+route_bench: n=8 p50=1.878s p95=3.495s max=3.542s graph=19.45s
+=== pass 4424 12:29:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.354 s [route]
+route_bench: n=8 p50=2.216s p95=3.251s max=3.457s graph=21.71s
+=== pass 4425 12:30:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.400 s [route]
+route_bench: n=8 p50=2.625s p95=3.271s max=3.406s graph=26.75s
+=== pass 4426 12:31:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.297 s [route]
+route_bench: n=8 p50=2.898s p95=3.602s max=3.628s graph=26.55s
+=== pass 4427 12:32:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.707 s [route]
+route_bench: n=8 p50=1.737s p95=2.780s max=2.884s graph=19.26s
+=== pass 4428 12:33:53Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.292 s [route]
+route_bench: n=8 p50=3.801s p95=4.942s max=5.135s graph=25.74s
+=== pass 4429 12:35:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.986 s [route]
+route_bench: n=8 p50=2.891s p95=3.648s max=3.668s graph=20.06s
+=== pass 4430 12:36:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.193 s [route]
+route_bench: n=8 p50=2.594s p95=2.942s max=3.059s graph=23.49s
+=== pass 4431 12:37:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.581 s [route]
+route_bench: n=8 p50=3.446s p95=4.486s max=4.656s graph=25.73s
+=== pass 4432 12:38:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.936 s [route]
+route_bench: n=8 p50=1.126s p95=1.544s max=1.567s graph=11.87s
+=== pass 4433 12:39:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          36.898 s [route]
+route_bench: n=8 p50=4.923s p95=14.988s max=18.635s graph=50.82s
+=== pass 4434 12:41:53Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          31.570 s [route]
+route_bench: n=8 p50=3.846s p95=7.275s max=8.015s graph=45.57s
+=== pass 4435 12:45:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          51.251 s [route]
+route_bench: n=8 p50=3.410s p95=7.732s max=8.178s graph=64.42s
+=== pass 4436 12:47:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          21.913 s [route]
+route_bench: n=8 p50=3.666s p95=5.716s max=5.733s graph=32.28s
+=== pass 4437 12:48:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          55.045 s [route]
+route_bench: n=8 p50=3.919s p95=4.384s max=4.391s graph=73.10s
+=== pass 4438 12:51:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         120.187 s [route]
+route_bench: n=8 p50=29.843s p95=49.602s max=50.856s graph=141.63s
+=== pass 4439 12:58:47Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          56.781 s [route]
+route_bench: n=8 p50=6.111s p95=11.685s max=12.312s graph=83.19s
+=== pass 4440 13:04:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          33.156 s [route]
+route_bench: n=8 p50=12.928s p95=38.531s max=46.919s graph=43.66s
+=== pass 4441 13:08:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          41.493 s [route]
+route_bench: n=8 p50=6.504s p95=31.327s max=36.971s graph=121.27s
+=== pass 4442 13:13:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         154.798 s [route]
+route_bench: n=8 p50=13.074s p95=26.404s max=28.540s graph=183.06s
+=== pass 4443 13:21:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         176.216 s [route]
+route_bench: n=8 p50=36.270s p95=90.752s max=110.159s graph=204.26s
+=== pass 4444 13:35:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          86.297 s [route]
+route_bench: n=8 p50=13.849s p95=19.449s max=19.863s graph=127.95s
+=== pass 4445 13:44:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          42.692 s [route]
+route_bench: n=8 p50=5.373s p95=12.329s max=15.039s graph=57.66s
+=== pass 4446 13:47:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.749 s [route]
+route_bench: n=8 p50=6.070s p95=10.494s max=10.968s graph=30.48s
+=== pass 4447 13:49:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          26.298 s [route]
+route_bench: n=8 p50=7.122s p95=8.289s max=8.473s graph=35.72s
+=== pass 4448 13:51:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          34.326 s [route]
+route_bench: n=8 p50=7.103s p95=11.667s max=11.910s graph=42.86s
+=== pass 4449 13:54:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          47.694 s [route]
+route_bench: n=8 p50=6.136s p95=13.501s max=16.747s graph=60.73s
+=== pass 4450 13:57:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          28.093 s [route]
+route_bench: n=8 p50=4.224s p95=5.826s max=6.560s graph=38.00s
+=== pass 4451 13:59:02Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          40.870 s [route]
+route_bench: n=8 p50=3.193s p95=4.189s max=4.453s graph=58.72s
+=== pass 4452 14:01:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.148 s [route]
+route_bench: n=8 p50=2.694s p95=4.250s max=4.472s graph=30.57s
+=== pass 4453 14:02:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.056 s [route]
+route_bench: n=8 p50=4.110s p95=8.183s max=8.442s graph=30.20s
+=== pass 4454 14:04:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.357 s [route]
+route_bench: n=8 p50=1.713s p95=2.725s max=3.045s graph=18.98s
+=== pass 4455 14:05:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.354 s [route]
+route_bench: n=8 p50=2.029s p95=2.919s max=3.291s graph=19.56s
+=== pass 4456 14:05:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.761 s [route]
+route_bench: n=8 p50=2.038s p95=3.378s max=3.681s graph=53.44s
+=== pass 4457 14:07:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.851 s [route]
+route_bench: n=8 p50=2.819s p95=4.408s max=4.884s graph=21.51s
+=== pass 4458 14:08:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.997 s [route]
+route_bench: n=8 p50=2.543s p95=2.905s max=2.950s graph=25.57s
+=== pass 4459 14:09:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          56.003 s [route]
+route_bench: n=8 p50=4.427s p95=8.239s max=9.640s graph=76.83s
+=== pass 4460 14:12:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          33.027 s [route]
+route_bench: n=8 p50=7.086s p95=12.101s max=12.676s graph=50.04s
+=== pass 4461 14:15:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          39.410 s [route]
+route_bench: n=8 p50=3.482s p95=4.653s max=4.731s graph=63.52s
+=== pass 4462 14:17:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.282 s [route]
+route_bench: n=8 p50=2.230s p95=2.962s max=3.199s graph=23.60s
+=== pass 4463 14:18:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.374 s [route]
+route_bench: n=8 p50=2.433s p95=2.658s max=2.665s graph=22.61s
+=== pass 4464 14:19:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.430 s [route]
+route_bench: n=8 p50=2.431s p95=2.841s max=2.855s graph=21.91s
+=== pass 4465 14:20:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          23.021 s [route]
+route_bench: n=8 p50=3.901s p95=14.249s max=18.922s graph=32.61s
+=== pass 4466 14:22:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          15.725 s [route]
+route_bench: n=8 p50=2.870s p95=3.830s max=4.277s graph=21.21s
+=== pass 4467 14:23:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          21.971 s [route]
+route_bench: n=8 p50=3.633s p95=4.895s max=5.252s graph=28.45s
+=== pass 4468 14:25:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          23.420 s [route]
+route_bench: n=8 p50=4.462s p95=6.836s max=7.585s graph=35.12s
+=== pass 4469 14:26:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.875 s [route]
+route_bench: n=8 p50=1.825s p95=3.594s max=4.173s graph=29.46s
+=== pass 4470 14:28:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.025 s [route]
+route_bench: n=8 p50=2.191s p95=3.240s max=3.644s graph=19.19s
+=== pass 4471 14:29:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.845 s [route]
+route_bench: n=8 p50=2.377s p95=3.713s max=4.304s graph=23.15s
+=== pass 4472 14:30:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          52.202 s [route]
+route_bench: n=8 p50=6.424s p95=11.379s max=11.573s graph=70.59s
+=== pass 4473 14:33:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          26.222 s [route]
+route_bench: n=8 p50=4.498s p95=6.859s max=7.331s graph=37.29s
+=== pass 4474 14:35:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          55.585 s [route]
+route_bench: n=8 p50=8.529s p95=17.383s max=17.599s graph=68.24s
+=== pass 4475 14:38:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.774 s [route]
+route_bench: n=8 p50=6.383s p95=7.082s max=7.206s graph=28.88s
+=== pass 4476 14:42:53Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         255.375 s [route]
+route_bench: n=8 p50=28.308s p95=82.606s max=94.199s graph=330.44s
+=== pass 4477 15:00:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         116.960 s [route]
+route_bench: n=8 p50=4.038s p95=17.624s max=20.196s graph=168.03s
+=== pass 4478 15:06:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          38.968 s [route]
+route_bench: n=8 p50=7.412s p95=28.968s max=36.598s graph=56.52s
+=== pass 4479 15:10:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          83.731 s [route]
+route_bench: n=8 p50=11.728s p95=33.021s max=41.986s graph=94.63s
+=== pass 4480 15:15:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          75.815 s [route]
+route_bench: n=8 p50=23.978s p95=43.339s max=46.343s graph=96.50s
+=== pass 4481 15:21:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.933 s [route]
+route_bench: n=8 p50=6.305s p95=29.593s max=31.305s graph=46.54s
+=== pass 4482 15:24:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          38.394 s [route]
+route_bench: n=8 p50=9.528s p95=21.124s max=23.209s graph=50.30s
+=== pass 4483 15:30:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         146.133 s [route]
+route_bench: n=8 p50=28.790s p95=84.989s max=89.690s graph=255.28s
+=== pass 4484 15:43:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          23.918 s [route]
+route_bench: n=8 p50=4.347s p95=7.368s max=7.720s graph=35.88s
+=== pass 4485 15:45:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          30.541 s [route]
+route_bench: n=8 p50=4.789s p95=10.198s max=10.570s graph=41.77s
+=== pass 4486 15:50:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          61.412 s [route]
+route_bench: n=8 p50=4.439s p95=6.541s max=6.968s graph=106.68s
+=== pass 4487 15:55:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          24.239 s [route]
+route_bench: n=8 p50=4.397s p95=8.871s max=9.162s graph=34.93s
+=== pass 4488 15:57:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.617 s [route]
+route_bench: n=8 p50=3.329s p95=3.640s max=3.641s graph=29.22s
+=== pass 4489 15:58:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          24.974 s [route]
+route_bench: n=8 p50=2.848s p95=5.213s max=6.212s graph=36.82s
+=== pass 4490 16:00:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          29.248 s [route]
+route_bench: n=8 p50=2.227s p95=4.347s max=4.760s graph=34.24s
+=== pass 4491 16:01:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.857 s [route]
+route_bench: n=8 p50=3.206s p95=4.325s max=4.357s graph=34.91s
+=== pass 4492 16:03:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          32.731 s [route]
+route_bench: n=8 p50=1.858s p95=5.691s max=7.702s graph=38.83s
+=== pass 4493 16:04:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.477 s [route]
+route_bench: n=8 p50=3.986s p95=13.027s max=14.446s graph=23.38s
+=== pass 4494 16:06:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          30.191 s [route]
+route_bench: n=8 p50=2.060s p95=5.048s max=6.278s graph=39.08s
+=== pass 4495 16:07:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.166 s [route]
+route_bench: n=8 p50=5.621s p95=5.901s max=5.937s graph=16.10s
+=== pass 4496 16:09:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          34.922 s [route]
+route_bench: n=8 p50=9.179s p95=19.553s max=20.773s graph=55.83s
+=== pass 4497 16:12:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          46.522 s [route]
+route_bench: n=8 p50=6.282s p95=12.432s max=13.404s graph=77.80s
+=== pass 4498 16:16:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          32.966 s [route]
+route_bench: n=8 p50=6.800s p95=30.288s max=40.143s graph=48.16s
+=== pass 4499 16:19:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         129.690 s [route]
+route_bench: n=8 p50=17.168s p95=42.359s max=47.801s graph=198.95s
+=== pass 4500 16:27:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          67.356 s [route]
+route_bench: n=8 p50=33.406s p95=37.235s max=38.319s graph=154.30s
+=== pass 4501 16:37:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         131.286 s [route]
+route_bench: n=8 p50=30.293s p95=47.831s max=54.348s graph=188.24s
+=== pass 4502 16:49:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         240.886 s [route]
+route_bench: n=8 p50=33.804s p95=39.794s max=41.978s graph=306.65s
+=== pass 4503 17:02:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         269.671 s [route]
+route_bench: n=8 p50=53.601s p95=66.074s max=67.795s graph=384.75s
+=== pass 4504 17:20:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         188.215 s [route]
+route_bench: n=8 p50=55.380s p95=80.694s max=82.119s graph=306.46s
+=== pass 4505 17:38:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         224.603 s [route]
+route_bench: n=8 p50=33.639s p95=48.257s max=51.014s graph=324.71s
+=== pass 4506 17:57:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         198.242 s [route]
+route_bench: n=8 p50=48.917s p95=71.144s max=72.699s graph=213.11s
+=== pass 4507 18:15:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         110.433 s [route]
+route_bench: n=8 p50=11.754s p95=42.611s max=51.085s graph=146.75s
+=== pass 4508 18:22:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         174.485 s [route]
+route_bench: n=8 p50=29.929s p95=47.666s max=48.939s graph=224.63s
+=== pass 4509 18:34:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          36.603 s [route]
+route_bench: n=8 p50=1.938s p95=9.714s max=11.224s graph=48.20s
+=== pass 4510 18:39:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          91.782 s [route]
+route_bench: n=8 p50=27.644s p95=33.936s max=34.468s graph=127.72s
+=== pass 4511 18:48:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         191.576 s [route]
+route_bench: n=8 p50=42.558s p95=59.659s max=62.166s graph=207.67s
+=== pass 4512 19:01:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         146.908 s [route]
+route_bench: n=8 p50=44.196s p95=62.731s max=68.748s graph=216.18s
+=== pass 4513 19:13:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         336.761 s [route]
+route_bench: n=8 p50=8.667s p95=28.527s max=31.987s graph=546.17s
+=== pass 4514 19:28:02Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          91.056 s [route]
+route_bench: n=8 p50=23.359s p95=32.345s max=34.227s graph=117.31s
+=== pass 4515 19:35:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         118.588 s [route]
+route_bench: n=8 p50=17.622s p95=28.270s max=32.782s graph=172.46s
+=== pass 4516 19:44:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          99.155 s [route]
+route_bench: n=8 p50=31.686s p95=47.558s max=50.945s graph=142.52s
+=== pass 4517 19:52:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          88.572 s [route]
+route_bench: n=8 p50=45.546s p95=57.689s max=60.499s graph=116.80s
+=== pass 4518 20:01:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         217.762 s [route]
+route_bench: n=8 p50=32.740s p95=41.882s max=43.580s graph=292.34s
+=== pass 4519 20:15:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         189.684 s [route]
+route_bench: n=8 p50=23.862s p95=58.418s max=71.666s graph=272.33s
+=== pass 4520 20:28:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          78.352 s [route]
+route_bench: n=8 p50=18.842s p95=52.897s max=62.996s graph=123.98s
+=== pass 4521 20:37:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          29.714 s [route]
+route_bench: n=8 p50=5.660s p95=10.283s max=10.803s graph=59.62s
+=== pass 4522 20:40:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          90.713 s [route]
+route_bench: n=8 p50=16.782s p95=39.587s max=43.523s graph=109.36s
+=== pass 4523 20:46:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          80.734 s [route]
+route_bench: n=8 p50=11.939s p95=20.504s max=21.389s graph=153.16s
+=== pass 4524 20:54:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          58.316 s [route]
+route_bench: n=8 p50=15.500s p95=19.555s max=19.874s graph=80.62s
+=== pass 4525 21:00:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          29.690 s [route]
+route_bench: n=8 p50=10.204s p95=19.065s max=23.080s graph=52.82s
+=== pass 4526 21:04:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          41.296 s [route]
+route_bench: n=8 p50=6.522s p95=11.268s max=13.589s graph=50.03s
+=== pass 4527 21:07:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          27.910 s [route]
+route_bench: n=8 p50=6.650s p95=14.683s max=17.093s graph=41.23s
+=== pass 4528 21:09:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          33.877 s [route]
+route_bench: n=8 p50=7.230s p95=11.885s max=13.770s graph=52.69s
+=== pass 4529 21:12:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          29.267 s [route]
+route_bench: n=8 p50=3.656s p95=4.814s max=4.976s graph=38.20s
+=== pass 4530 21:13:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          37.362 s [route]
+route_bench: n=8 p50=9.537s p95=13.819s max=14.114s graph=51.12s
+=== pass 4531 21:16:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          25.587 s [route]
+route_bench: n=8 p50=4.500s p95=7.396s max=8.433s graph=34.86s
+=== pass 4532 21:18:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.714 s [route]
+route_bench: n=8 p50=4.464s p95=6.472s max=7.173s graph=29.52s
+=== pass 4533 21:20:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          83.291 s [route]
+route_bench: n=8 p50=9.160s p95=23.463s max=29.336s graph=99.34s
+=== pass 4534 21:24:46Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          28.990 s [route]
+route_bench: n=8 p50=4.441s p95=6.452s max=7.172s graph=44.42s
+=== pass 4535 21:26:46Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          32.923 s [route]
+route_bench: n=8 p50=4.142s p95=5.485s max=5.561s graph=47.10s
+=== pass 4536 21:28:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          34.781 s [route]
+route_bench: n=8 p50=4.502s p95=8.728s max=9.717s graph=48.50s
+=== pass 4537 21:30:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          31.507 s [route]
+route_bench: n=8 p50=6.257s p95=9.096s max=9.284s graph=42.38s
+=== pass 4538 21:32:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          89.488 s [route]
+route_bench: n=8 p50=4.972s p95=12.973s max=15.386s graph=98.76s
+=== pass 4539 21:36:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          29.323 s [route]
+route_bench: n=8 p50=4.144s p95=5.515s max=5.782s graph=38.24s
+=== pass 4540 21:37:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          27.347 s [route]
+route_bench: n=8 p50=3.707s p95=5.389s max=5.903s graph=33.63s
+=== pass 4541 21:39:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          36.205 s [route]
+route_bench: n=8 p50=4.002s p95=6.786s max=7.647s graph=48.28s
+=== pass 4542 21:41:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          32.208 s [route]
+route_bench: n=8 p50=3.456s p95=4.901s max=5.150s graph=47.12s
+=== pass 4543 21:43:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.833 s [route]
+route_bench: n=8 p50=4.152s p95=5.502s max=5.545s graph=27.82s
+=== pass 4544 21:44:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          23.261 s [route]
+route_bench: n=8 p50=4.637s p95=6.959s max=7.458s graph=30.42s
+=== pass 4545 21:46:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.999 s [route]
+route_bench: n=8 p50=5.535s p95=9.003s max=9.379s graph=25.90s
+=== pass 4546 21:48:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          26.421 s [route]
+route_bench: n=8 p50=5.562s p95=7.045s max=7.601s graph=37.15s
+=== pass 4547 21:50:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.397 s [route]
+route_bench: n=8 p50=2.676s p95=3.368s max=3.393s graph=26.94s
+=== pass 4548 21:51:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.852 s [route]
+route_bench: n=8 p50=3.363s p95=4.614s max=4.927s graph=24.30s
+=== pass 4549 21:53:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.467 s [route]
+route_bench: n=8 p50=2.879s p95=3.829s max=3.854s graph=26.01s
+=== pass 4550 21:54:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          21.151 s [route]
+route_bench: n=8 p50=1.791s p95=3.894s max=4.147s graph=28.68s
+=== pass 4551 21:55:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          27.962 s [route]
+route_bench: n=8 p50=3.209s p95=5.703s max=6.875s graph=46.03s
+=== pass 4552 21:57:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          28.609 s [route]
+route_bench: n=8 p50=2.566s p95=3.459s max=3.464s graph=37.47s
+=== pass 4553 21:58:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          25.211 s [route]
+route_bench: n=8 p50=3.311s p95=7.497s max=9.473s graph=34.08s
+=== pass 4554 22:00:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.701 s [route]
+route_bench: n=8 p50=2.750s p95=3.055s max=3.178s graph=22.91s
+=== pass 4555 22:01:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.015 s [route]
+route_bench: n=8 p50=2.599s p95=3.670s max=3.708s graph=22.12s
+=== pass 4556 22:02:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.544 s [route]
+route_bench: n=8 p50=2.425s p95=5.111s max=5.789s graph=27.30s
+=== pass 4557 22:04:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.669 s [route]
+route_bench: n=8 p50=2.487s p95=3.270s max=3.552s graph=22.30s
+=== pass 4558 22:05:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.543 s [route]
+route_bench: n=8 p50=1.834s p95=3.716s max=3.778s graph=22.28s
+=== pass 4559 22:06:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.189 s [route]
+route_bench: n=8 p50=3.184s p95=4.312s max=4.355s graph=27.59s
+=== pass 4560 22:07:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.459 s [route]
+route_bench: n=8 p50=2.825s p95=2.965s max=2.982s graph=24.91s
+=== pass 4561 22:09:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.189 s [route]
+route_bench: n=8 p50=3.399s p95=4.673s max=4.836s graph=21.19s
+=== pass 4562 22:10:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          25.828 s [route]
+route_bench: n=8 p50=1.598s p95=5.879s max=7.194s graph=36.46s
+=== pass 4563 22:11:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          21.062 s [route]
+route_bench: n=8 p50=5.524s p95=7.192s max=7.529s graph=29.41s
+=== pass 4564 22:13:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.461 s [route]
+route_bench: n=8 p50=4.378s p95=8.208s max=8.888s graph=29.10s
+=== pass 4565 22:15:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.948 s [route]
+route_bench: n=8 p50=4.265s p95=5.741s max=5.958s graph=29.77s
+=== pass 4566 22:17:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          24.765 s [route]
+route_bench: n=8 p50=3.458s p95=3.751s max=3.763s graph=34.30s
+=== pass 4567 22:19:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.893 s [route]
+route_bench: n=8 p50=3.477s p95=4.628s max=5.176s graph=32.47s
+=== pass 4568 22:20:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.398 s [route]
+route_bench: n=8 p50=4.381s p95=9.849s max=11.580s graph=31.48s
+=== pass 4569 22:22:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          25.779 s [route]
+route_bench: n=8 p50=7.481s p95=13.293s max=15.672s graph=40.82s
+=== pass 4570 22:24:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          28.364 s [route]
+route_bench: n=8 p50=2.974s p95=5.694s max=6.159s graph=35.37s
+=== pass 4571 22:26:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          26.506 s [route]
+route_bench: n=8 p50=4.391s p95=4.552s max=4.558s graph=33.45s
+=== pass 4572 22:28:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          36.305 s [route]
+route_bench: n=8 p50=5.650s p95=10.185s max=11.564s graph=47.02s
+=== pass 4573 22:30:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          45.759 s [route]
+route_bench: n=8 p50=5.939s p95=8.812s max=9.481s graph=56.98s
+=== pass 4574 22:33:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          41.584 s [route]
+route_bench: n=8 p50=7.224s p95=10.772s max=10.906s graph=58.75s
+=== pass 4575 22:35:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          27.415 s [route]
+route_bench: n=8 p50=5.312s p95=8.551s max=9.148s graph=46.91s
+=== pass 4576 22:37:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          24.279 s [route]
+route_bench: n=8 p50=4.082s p95=4.651s max=4.708s graph=34.05s
+=== pass 4577 22:39:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.129 s [route]
+route_bench: n=8 p50=3.997s p95=4.633s max=4.679s graph=22.98s
+=== pass 4578 22:41:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          21.942 s [route]
+route_bench: n=8 p50=3.145s p95=4.213s max=4.431s graph=33.13s
+=== pass 4579 22:42:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.920 s [route]
+route_bench: n=8 p50=2.442s p95=4.596s max=4.675s graph=28.41s
+=== pass 4580 22:44:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          21.979 s [route]
+route_bench: n=8 p50=3.172s p95=4.012s max=4.020s graph=29.86s
+=== pass 4581 22:45:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.929 s [route]
+route_bench: n=8 p50=4.637s p95=5.328s max=5.373s graph=30.16s
+=== pass 4582 22:47:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          26.524 s [route]
+route_bench: n=8 p50=3.254s p95=4.906s max=5.196s graph=32.84s
+=== pass 4583 22:48:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          25.664 s [route]
+route_bench: n=8 p50=6.171s p95=9.087s max=9.452s graph=35.47s
+=== pass 4584 22:50:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.852 s [route]
+route_bench: n=8 p50=3.579s p95=5.291s max=5.897s graph=34.89s
+=== pass 4585 22:52:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          30.862 s [route]
+route_bench: n=8 p50=3.296s p95=5.227s max=5.312s graph=38.09s
+=== pass 4586 22:53:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          27.258 s [route]
+route_bench: n=8 p50=3.167s p95=5.141s max=6.159s graph=38.71s
+=== pass 4587 22:55:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.396 s [route]
+route_bench: n=8 p50=3.780s p95=6.038s max=6.142s graph=29.95s
+=== pass 4588 22:57:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.600 s [route]
+route_bench: n=8 p50=3.062s p95=4.634s max=5.248s graph=28.97s
+=== pass 4589 22:58:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.103 s [route]
+route_bench: n=8 p50=4.084s p95=4.838s max=4.993s graph=24.50s
+=== pass 4590 22:59:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          22.068 s [route]
+route_bench: n=8 p50=2.583s p95=3.912s max=4.195s graph=30.77s
+=== pass 4591 23:01:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.600 s [route]
+route_bench: n=8 p50=2.762s p95=3.783s max=3.843s graph=27.69s
+=== pass 4592 23:03:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.537 s [route]
+route_bench: n=8 p50=2.258s p95=5.446s max=5.540s graph=26.31s
+=== pass 4593 23:04:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          28.788 s [route]
+route_bench: n=8 p50=2.804s p95=6.077s max=6.509s graph=55.74s
+=== pass 4594 23:06:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.412 s [route]
+route_bench: n=8 p50=1.697s p95=2.931s max=2.970s graph=27.08s
+=== pass 4595 23:08:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.456 s [route]
+route_bench: n=8 p50=1.199s p95=1.616s max=1.746s graph=11.94s
+=== pass 4596 23:08:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.685 s [route]
+route_bench: n=8 p50=1.339s p95=1.698s max=1.875s graph=13.95s
+=== pass 4597 23:09:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.386 s [route]
+route_bench: n=8 p50=1.845s p95=2.294s max=2.318s graph=17.60s
+=== pass 4598 23:10:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          15.251 s [route]
+route_bench: n=8 p50=1.888s p95=2.388s max=2.422s graph=21.11s
+=== pass 4599 23:11:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.959 s [route]
+route_bench: n=8 p50=1.651s p95=1.903s max=1.968s graph=19.04s
+=== pass 4600 23:11:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.031 s [route]
+route_bench: n=8 p50=1.450s p95=1.892s max=2.089s graph=16.88s
+=== pass 4601 23:12:46Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.850 s [route]
+route_bench: n=8 p50=1.399s p95=1.879s max=2.131s graph=15.31s
+=== pass 4602 23:13:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.973 s [route]
+route_bench: n=8 p50=1.637s p95=1.895s max=1.968s graph=14.47s
+=== pass 4603 23:14:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.188 s [route]
+route_bench: n=8 p50=1.397s p95=2.197s max=2.561s graph=17.08s
+=== pass 4604 23:14:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.240 s [route]
+route_bench: n=8 p50=1.334s p95=1.846s max=2.055s graph=14.57s
+=== pass 4605 23:15:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.956 s [route]
+route_bench: n=8 p50=1.392s p95=1.799s max=2.000s graph=14.45s
+=== pass 4606 23:16:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.900 s [route]
+route_bench: n=8 p50=1.357s p95=1.808s max=1.976s graph=14.24s
+=== pass 4607 23:17:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.839 s [route]
+route_bench: n=8 p50=1.403s p95=1.898s max=2.053s graph=14.09s
+=== pass 4608 23:17:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.475 s [route]
+route_bench: n=8 p50=1.390s p95=1.736s max=1.913s graph=13.71s
+=== pass 4609 23:18:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.862 s [route]
+route_bench: n=8 p50=1.371s p95=1.962s max=2.054s graph=14.07s
+=== pass 4610 23:19:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.327 s [route]
+route_bench: n=8 p50=2.056s p95=2.733s max=2.820s graph=17.42s
+=== pass 4611 23:20:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.294 s [route]
+route_bench: n=8 p50=2.201s p95=4.883s max=4.901s graph=17.59s
+=== pass 4612 23:21:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.245 s [route]
+route_bench: n=8 p50=1.728s p95=3.301s max=3.973s graph=22.00s
+=== pass 4613 23:22:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.091 s [route]
+route_bench: n=8 p50=1.274s p95=2.634s max=3.135s graph=20.48s
+=== pass 4614 23:22:47Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.000 s [route]
+route_bench: n=8 p50=1.061s p95=1.828s max=2.194s graph=12.46s
+=== pass 4615 23:23:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.706 s [route]
+route_bench: n=8 p50=1.759s p95=2.492s max=2.630s graph=18.47s
+=== pass 4616 23:24:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.558 s [route]
+route_bench: n=8 p50=1.572s p95=1.793s max=1.820s graph=13.08s
+=== pass 4617 23:24:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.786 s [route]
+route_bench: n=8 p50=1.103s p95=1.592s max=1.796s graph=11.58s
+=== pass 4618 23:25:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.415 s [route]
+route_bench: n=8 p50=1.980s p95=4.522s max=5.116s graph=17.04s
+=== pass 4619 23:26:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.460 s [route]
+route_bench: n=8 p50=1.241s p95=1.913s max=2.105s graph=16.04s
+=== pass 4620 23:27:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.287 s [route]
+route_bench: n=8 p50=1.614s p95=2.653s max=3.066s graph=16.96s
+=== pass 4621 23:28:02Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.851 s [route]
+route_bench: n=8 p50=2.385s p95=3.727s max=3.809s graph=18.71s
+=== pass 4622 23:29:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.015 s [route]
+route_bench: n=8 p50=1.640s p95=2.285s max=2.540s graph=11.58s
+=== pass 4623 23:29:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          24.994 s [route]
+route_bench: n=8 p50=2.761s p95=3.792s max=4.017s graph=31.67s
+=== pass 4624 23:31:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.784 s [route]
+route_bench: n=8 p50=1.442s p95=2.161s max=2.392s graph=19.88s
+=== pass 4625 23:32:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.910 s [route]
+route_bench: n=8 p50=1.305s p95=1.650s max=1.703s graph=11.42s
+=== pass 4626 23:32:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.774 s [route]
+route_bench: n=8 p50=1.782s p95=2.395s max=2.546s graph=16.18s
+=== pass 4627 23:33:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.920 s [route]
+route_bench: n=8 p50=1.886s p95=2.621s max=2.651s graph=18.16s
+=== pass 4628 23:34:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.175 s [route]
+route_bench: n=8 p50=1.223s p95=1.623s max=1.728s graph=12.58s
+=== pass 4629 23:35:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.753 s [route]
+route_bench: n=8 p50=1.485s p95=1.932s max=1.934s graph=11.05s
+=== pass 4630 23:36:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.160 s [route]
+route_bench: n=8 p50=1.702s p95=2.823s max=2.886s graph=17.28s
+=== pass 4631 23:37:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.546 s [route]
+route_bench: n=8 p50=1.823s p95=2.976s max=3.324s graph=17.14s
+=== pass 4632 23:37:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.601 s [route]
+route_bench: n=8 p50=1.407s p95=3.078s max=3.555s graph=12.29s
+=== pass 4633 23:39:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          19.076 s [route]
+route_bench: n=8 p50=2.027s p95=5.217s max=6.026s graph=23.26s
+=== pass 4634 23:40:46Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         137.422 s [route]
+route_bench: n=8 p50=28.841s p95=69.013s max=79.508s graph=174.32s
+=== pass 4635 23:51:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                         109.643 s [route]
+route_bench: n=8 p50=2.130s p95=16.877s max=24.226s graph=170.12s
+=== pass 4636 00:02:53Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          20.193 s [route]
+route_bench: n=8 p50=11.859s p95=24.959s max=27.428s graph=27.90s
+=== pass 4637 00:06:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          30.663 s [route]
+route_bench: n=8 p50=4.482s p95=6.267s max=6.695s graph=38.93s
+=== pass 4638 00:08:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          15.399 s [route]
+route_bench: n=8 p50=3.269s p95=5.365s max=6.203s graph=19.93s
+=== pass 4639 00:09:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.239 s [route]
+route_bench: n=8 p50=2.445s p95=3.758s max=4.319s graph=18.28s
+=== pass 4640 00:10:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.585 s [route]
+route_bench: n=8 p50=0.938s p95=1.564s max=1.615s graph=11.68s
+=== pass 4641 00:11:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.879 s [route]
+route_bench: n=8 p50=0.950s p95=1.448s max=1.668s graph=11.78s
+=== pass 4642 00:12:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.671 s [route]
+route_bench: n=8 p50=0.971s p95=1.265s max=1.412s graph=11.02s
+=== pass 4643 00:12:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.556 s [route]
+route_bench: n=8 p50=1.101s p95=1.399s max=1.495s graph=10.87s
+=== pass 4644 00:13:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.559 s [route]
+route_bench: n=8 p50=1.062s p95=1.429s max=1.610s graph=10.81s
+=== pass 4645 00:13:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.535 s [route]
+route_bench: n=8 p50=1.191s p95=1.462s max=1.472s graph=10.81s
+=== pass 4646 00:14:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.569 s [route]
+route_bench: n=8 p50=1.002s p95=1.321s max=1.481s graph=10.94s
+=== pass 4647 00:14:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.906 s [route]
+route_bench: n=8 p50=1.333s p95=1.687s max=1.799s graph=11.27s
+=== pass 4648 00:15:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.873 s [route]
+route_bench: n=8 p50=1.157s p95=1.797s max=1.880s graph=12.29s
+=== pass 4649 00:16:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.825 s [route]
+route_bench: n=8 p50=2.331s p95=3.410s max=3.597s graph=11.26s
+=== pass 4650 00:16:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.830 s [route]
+route_bench: n=8 p50=1.202s p95=1.646s max=1.827s graph=11.62s
+=== pass 4651 00:17:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.142 s [route]
+route_bench: n=8 p50=1.845s p95=3.484s max=3.616s graph=15.02s
+=== pass 4652 00:18:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.732 s [route]
+route_bench: n=8 p50=1.076s p95=1.537s max=1.736s graph=11.03s
+=== pass 4653 00:19:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.217 s [route]
+route_bench: n=8 p50=1.720s p95=2.675s max=2.782s graph=11.62s
+=== pass 4654 00:20:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.564 s [route]
+route_bench: n=8 p50=1.687s p95=2.608s max=2.893s graph=13.46s
+=== pass 4655 00:21:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.746 s [route]
+route_bench: n=8 p50=1.019s p95=1.608s max=1.855s graph=11.05s
+=== pass 4656 00:21:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.028 s [route]
+route_bench: n=8 p50=1.346s p95=1.817s max=1.867s graph=11.52s
+=== pass 4657 00:22:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.199 s [route]
+route_bench: n=8 p50=1.216s p95=1.913s max=2.268s graph=11.66s
+=== pass 4658 00:22:47Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.077 s [route]
+route_bench: n=8 p50=1.286s p95=1.648s max=1.706s graph=11.54s
+=== pass 4659 00:23:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.499 s [route]
+route_bench: n=8 p50=1.276s p95=1.634s max=1.741s graph=12.09s
+=== pass 4660 00:24:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.693 s [route]
+route_bench: n=8 p50=1.037s p95=1.415s max=1.605s graph=11.15s
+=== pass 4661 00:24:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.674 s [route]
+route_bench: n=8 p50=1.072s p95=1.437s max=1.603s graph=11.00s
+=== pass 4662 00:25:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.601 s [route]
+route_bench: n=8 p50=1.385s p95=1.602s max=1.683s graph=10.90s
+=== pass 4663 00:25:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.911 s [route]
+route_bench: n=8 p50=1.250s p95=1.665s max=1.853s graph=12.39s
+=== pass 4664 00:26:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.917 s [route]
+route_bench: n=8 p50=1.342s p95=1.667s max=1.802s graph=12.37s
+=== pass 4665 00:26:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.483 s [route]
+route_bench: n=8 p50=1.285s p95=1.730s max=1.933s graph=12.13s
+=== pass 4666 00:27:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.080 s [route]
+route_bench: n=8 p50=1.300s p95=1.649s max=1.756s graph=12.04s
+=== pass 4667 00:28:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.072 s [route]
+route_bench: n=8 p50=1.092s p95=1.649s max=1.747s graph=11.64s
+=== pass 4668 00:28:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.195 s [route]
+route_bench: n=8 p50=1.234s p95=1.624s max=1.806s graph=11.80s
+=== pass 4669 00:29:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.926 s [route]
+route_bench: n=8 p50=1.538s p95=1.965s max=2.008s graph=12.74s
+=== pass 4670 00:30:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.498 s [route]
+route_bench: n=8 p50=1.123s p95=1.636s max=1.869s graph=12.21s
+=== pass 4671 00:30:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.576 s [route]
+route_bench: n=8 p50=1.643s p95=2.501s max=2.788s graph=14.20s
+=== pass 4672 00:31:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.365 s [route]
+route_bench: n=8 p50=1.453s p95=1.951s max=2.162s graph=13.35s
+=== pass 4673 00:32:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.337 s [route]
+route_bench: n=8 p50=1.220s p95=1.596s max=1.710s graph=11.93s
+=== pass 4674 00:33:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.396 s [route]
+route_bench: n=8 p50=1.381s p95=1.642s max=1.737s graph=11.98s
+=== pass 4675 00:33:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.051 s [route]
+route_bench: n=8 p50=1.495s p95=1.921s max=2.135s graph=12.87s
+=== pass 4676 00:34:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.152 s [route]
+route_bench: n=8 p50=1.323s p95=1.759s max=1.865s graph=13.26s
+=== pass 4677 00:35:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.050 s [route]
+route_bench: n=8 p50=1.385s p95=2.267s max=2.532s graph=12.68s
+=== pass 4678 00:35:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.779 s [route]
+route_bench: n=8 p50=1.395s p95=1.874s max=2.044s graph=12.62s
+=== pass 4679 00:36:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.663 s [route]
+route_bench: n=8 p50=1.047s p95=1.398s max=1.560s graph=11.00s
+=== pass 4680 00:36:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.688 s [route]
+route_bench: n=8 p50=1.031s p95=1.430s max=1.629s graph=10.98s
+=== pass 4681 00:37:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.594 s [route]
+route_bench: n=8 p50=1.028s p95=1.733s max=2.064s graph=10.90s
+=== pass 4682 00:37:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.591 s [route]
+route_bench: n=8 p50=1.031s p95=1.377s max=1.545s graph=10.89s
+=== pass 4683 00:38:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.567 s [route]
+route_bench: n=8 p50=1.056s p95=1.425s max=1.552s graph=10.85s
+=== pass 4684 00:39:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.760 s [route]
+route_bench: n=8 p50=1.021s p95=1.366s max=1.527s graph=11.07s
+=== pass 4685 00:39:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.028 s [route]
+route_bench: n=8 p50=1.254s p95=1.739s max=1.799s graph=11.34s
+=== pass 4686 00:40:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.528 s [route]
+route_bench: n=8 p50=1.273s p95=1.707s max=1.876s graph=12.18s
+=== pass 4687 00:41:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.861 s [route]
+route_bench: n=8 p50=1.393s p95=1.828s max=1.921s graph=12.60s
+=== pass 4688 00:41:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.818 s [route]
+route_bench: n=8 p50=1.472s p95=2.124s max=2.384s graph=12.53s
+=== pass 4689 00:42:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.148 s [route]
+route_bench: n=8 p50=1.414s p95=1.848s max=1.984s graph=11.95s
+=== pass 4690 00:43:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.979 s [route]
+route_bench: n=8 p50=1.272s p95=1.818s max=2.005s graph=12.77s
+=== pass 4691 00:44:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.203 s [route]
+route_bench: n=8 p50=1.284s p95=1.777s max=1.961s graph=11.62s
+=== pass 4692 00:44:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.060 s [route]
+route_bench: n=8 p50=1.341s p95=1.623s max=1.737s graph=11.58s
+=== pass 4693 00:45:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.626 s [route]
+route_bench: n=8 p50=1.051s p95=1.424s max=1.574s graph=11.08s
+=== pass 4694 00:46:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.566 s [route]
+route_bench: n=8 p50=1.046s p95=1.423s max=1.581s graph=10.94s
+=== pass 4695 00:46:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.616 s [route]
+route_bench: n=8 p50=1.051s p95=1.457s max=1.648s graph=10.91s
+=== pass 4696 00:47:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.836 s [route]
+route_bench: n=8 p50=1.055s p95=1.467s max=1.640s graph=11.40s
+=== pass 4697 00:48:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.808 s [route]
+route_bench: n=8 p50=1.057s p95=1.386s max=1.558s graph=11.12s
+=== pass 4698 00:48:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.756 s [route]
+route_bench: n=8 p50=1.032s p95=1.410s max=1.599s graph=11.09s
+=== pass 4699 00:49:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.818 s [route]
+route_bench: n=8 p50=1.088s p95=1.534s max=1.749s graph=11.12s
+=== pass 4700 00:49:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.311 s [route]
+route_bench: n=8 p50=1.264s p95=1.763s max=1.825s graph=11.61s
+=== pass 4701 00:50:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.269 s [route]
+route_bench: n=8 p50=1.293s p95=1.595s max=1.725s graph=12.10s
+=== pass 4702 00:51:02Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.316 s [route]
+route_bench: n=8 p50=1.434s p95=1.704s max=1.783s graph=11.94s
+=== pass 4703 00:51:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.368 s [route]
+route_bench: n=8 p50=1.514s p95=1.992s max=2.184s graph=13.12s
+=== pass 4704 00:52:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.169 s [route]
+route_bench: n=8 p50=1.478s p95=2.085s max=2.348s graph=13.14s
+=== pass 4705 00:53:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.178 s [route]
+route_bench: n=8 p50=1.340s p95=1.873s max=2.055s graph=13.06s
+=== pass 4706 00:53:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.308 s [route]
+route_bench: n=8 p50=1.415s p95=1.858s max=2.025s graph=13.57s
+=== pass 4707 00:54:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.021 s [route]
+route_bench: n=8 p50=1.495s p95=1.848s max=1.950s graph=12.82s
+=== pass 4708 00:55:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.402 s [route]
+route_bench: n=8 p50=1.350s p95=1.750s max=1.867s graph=13.55s
+=== pass 4709 00:55:45Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.606 s [route]
+route_bench: n=8 p50=1.326s p95=1.821s max=1.974s graph=12.53s
+=== pass 4710 00:56:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.331 s [route]
+route_bench: n=8 p50=1.380s p95=1.719s max=1.859s graph=11.88s
+=== pass 4711 00:57:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.423 s [route]
+route_bench: n=8 p50=1.327s p95=1.803s max=1.840s graph=12.20s
+=== pass 4712 00:57:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.719 s [route]
+route_bench: n=8 p50=1.075s p95=1.466s max=1.622s graph=11.04s
+=== pass 4713 00:58:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.849 s [route]
+route_bench: n=8 p50=1.066s p95=1.448s max=1.632s graph=11.14s
+=== pass 4714 00:58:46Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.773 s [route]
+route_bench: n=8 p50=1.030s p95=1.419s max=1.617s graph=11.07s
+=== pass 4715 00:59:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.721 s [route]
+route_bench: n=8 p50=1.092s p95=1.628s max=1.885s graph=11.03s
+=== pass 4716 00:59:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.871 s [route]
+route_bench: n=8 p50=1.064s p95=1.468s max=1.644s graph=11.23s
+=== pass 4717 01:00:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.726 s [route]
+route_bench: n=8 p50=1.080s p95=1.477s max=1.653s graph=11.05s
+=== pass 4718 01:00:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.809 s [route]
+route_bench: n=8 p50=1.076s p95=1.474s max=1.653s graph=11.17s
+=== pass 4719 01:01:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.848 s [route]
+route_bench: n=8 p50=1.091s p95=1.506s max=1.705s graph=11.21s
+=== pass 4720 01:02:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.621 s [route]
+route_bench: n=8 p50=1.015s p95=1.353s max=1.516s graph=10.94s
+=== pass 4721 01:02:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.590 s [route]
+route_bench: n=8 p50=1.162s p95=1.571s max=1.628s graph=10.87s
+=== pass 4722 01:03:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.092 s [route]
+route_bench: n=8 p50=1.274s p95=1.688s max=1.732s graph=11.61s
+=== pass 4723 01:03:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.922 s [route]
+route_bench: n=8 p50=1.249s p95=1.783s max=1.967s graph=12.75s
+=== pass 4724 01:04:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.902 s [route]
+route_bench: n=8 p50=1.427s p95=1.774s max=1.865s graph=12.74s
+=== pass 4725 01:05:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.989 s [route]
+route_bench: n=8 p50=1.396s p95=1.781s max=1.970s graph=12.97s
+=== pass 4726 01:05:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.965 s [route]
+route_bench: n=8 p50=1.524s p95=1.829s max=1.898s graph=12.74s
+=== pass 4727 01:06:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.207 s [route]
+route_bench: n=8 p50=1.437s p95=1.807s max=1.928s graph=13.07s
+=== pass 4728 01:07:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.226 s [route]
+route_bench: n=8 p50=1.438s p95=1.886s max=2.076s graph=13.36s
+=== pass 4729 01:07:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.943 s [route]
+route_bench: n=8 p50=1.501s p95=1.927s max=2.119s graph=12.73s
+=== pass 4730 01:08:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.803 s [route]
+route_bench: n=8 p50=1.476s p95=1.949s max=2.148s graph=12.74s
+=== pass 4731 01:09:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.191 s [route]
+route_bench: n=8 p50=1.428s p95=1.869s max=2.090s graph=11.68s
+=== pass 4732 01:09:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.061 s [route]
+route_bench: n=8 p50=1.402s p95=1.716s max=1.840s graph=12.83s
+=== pass 4733 01:10:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.846 s [route]
+route_bench: n=8 p50=1.667s p95=2.123s max=2.203s graph=12.62s
+=== pass 4734 01:11:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.449 s [route]
+route_bench: n=8 p50=1.182s p95=1.562s max=1.726s graph=13.54s
+=== pass 4735 01:11:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.698 s [route]
+route_bench: n=8 p50=1.039s p95=1.447s max=1.618s graph=11.06s
+=== pass 4736 01:12:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.671 s [route]
+route_bench: n=8 p50=1.061s p95=1.471s max=1.659s graph=11.02s
+=== pass 4737 01:13:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.651 s [route]
+route_bench: n=8 p50=1.057s p95=1.765s max=1.844s graph=10.97s
+=== pass 4738 01:14:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.675 s [route]
+route_bench: n=8 p50=1.047s p95=1.435s max=1.614s graph=11.02s
+=== pass 4739 01:14:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.722 s [route]
+route_bench: n=8 p50=1.046s p95=1.470s max=1.675s graph=11.06s
+=== pass 4740 01:15:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.765 s [route]
+route_bench: n=8 p50=1.095s p95=1.544s max=1.777s graph=11.07s
+=== pass 4741 01:15:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.742 s [route]
+route_bench: n=8 p50=1.058s p95=1.402s max=1.571s graph=11.10s
+=== pass 4742 01:16:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.624 s [route]
+route_bench: n=8 p50=1.014s p95=1.319s max=1.459s graph=10.98s
+=== pass 4743 01:16:46Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.776 s [route]
+route_bench: n=8 p50=1.089s p95=1.463s max=1.654s graph=11.18s
+=== pass 4744 01:17:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.975 s [route]
+route_bench: n=8 p50=1.079s p95=1.500s max=1.708s graph=11.33s
+=== pass 4745 01:17:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.731 s [route]
+route_bench: n=8 p50=1.385s p95=1.653s max=1.744s graph=11.49s
+=== pass 4746 01:18:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.709 s [route]
+route_bench: n=8 p50=1.229s p95=1.662s max=1.822s graph=12.24s
+=== pass 4747 01:19:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.899 s [route]
+route_bench: n=8 p50=1.309s p95=1.814s max=2.040s graph=12.79s
+=== pass 4748 01:19:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.865 s [route]
+route_bench: n=8 p50=1.437s p95=1.855s max=2.042s graph=12.34s
+=== pass 4749 01:20:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.106 s [route]
+route_bench: n=8 p50=1.475s p95=1.970s max=2.191s graph=12.88s
+=== pass 4750 01:21:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.999 s [route]
+route_bench: n=8 p50=1.440s p95=1.870s max=2.069s graph=12.73s
+=== pass 4751 01:22:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.907 s [route]
+route_bench: n=8 p50=1.371s p95=1.831s max=1.880s graph=12.77s
+=== pass 4752 01:22:46Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.034 s [route]
+route_bench: n=8 p50=1.933s p95=2.622s max=2.846s graph=15.84s
+=== pass 4753 01:23:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.391 s [route]
+route_bench: n=8 p50=2.210s p95=5.837s max=6.994s graph=16.41s
+=== pass 4754 01:24:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.594 s [route]
+route_bench: n=8 p50=2.000s p95=2.345s max=2.458s graph=18.23s
+=== pass 4755 01:25:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.743 s [route]
+route_bench: n=8 p50=1.588s p95=2.217s max=2.428s graph=15.38s
+=== pass 4756 01:26:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.834 s [route]
+route_bench: n=8 p50=1.884s p95=2.725s max=2.926s graph=15.43s
+=== pass 4757 01:27:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.951 s [route]
+route_bench: n=8 p50=2.257s p95=3.083s max=3.476s graph=19.10s
+=== pass 4758 01:28:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          18.577 s [route]
+route_bench: n=8 p50=3.091s p95=4.182s max=4.544s graph=25.62s
+=== pass 4759 01:30:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.412 s [route]
+route_bench: n=8 p50=6.491s p95=18.865s max=21.640s graph=22.65s
+=== pass 4760 01:32:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.994 s [route]
+route_bench: n=8 p50=1.316s p95=3.341s max=4.238s graph=11.38s
+=== pass 4761 01:36:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.641 s [route]
+route_bench: n=8 p50=1.003s p95=2.409s max=3.058s graph=11.15s
+=== pass 4762 01:36:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.680 s [route]
+route_bench: n=8 p50=1.019s p95=2.354s max=2.986s graph=10.98s
+=== pass 4763 01:38:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.705 s [route]
+route_bench: n=8 p50=1.054s p95=2.234s max=2.810s graph=11.05s
+=== pass 4764 01:39:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.688 s [route]
+route_bench: n=8 p50=0.993s p95=2.537s max=3.258s graph=11.00s
+=== pass 4765 01:40:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.070 s [route]
+route_bench: n=8 p50=0.985s p95=3.017s max=3.957s graph=11.43s
+=== pass 4766 01:42:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.685 s [route]
+route_bench: n=8 p50=1.028s p95=2.439s max=3.080s graph=10.99s
+=== pass 4767 01:43:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.747 s [route]
+route_bench: n=8 p50=1.046s p95=2.448s max=3.133s graph=11.08s
+=== pass 4768 01:44:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.651 s [route]
+route_bench: n=8 p50=1.192s p95=4.381s max=4.670s graph=10.96s
+=== pass 4769 01:46:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.195 s [route]
+route_bench: n=8 p50=1.745s p95=3.330s max=3.505s graph=11.81s
+=== pass 4770 01:47:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.267 s [route]
+route_bench: n=8 p50=1.162s p95=3.750s max=5.070s graph=11.82s
+=== pass 4771 01:49:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.542 s [route]
+route_bench: n=8 p50=1.188s p95=3.067s max=3.915s graph=12.00s
+=== pass 4772 01:50:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.874 s [route]
+route_bench: n=8 p50=1.029s p95=2.991s max=3.873s graph=13.38s
+=== pass 4773 01:52:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.738 s [route]
+route_bench: n=8 p50=1.074s p95=2.852s max=3.670s graph=13.19s
+=== pass 4774 01:53:32Z ===
+=== pass 1 03:47:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.544 s [route]
+route_bench: n=8 p50=0.971s p95=1.415s max=1.448s graph=10.83s
+=== pass 2 03:48:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.061 s [route]
+route_bench: n=8 p50=0.859s p95=1.141s max=1.274s graph=10.21s
+=== pass 3 03:48:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.091 s [route]
+route_bench: n=8 p50=0.919s p95=1.178s max=1.293s graph=10.21s
+=== pass 4 03:49:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.138 s [route]
+route_bench: n=8 p50=0.929s p95=1.181s max=1.279s graph=10.29s
+=== pass 5 03:49:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.707 s [route]
+route_bench: n=8 p50=1.018s p95=1.349s max=1.491s graph=11.20s
+=== pass 6 03:50:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.120 s [route]
+route_bench: n=8 p50=0.886s p95=1.162s max=1.302s graph=10.28s
+=== pass 7 03:50:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.122 s [route]
+route_bench: n=8 p50=0.896s p95=1.170s max=1.313s graph=10.25s
+=== pass 8 03:51:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.124 s [route]
+route_bench: n=8 p50=0.887s p95=1.160s max=1.293s graph=10.25s
+=== pass 9 03:51:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.116 s [route]
+route_bench: n=8 p50=0.895s p95=1.165s max=1.303s graph=10.36s
+=== pass 10 03:52:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.152 s [route]
+route_bench: n=8 p50=0.885s p95=1.180s max=1.327s graph=10.30s
+=== pass 11 03:52:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.142 s [route]
+route_bench: n=8 p50=0.888s p95=1.165s max=1.299s graph=10.28s
+=== pass 12 03:53:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.196 s [route]
+route_bench: n=8 p50=0.882s p95=1.162s max=1.302s graph=10.34s
+=== pass 13 03:53:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.109 s [route]
+route_bench: n=8 p50=0.903s p95=1.188s max=1.327s graph=10.24s
+=== pass 14 03:54:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.837 s [route]
+route_bench: n=8 p50=0.963s p95=1.315s max=1.449s graph=11.03s
+=== pass 15 03:54:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.147 s [route]
+route_bench: n=8 p50=0.916s p95=1.191s max=1.316s graph=10.30s
+=== pass 16 03:55:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.301 s [route]
+route_bench: n=8 p50=0.929s p95=1.212s max=1.352s graph=10.48s
+=== pass 17 03:55:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.283 s [route]
+route_bench: n=8 p50=0.916s p95=1.213s max=1.363s graph=10.46s
+=== pass 18 03:56:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.323 s [route]
+route_bench: n=8 p50=1.044s p95=1.295s max=1.403s graph=10.51s
+=== pass 19 03:56:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.291 s [route]
+route_bench: n=8 p50=0.951s p95=1.246s max=1.397s graph=10.50s
+=== pass 20 03:57:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.349 s [route]
+route_bench: n=8 p50=0.947s p95=1.253s max=1.401s graph=10.56s
+=== pass 21 03:58:02Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.241 s [route]
+route_bench: n=8 p50=0.914s p95=1.309s max=1.345s graph=10.45s
+=== pass 22 03:58:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.517 s [route]
+route_bench: n=8 p50=0.946s p95=1.370s max=1.564s graph=10.72s
+=== pass 23 03:59:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.272 s [route]
+route_bench: n=8 p50=0.942s p95=1.263s max=1.411s graph=10.63s
+=== pass 24 03:59:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.336 s [route]
+route_bench: n=8 p50=0.931s p95=1.228s max=1.326s graph=10.55s
+=== pass 25 04:00:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.521 s [route]
+route_bench: n=8 p50=0.911s p95=1.208s max=1.361s graph=10.66s
+=== pass 26 04:00:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.593 s [route]
+route_bench: n=8 p50=1.132s p95=1.449s max=1.477s graph=10.80s
+=== pass 27 04:01:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.644 s [route]
+route_bench: n=8 p50=0.910s p95=1.214s max=1.355s graph=11.21s
+=== pass 28 04:01:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.142 s [route]
+route_bench: n=8 p50=0.892s p95=1.163s max=1.293s graph=10.30s
+=== pass 29 04:02:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.229 s [route]
+route_bench: n=8 p50=0.913s p95=1.192s max=1.331s graph=10.36s
+=== pass 30 04:02:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.356 s [route]
+route_bench: n=8 p50=0.931s p95=1.235s max=1.368s graph=10.86s
+=== pass 31 04:03:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.369 s [route]
+route_bench: n=8 p50=0.932s p95=1.987s max=2.530s graph=12.11s
+=== pass 32 04:03:53Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.382 s [route]
+route_bench: n=8 p50=1.090s p95=1.335s max=1.446s graph=10.67s
+=== pass 33 04:04:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.976 s [route]
+route_bench: n=8 p50=0.970s p95=1.581s max=1.721s graph=18.38s
+=== pass 34 04:05:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.768 s [route]
+route_bench: n=8 p50=1.128s p95=1.890s max=2.244s graph=11.21s
+=== pass 35 04:05:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.841 s [route]
+route_bench: n=8 p50=1.069s p95=1.849s max=2.199s graph=13.26s
+=== pass 36 04:06:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.024 s [route]
+route_bench: n=8 p50=1.042s p95=1.582s max=1.849s graph=11.30s
+=== pass 37 04:07:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.770 s [route]
+route_bench: n=8 p50=1.181s p95=1.711s max=1.886s graph=11.11s
+=== pass 38 04:07:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.845 s [route]
+route_bench: n=8 p50=1.142s p95=1.766s max=1.845s graph=11.24s
+=== pass 39 04:08:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.481 s [route]
+route_bench: n=8 p50=1.482s p95=1.965s max=2.142s graph=13.63s
+=== pass 40 04:08:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.405 s [route]
+route_bench: n=8 p50=1.504s p95=2.294s max=2.312s graph=14.67s
+=== pass 41 04:09:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.900 s [route]
+route_bench: n=8 p50=1.038s p95=1.389s max=1.563s graph=13.32s
+=== pass 42 04:10:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.634 s [route]
+route_bench: n=8 p50=1.848s p95=2.730s max=3.039s graph=18.69s
+=== pass 43 04:11:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.428 s [route]
+route_bench: n=8 p50=2.283s p95=2.761s max=2.863s graph=14.27s
+=== pass 44 04:12:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.186 s [route]
+route_bench: n=8 p50=1.525s p95=2.133s max=2.397s graph=15.71s
+=== pass 45 04:12:53Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.451 s [route]
+route_bench: n=8 p50=1.324s p95=1.780s max=1.914s graph=15.39s
+=== pass 46 04:13:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.640 s [route]
+route_bench: n=8 p50=1.547s p95=2.018s max=2.179s graph=16.43s
+=== pass 47 04:14:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.686 s [route]
+route_bench: n=8 p50=1.646s p95=2.172s max=2.189s graph=15.30s
+=== pass 48 04:15:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.629 s [route]
+route_bench: n=8 p50=1.598s p95=2.161s max=2.424s graph=12.26s
+=== pass 49 04:15:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.381 s [route]
+route_bench: n=8 p50=1.534s p95=2.377s max=2.605s graph=17.59s
+=== pass 50 04:16:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.009 s [route]
+route_bench: n=8 p50=1.724s p95=2.386s max=2.555s graph=17.67s
+=== pass 51 04:17:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.834 s [route]
+route_bench: n=8 p50=1.557s p95=2.296s max=2.508s graph=19.19s
+=== pass 52 04:18:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.513 s [route]
+route_bench: n=8 p50=1.750s p95=2.403s max=2.503s graph=17.21s
+=== pass 53 04:19:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.012 s [route]
+route_bench: n=8 p50=1.616s p95=2.869s max=3.277s graph=17.84s
+=== pass 54 04:19:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.244 s [route]
+route_bench: n=8 p50=1.800s p95=2.267s max=2.308s graph=16.50s
+=== pass 55 04:20:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.558 s [route]
+route_bench: n=8 p50=1.861s p95=2.136s max=2.200s graph=14.55s
+=== pass 56 04:21:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.693 s [route]
+route_bench: n=8 p50=1.532s p95=2.212s max=2.408s graph=17.05s
+=== pass 57 04:22:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.892 s [route]
+route_bench: n=8 p50=1.495s p95=1.972s max=2.143s graph=14.55s
+=== pass 58 04:23:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.296 s [route]
+route_bench: n=8 p50=1.699s p95=2.406s max=2.739s graph=14.76s
+=== pass 59 04:23:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.617 s [route]
+route_bench: n=8 p50=1.721s p95=2.235s max=2.452s graph=17.57s
+=== pass 60 04:24:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.079 s [route]
+route_bench: n=8 p50=1.678s p95=1.915s max=1.973s graph=16.16s
+=== pass 61 04:25:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.383 s [route]
+route_bench: n=8 p50=1.931s p95=2.592s max=2.873s graph=17.13s
+=== pass 62 04:26:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          15.103 s [route]
+route_bench: n=8 p50=2.278s p95=2.635s max=2.650s graph=20.09s
+=== pass 63 04:27:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.114 s [route]
+route_bench: n=8 p50=2.206s p95=2.501s max=2.573s graph=20.74s
+=== pass 64 04:28:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.861 s [route]
+route_bench: n=8 p50=1.804s p95=2.426s max=2.705s graph=16.43s
+=== pass 65 04:29:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.110 s [route]
+route_bench: n=8 p50=1.482s p95=2.211s max=2.478s graph=17.59s
+=== pass 66 04:29:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.725 s [route]
+route_bench: n=8 p50=1.976s p95=2.912s max=3.253s graph=18.68s
+=== pass 67 04:30:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.336 s [route]
+route_bench: n=8 p50=1.860s p95=2.506s max=2.711s graph=21.08s
+=== pass 68 04:31:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.186 s [route]
+route_bench: n=8 p50=1.905s p95=2.785s max=2.873s graph=18.63s
+=== pass 69 04:32:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.952 s [route]
+route_bench: n=8 p50=1.852s p95=2.322s max=2.495s graph=18.20s
+=== pass 70 04:33:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.387 s [route]
+route_bench: n=8 p50=1.782s p95=2.187s max=2.254s graph=18.40s
+=== pass 71 04:34:16Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.848 s [route]
+route_bench: n=8 p50=1.868s p95=2.620s max=2.932s graph=19.47s
+=== pass 72 04:35:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.175 s [route]
+route_bench: n=8 p50=2.369s p95=3.027s max=3.154s graph=18.79s
+=== pass 73 04:36:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.903 s [route]
+route_bench: n=8 p50=1.514s p95=2.675s max=3.138s graph=18.47s
+=== pass 74 04:37:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.381 s [route]
+route_bench: n=8 p50=2.326s p95=3.228s max=3.499s graph=18.01s
+=== pass 75 04:38:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.140 s [route]
+route_bench: n=8 p50=1.764s p95=2.910s max=3.381s graph=17.83s
+=== pass 76 04:39:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.619 s [route]
+route_bench: n=8 p50=2.133s p95=3.471s max=3.961s graph=14.47s
+=== pass 77 04:39:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.952 s [route]
+route_bench: n=8 p50=1.486s p95=2.456s max=2.853s graph=17.08s
+=== pass 78 04:40:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.056 s [route]
+route_bench: n=8 p50=2.121s p95=2.893s max=3.076s graph=17.96s
+=== pass 79 04:41:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.816 s [route]
+route_bench: n=8 p50=2.111s p95=2.781s max=2.812s graph=21.54s
+=== pass 80 04:42:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.014 s [route]
+route_bench: n=8 p50=2.092s p95=3.763s max=4.168s graph=22.55s
+=== pass 81 04:43:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.248 s [route]
+route_bench: n=8 p50=2.009s p95=3.240s max=3.659s graph=17.31s
+=== pass 82 04:44:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          17.678 s [route]
+route_bench: n=8 p50=1.968s p95=2.628s max=2.665s graph=26.06s
+=== pass 83 04:45:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          15.983 s [route]
+route_bench: n=8 p50=2.040s p95=3.689s max=3.819s graph=23.12s
+=== pass 84 04:46:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.732 s [route]
+route_bench: n=8 p50=1.800s p95=2.338s max=2.435s graph=15.31s
+=== pass 85 04:47:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.029 s [route]
+route_bench: n=8 p50=1.888s p95=2.458s max=2.627s graph=16.54s
+=== pass 86 04:48:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.720 s [route]
+route_bench: n=8 p50=1.422s p95=2.347s max=2.720s graph=19.01s
+=== pass 87 04:49:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.012 s [route]
+route_bench: n=8 p50=1.649s p95=2.290s max=2.583s graph=16.27s
+=== pass 88 04:49:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.624 s [route]
+route_bench: n=8 p50=1.613s p95=1.883s max=1.898s graph=16.31s
+=== pass 89 04:50:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.128 s [route]
+route_bench: n=8 p50=2.245s p95=2.735s max=2.860s graph=17.26s
+=== pass 90 04:51:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.212 s [route]
+route_bench: n=8 p50=1.792s p95=2.646s max=2.842s graph=19.20s
+=== pass 91 04:52:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.153 s [route]
+route_bench: n=8 p50=1.920s p95=3.199s max=3.837s graph=18.59s
+=== pass 92 04:53:45Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          16.653 s [route]
+route_bench: n=8 p50=2.142s p95=2.752s max=2.870s graph=22.69s
+=== pass 93 04:54:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.968 s [route]
+route_bench: n=8 p50=2.126s p95=3.611s max=4.081s graph=17.92s
+=== pass 94 04:56:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.460 s [route]
+route_bench: n=8 p50=1.491s p95=1.707s max=1.746s graph=20.83s
+=== pass 95 04:57:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.115 s [route]
+route_bench: n=8 p50=1.401s p95=1.666s max=1.771s graph=12.59s
+=== pass 96 04:57:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.479 s [route]
+route_bench: n=8 p50=1.516s p95=2.202s max=2.515s graph=14.26s
+=== pass 97 04:58:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.646 s [route]
+route_bench: n=8 p50=1.260s p95=2.059s max=2.308s graph=16.61s
+=== pass 98 04:59:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.941 s [route]
+route_bench: n=8 p50=1.515s p95=1.909s max=2.066s graph=13.85s
+=== pass 99 05:00:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.712 s [route]
+route_bench: n=8 p50=1.516s p95=1.766s max=1.839s graph=13.40s
+=== pass 100 05:00:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.261 s [route]
+route_bench: n=8 p50=1.473s p95=2.104s max=2.335s graph=12.89s
+=== pass 101 05:01:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.407 s [route]
+route_bench: n=8 p50=2.155s p95=2.803s max=2.903s graph=13.91s
+=== pass 102 05:02:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.167 s [route]
+route_bench: n=8 p50=1.730s p95=2.263s max=2.272s graph=13.53s
+=== pass 103 05:03:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.816 s [route]
+route_bench: n=8 p50=2.021s p95=2.533s max=2.713s graph=16.88s
+=== pass 104 05:03:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.320 s [route]
+route_bench: n=8 p50=1.308s p95=2.990s max=3.685s graph=16.75s
+=== pass 105 05:04:47Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.160 s [route]
+route_bench: n=8 p50=1.646s p95=2.017s max=2.102s graph=16.19s
+=== pass 106 05:05:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.841 s [route]
+route_bench: n=8 p50=1.607s p95=2.281s max=2.454s graph=16.05s
+=== pass 107 05:06:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.509 s [route]
+route_bench: n=8 p50=1.645s p95=2.165s max=2.397s graph=13.93s
+=== pass 108 05:07:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.664 s [route]
+route_bench: n=8 p50=1.510s p95=2.130s max=2.345s graph=14.42s
+=== pass 109 05:07:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.934 s [route]
+route_bench: n=8 p50=1.246s p95=1.986s max=2.166s graph=14.59s
+=== pass 110 05:08:31Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.410 s [route]
+route_bench: n=8 p50=1.628s p95=2.177s max=2.315s graph=16.25s
+=== pass 111 05:09:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          13.175 s [route]
+route_bench: n=8 p50=1.875s p95=2.866s max=3.176s graph=17.40s
+=== pass 112 05:10:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.654 s [route]
+route_bench: n=8 p50=1.727s p95=2.467s max=2.736s graph=14.72s
+=== pass 113 05:10:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.566 s [route]
+route_bench: n=8 p50=1.596s p95=1.821s max=1.907s graph=14.47s
+=== pass 114 05:11:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.054 s [route]
+route_bench: n=8 p50=2.240s p95=2.520s max=2.526s graph=14.84s
+=== pass 115 05:12:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.409 s [route]
+route_bench: n=8 p50=1.715s p95=2.250s max=2.410s graph=13.99s
+=== pass 116 05:13:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.835 s [route]
+route_bench: n=8 p50=1.751s p95=2.399s max=2.701s graph=16.11s
+=== pass 117 05:14:03Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.613 s [route]
+route_bench: n=8 p50=1.626s p95=2.092s max=2.263s graph=16.03s
+=== pass 118 05:14:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          12.905 s [route]
+route_bench: n=8 p50=1.867s p95=2.524s max=2.804s graph=18.29s
+=== pass 119 05:15:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.877 s [route]
+route_bench: n=8 p50=1.747s p95=2.164s max=2.321s graph=17.62s
+=== pass 120 05:16:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.851 s [route]
+route_bench: n=8 p50=1.700s p95=2.634s max=2.904s graph=17.17s
+=== pass 121 05:17:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.650 s [route]
+route_bench: n=8 p50=1.677s p95=2.221s max=2.387s graph=17.57s
+=== pass 122 05:18:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.167 s [route]
+route_bench: n=8 p50=1.731s p95=2.614s max=2.770s graph=14.37s
+=== pass 123 05:18:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.327 s [route]
+route_bench: n=8 p50=1.519s p95=1.856s max=1.941s graph=14.91s
+=== pass 124 05:19:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.034 s [route]
+route_bench: n=8 p50=1.460s p95=1.970s max=2.068s graph=14.06s
+=== pass 125 05:20:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.037 s [route]
+route_bench: n=8 p50=1.861s p95=2.304s max=2.326s graph=13.28s
+=== pass 126 05:21:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          14.023 s [route]
+route_bench: n=8 p50=1.754s p95=2.511s max=2.803s graph=20.45s
+=== pass 127 05:22:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.754 s [route]
+route_bench: n=8 p50=2.119s p95=3.023s max=3.419s graph=16.75s
+=== pass 128 05:22:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          11.180 s [route]
+route_bench: n=8 p50=1.699s p95=1.921s max=1.953s graph=16.22s
+=== pass 129 05:23:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.281 s [route]
+route_bench: n=8 p50=1.413s p95=2.344s max=2.769s graph=14.58s
+=== pass 130 05:24:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.454 s [route]
+route_bench: n=8 p50=1.275s p95=1.539s max=1.596s graph=14.22s
+=== pass 131 05:25:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.692 s [route]
+route_bench: n=8 p50=0.965s p95=1.279s max=1.325s graph=11.04s
+=== pass 132 05:25:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.645 s [route]
+route_bench: n=8 p50=1.270s p95=1.364s max=1.397s graph=12.49s
+=== pass 133 05:26:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.449 s [route]
+route_bench: n=8 p50=1.225s p95=1.517s max=1.609s graph=11.75s
+=== pass 134 05:26:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.595 s [route]
+route_bench: n=8 p50=1.150s p95=1.574s max=1.691s graph=12.51s
+=== pass 135 05:27:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.886 s [route]
+route_bench: n=8 p50=1.352s p95=1.758s max=1.938s graph=13.60s
+=== pass 136 05:28:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.408 s [route]
+route_bench: n=8 p50=1.446s p95=2.237s max=2.423s graph=13.82s
+=== pass 137 05:28:45Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.719 s [route]
+route_bench: n=8 p50=1.255s p95=1.777s max=2.010s graph=14.26s
+=== pass 138 05:29:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.738 s [route]
+route_bench: n=8 p50=1.475s p95=1.942s max=2.071s graph=11.71s
+=== pass 139 05:30:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.967 s [route]
+route_bench: n=8 p50=1.256s p95=1.715s max=1.749s graph=11.84s
+=== pass 140 05:30:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.597 s [route]
+route_bench: n=8 p50=1.233s p95=1.823s max=1.828s graph=12.06s
+=== pass 141 05:31:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.444 s [route]
+route_bench: n=8 p50=1.284s p95=1.708s max=1.738s graph=12.52s
+=== pass 142 05:31:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.865 s [route]
+route_bench: n=8 p50=1.239s p95=1.715s max=1.911s graph=12.59s
+=== pass 143 05:32:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.971 s [route]
+route_bench: n=8 p50=1.261s p95=1.984s max=2.282s graph=12.25s
+=== pass 144 05:33:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.849 s [route]
+route_bench: n=8 p50=1.196s p95=1.606s max=1.798s graph=12.77s
+=== pass 145 05:33:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.329 s [route]
+route_bench: n=8 p50=1.198s p95=1.530s max=1.654s graph=12.32s
+=== pass 146 05:34:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.966 s [route]
+route_bench: n=8 p50=1.369s p95=1.889s max=1.989s graph=12.84s
+=== pass 147 05:35:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.753 s [route]
+route_bench: n=8 p50=1.363s p95=1.633s max=1.685s graph=14.68s
+=== pass 148 05:35:47Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.642 s [route]
+route_bench: n=8 p50=1.626s p95=2.327s max=2.657s graph=15.58s
+=== pass 149 05:36:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.254 s [route]
+route_bench: n=8 p50=1.260s p95=1.725s max=1.913s graph=15.04s
+=== pass 150 05:37:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.271 s [route]
+route_bench: n=8 p50=1.670s p95=1.990s max=2.058s graph=13.88s
+=== pass 151 05:38:07Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.280 s [route]
+route_bench: n=8 p50=0.921s p95=1.220s max=1.362s graph=10.46s
+=== pass 152 05:38:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.551 s [route]
+route_bench: n=8 p50=1.230s p95=1.577s max=1.732s graph=10.77s
+=== pass 153 05:39:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.286 s [route]
+route_bench: n=8 p50=1.140s p95=1.411s max=1.474s graph=10.52s
+=== pass 154 05:39:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.227 s [route]
+route_bench: n=8 p50=0.927s p95=1.240s max=1.386s graph=10.39s
+=== pass 155 05:40:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.286 s [route]
+route_bench: n=8 p50=0.974s p95=1.333s max=1.463s graph=10.46s
+=== pass 156 05:40:45Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.285 s [route]
+route_bench: n=8 p50=1.101s p95=1.410s max=1.477s graph=10.53s
+=== pass 157 05:41:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.458 s [route]
+route_bench: n=8 p50=1.034s p95=1.403s max=1.576s graph=10.71s
+=== pass 158 05:41:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.358 s [route]
+route_bench: n=8 p50=0.989s p95=1.226s max=1.337s graph=10.67s
+=== pass 159 05:42:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.472 s [route]
+route_bench: n=8 p50=1.047s p95=1.292s max=1.402s graph=10.81s
+=== pass 160 05:42:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.364 s [route]
+route_bench: n=8 p50=1.037s p95=1.307s max=1.429s graph=10.78s
+=== pass 161 05:43:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.016 s [route]
+route_bench: n=8 p50=1.030s p95=1.316s max=1.430s graph=11.34s
+=== pass 162 05:43:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.253 s [route]
+route_bench: n=8 p50=1.025s p95=1.331s max=1.479s graph=10.45s
+=== pass 163 05:44:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.502 s [route]
+route_bench: n=8 p50=1.054s p95=1.359s max=1.459s graph=10.86s
+=== pass 164 05:45:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.491 s [route]
+route_bench: n=8 p50=1.066s p95=1.357s max=1.483s graph=10.72s
+=== pass 165 05:45:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.530 s [route]
+route_bench: n=8 p50=0.961s p95=1.290s max=1.450s graph=10.86s
+=== pass 166 05:46:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.645 s [route]
+route_bench: n=8 p50=1.058s p95=1.373s max=1.505s graph=11.58s
+=== pass 167 05:46:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.838 s [route]
+route_bench: n=8 p50=1.026s p95=1.320s max=1.446s graph=11.44s
+=== pass 168 05:47:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.884 s [route]
+route_bench: n=8 p50=0.992s p95=1.287s max=1.366s graph=11.25s
+=== pass 169 05:47:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.448 s [route]
+route_bench: n=8 p50=1.121s p95=1.368s max=1.468s graph=10.92s
+=== pass 170 05:48:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.752 s [route]
+route_bench: n=8 p50=1.136s p95=1.414s max=1.547s graph=10.98s
+=== pass 171 05:49:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.503 s [route]
+route_bench: n=8 p50=1.103s p95=1.372s max=1.488s graph=10.83s
+=== pass 172 05:50:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.955 s [route]
+route_bench: n=8 p50=0.988s p95=1.367s max=1.408s graph=11.21s
+=== pass 173 05:50:39Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.765 s [route]
+route_bench: n=8 p50=1.071s p95=1.357s max=1.494s graph=11.26s
+=== pass 174 05:51:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.671 s [route]
+route_bench: n=8 p50=1.080s p95=1.417s max=1.587s graph=10.95s
+=== pass 175 05:51:45Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.864 s [route]
+route_bench: n=8 p50=1.109s p95=1.398s max=1.519s graph=11.59s
+=== pass 176 05:52:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.705 s [route]
+route_bench: n=8 p50=1.392s p95=1.767s max=1.856s graph=11.52s
+=== pass 177 05:52:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.541 s [route]
+route_bench: n=8 p50=0.970s p95=1.245s max=1.378s graph=10.83s
+=== pass 178 05:53:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.189 s [route]
+route_bench: n=8 p50=0.958s p95=1.197s max=1.313s graph=10.35s
+=== pass 179 05:53:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.175 s [route]
+route_bench: n=8 p50=0.979s p95=1.227s max=1.346s graph=10.31s
+=== pass 180 05:54:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.201 s [route]
+route_bench: n=8 p50=0.980s p95=3.354s max=4.270s graph=10.36s
+=== pass 181 05:55:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.120 s [route]
+route_bench: n=8 p50=0.981s p95=1.256s max=1.391s graph=10.24s
+=== pass 182 05:55:34Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.108 s [route]
+route_bench: n=8 p50=0.962s p95=1.222s max=1.344s graph=10.28s
+=== pass 183 05:56:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.540 s [route]
+route_bench: n=8 p50=0.980s p95=1.207s max=1.318s graph=10.60s
+=== pass 184 05:56:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.037 s [route]
+route_bench: n=8 p50=1.014s p95=1.288s max=1.338s graph=10.09s
+=== pass 185 05:57:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.896 s [route]
+route_bench: n=8 p50=0.973s p95=1.182s max=1.279s graph=9.94s
+=== pass 186 05:57:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.049 s [route]
+route_bench: n=8 p50=0.966s p95=1.214s max=1.335s graph=10.14s
+=== pass 187 05:58:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.144 s [route]
+route_bench: n=8 p50=0.867s p95=1.202s max=1.371s graph=10.46s
+=== pass 188 05:58:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.107 s [route]
+route_bench: n=8 p50=0.897s p95=1.173s max=1.310s graph=10.27s
+=== pass 189 05:59:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.039 s [route]
+route_bench: n=8 p50=0.853s p95=1.111s max=1.242s graph=10.17s
+=== pass 190 05:59:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.934 s [route]
+route_bench: n=8 p50=0.860s p95=1.117s max=1.244s graph=9.98s
+=== pass 191 06:00:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.926 s [route]
+route_bench: n=8 p50=0.857s p95=1.119s max=1.250s graph=9.97s
+=== pass 192 06:00:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.965 s [route]
+route_bench: n=8 p50=0.863s p95=1.115s max=1.242s graph=10.02s
+=== pass 193 06:01:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.201 s [route]
+route_bench: n=8 p50=0.940s p95=1.227s max=1.358s graph=10.28s
+=== pass 194 06:01:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.184 s [route]
+route_bench: n=8 p50=0.886s p95=1.144s max=1.271s graph=10.35s
+=== pass 195 06:02:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.282 s [route]
+route_bench: n=8 p50=0.867s p95=1.447s max=1.736s graph=10.59s
+=== pass 196 06:02:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.959 s [route]
+route_bench: n=8 p50=0.881s p95=1.139s max=1.255s graph=10.07s
+=== pass 197 06:03:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.936 s [route]
+route_bench: n=8 p50=0.848s p95=1.114s max=1.248s graph=10.04s
+=== pass 198 06:03:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.951 s [route]
+route_bench: n=8 p50=0.857s p95=1.116s max=1.248s graph=9.98s
+=== pass 199 06:04:01Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.933 s [route]
+route_bench: n=8 p50=0.861s p95=1.122s max=1.250s graph=9.97s
+=== pass 200 06:04:37Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.994 s [route]
+route_bench: n=8 p50=0.866s p95=1.121s max=1.241s graph=10.06s
+=== pass 201 06:07:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.459 s [route]
+route_bench: n=8 p50=0.927s p95=1.156s max=1.253s graph=10.65s
+=== pass 202 06:07:35Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.847 s [route]
+route_bench: n=8 p50=0.934s p95=1.244s max=1.369s graph=11.24s
+=== pass 203 06:09:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.574 s [route]
+route_bench: n=8 p50=0.945s p95=1.369s max=1.373s graph=10.69s
+=== pass 204 06:10:13Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.078 s [route]
+route_bench: n=8 p50=0.943s p95=1.221s max=1.349s graph=11.31s
+=== pass 205 06:10:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.314 s [route]
+route_bench: n=8 p50=1.064s p95=1.741s max=1.920s graph=10.57s
+=== pass 206 06:11:17Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.280 s [route]
+route_bench: n=8 p50=0.977s p95=1.252s max=1.351s graph=10.70s
+=== pass 207 06:11:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.261 s [route]
+route_bench: n=8 p50=0.940s p95=1.242s max=1.344s graph=10.42s
+=== pass 208 06:12:19Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.485 s [route]
+route_bench: n=8 p50=0.957s p95=1.250s max=1.384s graph=10.67s
+=== pass 209 06:12:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.315 s [route]
+route_bench: n=8 p50=1.042s p95=1.288s max=1.370s graph=10.55s
+=== pass 210 06:13:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.640 s [route]
+route_bench: n=8 p50=1.215s p95=1.971s max=2.021s graph=10.96s
+=== pass 211 06:13:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.607 s [route]
+route_bench: n=8 p50=0.977s p95=1.334s max=1.507s graph=10.90s
+=== pass 212 06:14:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.556 s [route]
+route_bench: n=8 p50=1.045s p95=1.583s max=1.831s graph=10.80s
+=== pass 213 06:15:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.430 s [route]
+route_bench: n=8 p50=0.975s p95=1.848s max=2.304s graph=10.73s
+=== pass 214 06:15:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.423 s [route]
+route_bench: n=8 p50=0.979s p95=1.344s max=1.523s graph=10.66s
+=== pass 215 06:16:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.459 s [route]
+route_bench: n=8 p50=1.012s p95=1.491s max=1.722s graph=10.71s
+=== pass 216 06:16:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.487 s [route]
+route_bench: n=8 p50=1.017s p95=1.734s max=2.062s graph=10.79s
+=== pass 217 06:17:08Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.362 s [route]
+route_bench: n=8 p50=1.080s p95=1.482s max=1.600s graph=11.85s
+=== pass 218 06:17:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.729 s [route]
+route_bench: n=8 p50=1.128s p95=1.525s max=1.623s graph=14.82s
+=== pass 219 06:18:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.100 s [route]
+route_bench: n=8 p50=1.403s p95=1.907s max=2.097s graph=11.82s
+=== pass 220 06:18:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.080 s [route]
+route_bench: n=8 p50=1.438s p95=1.954s max=2.204s graph=14.67s
+=== pass 221 06:19:43Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                          10.558 s [route]
+route_bench: n=8 p50=1.285s p95=1.722s max=1.929s graph=16.47s
+=== pass 222 06:20:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.478 s [route]
+route_bench: n=8 p50=1.427s p95=1.881s max=2.092s graph=13.53s
+=== pass 223 06:21:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           9.454 s [route]
+route_bench: n=8 p50=1.688s p95=2.267s max=2.309s graph=13.82s
+=== pass 224 06:21:49Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.191 s [route]
+route_bench: n=8 p50=1.384s p95=1.898s max=2.147s graph=12.09s
+=== pass 225 06:22:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.385 s [route]
+route_bench: n=8 p50=1.299s p95=1.638s max=1.722s graph=11.94s
+=== pass 226 06:23:05Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.118 s [route]
+route_bench: n=8 p50=1.117s p95=1.663s max=1.912s graph=11.50s
+=== pass 227 06:23:41Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.723 s [route]
+route_bench: n=8 p50=1.121s p95=1.480s max=1.650s graph=11.08s
+=== pass 228 06:24:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.914 s [route]
+route_bench: n=8 p50=1.284s p95=1.988s max=2.324s graph=11.37s
+=== pass 229 06:24:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.262 s [route]
+route_bench: n=8 p50=1.396s p95=1.801s max=1.929s graph=11.85s
+=== pass 230 06:25:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.072 s [route]
+route_bench: n=8 p50=1.380s p95=2.095s max=2.210s graph=11.50s
+=== pass 231 06:26:09Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.033 s [route]
+route_bench: n=8 p50=1.076s p95=1.478s max=1.681s graph=11.85s
+=== pass 232 06:26:44Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.635 s [route]
+route_bench: n=8 p50=1.300s p95=1.475s max=1.505s graph=10.90s
+=== pass 233 06:27:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.398 s [route]
+route_bench: n=8 p50=0.996s p95=1.290s max=1.431s graph=10.66s
+=== pass 234 06:27:50Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.306 s [route]
+route_bench: n=8 p50=0.952s p95=1.239s max=1.378s graph=11.09s
+=== pass 235 06:28:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.163 s [route]
+route_bench: n=8 p50=0.951s p95=1.204s max=1.321s graph=10.31s
+=== pass 236 06:28:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.998 s [route]
+route_bench: n=8 p50=0.923s p95=1.150s max=1.266s graph=10.07s
+=== pass 237 06:29:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.372 s [route]
+route_bench: n=8 p50=1.086s p95=1.459s max=1.610s graph=10.44s
+=== pass 238 06:29:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.309 s [route]
+route_bench: n=8 p50=0.947s p95=1.249s max=1.385s graph=10.54s
+=== pass 239 06:30:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.393 s [route]
+route_bench: n=8 p50=0.991s p95=1.288s max=1.434s graph=10.61s
+=== pass 240 06:30:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.174 s [route]
+route_bench: n=8 p50=0.940s p95=1.210s max=1.342s graph=10.32s
+=== pass 241 06:31:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.035 s [route]
+route_bench: n=8 p50=0.941s p95=1.144s max=1.249s graph=10.14s
+=== pass 242 06:31:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.957 s [route]
+route_bench: n=8 p50=0.925s p95=1.164s max=1.269s graph=10.00s
+=== pass 243 06:32:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.990 s [route]
+route_bench: n=8 p50=0.888s p95=1.157s max=1.292s graph=10.02s
+=== pass 244 06:32:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.952 s [route]
+route_bench: n=8 p50=0.864s p95=1.119s max=1.244s graph=9.99s
+=== pass 245 06:33:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.964 s [route]
+route_bench: n=8 p50=0.862s p95=1.113s max=1.238s graph=10.04s
+=== pass 246 06:33:54Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.930 s [route]
+route_bench: n=8 p50=0.853s p95=1.124s max=1.262s graph=9.98s
+=== pass 247 06:34:22Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.569 s [route]
+route_bench: n=8 p50=0.930s p95=1.196s max=1.312s graph=10.65s
+=== pass 248 06:34:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.520 s [route]
+route_bench: n=8 p50=0.884s p95=1.164s max=1.305s graph=10.69s
+=== pass 249 06:35:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.258 s [route]
+route_bench: n=8 p50=0.910s p95=1.402s max=1.560s graph=10.38s
+=== pass 250 06:35:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.757 s [route]
+route_bench: n=8 p50=1.027s p95=1.187s max=1.265s graph=11.01s
+=== pass 251 06:36:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.261 s [route]
+route_bench: n=8 p50=0.973s p95=1.355s max=1.525s graph=10.53s
+=== pass 252 06:37:00Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.681 s [route]
+route_bench: n=8 p50=0.950s p95=1.253s max=1.357s graph=10.99s
+=== pass 253 06:37:32Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.040 s [route]
+route_bench: n=8 p50=0.936s p95=1.170s max=1.259s graph=10.23s
+=== pass 254 06:39:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.145 s [route]
+route_bench: n=8 p50=0.909s p95=1.191s max=1.319s graph=10.53s
+=== pass 255 06:39:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.762 s [route]
+route_bench: n=8 p50=1.013s p95=1.360s max=1.516s graph=11.07s
+=== pass 256 06:40:23Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.554 s [route]
+route_bench: n=8 p50=0.898s p95=1.363s max=1.578s graph=11.10s
+=== pass 257 06:40:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.044 s [route]
+route_bench: n=8 p50=0.898s p95=1.169s max=1.300s graph=10.17s
+=== pass 258 06:43:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.298 s [route]
+route_bench: n=8 p50=0.941s p95=1.230s max=1.366s graph=10.50s
+=== pass 259 06:44:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.686 s [route]
+route_bench: n=8 p50=0.946s p95=1.241s max=1.368s graph=10.89s
+=== pass 260 06:44:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.195 s [route]
+route_bench: n=8 p50=0.913s p95=1.186s max=1.326s graph=10.37s
+=== pass 261 06:45:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.990 s [route]
+route_bench: n=8 p50=0.876s p95=1.173s max=1.309s graph=10.05s
+=== pass 262 06:45:57Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.965 s [route]
+route_bench: n=8 p50=0.870s p95=1.130s max=1.259s graph=10.04s
+=== pass 263 06:46:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           6.985 s [route]
+route_bench: n=8 p50=0.917s p95=1.234s max=1.269s graph=10.04s
+=== pass 264 06:46:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.240 s [route]
+route_bench: n=8 p50=0.914s p95=1.227s max=1.370s graph=10.31s
+=== pass 265 06:47:25Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.461 s [route]
+route_bench: n=8 p50=0.986s p95=1.276s max=1.377s graph=10.81s
+=== pass 266 06:47:56Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.677 s [route]
+route_bench: n=8 p50=0.966s p95=1.267s max=1.377s graph=11.05s
+=== pass 267 06:48:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.756 s [route]
+route_bench: n=8 p50=0.975s p95=1.390s max=1.609s graph=10.88s
+=== pass 268 06:48:58Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.670 s [route]
+route_bench: n=8 p50=0.957s p95=1.371s max=1.582s graph=11.05s
+=== pass 269 06:49:29Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.271 s [route]
+route_bench: n=8 p50=0.903s p95=1.267s max=1.351s graph=10.47s
+=== pass 270 06:50:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.284 s [route]
+route_bench: n=8 p50=0.902s p95=1.424s max=1.429s graph=10.48s
+=== pass 271 06:50:45Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.055 s [route]
+route_bench: n=8 p50=0.900s p95=1.196s max=1.330s graph=10.15s
+=== pass 272 06:51:14Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.246 s [route]
+route_bench: n=8 p50=0.942s p95=1.214s max=1.334s graph=10.50s
+=== pass 273 06:51:45Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.313 s [route]
+route_bench: n=8 p50=0.924s p95=1.225s max=1.352s graph=10.51s
+=== pass 274 06:52:15Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.687 s [route]
+route_bench: n=8 p50=0.978s p95=1.303s max=1.467s graph=10.84s
+=== pass 275 06:52:48Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.289 s [route]
+route_bench: n=8 p50=0.931s p95=1.230s max=1.352s graph=10.49s
+=== pass 276 06:53:20Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.781 s [route]
+route_bench: n=8 p50=0.983s p95=1.279s max=1.425s graph=11.04s
+=== pass 277 06:53:51Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.271 s [route]
+route_bench: n=8 p50=0.931s p95=1.245s max=1.393s graph=10.46s
+=== pass 278 06:54:21Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.799 s [route]
+route_bench: n=8 p50=0.971s p95=1.240s max=1.360s graph=11.15s
+=== pass 279 06:54:53Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.541 s [route]
+route_bench: n=8 p50=0.941s p95=1.243s max=1.379s graph=10.85s
+=== pass 280 06:55:24Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.387 s [route]
+route_bench: n=8 p50=0.979s p95=1.270s max=1.422s graph=10.86s
+=== pass 281 06:55:55Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.263 s [route]
+route_bench: n=8 p50=0.958s p95=1.265s max=1.420s graph=10.48s
+=== pass 282 06:56:28Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.198 s [route]
+route_bench: n=8 p50=0.949s p95=1.238s max=1.354s graph=10.41s
+=== pass 283 06:56:59Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.012 s [route]
+route_bench: n=8 p50=0.980s p95=1.330s max=1.489s graph=11.50s
+=== pass 284 06:57:30Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.324 s [route]
+route_bench: n=8 p50=0.935s p95=1.250s max=1.386s graph=10.54s
+=== pass 285 06:58:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.305 s [route]
+route_bench: n=8 p50=0.959s p95=1.281s max=1.405s graph=10.59s
+=== pass 286 06:58:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.060 s [route]
+route_bench: n=8 p50=0.992s p95=1.335s max=1.442s graph=11.55s
+=== pass 287 06:59:11Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.289 s [route]
+route_bench: n=8 p50=0.927s p95=1.241s max=1.345s graph=10.66s
+=== pass 288 06:59:42Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.741 s [route]
+route_bench: n=8 p50=0.946s p95=1.261s max=1.410s graph=11.03s
+=== pass 289 07:00:27Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.857 s [route]
+route_bench: n=8 p50=0.985s p95=1.304s max=1.442s graph=11.32s
+=== pass 290 07:01:04Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.489 s [route]
+route_bench: n=8 p50=0.989s p95=1.291s max=1.448s graph=10.75s
+=== pass 291 07:01:36Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.605 s [route]
+route_bench: n=8 p50=0.911s p95=1.170s max=1.283s graph=10.88s
+=== pass 292 07:02:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.525 s [route]
+route_bench: n=8 p50=0.957s p95=1.356s max=1.553s graph=11.00s
+=== pass 293 07:02:38Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.421 s [route]
+route_bench: n=8 p50=1.010s p95=1.281s max=1.416s graph=10.64s
+=== pass 294 07:03:12Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.278 s [route]
+route_bench: n=8 p50=1.036s p95=1.377s max=1.401s graph=10.49s
+=== pass 295 07:06:10Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.437 s [route]
+route_bench: n=8 p50=1.118s p95=1.400s max=1.437s graph=10.73s
+=== pass 296 07:07:33Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.455 s [route]
+route_bench: n=8 p50=1.003s p95=1.533s max=1.656s graph=11.09s
+=== pass 297 07:08:06Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.521 s [route]
+route_bench: n=8 p50=0.998s p95=1.674s max=1.804s graph=12.08s
+=== pass 298 07:08:40Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           8.105 s [route]
+route_bench: n=8 p50=1.295s p95=1.965s max=2.123s graph=11.48s
+=== pass 299 07:09:18Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.456 s [route]
+route_bench: n=8 p50=1.046s p95=1.528s max=1.643s graph=11.04s
+=== pass 300 07:09:52Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.654 s [route]
+route_bench: n=8 p50=1.056s p95=1.877s max=2.035s graph=10.93s
+=== pass 301 07:10:26Z ===
+[FLOWS-TIMING] build_route_segments cold body (live)                           7.438 s [route]

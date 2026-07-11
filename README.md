@@ -6,7 +6,7 @@
 
 **One map. Every official hazard. A route that respects what's actually happening on the road.**
 
-FLOWS fuses the firehose of federal and provincial weather, hydrology, fire, air, radiation, seismic, and roadway feeds into a single readable map — then plans a route that understands the difference between *a forecast of rain* and *a road that is actually underwater*. It is a native Apple app (macOS, iOS, iPadOS, watchOS, CarPlay) built on a pure-Rust compute core and an R risk engine, using only official public data. No paid subscription. No black-box scoring.
+FLOWS fuses the firehose of federal and provincial weather, hydrology, fire, air, radiation, seismic, and roadway feeds into a single readable map — then plans a route that understands the difference between *a forecast of rain* and *a road that is actually underwater*. It is a native Apple app (macOS, iOS, iPadOS, watchOS, CarPlay) built on a pure-Rust compute core — one system, end to end — using only official public data. No paid subscription. No black-box scoring.
 
 <p align="center">
   <img src="images/architecture.svg" alt="FLOWS architecture" width="92%">
@@ -22,7 +22,7 @@ FLOWS fuses the firehose of federal and provincial weather, hydrology, fire, air
   <img src="images/risk_model.svg" alt="Two-tier realized-risk model" width="92%">
 </p>
 
-- **Continental coverage, ZIP-precise.** A 33,300-ZIP on-device risk field (the R engine's scored ZIPs preserved byte-for-byte, plus per-ZIP seasonal climatology) backs the whole US, enriched live by NWS, USGS, FEMA, SPC, HMS, WZDx and more across the US, Canada (ECCC), and Mexico (SMN).
+- **Continental coverage, ZIP-precise.** A 33,300-ZIP on-device risk field — 20 years of NOAA Storm Events history per ZIP × week, reconstructed week-correct on device — backs the whole US uniformly (every state runs on the same system), enriched live by NWS, USGS, FEMA, SPC, HMS, WZDx and more across the US, Canada (ECCC), and Mexico (SMN).
 
 - **Climate-aware, season-aware.** Every location is typed into one of 12 Köppen-style climates computed from geography, so 95 °F reads as dangerous heat in marine Seattle but a normal afternoon in Phoenix. Temperature and wind only surface on the map when they exceed the **regional and seasonal** normal — "normal for here, right now" stays quiet.
 
@@ -53,18 +53,17 @@ FLOWS fuses the firehose of federal and provincial weather, hydrology, fire, air
 
 ## The stack
 
-FLOWS ships exactly three languages, by rule: **Rust** (core algorithms + on-device training), **AArch64 assembly** (the one proven polyline hot loop), and **Swift** (the app). No Python, JavaScript, or interpreter runs in or ships with the product — Python is used only as repo tooling for one-off data checks. Dependencies are taken only when owning the code would be worse; `flows-train` is pure standard library with an empty dependency list.
+FLOWS ships exactly three languages, by rule: **Rust** (core algorithms, data pipelines, on-device training), **AArch64 assembly** (the one proven polyline hot loop), and **Swift** (the app). The original Wisconsin R engine has been fully retired — its scoring survives as pinned test fixtures and its 20-year successor pipeline runs in pure Rust. No Python, JavaScript, or interpreter runs in or ships with the product — Python is used only as repo tooling for one-off data checks. Dependencies are taken only when owning the code would be worse; `flows-train` is pure standard library with an empty dependency list.
 
 ```
 apple/FLOWS/Sources/     Swift app — Core/ (services), UI/, FLOWSApp.swift
 rust/flows-core/         risk · scoring · polyline (+asm) · routing/CH · transit (RAPTOR + GTFS/.ftt) · FFI
 rust/flows-train/        pure-std ranking-head trainer + national climatology bundle generator
-R/                       the risk engine + reference oracle (byte-identity target for Rust)
 scripts/                 bundle export, GTFS fetch/build, sync
 docs/                    ARCHITECTURE · APPLE_APP · TRANSIT_ROUTING · DATA_FEEDS · TESTING_STRATEGY · LEARNINGS
 ```
 
-**Tested:** 153 Swift XCTest + 66 Rust tests, zero compiler warnings. The Rust risk/scoring paths are held byte-identical to their R oracle; the RAPTOR engine is gated against a Dijkstra reference.
+**Tested:** 159 Swift XCTest + 87 Rust tests, zero compiler warnings. The risk/scoring paths are pinned byte-identical to their original reference oracle's frozen fixtures; the RAPTOR engine is gated against a Dijkstra reference.
 
 ---
 

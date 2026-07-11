@@ -17,10 +17,12 @@
 		081C7393A6AA350BFE800F48 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D270A4D35CC38D9CEDC327 /* WatchLink.swift */; };
 		09A0F477A65A8311F75F6A2C /* ThrottledNet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */; };
 		0D1D107640FD08B5488762CF /* truckstop_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = AB05FCE6C6411AC6C6E9D236 /* truckstop_showers.json */; };
+		0D245330F9C5180C24BBE417 /* HarmonicClimatology.swift in Sources */ = {isa = PBXBuildFile; fileRef = E352D1AA39EE8B25F4A4FBAF /* HarmonicClimatology.swift */; };
 		11570540AD1F7A4D714F13AB /* RatingsAndCost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B43AC2E39D3B9A3A553597 /* RatingsAndCost.swift */; };
 		1279DA0F6D686C4AECF0FD1C /* BreadcrumbTrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA10025CB1A206B47D99C1FE /* BreadcrumbTrail.swift */; };
 		13345D60F3F742436161BBDF /* AlertEntityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */; };
 		1358E5D621CB66E6538ED943 /* TowingLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */; };
+		137C0141C25AEF5E5521504C /* PlacesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7094CB95CBD9B5E673E8EB98 /* PlacesStore.swift */; };
 		14A4FF0344CF9C3A5070BB5A /* HazardStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80F7CC1237BC384F3E7BCD00 /* HazardStyle.swift */; };
 		1503DA25723766643E5E3711 /* TripCosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD9764EC4A927905A1053DE /* TripCosts.swift */; };
 		171B4533351A78F1308BA449 /* ThrottledNet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */; };
@@ -52,6 +54,7 @@
 		4023C6391BF28B32CCA1DD27 /* CrashLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4840B504301BB03ADEE64984 /* CrashLogic.swift */; };
 		413D1B070FFE12F5D21F37E9 /* ClimateProfilesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498C7D51DCCCB8C68F30B651 /* ClimateProfilesTests.swift */; };
 		415A8A4254D607A8C10017E8 /* RouteChoicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3243FAC8D76AFEF091B42EA4 /* RouteChoicesView.swift */; };
+		416E55A0123695FD147FDE2A /* baseline_route_head.json in Resources */ = {isa = PBXBuildFile; fileRef = 909FC379707B66607F41338C /* baseline_route_head.json */; };
 		44FD7B626FDDF3298EFB681A /* SeasonalRiskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CAD2963165FE9441694108 /* SeasonalRiskModel.swift */; };
 		46AC7FC072E5F0CC473D3C22 /* PursuitReach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */; };
 		46CF1ACD43CDFB232FAE573A /* GradeProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */; };
@@ -69,6 +72,7 @@
 		5F44D5C31633F49754BA83AA /* AlertEntityParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */; };
 		5FECCED419AA387017DA1E52 /* ImminentAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */; };
 		625E135D51D7B7EB2EBEE9DF /* LatitudeBands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DFE64796AB0A24A80F77ED3 /* LatitudeBands.swift */; };
+		6300D3574BFB417C2E2BBA99 /* HarmonicClimatology.swift in Sources */ = {isa = PBXBuildFile; fileRef = E352D1AA39EE8B25F4A4FBAF /* HarmonicClimatology.swift */; };
 		631CD3A5DA8F8652488CC509 /* LiveHazardFeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */; };
 		665312EC58A8BCAD00DD9885 /* VehicleSpecs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDB7A95B830D374447FC250 /* VehicleSpecs.swift */; };
 		66980B460BE0B474C2D6CA05 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */; };
@@ -83,6 +87,7 @@
 		7249F7E75C5CEA681908B7B1 /* RouteAttributesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B8206B116C735B809D578F /* RouteAttributesTests.swift */; };
 		7273A3DCAA01BBA67E573F42 /* NWSForecastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */; };
 		73526BF97C0527409E6061A7 /* RiskAdvice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8D352D8475825EDF70ED41 /* RiskAdvice.swift */; };
+		73A9C1F4C9656CEC972DE591 /* PlacesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7094CB95CBD9B5E673E8EB98 /* PlacesStore.swift */; };
 		73BBB96428C3A7E3A4D57C5D /* TowingLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */; };
 		74461F51DAF9DBFEDB13F2D7 /* ThrottledNet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF77890D6C4FFAEF87AE74D /* ThrottledNet.swift */; };
 		75965E9FE0F1437F2C22327D /* ImminentAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */; };
@@ -90,6 +95,7 @@
 		77D805A4E8A0F7E64D55C6B2 /* POIRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660C3752BEC9BCB24CCBE592 /* POIRanking.swift */; };
 		785F1EAB0FC453D1A6E05570 /* TowingLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */; };
 		7869D1BCA1BD5EF8E887C533 /* app_risk_bundle.json in Resources */ = {isa = PBXBuildFile; fileRef = F1B1558593E1236C5903FC8F /* app_risk_bundle.json */; };
+		7AB89BEF2D8E33DA16C461B5 /* HarmonicClimatologyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DAD9925D8BD6EF8243818F /* HarmonicClimatologyTests.swift */; };
 		7C83F59B6812832493327A60 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98F1803FA29F2721B8CF0DA /* LocationService.swift */; };
 		7C89F9027F44BC05B3726EBF /* FuelPrices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94900C29B51436EB845A8017 /* FuelPrices.swift */; };
 		7D1C3258E6ABB49967ACA3A3 /* pilot_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */; };
@@ -120,6 +126,7 @@
 		9D83B9F840D7AC9EC982296B /* TripCosts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CD9764EC4A927905A1053DE /* TripCosts.swift */; };
 		9DBA5EDAA33C82AC715F98C3 /* MusicController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FEE024E49714F6E7FEFCC5 /* MusicController.swift */; };
 		9E13F5D3462914ADD7AC9616 /* LiveHazardFeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */; };
+		9F689E9BACBE143C27533C0A /* PlacesStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7094CB95CBD9B5E673E8EB98 /* PlacesStore.swift */; };
 		9F73AA9AA2A957A932B3CE9D /* PrimarySources.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */; };
 		A29396CF4B5A135CE6CA4CED /* RatingsAndCost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14B43AC2E39D3B9A3A553597 /* RatingsAndCost.swift */; };
 		A4521612BE8FCEACFEA5CDC1 /* FLOWSIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D780B10436F13E4DEDBA089 /* FLOWSIntents.swift */; };
@@ -150,6 +157,7 @@
 		C73E07362F8731EC924D04E5 /* loves_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */; };
 		C77F19C7CE5576B634FDEF3B /* TripNeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B29AF923878F8DC45AA9E25 /* TripNeeds.swift */; };
 		C89953D73BA9BED62B2360FD /* ZipBordersAndTransit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35065E2E293E04B3080DA2BD /* ZipBordersAndTransit.swift */; };
+		C911F7B5E0411E8DC9D1CE08 /* HarmonicClimatology.swift in Sources */ = {isa = PBXBuildFile; fileRef = E352D1AA39EE8B25F4A4FBAF /* HarmonicClimatology.swift */; };
 		C984AE7BD4D0E64ACFF24F8D /* PlannerPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D241E02FF76FBC66A5408982 /* PlannerPanel.swift */; };
 		CA129A41CBF8FF1D4862AFFE /* CrashDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A12A70BF2FE71B85B917003 /* CrashDetectionService.swift */; };
 		CBF544777B2D5F7F920F13A6 /* CrashLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4840B504301BB03ADEE64984 /* CrashLogic.swift */; };
@@ -185,12 +193,14 @@
 		F2A638CD0A7CE57D90692756 /* DriverFeaturesTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B721807ED6A56A943CAFE7 /* DriverFeaturesTests.swift */; };
 		F6151D4635E5B25DDE4FEDD1 /* WatchLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8D270A4D35CC38D9CEDC327 /* WatchLink.swift */; };
 		F646A5D19711B3A2C7BD27CB /* WatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D57322EEEDA214E20080BA2B /* WatchApp.swift */; };
+		F64ED318EFC228FCE379886F /* baseline_route_head.json in Resources */ = {isa = PBXBuildFile; fileRef = 909FC379707B66607F41338C /* baseline_route_head.json */; };
 		F76E6C8F642EC11B46BB4A6C /* ClimateProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */; };
 		F988317D4413E99F78A2B2A8 /* ClimateProfiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */; };
 		FBA811E46E61A27F6B365756 /* FilterLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EDC9355A222A2C521A1FB4 /* FilterLimits.swift */; };
 		FBAFF13C64A975E0FB300EF2 /* EPAVehicleDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */; };
 		FD5F21BC42BAF96C94849983 /* LiveHazardFeeds.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C7DC198BF2E624204EF0C6F /* LiveHazardFeeds.swift */; };
 		FD9169634DF9F4C33099F864 /* VehicleLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 957EC938EF77F8E1C6D9CF1B /* VehicleLink.swift */; };
+		FE8C10B9FA38684A945FFDB9 /* PlacesStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3FC30C0E8ABBB8AF38392CA /* PlacesStoreTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -234,6 +244,7 @@
 		1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = loves_city_showers.json; sourceTree = "<group>"; };
 		1F32FE3D4D911C97E346CE1E /* StoresAndCostsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoresAndCostsTests.swift; sourceTree = "<group>"; };
 		1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NWSForecastService.swift; sourceTree = "<group>"; };
+		20DAD9925D8BD6EF8243818F /* HarmonicClimatologyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarmonicClimatologyTests.swift; sourceTree = "<group>"; };
 		28A1625FE016A49A6544C167 /* CarPlaySceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlaySceneDelegate.swift; sourceTree = "<group>"; };
 		2D780B10436F13E4DEDBA089 /* FLOWSIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FLOWSIntents.swift; sourceTree = "<group>"; };
 		2DD80CC155E7A70DB135E1C3 /* nwr_stations.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = nwr_stations.json; sourceTree = "<group>"; };
@@ -259,6 +270,7 @@
 		660C3752BEC9BCB24CCBE592 /* POIRanking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = POIRanking.swift; sourceTree = "<group>"; };
 		66ECF897B5191C189DA09896 /* FlowsCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowsCore.swift; sourceTree = "<group>"; };
 		6A12A70BF2FE71B85B917003 /* CrashDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDetectionService.swift; sourceTree = "<group>"; };
+		7094CB95CBD9B5E673E8EB98 /* PlacesStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacesStore.swift; sourceTree = "<group>"; };
 		74AA571CE51632FF23C95AF6 /* FLOWSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FLOWSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPAVehicleDatabase.swift; sourceTree = "<group>"; };
 		777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WMOAlerts.swift; sourceTree = "<group>"; };
@@ -267,6 +279,7 @@
 		821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = pilot_city_showers.json; sourceTree = "<group>"; };
 		89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImminentAlerts.swift; sourceTree = "<group>"; };
 		8FA4730BF33DCE1D5A1FD1A5 /* BadgeClustering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BadgeClustering.swift; sourceTree = "<group>"; };
+		909FC379707B66607F41338C /* baseline_route_head.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = baseline_route_head.json; sourceTree = "<group>"; };
 		92059E95929EBF8526200AFB /* VehicleProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VehicleProfile.swift; sourceTree = "<group>"; };
 		927DC1146BF6ABDD212FA6B8 /* ClimateProfiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClimateProfiles.swift; sourceTree = "<group>"; };
 		94900C29B51436EB845A8017 /* FuelPrices.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuelPrices.swift; sourceTree = "<group>"; };
@@ -278,6 +291,7 @@
 		9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PursuitReach.swift; sourceTree = "<group>"; };
 		AB05FCE6C6411AC6C6E9D236 /* truckstop_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = truckstop_showers.json; sourceTree = "<group>"; };
 		B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B3FC30C0E8ABBB8AF38392CA /* PlacesStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacesStoreTests.swift; sourceTree = "<group>"; };
 		BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GradeProfile.swift; sourceTree = "<group>"; };
 		C5D8E2CA6888FA3CFDB9C2B8 /* Mobility.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Mobility.swift; sourceTree = "<group>"; };
 		C7BE6A60E54AD418C7E7E6EE /* TruckerRadio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TruckerRadio.swift; sourceTree = "<group>"; };
@@ -293,6 +307,7 @@
 		DA10025CB1A206B47D99C1FE /* BreadcrumbTrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BreadcrumbTrail.swift; sourceTree = "<group>"; };
 		DAC3EA401E6BE217380A0C4F /* NavigationHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationHUD.swift; sourceTree = "<group>"; };
 		E2B721807ED6A56A943CAFE7 /* DriverFeaturesTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverFeaturesTests.swift; sourceTree = "<group>"; };
+		E352D1AA39EE8B25F4A4FBAF /* HarmonicClimatology.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HarmonicClimatology.swift; sourceTree = "<group>"; };
 		E454CC9A197F0FCE1964BEB1 /* AlertEntityParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertEntityParser.swift; sourceTree = "<group>"; };
 		E622A3A8CCD46CD59FF2E67B /* SeasonalModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeasonalModelTests.swift; sourceTree = "<group>"; };
 		E809B4608904D3C0EA6C78A1 /* SafetyAndGradeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyAndGradeTests.swift; sourceTree = "<group>"; };
@@ -347,6 +362,7 @@
 			children = (
 				F1B1558593E1236C5903FC8F /* app_risk_bundle.json */,
 				B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */,
+				909FC379707B66607F41338C /* baseline_route_head.json */,
 				1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */,
 				2DD80CC155E7A70DB135E1C3 /* nwr_stations.json */,
 				821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */,
@@ -363,9 +379,11 @@
 				498C7D51DCCCB8C68F30B651 /* ClimateProfilesTests.swift */,
 				F80CC13F27F247797796E314 /* CoreTests.swift */,
 				E2B721807ED6A56A943CAFE7 /* DriverFeaturesTests.swift */,
+				20DAD9925D8BD6EF8243818F /* HarmonicClimatologyTests.swift */,
 				404296F265115CEEC15BD520 /* HybridVanScenarioTests.swift */,
 				9788A5323906C6CC57E713D7 /* IntlWeatherParsingTests.swift */,
 				12B0928B1B52B3C040A82C88 /* LatitudeBandsTests.swift */,
+				B3FC30C0E8ABBB8AF38392CA /* PlacesStoreTests.swift */,
 				012F8F7863B7F0C83AC7D26C /* POIRankingTests.swift */,
 				631CB6CB23C47B6C896233F7 /* RiskEquationsTests.swift */,
 				44F3AEAFEDE264D6C97F91D1 /* RiskEquationVectors.swift */,
@@ -394,6 +412,7 @@
 				66ECF897B5191C189DA09896 /* FlowsCore.swift */,
 				94900C29B51436EB845A8017 /* FuelPrices.swift */,
 				BEAE1E5F7ED24C90AEB58067 /* GradeProfile.swift */,
+				E352D1AA39EE8B25F4A4FBAF /* HarmonicClimatology.swift */,
 				89A401C4E58BD287E1B5883C /* ImminentAlerts.swift */,
 				0EAEA23440AB17AFF40DFE6E /* InternationalWeather.swift */,
 				0DFE64796AB0A24A80F77ED3 /* LatitudeBands.swift */,
@@ -403,6 +422,7 @@
 				05FEE024E49714F6E7FEFCC5 /* MusicController.swift */,
 				D3FCCB9BAC0B87101B634C86 /* NavigationEngine.swift */,
 				1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */,
+				7094CB95CBD9B5E673E8EB98 /* PlacesStore.swift */,
 				660C3752BEC9BCB24CCBE592 /* POIRanking.swift */,
 				0F96A5B64C54FCF03FA44A6A /* POIService.swift */,
 				FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */,
@@ -588,6 +608,7 @@
 			files = (
 				66980B460BE0B474C2D6CA05 /* Assets.xcassets in Resources */,
 				7869D1BCA1BD5EF8E887C533 /* app_risk_bundle.json in Resources */,
+				416E55A0123695FD147FDE2A /* baseline_route_head.json in Resources */,
 				C73E07362F8731EC924D04E5 /* loves_city_showers.json in Resources */,
 				3BE6F6ED6FC2136FE5CAE996 /* nwr_stations.json in Resources */,
 				8B8EAF4AD0B7BE039D0BC1C2 /* pilot_city_showers.json in Resources */,
@@ -602,6 +623,7 @@
 			files = (
 				C564A8D0331C8C005BBC4A31 /* Assets.xcassets in Resources */,
 				887288077C6C4AE5B536B2D4 /* app_risk_bundle.json in Resources */,
+				F64ED318EFC228FCE379886F /* baseline_route_head.json in Resources */,
 				010034D00B2174D20CA1F122 /* loves_city_showers.json in Resources */,
 				DD3F8BB1EA4C3DDDE6E1F03F /* nwr_stations.json in Resources */,
 				7D1C3258E6ABB49967ACA3A3 /* pilot_city_showers.json in Resources */,
@@ -681,6 +703,8 @@
 				197194ECC918FAB748F05AE5 /* FlowsCore.swift in Sources */,
 				ED27D7FDFCED68922EA71B6E /* FuelPrices.swift in Sources */,
 				46CF1ACD43CDFB232FAE573A /* GradeProfile.swift in Sources */,
+				6300D3574BFB417C2E2BBA99 /* HarmonicClimatology.swift in Sources */,
+				7AB89BEF2D8E33DA16C461B5 /* HarmonicClimatologyTests.swift in Sources */,
 				71DBB04A9013C15FA8B160F2 /* HybridVanScenarioTests.swift in Sources */,
 				75965E9FE0F1437F2C22327D /* ImminentAlerts.swift in Sources */,
 				52E499EA4952D1C9DA646B33 /* InternationalWeather.swift in Sources */,
@@ -691,6 +715,8 @@
 				2B4DED3735C02379F988EF1C /* NWSForecastService.swift in Sources */,
 				CE5AD29464EB287552370095 /* POIRanking.swift in Sources */,
 				E33326532B3FE275A353B3E7 /* POIRankingTests.swift in Sources */,
+				137C0141C25AEF5E5521504C /* PlacesStore.swift in Sources */,
+				FE8C10B9FA38684A945FFDB9 /* PlacesStoreTests.swift in Sources */,
 				9F73AA9AA2A957A932B3CE9D /* PrimarySources.swift in Sources */,
 				46AC7FC072E5F0CC473D3C22 /* PursuitReach.swift in Sources */,
 				2A85E17486B536522BBD643C /* RatingsAndCost.swift in Sources */,
@@ -741,6 +767,7 @@
 				1E7C8182E23277114E5F030C /* FlowsCore.swift in Sources */,
 				320AEB655CAFD2249F67B5DE /* FuelPrices.swift in Sources */,
 				365C3296D6244498D8C5440B /* GradeProfile.swift in Sources */,
+				0D245330F9C5180C24BBE417 /* HarmonicClimatology.swift in Sources */,
 				CF0BBE2B4397098CEF789F9B /* HazardStyle.swift in Sources */,
 				5FECCED419AA387017DA1E52 /* ImminentAlerts.swift in Sources */,
 				D0F01AE6A4226BC24972D947 /* InternationalWeather.swift in Sources */,
@@ -754,6 +781,7 @@
 				E64EDEAC94E9BC49C40B95AE /* NavigationHUD.swift in Sources */,
 				77D805A4E8A0F7E64D55C6B2 /* POIRanking.swift in Sources */,
 				1D426A8BA1080D1DA4B26430 /* POIService.swift in Sources */,
+				73A9C1F4C9656CEC972DE591 /* PlacesStore.swift in Sources */,
 				C984AE7BD4D0E64ACFF24F8D /* PlannerPanel.swift in Sources */,
 				1F3C3F5B233F5856BA2E7309 /* PrimarySources.swift in Sources */,
 				D9BBD25136FC685A78FAAE76 /* PursuitReach.swift in Sources */,
@@ -807,6 +835,7 @@
 				D65BBE4BC8CC6259E1493CF7 /* FlowsCore.swift in Sources */,
 				7C89F9027F44BC05B3726EBF /* FuelPrices.swift in Sources */,
 				D9F0C18C1268C424CD4064D6 /* GradeProfile.swift in Sources */,
+				C911F7B5E0411E8DC9D1CE08 /* HarmonicClimatology.swift in Sources */,
 				14A4FF0344CF9C3A5070BB5A /* HazardStyle.swift in Sources */,
 				C5CE51F3962B9E517372E028 /* ImminentAlerts.swift in Sources */,
 				681C3F2F93143D41B3DBB0B1 /* InternationalWeather.swift in Sources */,
@@ -820,6 +849,7 @@
 				B7C8FA99AE047DE30F6C94D6 /* NavigationHUD.swift in Sources */,
 				C4F5CD5CD5771E13D3344B8C /* POIRanking.swift in Sources */,
 				B7BE2CE331F05F11F6FE96EE /* POIService.swift in Sources */,
+				9F689E9BACBE143C27533C0A /* PlacesStore.swift in Sources */,
 				184A3C4AD4CA990EC7E8B455 /* PlannerPanel.swift in Sources */,
 				86635AC86026D781C4475FCF /* PrimarySources.swift in Sources */,
 				BBE74598D75C120739804AA2 /* PursuitReach.swift in Sources */,
