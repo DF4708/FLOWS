@@ -1010,8 +1010,9 @@ actor LiveHazardFeedFetcher {
     /// feed doesn't re-fetch every sweep.
     private var closureCache: [String: (Date, [(lat: Double, lon: Double)])] = [:]
 
-    /// Rough state bounding boxes (CONUS) — picks which feeds serve a viewport.
-    private static let stateBBoxes: [String: (s: Double, w: Double, n: Double, e: Double)] = [
+    /// Rough state bounding boxes (CONUS) — picks which feeds serve a viewport
+    /// (also reused by PlacesStore to resolve a point's state shard).
+    static let stateBBoxes: [String: (s: Double, w: Double, n: Double, e: Double)] = [
         "AL": (30.1, -88.5, 35.0, -84.9), "AZ": (31.3, -114.8, 37.0, -109.0),
         "AR": (33.0, -94.6, 36.5, -89.6), "CA": (32.5, -124.4, 42.0, -114.1),
         "CO": (37.0, -109.1, 41.0, -102.0), "CT": (41.0, -73.7, 42.1, -71.8),
