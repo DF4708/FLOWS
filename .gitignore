@@ -58,7 +58,7 @@ apple/DerivedData/
 .claude/worktrees/
 .claude/settings.local.json
 
-# App risk bundle copies are generated (scripts/export_app_risk_bundle.R)
+# App risk bundle copies are generated (rust national-bundle + history-baseline)
 apple/FLOWS/Resources/app_risk_bundle.json
 
 # Re-downloadable reference data (Census gazetteer, scrape backups)

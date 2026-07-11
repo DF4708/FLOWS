@@ -160,7 +160,7 @@ run_gate() {
 }
 
 # Memory governor (bash-side). Computes macOS "memory pressure" used% the
-# same way R/resource_governor.R does (wired + active + compressed) / total,
+# (wired + active + compressed) / total — the same memory-pressure formula
 # and BLOCKS the runner until usage drops below the ceiling so the test loop
 # never pushes the system past MEM_CEILING_PCT given other background tasks.
 MEM_CEILING_PCT="${FLOWS_MEM_CEILING_PCT:-90}"
@@ -220,85 +220,39 @@ while true; do
   printf '{"runner":"governor","event":"pass_start","used_pct":%s,"ceiling":%s,"pass":%d,"timestamp":"%s"}\n' \
     "$(memory_used_pct)" "$MEM_CEILING_PCT" "$pass_number" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$RESULTS"
 
-  # CONUS router validation on the REAL WI graph vs A* — self-governing (runs
-  # only when mem < its threshold, else defers). Placed HERE, at pass start,
-  # because this is the memory low-water mark: the governor just waited for
-  # headroom and the previous pass's route_bench graph has been released. When
-  # it ran after route_bench it always saw the post-build spike (88-90%) and
-  # never caught the ~85% dip. Writes its own JSON (router_realgraph_equiv).
-  #
-  # Source-mtime gated (same pattern as rust_r0_gate): the validation is
-  # deterministic for a given code+graph, so re-proving it every pass was
-  # ~50s of redundant work per ~3min loop. It re-runs when any R source or
-  # Rust core source changes; the marker is only advanced on a PASS row so a
-  # deferred (memory) or failed attempt retries next pass.
-  # Gate hardening (review near-miss): (a) fail CLOSED — if the watched
-  # directories are missing (wrong cwd, partial checkout) run the validation
-  # rather than silently skipping forever; (b) watch the GRAPH too — the
-  # validation is deterministic for code+graph, and the snapshot is half of
-  # that pair; (c) only accept a pass row APPENDED BY THIS RUN — tail -5
-  # could match a stale pass row when the job deferred without writing.
-  realgraph_marker="$PERSIST_DIR/.realgraph_tested"
-  realgraph_snapshot="data/runtime_cache/startup_live_environmental.rds"
-  realgraph_new=1
-  if [ -f "$realgraph_marker" ] \
-     && [ -d R ] && [ -d tests/jobs ] && [ -d rust/flows-core/src ] \
-     && [ -z "$(find R tests/jobs -name '*.R' -newer "$realgraph_marker" -print -quit 2>/dev/null)" ] \
-     && [ -z "$(find rust/flows-core/src -name '*.rs' -newer "$realgraph_marker" -print -quit 2>/dev/null)" ] \
-     && { [ ! -f "$realgraph_snapshot" ] || [ ! "$realgraph_snapshot" -nt "$realgraph_marker" ]; }; then
-    realgraph_new=0
-  fi
-  if [ "$realgraph_new" -eq 1 ]; then
-    echo "[$(date -u '+%H:%M:%S')] router_realgraph: checking..."
-    realgraph_rows_before=$(wc -l < "$RESULTS" 2>/dev/null || echo 0)
-    Rscript tests/jobs/router_realgraph_equiv.R >> "$RUNNER_LOG" 2>&1 || \
-      log_result "router_realgraph_equiv" "fail" "0" "router_realgraph_equiv.R errored"
-    if tail -n +"$((realgraph_rows_before + 1))" "$RESULTS" \
-       | grep -q '"job":"router_realgraph_equiv"[^}]*"status":"pass"'; then
-      touch "$realgraph_marker"
+  # --- ONE-SYSTEM gates (Rust + Swift; the R engine is retired) ---------
+  # The Wisconsin R engine was removed 2026-07 — the native app + Rust core
+  # ARE the system. Its byte-identity oracles live on as PINNED fixtures
+  # (RiskEquationVectors.swift, the polyline triple-identity tests) inside
+  # the cargo/xcodebuild suites below, so the equivalence guarantees survive
+  # the runtime's removal.
+
+  # Swift suite — mtime-gated on apple/ sources (xcodebuild is too heavy to
+  # re-prove on an unchanged tree every pass) and memory-gated like rust_r0.
+  if [ -d apple ] && command -v xcodebuild >/dev/null 2>&1; then
+    swift_used="$(memory_used_pct)"
+    swift_marker="$PERSIST_DIR/.swift_tested"
+    swift_src_new=1
+    if [ -f "$swift_marker" ] \
+       && [ -z "$(find apple/FLOWS apple/FLOWSTests -name '*.swift' -newer "$swift_marker" -print -quit 2>/dev/null)" ]; then
+      swift_src_new=0
+    fi
+    if [ "$swift_used" -lt 82 ] && [ "$swift_src_new" -eq 1 ] && [ -d apple/FLOWS.xcodeproj ]; then
+      echo "[$(date -u '+%H:%M:%S')] swift_suite: mem ${swift_used}% < 82% — running xcodebuild test"
+      st0="$(date +%s.%N)"
+      swift_out="$(cd apple && xcodebuild -project FLOWS.xcodeproj -scheme FLOWSTests -destination 'platform=macOS' test 2>&1 | tail -40)"
+      st1="$(date +%s.%N)"
+      ssecs="$(awk -v a="$st1" -v b="$st0" 'BEGIN{printf "%.3f", a-b}')"
+      if echo "$swift_out" | grep -q "TEST SUCCEEDED"; then
+        sstatus="pass"; touch "$swift_marker"
+      else
+        sstatus="fail"
+      fi
+      scount="$(echo "$swift_out" | grep -oE 'Executed [0-9]+ tests' | tail -1)"
+      log_result "swift_suite" "$sstatus" "$ssecs" "${scount:-xcodebuild}"
+      echo "[$(date -u '+%H:%M:%S')] swift_suite: $sstatus (${ssecs}s, ${scount:-?})"
     fi
   fi
-  [ -f "$STOP_FLAG" ] && break
-
-  # --- regression gates (fast, catch flakiness/variance across passes) ---
-  run_gate "smoke"     "Rscript scripts/runtime_smoke_test.R"        "Runtime smoke test passed"
-  [ -f "$STOP_FLAG" ] && break
-  run_gate "sqa"       "Rscript tests/sqa_runner.R"                  "All 8 SQA suites PASSED"
-  [ -f "$STOP_FLAG" ] && break
-  run_gate "mutation"  "Rscript tests/mutation_test.R"              "Mutations killed: 13 / 13"
-  [ -f "$STOP_FLAG" ] && break
-  run_gate "equiv"     "Rscript tests/test_modeled_road_risk.R"     "speedup: [0-9]"
-  [ -f "$STOP_FLAG" ] && break
-  # Polyline decoder gate: the in-house overflow-safe decoder must stay
-  # byte-identical to the retired reference implementation (its Rust/asm twin
-  # is covered by rust_r0_gate's cargo suite).
-  run_gate "polyline"  "Rscript tests/test_polyline_decoder.R"       "PASS: polyline decoder gate"
-  [ -f "$STOP_FLAG" ] && break
-
-  # Dependency-reduction gate: in-house tools must stay byte-identical to the
-  # library functions they replaced (flows_bind_rows vs dplyr::bind_rows, ...).
-  run_gate "dep_equiv"  "Rscript tests/jobs/dep_reduction_equiv.R"   "byte-identical \(0 fail\)"
-  [ -f "$STOP_FLAG" ] && break
-  # Rust integration: the optional Rust core must stay byte-identical to R when
-  # loaded (or skip gracefully if the dylib isn't built, e.g. on the mirror).
-  run_gate "rust_equiv" "Rscript tests/jobs/rust_integration_equiv.R"  "rust_equiv:.*(0 mismatch|PASS)"
-  [ -f "$STOP_FLAG" ] && break
-
-  # --- measurements (build distributions) ---
-  # Route-latency benchmark writes its own detailed JSON via route_bench.R.
-  echo "[$(date -u '+%H:%M:%S')] route_bench: running..."
-  Rscript tests/jobs/route_bench.R >> "$RUNNER_LOG" 2>&1 || \
-    log_result "route_bench" "fail" "0" "route_bench.R errored"
-  [ -f "$STOP_FLAG" ] && break
-
-  # Reference-load timing (data-scale sensitive, network insensitive) —
-  # baseline for the per-state loader work coming in Phase 1c.
-  Rscript -e '
-    suppressWarnings(suppressMessages({library(jsonlite); library(sf)}))
-    t <- system.time(sf::st_read("data/reference/wisconsin_reference.gpkg", layer="zctas", quiet=TRUE))[["elapsed"]]
-    cat(jsonlite::toJSON(list(runner="measure", job="sf_zctas_load", seconds=round(t,4),
-        timestamp=format(Sys.time(),"%Y-%m-%dT%H:%M:%SZ",tz="UTC")), auto_unbox=TRUE), "\n", sep="")
-  ' >> "$RESULTS" 2>/dev/null || true
   [ -f "$STOP_FLAG" ] && break
 
   # Rust R0 equivalence gate — the full LLVM test build. Gated on a STRICTER

@@ -600,3 +600,24 @@ last, deliberately accepted):
   path.
 - First rebuildRiskOverlays stale-ring pairing (~1 s visual): ACCEPTED —
   self-corrects on ring resolution; a fix would delay first paint.
+
+## 11. The Wisconsin R engine retired — one system (2026-07-11)
+
+The original R/Shiny engine (43 modules) was REMOVED from the repo along with
+its scripts, test harness, and Wisconsin reference assets. Rationale: the
+native app + Rust core had reached parity-or-better on every axis (national
+20-year history vs. WI-only live scoring; week-correct harmonic priors;
+identical live feeds), and running two scoring systems made WI present
+differently from every other state — the exact dual-system inconsistency
+worth eliminating. What survives:
+
+- **The oracle guarantees**: R-generated fixtures stay pinned in the test
+  suites (RiskEquationVectors.swift, polyline triple-identity) — byte-identity
+  is enforced against the FROZEN reference, not a live runtime.
+- **The bundle**: regenerated with zero preserved specials — 33,300 ZIPs, no
+  polygon rings (ZCTA boundaries come on demand for all states equally), WI's
+  783 ZIPs scored from the same 20-year history as everyone else's.
+- **The continuous runner**: R gates replaced by a memory-and-mtime-gated
+  Swift suite gate alongside the existing governed cargo gate.
+
+Recovery note: the full engine is in git history (`git log -- R/`).
