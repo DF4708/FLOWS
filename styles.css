@@ -1030,3 +1030,199 @@ html, body {
   white-space: nowrap;
 }
 
+
+/* ===========================================================================
+ * Shared cross-platform design layer  (macOS · iOS · iPadOS)
+ * ---------------------------------------------------------------------------
+ * Appended after the desktop rules so equal-specificity overrides win by
+ * source order. Three concerns, in order:
+ *   1. Base fixes every Apple platform needs (safe-area, dynamic viewport,
+ *      text-size lock, tap highlight, momentum scroll).
+ *   2. Touch ergonomics keyed to `pointer: coarse` — applies to iPhone/iPad
+ *      (and trackpad-less touch) WITHOUT touching the desktop mouse layout.
+ *   3. Width-based reflow: phone (<=600px) and tablet/iPad-portrait
+ *      (601-1024px). Landscape iPad (>1024px) keeps the desktop layout.
+ * ===========================================================================
+ */
+
+:root {
+  /* Notch / home-indicator insets, 0 on hardware without them. */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-right:  env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left, 0px);
+  /* Minimum comfortable hit target (Apple HIG = 44pt). */
+  --tap-min: 44px;
+}
+
+/* --- 1. Apple-platform base fixes --------------------------------------- */
+
+html {
+  /* Lock text scaling: iOS bumps font size in landscape without this. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  /* Kill the grey flash on tap; stop rubber-band scroll leaking to the page. */
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+/* Dynamic viewport height: dvh follows the shrinking Safari toolbar; the
+ * -webkit-fill-available line is the fallback for iOS versions without dvh. */
+.app-shell {
+  height: 100vh;               /* baseline */
+  height: -webkit-fill-available;
+}
+@supports (height: 100dvh) {
+  .app-shell { height: 100dvh; }
+}
+
+/* Any floating panel that can overflow should scroll with momentum. */
+.notice-stack-shell,
+.legend-shell,
+.route-summary-shell,
+.route-summary-panel,
+.filter-panel {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* --- 2. Touch ergonomics (any coarse pointer, any width) ---------------- */
+
+@media (pointer: coarse) {
+  /* 16px is the threshold below which iOS Safari zooms the page on focus. */
+  .route-card input,
+  .search-inner input,
+  input.form-control,
+  textarea.form-control,
+  select.form-control {
+    font-size: 16px;
+  }
+
+  /* Full-size hit targets for the primary actions and the time toggle. */
+  .search-button,
+  .route-button {
+    min-height: var(--tap-min);
+  }
+  .timeline-segmented .radio-inline,
+  .filter-panel .radio label,
+  .filter-panel .checkbox label,
+  .filter-summary-text {
+    min-height: var(--tap-min);
+    display: inline-flex;
+    align-items: center;
+  }
+  /* Give the round search/route inputs room for a fat finger. */
+  .route-card input,
+  .search-inner input {
+    min-height: var(--tap-min);
+  }
+}
+
+/* --- 3a. Phone reflow  (<= 600px) --------------------------------------- */
+/* Corners collapse into vertical bands: controls pinned top, alerts scroll
+ * beneath them, search + route planner become a bottom sheet. The legend and
+ * per-panel vw/vh type scales are dropped — unreadable at this width. */
+
+@media (max-width: 600px) {
+  :root {
+    /* Re-base the vw/vh design tokens to px so panels stop shrinking. */
+    --top-stack-base: calc(var(--safe-top) + 8px);
+    --bottom-stack-base: calc(var(--safe-bottom) + 8px);
+  }
+
+  /* Controls: full-width band across the top, below the status bar. */
+  .control-shell {
+    top: var(--top-stack-base);
+    left: calc(var(--safe-left) + 8px);
+    right: calc(var(--safe-right) + 8px);
+    width: auto;
+  }
+  /* Timeline fills the band as an even 4-up segmented control. */
+  .timeline-segmented .shiny-options-group {
+    display: flex;
+    width: 100%;
+  }
+  .timeline-segmented .radio-inline {
+    flex: 1 1 0;
+    justify-content: center;
+    margin: 0;
+  }
+
+  /* Alerts: full-width, directly under the control band, capped + scrollable
+   * so a burst of warnings can't bury the map. Offset clears the collapsed
+   * control band (progress + timeline + filter summary ~= 132px). */
+  .notice-stack-shell {
+    top: calc(var(--top-stack-base) + 132px);
+    left: calc(var(--safe-left) + 8px);
+    right: calc(var(--safe-right) + 8px);
+    width: auto;
+    max-height: 26vh;
+    overflow-y: auto;
+  }
+  /* Cards go auto-height (the desktop 1/20-viewport lock is far too short). */
+  #warning_cards .notice-card,
+  #warning_cards .notice-stack-empty {
+    height: auto;
+    min-height: 0;
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    border-radius: 12px;
+  }
+
+  /* Search + route planner: bottom sheet spanning the width. */
+  .route-shell {
+    left: calc(var(--safe-left) + 8px);
+    right: calc(var(--safe-right) + 8px);
+    bottom: var(--bottom-stack-base);
+    transform: none;
+    width: auto;
+  }
+  .route-card {
+    border-radius: 16px;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .route-fields-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Route summary: its own bottom sheet, seated just above the route sheet. */
+  .route-summary-shell {
+    left: calc(var(--safe-left) + 8px);
+    right: calc(var(--safe-right) + 8px);
+    top: auto;
+    bottom: calc(var(--bottom-stack-base) + 16vh);
+    width: auto;
+    max-height: 40vh;
+  }
+  .route-summary-panel {
+    border-radius: 16px;
+    max-height: 40vh;
+  }
+
+  /* Legend is reference-only; hide it to reclaim space on a phone. */
+  .legend-shell {
+    display: none;
+  }
+}
+
+/* --- 3b. Tablet / iPad portrait  (601px - 1024px) ----------------------- */
+/* The corner layout survives here, but 18-20vw panels get too skinny and the
+ * bottom row (legend | route | summary) crowds. Widen the panels and let the
+ * bottom-left legend yield to the centred route card. */
+
+@media (min-width: 601px) and (max-width: 1024px) {
+  :root {
+    --top-stack-base: calc(var(--safe-top) + 1.5vh);
+    --bottom-stack-base: calc(var(--safe-bottom) + 1.5vh);
+    --route-shell-width: 42vw;
+  }
+  .notice-stack-shell { width: 30vw; }
+  .control-shell      { width: 30vw; }
+  .legend-shell       { width: 26vw; }
+  .route-summary-shell { width: 30vw; }
+  .route-card { padding: 1vh 1.4vw; }
+}

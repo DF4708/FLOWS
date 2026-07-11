@@ -11,6 +11,25 @@ library(leaflet)
 
 bootstrapPage(
   tags$head(
+    # Shared cross-platform chrome (macOS Safari, iOS/iPadOS Safari + WKWebView
+    # home-screen app). Without the viewport tag, mobile Safari renders at a
+    # 980px desktop width zoomed out; viewport-fit=cover lets the layout paint
+    # under the notch/home-indicator while safe-area insets (styles.css) keep
+    # controls clear of them.
+    tags$meta(charset = "utf-8"),
+    tags$meta(
+      name = "viewport",
+      content = "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5"
+    ),
+    # Standalone home-screen app on iOS/iPadOS; match the map chrome colour.
+    tags$meta(name = "apple-mobile-web-app-capable", content = "yes"),
+    tags$meta(name = "mobile-web-app-capable", content = "yes"),
+    tags$meta(name = "apple-mobile-web-app-status-bar-style", content = "black-translucent"),
+    tags$meta(name = "apple-mobile-web-app-title", content = "FLOWS"),
+    tags$meta(name = "theme-color", content = "#0b0e12"),
+    tags$meta(name = "color-scheme", content = "light dark"),
+    # Stop iOS from auto-linkifying ZIPs/route text as phone numbers.
+    tags$meta(name = "format-detection", content = "telephone=no"),
     includeCSS("styles.css"),
     includeScript("gomap.js")
   ),

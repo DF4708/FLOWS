@@ -125,6 +125,38 @@ pq_empty <- function(pq) pq$n == 0L
 # Impact: more than any other change, this controls whether short-distance
 # urban routes find the natural highway access or loop through local streets
 # - the 53203 -> 53184 detour was caused by an all-local candidate set.
+# Why: the node-candidate search only needs the k (<=4) nearest nodes, but the
+# prior code ran a full order() over ALL high-tier nodes (thousands) — an
+# O(n log n) sort to keep 4 rows. Partial selection gets the k smallest in
+# O(n) via a quickselect threshold, then sorts only the ~k survivors.
+# What: returns the indices of the k smallest values of v, ascending, IDENTICAL
+# to order(v)[seq_len(k)] (ties broken by original index, matching order()).
+# How: sort.int(partial=) finds the k-th smallest in O(n); which() keeps
+# everything <= that threshold; a tiny final order() ranks the survivors.
+# When: called by find_polygon_or_point_nodes for both the inside-node and
+# high-tier nearest searches, twice per route query.
+# Impact: O(n) vs O(n log n) on the per-route node lookup; behaviour byte-
+# identical (verified against order() on random inputs incl. ties).
+k_smallest_indices <- function(v, k) {
+  n <- length(v)
+  k <- as.integer(min(k, n))
+  if (k <= 0L) return(integer(0))
+  # NA-safe: sort.int(partial=) errors when fewer than k non-NA values exist
+  # (any node with NA coordinates puts NAs in the distance vector). Rank only
+  # the non-NA entries — identical to order()'s NA-last behaviour for
+  # k <= #non-NA, and never returns an NA-distance index (not a usable
+  # candidate anyway). Fixed here once rather than per call site.
+  if (anyNA(v)) {
+    ok <- which(!is.na(v))
+    if (length(ok) == 0L) return(integer(0))
+    return(ok[k_smallest_indices(v[ok], k)])
+  }
+  if (k >= n) return(order(v))
+  thr <- sort.int(v, partial = k)[k]      # k-th smallest value, O(n) quickselect
+  cand <- which(v <= thr)                 # all <= threshold (>= k with ties)
+  cand[order(v[cand])][seq_len(k)]        # rank only the survivors, take k
+}
+
 find_polygon_or_point_nodes <- function(node_df, search_point, max_candidates = 4L) {
   geom <- search_point$geometry %||% NULL
   use_polygon <- !is.null(geom) && (inherits(geom, "sf") || inherits(geom, "sfc")) &&
@@ -143,12 +175,11 @@ find_polygon_or_point_nodes <- function(node_df, search_point, max_candidates = 
                        error = function(e) NULL)
       if (!is.null(cent) && nrow(cent) >= 1L) centroid_xy <- c(cent[1, "X"], cent[1, "Y"])
       if (length(idx_inside) > 0 && !is.null(centroid_xy)) {
-        d <- (node_df$x[idx_inside] - centroid_xy[1])^2 + (node_df$y[idx_inside] - centroid_xy[2])^2
-        idx_inside <- idx_inside[order(d)]
         # Reserve about half the budget for inside-nodes so the candidate set
         # still looks like a search at the user's chosen polygon.
         n_in <- min(max(1L, ceiling(max_candidates / 2L)), length(idx_inside))
-        ids_inside <- node_df$node_id[idx_inside[seq_len(n_in)]]
+        d <- (node_df$x[idx_inside] - centroid_xy[1])^2 + (node_df$y[idx_inside] - centroid_xy[2])^2
+        ids_inside <- node_df$node_id[idx_inside[k_smallest_indices(d, n_in)]]
       }
     }
   }
@@ -172,11 +203,10 @@ find_polygon_or_point_nodes <- function(node_df, search_point, max_candidates = 
   ids_high <- character(0)
   if (!is.null(ref_xy) && "is_high_tier" %in% names(node_df)) {
     high_idx <- which(node_df$is_high_tier)
-    if (length(high_idx) > 0) {
+    n_hi <- min(max_candidates - length(ids_inside), length(high_idx))
+    if (length(high_idx) > 0 && n_hi > 0) {
       d_hi <- (node_df$x[high_idx] - ref_xy[1])^2 + (node_df$y[high_idx] - ref_xy[2])^2
-      high_idx <- high_idx[order(d_hi)]
-      n_hi <- min(max_candidates - length(ids_inside), length(high_idx))
-      if (n_hi > 0) ids_high <- node_df$node_id[high_idx[seq_len(n_hi)]]
+      ids_high <- node_df$node_id[high_idx[k_smallest_indices(d_hi, n_hi)]]
     }
   }
 

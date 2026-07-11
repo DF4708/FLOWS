@@ -1,0 +1,258 @@
+# FLOWS Apple app — xcodegen project definition.
+# Regenerate the .xcodeproj with:  cd apple && xcodegen generate
+# (FLOWS.xcodeproj is generated output and git-ignored.)
+name: FLOWS
+options:
+  bundleIdPrefix: com.flows
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    GENERATE_INFOPLIST_FILE: NO
+    # Rust core: FlowsCore.swift dlopens libflows_core at runtime in dev builds
+    # (pure-Swift fallback when absent). Device/App Store builds static-link
+    # ../rust/target/<triple>/release/libflows_core.a — see docs/APPLE_APP.md.
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  FLOWS-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: FLOWS/Sources
+      - path: FLOWS/Resources
+    info:
+      path: FLOWS/Generated/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: FLOWS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            weatherusa.net:
+              NSIncludesSubdomains: true
+              NSExceptionRequiresForwardSecrecy: false
+              NSExceptionMinimumTLSVersion: TLSv1.2
+        NSLocationWhenInUseUsageDescription: >-
+          FLOWS uses your location for turn-by-turn navigation and to keep the
+          weather-risk map centered on you.
+        NSLocationAlwaysAndWhenInUseUsageDescription: >-
+          Continuous location access keeps navigation and hazard warnings
+          current while FLOWS is guiding a route.
+        NSAppleMusicUsageDescription: >-
+          FLOWS shows Apple Music playback controls while navigating in
+          CarPlay.
+        NSMicrophoneUsageDescription: >-
+          After a suspected crash, FLOWS listens for your spoken reply to
+          "do you need assistance?" so help can be summoned hands-free.
+        NSSpeechRecognitionUsageDescription: >-
+          Crash check-in understands "yes" / "I'm okay" spoken answers so an
+          injured driver doesn't have to reach the screen.
+        NSMotionUsageDescription: >-
+          Crash detection watches for sudden impacts while navigating.
+        NSBluetoothAlwaysUsageDescription: >-
+          FLOWS listens for Bluetooth tire-pressure sensors and OBD-II
+          adapters to show real fuel level and tire pressure.
+        UISupportedExternalAccessoryProtocols:
+          - com.scantool.stn
+          - com.obdlink.obd
+        CFBundleURLTypes:
+          - CFBundleURLName: com.flows.app
+            CFBundleURLSchemes:
+              - flows
+        UIBackgroundModes:
+          - location
+        # CarPlay map scene — activates only when the CarPlay entitlement
+        # (com.apple.developer.carplay-maps) is granted by Apple.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneConfigurationName: CarPlay
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
+    dependencies:
+      - target: FLOWS-Watch
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app
+        PRODUCT_NAME: FLOWS            # menu bar / app name, not the target name
+        TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
+        SUPPORTS_MACCATALYST: NO
+        # Static-link the Rust core (asm hot loops) per SDK — the device and
+        # simulator need their own cross-compiled slices. `-u` force-keeps the
+        # C symbol so FlowsCore's loader resolves it (Swift fallback otherwise).
+        OTHER_LDFLAGS[sdk=iphoneos*]: $(SRCROOT)/../rust/target/aarch64-apple-ios/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
+        OTHER_LDFLAGS[sdk=iphonesimulator*]: $(SRCROOT)/../rust/target/aarch64-apple-ios-sim/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
+    preBuildScripts:
+      - name: Build Rust flows-core (iOS device + simulator)
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          command -v cargo >/dev/null 2>&1 || { echo "cargo not on PATH — linking existing libflows_core.a"; exit 0; }
+          cd "$SRCROOT/../rust"
+          cargo build --release --target aarch64-apple-ios || echo "device slice build failed"
+          cargo build --release --target aarch64-apple-ios-sim || echo "sim slice build failed"
+
+  FLOWS-Watch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: FLOWSWatch
+    info:
+      path: FLOWS/Generated/Info-Watch.plist
+      properties:
+        CFBundleDisplayName: FLOWS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.flows.app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.watchkitapp
+        PRODUCT_NAME: FLOWS
+        CODE_SIGN_IDENTITY: "-"
+        GENERATE_INFOPLIST_FILE: NO
+
+  FLOWS-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: FLOWS/Sources
+      - path: FLOWS/Resources
+    info:
+      path: FLOWS/Generated/Info-macOS.plist
+      properties:
+        CFBundleDisplayName: FLOWS
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            weatherusa.net:
+              NSIncludesSubdomains: true
+              NSExceptionRequiresForwardSecrecy: false
+              NSExceptionMinimumTLSVersion: TLSv1.2
+        NSLocationUsageDescription: >-
+          FLOWS uses your location to center the weather-risk map and preview
+          routes from where you are.
+        NSAppleEventsUsageDescription: >-
+          FLOWS controls Music playback (play/pause, skip, shuffle) for
+          hands-free listening while navigating.
+        NSBluetoothAlwaysUsageDescription: >-
+          FLOWS listens for Bluetooth tire-pressure sensors and OBD-II
+          adapters to show real fuel level and tire pressure.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.flows.app.mac
+            CFBundleURLSchemes:
+              - flows
+        LSApplicationCategoryType: public.app-category.navigation
+    entitlements:
+      path: FLOWS/Generated/FLOWS-macOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.personal-information.location: true
+        com.apple.security.automation.apple-events: true
+        com.apple.security.device.bluetooth: true
+        # Sandbox: allow Apple Events to Music.app only (hands-free music).
+        com.apple.security.temporary-exception.apple-events:
+          - com.apple.Music
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.mac
+        PRODUCT_NAME: FLOWS            # menu bar / app name, not the target name
+        CODE_SIGN_IDENTITY: "-"   # ad-hoc for local testing
+        # Static-link the Rust core (asm hot loops). `-u` force-keeps the C
+        # symbol so FlowsCore.swift's dlsym(dlopen(nil)) resolves it and the
+        # app runs the Rust/asm polyline decoder, not the Swift fallback.
+        OTHER_LDFLAGS: $(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
+    preBuildScripts:
+      - name: Build Rust flows-core (asm hot loops)
+        basedOnDependencyAnalysis: false
+        script: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if command -v cargo >/dev/null 2>&1; then
+            (cd "$SRCROOT/../rust" && cargo build --release) \
+              || echo "flows-core build failed — linking existing libflows_core.a"
+          else
+            echo "cargo not on PATH — linking existing libflows_core.a"
+          fi
+
+  FLOWSTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      # Pure-function tests compile the sources they exercise directly —
+      # no app host needed, runs headless in CI.
+      - path: FLOWS/Sources/Core/FlowsCore.swift
+      - path: FLOWS/Sources/Core/POIRanking.swift
+      - path: FLOWS/Sources/Core/RouteAttributes.swift
+      - path: FLOWS/Sources/Core/RiskEquations.swift
+      - path: FLOWS/Sources/Core/SeasonalRiskModel.swift
+      - path: FLOWS/Sources/Core/HarmonicClimatology.swift
+      - path: FLOWS/Sources/Core/PlacesStore.swift
+      - path: FLOWS/Sources/Core/LatitudeBands.swift
+      - path: FLOWS/Sources/Core/ClimateProfiles.swift
+      - path: FLOWS/Sources/Core/BadgeClustering.swift
+      - path: FLOWS/Sources/Core/InternationalWeather.swift
+      - path: FLOWS/Sources/Core/NWSForecastService.swift
+      - path: FLOWS/Sources/Core/TripNeeds.swift
+      - path: FLOWS/Sources/Core/ImminentAlerts.swift
+      - path: FLOWS/Sources/Core/Favorites.swift
+      - path: FLOWS/Sources/Core/FilterLimits.swift
+      - path: FLOWS/Sources/Core/RiskTiming.swift
+      - path: FLOWS/Sources/Core/VehicleProfile.swift
+      - path: FLOWS/Sources/Core/VehicleSpecs.swift
+      - path: FLOWS/Sources/Core/FuelPrices.swift
+      - path: FLOWS/Sources/Core/TripCosts.swift
+      - path: FLOWS/Sources/Core/AlertEntityParser.swift
+      - path: FLOWS/Sources/Core/CrashLogic.swift
+      - path: FLOWS/Sources/Core/GradeProfile.swift
+      - path: FLOWS/Sources/Core/TowingLimits.swift
+      - path: FLOWS/Sources/Core/RefuelLearning.swift
+      - path: FLOWS/Sources/Core/PursuitReach.swift
+      - path: FLOWS/Sources/Core/LiveHazardFeeds.swift
+      - path: FLOWS/Sources/Core/RatingsAndCost.swift
+      - path: FLOWS/Sources/Core/RiskFieldService.swift
+      - path: FLOWS/Sources/Core/VehicleLink.swift
+      - path: FLOWS/Sources/Core/EPAVehicleDatabase.swift
+      - path: FLOWS/Sources/Core/PrimarySources.swift
+      - path: FLOWS/Sources/Core/WMOAlerts.swift
+      - path: FLOWS/Sources/Core/TransitItinerary.swift
+      - path: FLOWS/Sources/Core/AdaptiveTuning.swift
+      - path: FLOWS/Sources/Core/ThrottledNet.swift
+      - path: FLOWSTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.tests
+        CODE_SIGN_IDENTITY: "-"
+        GENERATE_INFOPLIST_FILE: YES   # test bundles get a stub plist
+        # Link the Rust core so the suite can assert it's LIVE and prove the
+        # Rust/asm decoder is byte-identical to the Swift fallback.
+        OTHER_LDFLAGS: $(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
+
+schemes:
+  FLOWSTests:
+    build:
+      targets:
+        FLOWSTests: all
+    test:
+      targets:
+        - FLOWSTests

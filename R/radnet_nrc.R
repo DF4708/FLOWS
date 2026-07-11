@@ -87,7 +87,7 @@ parse_simple_rss_items <- function(xml_text) {
       stringsAsFactors = FALSE
     )
   })
-  dplyr::bind_rows(rows)
+  flows_bind_rows(rows)
 }
 
 # Why: downstream lookups and grepl calls need a canonical text form so
@@ -273,7 +273,7 @@ fetch_radnet_wi_scores <- function() {
     return(out)
   }
 
-  monitor_df <- dplyr::bind_rows(rows)
+  monitor_df <- flows_bind_rows(rows)
   monitor_sf <- sf::st_as_sf(monitor_df, coords = c("lon", "lat"), crs = 4326)
   nearest_idx <- suppressWarnings(sf::st_nearest_feature(wi_zip_points, monitor_sf))
   out_scores <- monitor_sf$radnet_score[nearest_idx]

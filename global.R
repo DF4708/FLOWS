@@ -9,7 +9,6 @@
 options(stringsAsFactors = FALSE)
 
 library(sf)
-library(dplyr)
 library(httr2)
 library(jsonlite)
 library(htmltools)
@@ -25,9 +24,14 @@ if (exists(".r_file", inherits = FALSE)) rm(.r_file)
 
 LAZY_ZIP_POPUPS_ENABLED <- TRUE
 
-TARGET_STATE <- "WI"
-TARGET_STATE_FIPS <- "55"
-BORDER_STATE_FIPS <- c("55", "27", "19", "17", "26")
+# Geographic targeting now resolves through the region registry
+# (R/region_config.R). With the default ACTIVE_REGION = c("WI") these
+# evaluate to exactly the pre-refactor Wisconsin values; setting the
+# FLOWS_ACTIVE_REGION env var widens coverage without touching this file.
+# See docs/CONUS_EXPANSION.md.
+TARGET_STATE <- primary_state_usps()          # "WI" by default
+TARGET_STATE_FIPS <- primary_state_fips()      # "55" by default
+BORDER_STATE_FIPS <- coverage_state_fips()      # c("55","27","19","17","26") by default
 NOTICE_LIMIT <- 5L
 ALERT_TTL_SECONDS <- 90L
 FORECAST_TTL_SECONDS <- 900L
@@ -68,9 +72,9 @@ NOAA_USER_AGENT <- trimws(Sys.getenv("NOAA_USER_AGENT", NOAA_USER_AGENT_DEFAULT)
 if (!nzchar(NOAA_USER_AGENT)) NOAA_USER_AGENT <- NOAA_USER_AGENT_DEFAULT
 WI511_API_KEY <- trimws(Sys.getenv("WI511_API_KEY", ""))
 WI_MAGNETIC_DECLINATION_DEG <- -2.5
-RISK_GREEN_MIN <- 0.3980
-RISK_YELLOW_MIN <- 0.6990
-RISK_RED_MIN <- 0.8751
+# RISK_GREEN_MIN / RISK_YELLOW_MIN / RISK_RED_MIN now live in
+# R/risk_constants.R (single source of truth, loaded by the R/ source loop
+# above) so gate scripts can source them without duplicating the literals.
 
 # Noise-floor for WI511 fetchers. Rows whose computed risk score is below this
 # are dropped at fetch time so they never enter the snap, per-ZIP within-
@@ -90,12 +94,27 @@ WI511_MIN_RISK_THRESHOLD <- {
 CENSUS_ZCTA_URL <- "https://www2.census.gov/geo/tiger/GENZ2020/shp/cb_2020_us_zcta520_500k.zip"
 CENSUS_COUNTY_URL <- "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_county_20m.zip"
 CENSUS_STATE_URL <- "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_state_20m.zip"
-CENSUS_PLACE_URL <- "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_55_place_500k.zip"
-CENSUS_PRISECROADS_URL <- "https://www2.census.gov/geo/tiger/TIGER2025/PRISECROADS/tl_2025_55_prisecroads.zip"
+# Census publishes places and primary/secondary roads per state FIPS.
+# Parameterised by the primary active state so a non-WI single-state
+# instance resolves its own shapefiles. WI (FIPS 55) reproduces the
+# original URLs exactly. Multi-state coverage fetches these per state via
+# the reference loader (Phase 2); the runtime remote-fallback here targets
+# the primary state.
+CENSUS_PLACE_URL <- sprintf(
+  "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_%s_place_500k.zip",
+  primary_state_fips())
+CENSUS_PRISECROADS_URL <- sprintf(
+  "https://www2.census.gov/geo/tiger/TIGER2025/PRISECROADS/tl_2025_%s_prisecroads.zip",
+  primary_state_fips())
 EPA_UV_DAILY_URL <- "https://data.epa.gov/dmapservice/getEnvirofactsUVDAILY/ZIP/%s/JSON"
 USGS_QUAKE_DAYS <- 7L
 USGS_QUAKE_MIN_MAG <- 1.5
-NWS_ALERTS_URL <- sprintf("https://api.weather.gov/alerts/active?area=%s", TARGET_STATE)
+# The NWS active-alerts endpoint accepts a comma-separated list of USPS
+# area codes. Multiplex over the active region so a multi-state instance
+# pulls all its states' alerts in one request. With the default
+# ACTIVE_REGION = c("WI") this resolves to exactly "?area=WI".
+NWS_ALERTS_URL <- sprintf("https://api.weather.gov/alerts/active?area=%s",
+                          paste(ACTIVE_REGION, collapse = ","))
 NWS_PUBLIC_ZONE_URLS <- c(
   "https://www.weather.gov/source/gis/Shapefiles/WSOM/z_16ap26.zip",
   "https://www.weather.gov/source/gis/Shapefiles/WSOM/z_18mr25.zip"
@@ -151,6 +170,12 @@ FFG_SERVICE_URL <- "https://mapservices.weather.noaa.gov/raster/rest/services/pr
 FFG_LAYER_IDS <- c(`1h` = 3L, `3h` = 7L, `6h` = 11L)
 GLM_GOES_BUCKETS <- trimws(unlist(strsplit(Sys.getenv("GLM_GOES_BUCKETS", "noaa-goes19,noaa-goes18,noaa-goes16,noaa-goes17"), ","), use.names = FALSE))
 GLM_GOES_BUCKETS <- GLM_GOES_BUCKETS[nzchar(GLM_GOES_BUCKETS)]
+# Security: these bucket names are interpolated into the S3 URL host position
+# (sprintf("https://%s.s3.amazonaws.com/...") in R/glm.R). Env poisoning could
+# otherwise redirect the lightning feed to an attacker host. Accept only the
+# canonical NOAA GOES bucket pattern, matching the hardcoded posture of every
+# other feed URL; drop anything else.
+GLM_GOES_BUCKETS <- GLM_GOES_BUCKETS[grepl("^noaa-goes[0-9]+$", GLM_GOES_BUCKETS)]
 GLM_PRODUCT_PREFIX <- trimws(Sys.getenv("GLM_PRODUCT_PREFIX", "GLM-L2-LCFA"))
 GLM_LOOKBACK_MINUTES <- suppressWarnings(as.integer(Sys.getenv("GLM_LOOKBACK_MINUTES", "20")))
 if (!is.finite(GLM_LOOKBACK_MINUTES) || GLM_LOOKBACK_MINUTES < 5L) GLM_LOOKBACK_MINUTES <- 20L
@@ -217,10 +242,15 @@ wi_zctas$lat_band <- assign_lat_band(wi_zctas$center_lat, wi_bounds$south, wi_bo
 wi_zip_points_proj <- suppressWarnings(sf::st_transform(wi_zip_points, 5070))
 wi_zctas_proj <- suppressWarnings(sf::st_transform(wi_zctas, 5070))
 
-band_reps <- wi_zctas |>
-  sf::st_drop_geometry() |>
-  dplyr::group_by(lat_band) |>
-  dplyr::summarise(rep_lon = mean(center_lon, na.rm = TRUE), rep_lat = mean(center_lat, na.rm = TRUE), rep_zip = dplyr::first(zipcode), .groups = "drop")
+band_reps <- flows_group_aggregate(
+  sf::st_drop_geometry(wi_zctas),
+  "lat_band",
+  list(
+    rep_lon = function(d) mean(d$center_lon, na.rm = TRUE),
+    rep_lat = function(d) mean(d$center_lat, na.rm = TRUE),
+    rep_zip = function(d) d$zipcode[1L]
+  )
+)
 
 forecast_region_context <- build_forecast_region_context(wi_zctas)
 wi_zctas$forecast_region <- forecast_region_context$assignments

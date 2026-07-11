@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent to run the FLOWS route-risk trainer weekly in the background.
+
+  Install:
+    sed "s|__DIR__|$(pwd)|g" com.flows.routegnn.plist.template \
+      > ~/Library/LaunchAgents/com.flows.routegnn.plist
+    launchctl load ~/Library/LaunchAgents/com.flows.routegnn.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.flows.routegnn.plist
+    rm ~/Library/LaunchAgents/com.flows.routegnn.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.flows.routegnn</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>__DIR__/run_worker.sh</string>
+        <string>--once</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__DIR__</string>
+    <!-- Weekly: 604800 seconds. launchd also runs it once at load. -->
+    <key>StartInterval</key>
+    <integer>604800</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>__DIR__/logs/launchd.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__DIR__/logs/launchd.err.log</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>LowPriorityIO</key>
+    <true/>
+</dict>
+</plist>

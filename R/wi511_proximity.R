@@ -91,13 +91,14 @@ compute_511_road_proximity_signal <- function(horizon_key = "live", progress = N
       road_coords <- suppressWarnings(sf::st_coordinates(road_centroid))
       off_coords <- suppressWarnings(sf::st_coordinates(off_centroid))
       d_subset <- tryCatch({
-        # Outer-product approach: x_diff is (N x M), y_diff is (N x M);
-        # sqrt(x_diff^2 + y_diff^2) is the distance matrix. Sub-second
-        # for ~25k road centroids x ~50 official centroids vs. tens of
-        # seconds via line-vs-X st_distance.
-        x_diff <- outer(road_coords[, 1], off_coords[, 1], "-")
-        y_diff <- outer(road_coords[, 2], off_coords[, 2], "-")
-        m <- sqrt(x_diff * x_diff + y_diff * y_diff)
+        # Dense N x M Euclidean distance matrix (~25k road centroids x ~50
+        # official centroids). Routed through euclidean_distance_matrix so it
+        # runs on the Apple GPU when torch+MPS is available and the matrix is
+        # large enough to amortise transfer (accuracy-identical float64), and
+        # on CPU via outer()/sqrt otherwise. This is the one FLOWS hot-path op
+        # that maps accurately to the GPU; see R/resource_governor.R.
+        m <- euclidean_distance_matrix(road_coords[, 1:2, drop = FALSE],
+                                       off_coords[, 1:2, drop = FALSE])
         m[!is.finite(m)] <- 6000
         m
       }, error = function(e) NULL)

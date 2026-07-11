@@ -75,7 +75,11 @@ build_forecast_baseline <- function(horizon_key = "live") {
   use_parallel <- .Platform$OS.type != "windows" && length(region_ids) > 1 &&
                   requireNamespace("curl", quietly = TRUE)
   region_forecasts <- if (use_parallel) {
-    workers <- max(1L, min(length(region_ids), 8L))
+    # Memory-governed: cap at 8 but throttle down near the memory ceiling.
+    # Region forecast forks are light (network I/O), so ~0.25 GB/worker.
+    gov_workers <- tryCatch(dynamic_mc_cores(mem_per_worker_gb = 0.25, cpu_cap = 8L),
+                            error = function(e) 8L)
+    workers <- max(1L, min(length(region_ids), 8L, gov_workers))
     res <- tryCatch(
       parallel::mclapply(region_ids,
                          function(region_id) fetch_forecast_for_region(region_id, horizon_key),
@@ -350,7 +354,7 @@ apply_alert_coverage_to_zips <- function(zips, alert_payload, horizon_key = "liv
   zip_rows <- Filter(Negate(is.null), zip_rows)
   if (length(zip_rows) == 0) return(zips)
 
-  zip_alert_df <- dplyr::bind_rows(zip_rows)
+  zip_alert_df <- flows_bind_rows(zip_rows)
   merged_alerts <- merge(
     zip_alert_df,
     active_df[, c("alert_id", "alert_calc_score", "event", "url", "sent_num", "disaster_type")],
@@ -358,8 +362,13 @@ apply_alert_coverage_to_zips <- function(zips, alert_payload, horizon_key = "liv
     all.x = TRUE,
     sort = FALSE
   )
-  best_df <- merged_alerts[order(merged_alerts$zipcode, -merged_alerts$alert_calc_score, -merged_alerts$sent_num), , drop = FALSE]
-  best_df <- best_df[!duplicated(best_df$zipcode), , drop = FALSE]
+  # Sort ONCE by (zipcode, -score, -sent_num): both the per-zip argmax
+  # (best_df) and the per-zip alert list below need this exact order.
+  # merged_alerts is not mutated between the two uses, so the prior code's
+  # second identical order() was redundant work — one sort serves both,
+  # byte-identical output.
+  merged_alerts <- merged_alerts[order(merged_alerts$zipcode, -merged_alerts$alert_calc_score, -merged_alerts$sent_num), , drop = FALSE]
+  best_df <- merged_alerts[!duplicated(merged_alerts$zipcode), , drop = FALSE]
   match_idx <- match(zips$zipcode, best_df$zipcode)
   keep_zip <- !is.na(match_idx)
   if (any(keep_zip)) {
@@ -368,7 +377,6 @@ apply_alert_coverage_to_zips <- function(zips, alert_payload, horizon_key = "liv
     zips$alert_url[keep_zip] <- best_df$url[match_idx[keep_zip]]
   }
 
-  merged_alerts <- merged_alerts[order(merged_alerts$zipcode, -merged_alerts$alert_calc_score, -merged_alerts$sent_num), , drop = FALSE]
   alert_lists <- lapply(split(seq_len(nrow(merged_alerts)), merged_alerts$zipcode), function(idx_vec) {
     subset_df <- merged_alerts[idx_vec, c("event", "url"), drop = FALSE]
     event_txt <- trimws(as.character(subset_df$event %||% ""))

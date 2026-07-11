@@ -1,0 +1,258 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) David B. Foster. All rights reserved.
+// Contact: d.foster@marquette.edu
+// Unauthorized copying, distribution, modification, or use of this file, in
+// whole or in part, is strictly prohibited without the express written
+// permission of the copyright holder.
+// -----------------------------------------------------------------------------
+
+import CoreLocation
+import Foundation
+#if os(iOS)
+import AVFoundation
+import CoreMotion
+import Speech
+import UIKit
+#endif
+
+/// Inertial crash detection with a PERSISTENT voice check-in.
+///
+/// While navigating, the accelerometer watches for a sustained impact
+/// (CrashLogic.impactGForce). On a hit, FLOWS speaks "Do you need
+/// assistance?" and LISTENS for a spoken reply — and keeps re-asking every
+/// 20 s until the driver answers or physically dismisses the card, because
+/// an injured driver may not respond on the first attempt.
+///
+/// On "yes" (spoken or tapped), the assisted flow runs — within iOS's hard
+/// platform rules (see CrashLogic's header): one-tap 911 call via the
+/// system's emergency UI, a PREFILLED text report to the emergency contact
+/// (GPS, address, time, vehicle, medical notes), the report spoken aloud
+/// for relaying to the 911 operator, then a one-tap call to the contact.
+@MainActor
+final class CrashDetectionService: ObservableObject {
+    enum State: Equatable {
+        case idle
+        /// Impact sensed — check-in loop running (spoken prompt repeating).
+        case checkingIn(attempt: Int)
+        /// Driver asked for help — the assisted-call card is up.
+        case assisting
+    }
+
+    @Published private(set) var state: State = .idle
+    @Published private(set) var impactTime: Date?
+    @Published private(set) var lastTranscript: String?
+
+    /// Set by AppModel: where we are + what we drive + medical notes.
+    var context: () -> (coordinate: CLLocationCoordinate2D?,
+                        vehicle: VehicleProfile?,
+                        medicalNotes: String?) = { (nil, nil, nil) }
+
+    #if os(iOS)
+    private let motion = CMMotionManager()
+    private let synthesizer = AVSpeechSynthesizer()
+    private var checkInTask: Task<Void, Never>?
+    private var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer()
+    private var audioEngine: AVAudioEngine?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    /// Rolling ~0.5 s (25 samples @ 50 Hz) of |acceleration| magnitudes, so an
+    /// impact is judged over a window (hard spike, or a corroborated moderate
+    /// one) rather than a single trigger-happy sample — see CrashLogic.isImpact.
+    private var accelWindow: [Double] = []
+    private static let accelWindowSize = 25
+
+    static let isAvailable = true
+
+    func begin() {
+        guard motion.isAccelerometerAvailable, !motion.isAccelerometerActive else { return }
+        motion.accelerometerUpdateInterval = 1.0 / 50.0
+        accelWindow.removeAll(keepingCapacity: true)
+        motion.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
+            guard let self, let data, self.state == .idle else { return }
+            let g = sqrt(data.acceleration.x * data.acceleration.x
+                         + data.acceleration.y * data.acceleration.y
+                         + data.acceleration.z * data.acceleration.z)
+            self.accelWindow.append(g)
+            if self.accelWindow.count > Self.accelWindowSize {
+                self.accelWindow.removeFirst(self.accelWindow.count - Self.accelWindowSize)
+            }
+            if CrashLogic.isImpact(window: self.accelWindow) {
+                self.accelWindow.removeAll(keepingCapacity: true) // consume — don't re-fire this event
+                self.impactDetected()
+            }
+        }
+    }
+
+    func end() {
+        motion.stopAccelerometerUpdates()
+        stopCheckIn()
+        state = .idle
+    }
+
+    private func impactDetected() {
+        impactTime = Date()
+        state = .checkingIn(attempt: 1)
+        // Re-ask FOREVER until answered or physically dismissed — a
+        // concussed driver may surface minutes later.
+        checkInTask = Task { [weak self] in
+            var attempt = 1
+            while !Task.isCancelled {
+                guard let self, case .checkingIn = self.state else { return }
+                self.state = .checkingIn(attempt: attempt)
+                self.speak("FLOWS detected a possible crash. Do you need assistance? "
+                           + "Say yes to get help, or say I'm okay.")
+                self.listenForReply(seconds: 10)
+                try? await Task.sleep(for: .seconds(CrashLogic.checkInRepeatSeconds))
+                attempt += 1
+            }
+        }
+    }
+
+    /// Driver (or a spoken "yes") asked for help.
+    func requestAssistance() {
+        stopCheckIn()
+        state = .assisting
+        let report = emergencyReport()
+        speak("Calling 9 1 1. After the call, a report is ready to send to "
+              + "your emergency contact. The report reads: " + report)
+    }
+
+    /// Physical dismissal or a spoken "I'm okay" — stand down.
+    func standDown() {
+        stopCheckIn()
+        state = .idle
+        impactTime = nil
+        speak("Okay. Glad you're safe.")
+    }
+
+    /// The templated report (also prefilled into the contact text).
+    func emergencyReport() -> String {
+        let ctx = context()
+        return CrashLogic.emergencyMessage(
+            latitude: ctx.coordinate?.latitude ?? 0,
+            longitude: ctx.coordinate?.longitude ?? 0,
+            address: reverseGeocodedAddress,
+            time: impactTime ?? Date(),
+            vehicle: ctx.vehicle,
+            medicalNotes: ctx.medicalNotes)
+    }
+
+    private(set) var reverseGeocodedAddress: String?
+
+    func resolveAddress() {
+        guard let coord = context().coordinate else { return }
+        let loc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+        CLGeocoder().reverseGeocodeLocation(loc) { [weak self] placemarks, _ in
+            Task { @MainActor in
+                if let pm = placemarks?.first {
+                    self?.reverseGeocodedAddress = [pm.name, pm.locality, pm.administrativeArea]
+                        .compactMap { $0 }.joined(separator: ", ")
+                }
+            }
+        }
+    }
+
+    /// One-tap 911: iOS presents its own emergency call UI — apps cannot
+    /// silently dial, this is as close as the platform allows.
+    func call911() {
+        if let url = URL(string: "tel://911") { UIApplication.shared.open(url) }
+    }
+
+    func callContact(number: String) {
+        let digits = number.filter { "0123456789+".contains($0) }
+        if let url = URL(string: "tel://\(digits)") { UIApplication.shared.open(url) }
+    }
+
+    /// Prefilled text to the emergency contact (driver taps send — apps
+    /// cannot send SMS silently).
+    func messageContact(number: String) {
+        let digits = number.filter { "0123456789+".contains($0) }
+        let body = emergencyReport()
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        // RFC 5724: the body param must sit in a query — `?&body=` is the form
+        // iOS reliably prefills across versions. The prior `sms:NUMBER&body=` had
+        // no `?`, so Messages opened an EMPTY thread and the crash report was lost.
+        if let url = URL(string: "sms:\(digits)?&body=\(body)") {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func speak(_ text: String) {
+        try? AVAudioSession.sharedInstance().setCategory(
+            .playback, options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.rate = 0.5
+        synthesizer.speak(utterance)
+    }
+
+    /// Listen for a spoken reply for a few seconds (best-effort: requires
+    /// mic + speech permissions; without them the on-screen buttons remain).
+    private func listenForReply(seconds: Double) {
+        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            guard auth == .authorized else { return }
+            Task { @MainActor in self?.startRecognition(seconds: seconds) }
+        }
+    }
+
+    private func startRecognition(seconds: Double) {
+        guard let recognizer, recognizer.isAvailable else { return }
+        stopRecognition()
+        let engine = AVAudioEngine()
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            request.append(buffer)
+        }
+        engine.prepare()
+        try? engine.start()
+        audioEngine = engine
+        recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, _ in
+            guard let self, let result else { return }
+            let transcript = result.bestTranscription.formattedString
+            let isFinal = result.isFinal
+            Task { @MainActor in
+                self.lastTranscript = transcript
+                switch CrashLogic.interpretReply(transcript) {
+                // "I need help" → act on the earliest partial (erring toward help
+                // is always safe). "I'm okay" → only stand down on the FINAL
+                // transcript, so an early "no…" in "no wait, I need help" can't
+                // cancel the check-in before the request is fully spoken.
+                case .some(true): self.requestAssistance()
+                case .some(false) where isFinal: self.standDown()
+                default: break
+                }
+            }
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            await MainActor.run { self?.stopRecognition() }
+        }
+    }
+
+    private func stopRecognition() {
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine = nil
+    }
+
+    private func stopCheckIn() {
+        checkInTask?.cancel()
+        checkInTask = nil
+        stopRecognition()
+    }
+
+    #else
+    // macOS: no accelerometer — crash detection is an iPhone/CarPlay feature.
+    static let isAvailable = false
+    func begin() {}
+    func end() {}
+    func requestAssistance() {}
+    func standDown() {}
+    func resolveAddress() {}
+    func emergencyReport() -> String { "" }
+    #endif
+}

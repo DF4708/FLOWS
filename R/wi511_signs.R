@@ -104,7 +104,7 @@ fetch_511_message_signs_live <- function() {
   out <- if (length(rows) == 0) {
     sf::st_sf(sign_id = character(0), road_name = character(0), county = character(0), direction = character(0), message_text = character(0), sign_score = numeric(0), sign_reason_text = character(0), geometry = sf::st_sfc(crs = 4326))
   } else {
-    sf::st_sf(dplyr::bind_rows(rows), geometry = sf::st_sfc(geoms, crs = 4326))
+    sf::st_sf(flows_bind_rows(rows), geometry = sf::st_sfc(geoms, crs = 4326))
   }
   cache_put("derived", key, out, ttl_seconds = ALERT_TTL_SECONDS)
   out

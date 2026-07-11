@@ -145,7 +145,7 @@ fetch_511_events_live <- function() {
     cache_put("derived", key, out, ttl_seconds = ALERT_TTL_SECONDS)
     return(out)
   }
-  out <- sf::st_sf(dplyr::bind_rows(rows), geometry = sf::st_sfc(geoms, crs = 4326))
+  out <- sf::st_sf(flows_bind_rows(rows), geometry = sf::st_sfc(geoms, crs = 4326))
   cache_put("derived", key, out, ttl_seconds = ALERT_TTL_SECONDS)
   out
 }
