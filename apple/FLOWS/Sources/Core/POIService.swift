@@ -98,6 +98,20 @@ final class POIService: ObservableObject {
         }
     }
 
+    /// Kind → offline shard group byte(s) (PlacesStore stays Kind-agnostic).
+    static func shardGroups(for kind: Kind) -> Set<UInt8>? {
+        switch kind {
+        case .gas: return [0]
+        case .food: return [1]
+        case .stores: return [2]
+        case .hotel: return [3]
+        case .medical: return [4]
+        case .tourist: return [5]
+        case .rest, .truckParking, .shower: return [7]
+        case .parking, .shelter, .weighStation: return nil   // not in the dataset
+        }
+    }
+
     /// A ranked result row for the list card.
     struct RankedPOI: Identifiable {
         let id = UUID()
@@ -356,6 +370,27 @@ final class POIService: ObservableObject {
                 }
             }
         }
+        // OFFLINE-FIRST supplement: FLOWS's own FSQ OS Places shards (7.5M US
+        // POIs, Apache 2.0, keyless). Results merge with MKLocalSearch's and
+        // dedup below removes overlap — with no network, this is the whole
+        // list; with network, it fills the chains MKLocalSearch misses.
+        if let groups = Self.shardGroups(for: kind) {
+            for center in centers.prefix(centerCap) {
+                for p in PlacesStore.shared.places(
+                    near: center, groups: groups, radiusMeters: regionMeters) {
+                    let placemark = MKPlacemark(
+                        coordinate: p.coordinate,
+                        addressDictionary: [
+                            "Street": p.street, "City": p.city,
+                        ])
+                    let item = MKMapItem(placemark: placemark)
+                    item.name = p.name
+                    if !p.website.isEmpty { item.url = URL(string: p.website) }
+                    found.append(item)
+                }
+            }
+        }
+
         // Dedup by name+proximity.
         var seen = Set<String>()
         let unique = found.filter { item in
