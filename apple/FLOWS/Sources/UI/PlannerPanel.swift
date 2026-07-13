@@ -61,7 +61,20 @@ struct PlannerPanel: View {
                     .clipShape(Capsule())
                     .contentShape(Capsule())
                     .focused($focusedField, equals: .destination)
-                    .onSubmit { Task { await plan() } }
+                    // Place names are proper nouns — the system completion
+                    // popup only ever "corrects" them, and its window ate the
+                    // first click aimed at Plan route.
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        // Return walks to the start field when one is still
+                        // needed (no GPS); otherwise it plans.
+                        if showSourceField,
+                           model.plannerSource.trimmingCharacters(in: .whitespaces).isEmpty {
+                            focusedField = .source
+                        } else {
+                            Task { await plan() }
+                        }
+                    }
                 // Star: save the typed destination as a favorite, tagged with
                 // its role symbol (home / office / …).
                 Menu {
@@ -118,6 +131,7 @@ struct PlannerPanel: View {
                     .clipShape(Capsule())
                     .contentShape(Capsule())
                     .focused($focusedField, equals: .source)
+                    .autocorrectionDisabled()
                     .onSubmit { Task { await plan() } }
             }
 
@@ -125,8 +139,22 @@ struct PlannerPanel: View {
                 Task { await plan() }
             }
             .buttonStyle(PillCTAStyle())
-            .disabled(isWorking || model.plannerDestination.isEmpty
-                      || (!hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty))
+            .disabled(!planEnabled)
+            // macOS: while a text field is editing, SwiftUI spends the click
+            // ENDING the session — the button action (and even simultaneous
+            // gestures) never fire, so the first Plan click silently did
+            // nothing. The AppKit overlay receives the raw mouseUp ahead of
+            // SwiftUI's text machinery and fires reliably on the FIRST click.
+            #if os(macOS)
+            .overlay {
+                if planEnabled {
+                    FirstClickCatcher {
+                        focusedField = nil
+                        Task { await plan() }
+                    }
+                }
+            }
+            #endif
 
             if let errorMessage {
                 Text(errorMessage)
@@ -137,6 +165,13 @@ struct PlannerPanel: View {
         }
         .onAppear { focusedField = .destination }
         .floatingCard()
+    }
+
+    /// One truth for "can Plan fire": the button's disabled state and its
+    /// click-swallow fallback gesture must always agree.
+    private var planEnabled: Bool {
+        !isWorking && !model.plannerDestination.isEmpty
+            && (hasGPS || !source.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     private func search() async {
@@ -215,6 +250,9 @@ struct PlannerPanel: View {
     }
 
     private func plan() async {
+        // Reentry guard: the button's action AND its simultaneous tap gesture
+        // can both fire on one click — the second call must be a no-op.
+        guard !isWorking else { return }
         isWorking = true
         defer { isWorking = false }
         errorMessage = nil
@@ -250,3 +288,35 @@ struct PlannerPanel: View {
         }
     }
 }
+
+#if os(macOS)
+/// AppKit-level click catcher for a button that sits next to text fields.
+/// SwiftUI-native fields CONSUME the click that ends their editing session —
+/// the button's action (and even simultaneous gestures) never see it, so the
+/// first click "does nothing". A real NSView receives the event from AppKit's
+/// dispatch BEFORE SwiftUI's text machinery, making the first click land
+/// every time. Fires on mouse-up inside bounds, like a normal button.
+private struct FirstClickCatcher: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> ClickView {
+        let view = ClickView()
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ view: ClickView, context: Context) {
+        view.action = action
+    }
+
+    final class ClickView: NSView {
+        var action: (() -> Void)?
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) {}   // claim the click
+        override func mouseUp(with event: NSEvent) {
+            let p = convert(event.locationInWindow, from: nil)
+            if bounds.contains(p) { action?() }
+        }
+    }
+}
+#endif

@@ -104,6 +104,11 @@ struct PlannedRoute: Identifiable {
     /// ELECTRIC vehicles: mile mark of the first stretch with NO charger in
     /// reach (nil = chargers found along the whole route, or not an EV).
     var evChargingGapMiles: Double?
+    /// Flips when the physical-attribute pass (grades / clearances / FEMA /
+    /// EV gaps) has run. Attributes hydrate SEPARATELY from the weather
+    /// verdict — Overpass/EPQS latency must not hold the GO gate hostage —
+    /// so a leg can start weather-scored but attribute-pending.
+    var attributesScored = false
 
     /// Congestion proxy: traffic-aware ETA vs a free-flow baseline for the
     /// road class. > ~1.35 means the corridor commonly crawls. (Real per-road

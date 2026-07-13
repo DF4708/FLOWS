@@ -10,6 +10,9 @@ import Combine
 import CoreLocation
 import MapKit
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// App-wide mode: plan on a continent-scale map, then flip to a time-sensitive
 /// zoomed turn-by-turn view once a route is chosen (see NavigationEngine for
@@ -1130,26 +1133,57 @@ final class AppModel: ObservableObject {
                 routeChoices[i] = done
             }
         }
-        guard mode == .choosing else { return }
-        routeChoices.sort {
-            // Near-equal ETA → prefer the lower balanced risk (band + identified
-            // ZIP exposure), not the band alone.
-            if abs($0.eta - $1.eta) < 300 { return $0.rankingRisk < $1.rankingRisk }
-            return $0.eta < $1.eta
-        }
-        ensureHighlightValid()
-        // ONE retry pass for routes whose weather fetches came back incomplete
-        // (NWS hiccup): re-score after a short breather so GO can unlock with
-        // real data instead of a false green.
-        let incomplete = routeChoices.filter { !$0.weatherScored }
-        if !incomplete.isEmpty {
-            try? await Task.sleep(nanoseconds: 6_000_000_000)
-            for r in incomplete where mode == .choosing {
-                let redone = await scored(r)
-                if let i = routeChoices.firstIndex(where: { $0.id == redone.id }) {
-                    routeChoices[i] = redone
+        if mode == .choosing {
+            routeChoices.sort {
+                // Near-equal ETA → prefer the lower balanced risk (band + identified
+                // ZIP exposure), not the band alone.
+                if abs($0.eta - $1.eta) < 300 { return $0.rankingRisk < $1.rankingRisk }
+                return $0.eta < $1.eta
+            }
+            ensureHighlightValid()
+            // ONE retry pass for routes whose weather fetches came back incomplete
+            // (NWS hiccup): re-score after a short breather so GO can unlock with
+            // real data instead of a false green.
+            let incomplete = routeChoices.filter { !$0.weatherScored }
+            if !incomplete.isEmpty {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                for r in incomplete where mode == .choosing {
+                    let redone = await scored(r)
+                    if let i = routeChoices.firstIndex(where: { $0.id == redone.id }) {
+                        routeChoices[i] = redone
+                    }
                 }
             }
+        }
+        // PHASE 2 — physical attributes (grades / clearances / FEMA / EV
+        // gaps): slow public fetches that hydrate AFTER the safety verdict.
+        // Runs even if the driver already hit GO — the finished attributes
+        // patch the live leg instead of the (cleared) choice cards.
+        let pending = routeChoices.isEmpty
+            ? [navigation.route].compactMap { $0 } : routeChoices
+        await withTaskGroup(of: Void.self) { group in
+            for r in pending {
+                group.addTask { await self.hydrateAttributes(r) }
+            }
+        }
+    }
+
+    /// Ids with an attribute pass currently in flight — startLeg and the
+    /// phase-2 hydration can race to hydrate the same route; first one wins.
+    private var attributeHydrationInFlight: Set<UUID> = []
+
+    /// Attribute-hydrate one route (grades / clearances / FEMA / EV gaps)
+    /// and land the result wherever the route now lives: its choice card,
+    /// or the active leg if the driver already hit GO.
+    private func hydrateAttributes(_ leg: PlannedRoute) async {
+        guard !leg.attributesScored,
+              attributeHydrationInFlight.insert(leg.id).inserted else { return }
+        defer { attributeHydrationInFlight.remove(leg.id) }
+        let done = await attributeScored(leg)
+        if let i = routeChoices.firstIndex(where: { $0.id == done.id }) {
+            routeChoices[i] = done
+        } else {
+            navigation.updateRouteMetadata(done)
         }
     }
 
@@ -1274,9 +1308,15 @@ final class AppModel: ObservableObject {
         // lakes piece that was missing). FEMA A/V zones remain the route filter.
         async let gaugesF = LiveHazardFeedFetcher.shared.floodGauges(
             minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
-        let waterProbe = stride(from: 0, to: score.samples.count,
-                                by: max(score.samples.count / 12, 1))
-            .map { score.samples[$0].coordinate }
+        // Rain-gate: water-proximity evidence only matters when the corridor
+        // has forecast rain (the multiplier ignores evidence at qpf 0) — a dry
+        // day skips the NHD queries entirely.
+        let anyRain = onDevice.values.contains { ($0.0.qpfInches ?? 0) > 0 }
+        let waterProbe = anyRain
+            ? stride(from: 0, to: score.samples.count,
+                     by: max(score.samples.count / 12, 1))
+                .map { score.samples[$0].coordinate }
+            : []
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
         let corridorClosures = await closuresF
         let corridorGauges = await gaugesF
@@ -1395,9 +1435,18 @@ final class AppModel: ObservableObject {
         // not present as confidently clear (score.complete's documented
         // contract). Incomplete routes keep "Scoring…" and hydrate retries.
         r.weatherScored = score.complete
+        return r
+    }
 
-        // Physical attributes from public data (grades / low bridges / FEMA
-        // flood zones) — best-effort concurrent fetches; nil = unknown.
+    /// Second hydration pass: physical attributes from public data (EPQS
+    /// grades / OSM low bridges / FEMA flood zones / EV charging gaps) —
+    /// best-effort concurrent fetches; nil = unknown. Split from `scored(_:)`
+    /// because Overpass and EPQS on a long corridor take 30 s+ and the GO
+    /// gate keys on the SAFETY verdict — the weather band must not wait for
+    /// bridge heights.
+    private func attributeScored(_ input: PlannedRoute) async -> PlannedRoute {
+        var r = input
+        let part = RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000)
         let routeLength = r.distanceMeters
         let gradeSpacing = max(10_000.0, routeLength / 60)
         let gradeSamples = RouteService.samplePoints(of: r.route.polyline, everyMeters: gradeSpacing)
@@ -1487,6 +1536,7 @@ final class AppModel: ObservableObject {
             }
             r.evChargingGapMiles = gapAtMile
         }
+        r.attributesScored = true
         return r
     }
 
@@ -1822,6 +1872,12 @@ final class AppModel: ObservableObject {
     private func startLeg(_ leg: PlannedRoute) {
         lastRouteRect = leg.route.polyline.boundingMapRect
         navigation.start(route: leg, onArrival: { [weak self] in self?.handleArrival() })
+        // Legs swapped in mid-drive (reroute, added stop, arrival chaining)
+        // arrive weather-scored but attribute-pending — hydrate grades /
+        // clearances into the live leg without blocking guidance.
+        if !leg.attributesScored {
+            Task { [weak self] in await self?.hydrateAttributes(leg) }
+        }
         // Recurring-needs schedule rebases per leg (a stop resets the
         // food/rest clocks — you just stopped).
         rebuildTripNeeds()
@@ -2037,6 +2093,43 @@ final class AppModel: ObservableObject {
 @main
 struct FLOWSApp: App {
     @StateObject private var model = AppModel()
+
+    init() {
+        #if os(macOS)
+        // Every text input in FLOWS is a place name, ZIP, or vehicle spec —
+        // macOS inline predictions only ever "correct" those, and the gray
+        // prediction sits as MARKED text: the click that dismisses it never
+        // reaches its real target (the field-to-field / Plan-button click
+        // swallow). SwiftUI exposes no per-field switch on macOS, so opt the
+        // app out via AppKit's documented defaults keys.
+        UserDefaults.standard.register(defaults: [
+            "NSAutomaticTextCompletionEnabled": false,
+            "NSAutomaticInlinePredictionEnabled": false,
+        ])
+        // AppKit CONSUMES the mouseDown that ends a text-field editing
+        // session — a button under that click never fires ("the first Plan
+        // click does nothing"), and SwiftUI's FocusState immediately
+        // restores the editor, so the next click is eaten too. End the
+        // session BEFORE dispatch when the click lands outside the editing
+        // field; the same click then reaches its real target. App-wide: any
+        // control next to any field gets first-click behavior.
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+            guard let window = event.window,
+                  let editor = window.firstResponder as? NSTextView,
+                  editor.isFieldEditor,
+                  let content = window.contentView else { return event }
+            let point = content.superview?.convert(event.locationInWindow, from: nil)
+                ?? event.locationInWindow
+            var view = content.hitTest(point)
+            while let v = view {
+                if v === editor { return event }   // click stays in the field
+                view = v.superview
+            }
+            window.makeFirstResponder(nil)
+            return event
+        }
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {

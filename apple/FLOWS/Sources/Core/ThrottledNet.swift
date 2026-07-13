@@ -33,12 +33,36 @@ enum ThrottledNet {
 
     /// GET a URL through the global gate.
     static func fetch(_ url: URL) async throws -> (Data, URLResponse) {
-        try await RequestGate.shared.withPermit { try await session.data(from: url) }
+        try await fetchGuarded(host: url.host) { try await session.data(from: url) }
     }
 
     /// Perform a request (POST/custom headers) through the global gate.
     static func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        try await RequestGate.shared.withPermit { try await session.data(for: request) }
+        try await fetchGuarded(host: request.url?.host) { try await session.data(for: request) }
+    }
+
+    /// Permit + per-host breaker around one transport attempt. The breaker
+    /// check happens AFTER permit acquisition — a queued call to a host that
+    /// died while it waited must fast-fail and hand its permit on, not hold
+    /// it for a full connect timeout. (EPQS outage: 300 queued elevation
+    /// calls × 10 s timeouts starved every healthy feed for minutes.)
+    private static func fetchGuarded(
+        host: String?, _ op: @Sendable () async throws -> (Data, URLResponse)
+    ) async throws -> (Data, URLResponse) {
+        try await RequestGate.shared.withPermit {
+            let host = host ?? ""
+            guard await HostBreaker.shared.admits(host) else {
+                throw URLError(.cannotConnectToHost)
+            }
+            do {
+                let out = try await op()
+                await HostBreaker.shared.recordSuccess(host)
+                return out
+            } catch {
+                await HostBreaker.shared.recordFailure(host)
+                throw error
+            }
+        }
     }
 
     // MARK: - Graceful source fallback
@@ -93,6 +117,50 @@ enum ThrottledNet {
                 return value
             }
         })
+    }
+}
+
+/// Per-host circuit breaker. A host that fails at the TRANSPORT level (times
+/// out, refuses connections) `trip` times in a row stops receiving requests
+/// for `cooldown` — its zombie sockets must not hold the app-wide permit
+/// pool hostage while every healthy feed queues behind them. After the
+/// cooldown exactly ONE probe is admitted (no thundering herd); its outcome
+/// closes or re-opens the breaker. An HTTP response of any status is a
+/// SUCCESS here — the host answered; status handling belongs to callers.
+actor HostBreaker {
+    static let shared = HostBreaker()
+
+    private var failures: [String: Int] = [:]
+    private var openedAt: [String: Date] = [:]
+    private var probing: Set<String> = []
+    private let trip: Int
+    private let cooldown: TimeInterval
+
+    init(trip: Int = 5, cooldown: TimeInterval = 120) {
+        self.trip = trip
+        self.cooldown = cooldown
+    }
+
+    func admits(_ host: String) -> Bool {
+        guard let opened = openedAt[host] else { return true }
+        if Date().timeIntervalSince(opened) >= cooldown, !probing.contains(host) {
+            probing.insert(host)   // half-open: one probe carries the verdict
+            return true
+        }
+        return false
+    }
+
+    func recordSuccess(_ host: String) {
+        probing.remove(host)
+        failures[host] = 0
+        openedAt[host] = nil
+    }
+
+    func recordFailure(_ host: String) {
+        probing.remove(host)
+        let n = (failures[host] ?? 0) + 1
+        failures[host] = n
+        if n >= trip { openedAt[host] = Date() }   // (re)open, restart cooldown
     }
 }
 

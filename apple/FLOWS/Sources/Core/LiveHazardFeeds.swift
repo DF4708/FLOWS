@@ -618,18 +618,49 @@ actor LiveHazardFeedFetcher {
     /// changes, so a 24-h per-cell cache keeps this to a handful of requests.
     /// This is the TOPOGRAPHIC evidence (rivers/lakes) the flood model gates on,
     /// alongside FEMA zones and live gauges.
+    ///
+    /// CONCURRENT with a hard deadline: the first cut ran up to 24 lookups
+    /// SEQUENTIALLY, which froze route scoring for 30+ seconds whenever the
+    /// USGS server was slow. Uncached points now query in parallel and
+    /// anything past the deadline resolves as "no evidence" this pass (the
+    /// cache fills on later passes; missing evidence only means no flood BUMP,
+    /// never missing safety data).
     func waterProximity(near points: [CLLocationCoordinate2D])
         async -> [CLLocationCoordinate2D] {
         var out: [CLLocationCoordinate2D] = []
+        var uncached: [(String, CLLocationCoordinate2D)] = []
         for p in points {
             let key = "\(Int(p.latitude * 50))|\(Int(p.longitude * 50))"   // ~2 km cells
             if let c = waterCache[key], Date().timeIntervalSince(c.0) < 86_400 {
                 if c.1 { out.append(p) }
-                continue
+            } else {
+                uncached.append((key, p))
             }
-            let near = await Self.nhdWaterNear(p)
-            waterCache[key] = (Date(), near)
-            if near { out.append(p) }
+        }
+        if !uncached.isEmpty {
+            let results = await withTaskGroup(
+                of: (String, CLLocationCoordinate2D, Bool)?.self
+            ) { group in
+                for (key, p) in uncached {
+                    group.addTask { (key, p, await Self.nhdWaterNear(p)) }
+                }
+                // Deadline watchdog: after 6 s, take what's landed.
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: 6_000_000_000)
+                    return nil
+                }
+                var done: [(String, CLLocationCoordinate2D, Bool)] = []
+                for await r in group {
+                    guard let r else { group.cancelAll(); break }   // deadline
+                    done.append(r)
+                    if done.count == uncached.count { group.cancelAll(); break }
+                }
+                return done
+            }
+            for (key, p, near) in results {
+                waterCache[key] = (Date(), near)
+                if near { out.append(p) }
+            }
         }
         if waterCache.count > 400 { waterCache = [:] }
         return out

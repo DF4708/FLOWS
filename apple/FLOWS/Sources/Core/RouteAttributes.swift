@@ -98,6 +98,9 @@ actor RouteAttributeFetcher {
     }
 
     /// USGS EPQS point elevation (meters); nil on failure/no-coverage.
+    /// Failures are NOT cached — an outage tonight must not read as
+    /// "no elevation here" forever once the service recovers. (Dead-host
+    /// fan-outs are contained by ThrottledNet's per-host breaker.)
     func elevation(at c: CLLocationCoordinate2D) async -> Double? {
         let k = key(c)
         if let cached = elevationCache[k] { return cached }
@@ -111,6 +114,7 @@ actor RouteAttributeFetcher {
             if let v = json["value"] as? Double { value = v }
             else if let s = json["value"] as? String { value = Double(s) }
         }
+        guard let value else { return nil }
         elevationCache[k] = value
         return value
     }
@@ -135,7 +139,9 @@ actor RouteAttributeFetcher {
             }
             result = zones.contains(where: RouteAttributes.isHighRiskFloodZone)
         }
-        floodZoneCache[k] = result
+        // Cache real answers (true/false), never failures — a FEMA hiccup
+        // must not pin "unknown" on this cell for the app's lifetime.
+        if result != nil { floodZoneCache[k] = result }
         return result
     }
 
