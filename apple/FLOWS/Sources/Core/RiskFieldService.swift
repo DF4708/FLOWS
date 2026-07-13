@@ -205,33 +205,39 @@ final class RiskFieldService: ObservableObject {
         // each NATIONAL entry's covered families for the CURRENT week from its
         // Fourier coefficients. R-engine entries are the ones with polygon
         // rings — those carry live-engine scores and are never touched.
-        var final = loadedEntries
-        if let table = await Task.detached(priority: .utility, operation: {
-            HarmonicClimatology.loadBundled()
-        }).value {
-            let week = SeasonalRiskModel.week()
-            let famIdx: [(bundle: Int, harmonic: Int)] = fams.enumerated().compactMap {
-                (i, name) in table.families.firstIndex(of: name).map { (i, $0) }
-            }
-            var rebuilt = 0
-            for e in 0..<final.count where final[e].ring == nil {
-                guard let zi = table.zipIndex(final[e].zip) else { continue }
-                var scores = final[e].scores
-                for (bi, hi) in famIdx where bi < scores.count {
-                    scores[bi] = table.score(zipIndex: zi, familyIndex: hi, week: week)
+        // The rescore (33k zips × families) and the grid build stay OFF the
+        // main actor — inline they blocked launch for seconds, eating the
+        // user's first keystrokes and focus clicks in the planner.
+        let (final, builtGrid) = await Task.detached(
+            priority: .utility
+        ) { () -> ([ZipEntry], [Int: [Int]]) in
+            var final = loadedEntries
+            if let table = HarmonicClimatology.loadBundled() {
+                let week = SeasonalRiskModel.week()
+                let famIdx: [(bundle: Int, harmonic: Int)] = fams.enumerated().compactMap {
+                    (i, name) in table.families.firstIndex(of: name).map { (i, $0) }
                 }
-                final[e] = ZipEntry(zip: final[e].zip, centroid: final[e].centroid,
-                                    scores: scores, summary: final[e].summary,
-                                    ring: nil)
-                rebuilt += 1
+                var rebuilt = 0
+                for e in 0..<final.count where final[e].ring == nil {
+                    guard let zi = table.zipIndex(final[e].zip) else { continue }
+                    var scores = final[e].scores
+                    for (bi, hi) in famIdx where bi < scores.count {
+                        scores[bi] = table.score(zipIndex: zi, familyIndex: hi, week: week)
+                    }
+                    final[e] = ZipEntry(zip: final[e].zip, centroid: final[e].centroid,
+                                        scores: scores, summary: final[e].summary,
+                                        ring: nil)
+                    rebuilt += 1
+                }
+                riskLog.info("harmonic climatology: \(rebuilt) national zips rescored for week \(week)")
             }
-            riskLog.info("harmonic climatology: \(rebuilt) national zips rescored for week \(week)")
-        }
+            return (final, Self.buildGrid(final))
+        }.value
         entries = final
         families = fams
         generatedUTC = generated
         zipsMemo = [:]
-        grid = Self.buildGrid(entries)
+        grid = builtGrid
         loaded = true
     }
 

@@ -943,7 +943,12 @@ private struct RouteCard: View {
                         .lineLimit(1)
                 }
             } else if route.hazardSummaries.isEmpty {
-                Text("All clear — no active alerts or elevated conditions.")
+                // "All clear" must agree with the band bar: a corridor that
+                // peaks yellow+ with no named hazard is elevated by forecast
+                // conditions (rain/wind predictors), not actually clear.
+                Text(route.peakRisk >= FlowsCore.riskGreenMin
+                     ? "No active alerts — elevated by forecast conditions along the corridor."
+                     : "All clear — no active alerts or elevated conditions.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -963,7 +968,9 @@ private struct RouteCard: View {
                 text += limits.passesGrade(g) ? " ✓" : " ✗ over your limit"
             }
             parts.append(text)
-        } else { parts.append("Grade: checking…") }
+        } else {
+            parts.append(route.attributesScored ? "Grade: no data" : "Grade: checking…")
+        }
         if let clearances = route.clearancesMeters {
             if let worst = clearances.min() {
                 let feet = worst / 0.3048
@@ -980,7 +987,10 @@ private struct RouteCard: View {
         } else { parts.append("Bridges: checking…") }
         if let f = route.femaFloodFraction {
             parts.append(String(format: "FEMA flood %.0f%%", f * 100))
-        } else { parts.append("Floodplain: checking…") }
+        } else {
+            parts.append(route.attributesScored
+                         ? "Floodplain: no data" : "Floodplain: checking…")
+        }
         return parts.joined(separator: " · ")
     }
 

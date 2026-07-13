@@ -83,7 +83,7 @@ See `docs/DATA_FEEDS.md` for the full endpoint map.
 
 ## Status
 
-Active development on `feature/native-app-and-decoder`. Built for and validated across the US, Canada, and Mexico. Transit `.ftt` on-device wiring, national R-engine scoring, and richer hydrology are the next milestones — see `docs/` for the roadmap.
+Active development on `main`. Built for and validated across the US, Canada, and Mexico — every state and province runs on the same unified scoring system. Transit `.ftt` on-device wiring, GTFS fares, and on-device background retraining are the next milestones — see `docs/` for the roadmap.
 
 ---
 

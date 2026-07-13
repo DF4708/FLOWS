@@ -66,6 +66,15 @@ final class NavigationEngine: ObservableObject {
         self.location = location
     }
 
+    /// Late-hydration patch: swap in a metadata-richer copy of the SAME
+    /// route (physical attributes land after GO on long corridors). Same id
+    /// ⇒ same geometry, so the flattened points/steps stay valid; a
+    /// different id is refused rather than desyncing guidance.
+    func updateRouteMetadata(_ richer: PlannedRoute) {
+        guard let current = route, current.id == richer.id else { return }
+        route = richer
+    }
+
     /// `onArrival` is a parameter (not assigned after the fact) because
     /// start() produces guidance immediately — review finding: assigning the
     /// callback on the NEXT line meant a <120 m arrival fired into a nil or

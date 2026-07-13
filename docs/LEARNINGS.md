@@ -621,3 +621,58 @@ worth eliminating. What survives:
   Swift suite gate alongside the existing governed cargo gate.
 
 Recovery note: the full engine is in git history (`git log -- R/`).
+
+## 12. QA pass: latency + the macOS first-click swallow (2026-07-12)
+
+A user-level QA drive (aesthetics, latency, menu navigation, missing data)
+found two systemic defects. Both fixes are mechanisms, not patches.
+
+### GO was hostage to the slowest public feed
+
+`scored()` was monolithic: the GO gate keys on the weather verdict, but the
+function also awaited EPQS grades, Overpass clearances, FEMA zones, and EV
+gaps before returning. The night EPQS went down (it fails by HANGING, not
+erroring), "Scoring…" never resolved. Two-layer fix:
+
+- **Split hydration.** `scored()` now ends at the safety verdict
+  (`weatherScored`); `attributeScored()` runs as a second pass that patches
+  the choice card — or the LIVE leg via `NavigationEngine.
+  updateRouteMetadata` — whenever it lands. GO unlocks in ~30 s on a 400-mi
+  corridor; grades/bridges hydrate behind it ("checking…" → value or an
+  honest "no data"). `startLeg` self-hydrates any leg that arrives
+  attribute-pending (reroutes, added stops, arrival chaining) — one hook, not
+  per-call-site plumbing.
+- **Per-host circuit breaker in `ThrottledNet`** (`HostBreaker`). A dead
+  host's zombie sockets each held an app-wide permit for the full 10 s
+  timeout — 300 queued EPQS calls starved every HEALTHY feed for minutes.
+  The breaker check runs AFTER permit acquisition (a queued call to a host
+  that died while it waited must fast-fail), trips after 5 straight
+  transport failures, and admits exactly ONE probe after cooldown. Any HTTP
+  response is a success at this layer — status handling stays with callers.
+  Corollary: `elevation()`/`highRiskFloodZone()` no longer negative-cache —
+  an outage tonight must not read as "no data here" forever.
+
+### The first click after typing did nothing
+
+Three stacked causes on macOS, found by peeling one layer per repro:
+
+1. **Inline predictions** sit as MARKED text in the field; the click that
+   dismisses them never reaches its target, and the next keystrokes replace
+   the marked range ("Nashville, TN" → "Nashville, Augusta, GA"). SwiftUI
+   has no per-field switch; the app opts out via AppKit's defaults keys
+   (`NSAutomaticInlinePredictionEnabled` / `NSAutomaticTextCompletionEnabled`)
+   — right for FLOWS, where every input is a place name, ZIP, or vehicle spec.
+2. **Launch-time main-thread work** delayed focus moves long enough to drop
+   keystrokes: the 33k-zip harmonic rescore and grid build ran on the main
+   actor inside `RiskFieldService.load()`. Moved into the detached parse task.
+3. **SwiftUI-native fields consume the session-ending click entirely** — the
+   button action, `simultaneousGesture`, and an `NSEvent` local monitor all
+   never see it (there is no AppKit field editor to end). The fix that works:
+   a real `NSView` overlay (`FirstClickCatcher`) on the Plan button receives
+   the raw mouseDown/mouseUp from AppKit dispatch ahead of SwiftUI's text
+   machinery. Keyboard path: destination ⏎ walks to an empty start field,
+   else plans; `plan()` is reentry-guarded.
+
+Also: a card that peaks Yellow with no named hazard now says "elevated by
+forecast conditions" instead of "All clear — no active alerts or elevated
+conditions" (the band bar and the sentence must agree).

@@ -733,6 +733,40 @@ final class AdaptiveTuningTests: XCTestCase {
         XCTAssertLessThanOrEqual(hi, cap, "gate exceeded the device concurrency cap")
     }
 
+    /// Per-host circuit breaker: transport failures trip it after N in a row,
+    /// an open breaker refuses the host (fast-fail — zombie sockets must not
+    /// hold the permit pool), the cooldown admits exactly ONE probe whose
+    /// outcome closes or re-opens it, and other hosts are never affected.
+    func testHostBreakerTripProbeAndRecovery() async {
+        let b = HostBreaker(trip: 3, cooldown: 0.15)
+        // Below the trip count the host is still admitted.
+        await b.recordFailure("epqs.gov"); await b.recordFailure("epqs.gov")
+        var ok = await b.admits("epqs.gov")
+        XCTAssertTrue(ok, "2 failures with trip=3 must still admit")
+        // Third straight failure opens it; a healthy host is unaffected.
+        await b.recordFailure("epqs.gov")
+        ok = await b.admits("epqs.gov")
+        XCTAssertFalse(ok, "3rd failure must open the breaker")
+        ok = await b.admits("overpass.de")
+        XCTAssertTrue(ok, "breaker is per-host — other hosts stay open")
+        // After the cooldown exactly one probe goes through at a time.
+        try? await Task.sleep(for: .milliseconds(200))
+        let first = await b.admits("epqs.gov")
+        let second = await b.admits("epqs.gov")
+        XCTAssertTrue(first, "cooldown elapsed → one probe admitted")
+        XCTAssertFalse(second, "no thundering herd — only ONE probe in flight")
+        // Probe fails → re-opens for a fresh cooldown.
+        await b.recordFailure("epqs.gov")
+        ok = await b.admits("epqs.gov")
+        XCTAssertFalse(ok, "failed probe re-opens the breaker")
+        // Next probe succeeds → fully closed again.
+        try? await Task.sleep(for: .milliseconds(200))
+        _ = await b.admits("epqs.gov")
+        await b.recordSuccess("epqs.gov")
+        ok = await b.admits("epqs.gov")
+        XCTAssertTrue(ok, "successful probe closes the breaker")
+    }
+
     /// The source-fallback primitive must return the FIRST non-nil source, try
     /// sources strictly in order, short-circuit once one succeeds (never touch
     /// later sources), and return nil only when every source failed.
