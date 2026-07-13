@@ -166,7 +166,17 @@ final class AppModel: ObservableObject {
     }
     /// Corridor risk display floor: pedestrians are exposed — walking mode
     /// raises weather sensitivity (lower floor = lighter weather shows).
-    var riskDisplayFloor: Double { walkingMode ? 0.15 : 0.25 }
+    /// Score floor for the LOUD map layers (badges + striped ZCTA areas).
+    /// Keyed to the app's own clear/green boundary: the clear band is by
+    /// definition "normal for here, right now" and stays quiet — a humid July
+    /// night's rain-chance predictors noisy-OR to ~0.3 across whole states,
+    /// and at the old 0.25 floor that painted stripes and badges everywhere
+    /// ("is something exaggerated in the equations?" — no, the FLOOR was
+    /// below the app's own definition of quiet). Sub-floor weather still
+    /// shows as the faint grid tint, so the driver sees conditions without
+    /// the map shouting. Walking mode keeps a lower floor — pedestrians are
+    /// exposed to weather a car shrugs off.
+    var riskDisplayFloor: Double { walkingMode ? 0.30 : FlowsCore.riskGreenMin }
 
     /// Yelp Fusion key (free: yelp.com/developers) → stars + $ tiers.
     /// Google Places API (New) key — the alternate ratings source (free

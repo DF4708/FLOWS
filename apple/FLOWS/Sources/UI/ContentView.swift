@@ -638,8 +638,10 @@ struct ContentView: View {
             // Every elevated point gets a real ZIP boundary (ZCTAFetcher caches
             // by cell, so repeat sweeps are nearly free) — risk areas draw as
             // actual ZIP shapes, with hull blobs only as a genuine fallback.
+            // Same floor as the badges: striped AREAS are the map's loudest
+            // element and must not paint for clear-band scores.
             for hz in found.prefix(40)
-            where hz.realized >= 0.25 {
+            where hz.realized >= model.riskDisplayFloor {
                 if Task.isCancelled { return }   // superseded: skip remaining fetches
                 if let z = await ZCTAFetcher.shared.zcta(containing: hz.coordinate) {
                     rings[z.code] = z.ring
@@ -725,7 +727,10 @@ struct ContentView: View {
             return hot ? HazardStyle.heat : HazardStyle.cold
         }
         if w >= p && windBeyond { return HazardStyle.wind }
-        return HazardStyle.flood
+        // Precipitation PROBABILITY is the fall-through — label it rain
+        // chance, not flood: PoP is a predictor; "Flood" is reserved for
+        // realized water (gauges, flood warnings, the qpf_flood family).
+        return HazardStyle.rain
     }
 
     /// The traveler's map marker: mode-appropriate icon in a colored puck.
@@ -741,9 +746,11 @@ struct ContentView: View {
                       let leg = Self.nearestLeg(of: itin, to: here) else {
                     return (rail ? "tram.fill" : "bus.fill", .purple)
                 }
-                return leg.kind == .walk
-                    ? ("figure.walk", .green)
-                    : (rail ? "tram.fill" : "bus.fill", .purple)
+                return switch leg.kind {
+                case .walk: ("figure.walk", .green)
+                case .drive: ("car.fill", .blue)   // park-and-ride access leg
+                case .ride: (rail ? "tram.fill" : "bus.fill", .purple)
+                }
             }
             if model.walkingMode { return ("figure.walk", .green) }
             return ("car.fill", .blue)
@@ -983,16 +990,22 @@ struct ContentView: View {
                     if model.show3DMap { steepGradeMarkers(hl) }
                 }
                 // Public-transit itinerary drawn IN FLOWS: walk legs (real
-                // MapKit geometry) solid green; the ride leg follows the road
+                // MapKit geometry) solid green; a park-and-ride access leg
+                // solid blue (it's a drive); the ride leg follows the road
                 // corridor (MKDirections .automobile, straight connector only if
                 // unroutable) dashed purple. Final green leg is the no-car last mile.
                 if let itin = model.transitItinerary {
                     ForEach(itin.legs) { leg in
                         if let poly = leg.polyline {
+                            let color: Color = switch leg.kind {
+                            case .walk: .green
+                            case .drive: .blue
+                            case .ride: .purple
+                            }
                             MapPolyline(poly)
-                                .stroke(leg.kind == .walk ? Color.green : Color.purple,
+                                .stroke(color,
                                         style: StrokeStyle(
-                                            lineWidth: leg.kind == .walk ? 5 : 4,
+                                            lineWidth: leg.kind == .ride ? 4 : 5,
                                             lineCap: .round,
                                             dash: leg.kind == .ride ? [10, 8] : []))
                         }

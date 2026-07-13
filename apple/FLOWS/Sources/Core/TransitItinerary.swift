@@ -11,7 +11,10 @@ import MapKit
 
 /// A multi-leg public-transit itinerary drawn and stepped IN FLOWS — not handed
 /// off to Apple Maps. Three legs:
-///   1. WALK from the start to the boarding station,
+///   1. WALK from the start to the boarding station — or DRIVE + park when the
+///      station is beyond a reasonable walk (a suburban start with a
+///      downtown-only terminal produced a "5 h 14 m walk" leg; the traveller
+///      has a car at the START, so park-and-ride is the honest first leg),
 ///   2. the intercity RIDE (rail/bus),
 ///   3. WALK from the ARRIVAL station to the destination.
 /// Leg 3 is the important one: the traveller took the train, so they do NOT
@@ -24,7 +27,7 @@ import MapKit
 /// GTFS (Amtrak / VIA Rail / Mobility Database); until that lands the ride is
 /// labelled honestly as corridor-approximate.
 struct TransitLeg: Identifiable {
-    enum Kind { case walk, ride }
+    enum Kind { case walk, drive, ride }
     let id = UUID()
     let kind: Kind
     let fromName: String

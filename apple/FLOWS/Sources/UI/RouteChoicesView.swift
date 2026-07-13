@@ -190,10 +190,25 @@ struct RouteChoicesView: View {
         // (both resolve to the same stop): a 0-mile "Ride X → X" is meaningless,
         // so the itinerary collapses to the walk legs.
         let hasRide = rideMi >= 0.3
-        var legs: [TransitLeg] = [
-            TransitLeg(kind: .walk, fromName: startName, toName: boardName,
-                       seconds: w1sec, miles: w1mi, polyline: w1poly, steps: w1steps),
-        ]
+        // ACCESS leg: walk when the station is walkable; beyond ~45 min the
+        // honest first leg is park-and-ride — the traveller HAS a car at the
+        // start (this is a driving app), and "walk 5 h 14 m to the terminal"
+        // buried a 90-minute trip inside a 6-hour total.
+        var accessLeg = TransitLeg(kind: .walk, fromName: startName, toName: boardName,
+                                   seconds: w1sec, miles: w1mi,
+                                   polyline: w1poly, steps: w1steps)
+        if (w1sec ?? .infinity) > 2700 {
+            let (drivePoly, driveMi, driveSecs) = await rideGeometry(ep.from, boardC)
+            if let driveSecs {
+                accessLeg = TransitLeg(
+                    kind: .drive, fromName: startName, toName: boardName,
+                    seconds: driveSecs, miles: driveMi, polyline: drivePoly,
+                    steps: ["Drive to \(boardName)",
+                            "Park at or near the station",
+                            "Your car stays here — the far end is on foot"])
+            }
+        }
+        var legs: [TransitLeg] = [accessLeg]
         if hasRide {
             legs.append(TransitLeg(kind: .ride, fromName: boardName, toName: alightName,
                        seconds: rideSec, miles: rideMi, polyline: ridePoly,
@@ -237,10 +252,11 @@ struct RouteChoicesView: View {
             ticketLabel = t.label
             ticketURL = t.url
         }
+        let accessVerb = accessLeg.kind == .drive ? "Drive" : "Walk"
         transitOptions[rail] = TransitOption(
             title: "\(kind) via \(boardName)",
-            detail: "Walk \(TransitPlanning.fmt(w1sec)) to \(boardName) · \(kind.lowercased()) "
-                    + "ride \(TransitPlanning.fmt(rideSec))\(tail) · est. fare "
+            detail: "\(accessVerb) \(TransitPlanning.fmt(accessLeg.seconds)) to \(boardName) · "
+                    + "\(kind.lowercased()) ride \(TransitPlanning.fmt(rideSec))\(tail) · est. fare "
                     + String(format: "$%.2f (carriers set final pricing).", fare),
             fare: fare, destination: dest,
             ticketLabel: ticketLabel, ticketURL: ticketURL,
@@ -396,26 +412,35 @@ struct RouteChoicesView: View {
         }
     }
 
-    /// One itinerary leg: walk (real MapKit steps) or ride (board/alight).
+    /// One itinerary leg: walk (real MapKit steps), drive (park-and-ride
+    /// station access), or ride (board/alight).
     private func transitLegRow(_ leg: TransitLeg, isLast: Bool) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: leg.kind == .walk ? "figure.walk" : "tram.fill")
+        let (symbol, color): (String, Color) = switch leg.kind {
+        case .walk: ("figure.walk", .green)
+        case .drive: ("car.fill", .blue)
+        case .ride: ("tram.fill", .purple)
+        }
+        let title: String = switch leg.kind {
+        case .walk: isLast ? "Walk to \(leg.toName)  (no car — you rode transit)"
+                           : "Walk to \(leg.toName)"
+        case .drive: "Drive to \(leg.toName) — park & ride"
+        case .ride: "Ride the \(leg.fromName) → \(leg.toName)"
+        }
+        return HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(leg.kind == .walk ? Color.green : Color.purple)
+                .foregroundStyle(color)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
-                    Text(leg.kind == .walk
-                         ? (isLast ? "Walk to \(leg.toName)  (no car — you rode transit)"
-                                   : "Walk to \(leg.toName)")
-                         : "Ride the \(leg.fromName) → \(leg.toName)")
+                    Text(title)
                         .font(.system(size: 11, weight: .semibold))
                     Spacer(minLength: 4)
                     Text(TransitPlanning.fmt(leg.seconds))
                         .font(.system(size: 10, weight: .semibold)).monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                ForEach(Array(leg.steps.prefix(isLast || leg.kind == .ride ? 3 : 2).enumerated()),
+                ForEach(Array(leg.steps.prefix(isLast || leg.kind != .walk ? 3 : 2).enumerated()),
                         id: \.offset) { _, s in
                     Text("• \(s)").font(.system(size: 9)).foregroundStyle(.secondary)
                         .lineLimit(1)
