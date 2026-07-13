@@ -1141,12 +1141,15 @@ final class AppModel: ObservableObject {
                 return $0.eta < $1.eta
             }
             ensureHighlightValid()
-            // ONE retry pass for routes whose weather fetches came back incomplete
-            // (NWS hiccup): re-score after a short breather so GO can unlock with
-            // real data instead of a false green.
-            let incomplete = routeChoices.filter { !$0.weatherScored }
-            if !incomplete.isEmpty {
-                try? await Task.sleep(nanoseconds: 6_000_000_000)
+            // Retry routes whose weather fetches came back incomplete (NWS
+            // hiccup) so GO can unlock with real data instead of a false
+            // green. Persistent with backoff — a single 6 s retry died inside
+            // the host breaker's 120 s cooldown and left cards spinning
+            // forever; this outlives one full breaker window.
+            for delay in [6.0, 15, 15, 30, 30, 60] {
+                let incomplete = routeChoices.filter { !$0.weatherScored }
+                guard !incomplete.isEmpty, mode == .choosing else { break }
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 for r in incomplete where mode == .choosing {
                     let redone = await scored(r)
                     if let i = routeChoices.firstIndex(where: { $0.id == redone.id }) {

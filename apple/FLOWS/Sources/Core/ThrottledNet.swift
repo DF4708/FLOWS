@@ -59,7 +59,14 @@ enum ThrottledNet {
                 await HostBreaker.shared.recordSuccess(host)
                 return out
             } catch {
-                await HostBreaker.shared.recordFailure(host)
+                // CANCELLATION is not a host failure — a camera move that
+                // supersedes a viewport sweep cancels its in-flight fetches,
+                // and counting those tripped the breaker on a HEALTHY host
+                // (launch: GPS fix → map flies → mass-cancel → NWS "down").
+                if !(error is CancellationError),
+                   (error as? URLError)?.code != .cancelled {
+                    await HostBreaker.shared.recordFailure(host)
+                }
                 throw error
             }
         }

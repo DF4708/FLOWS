@@ -178,7 +178,15 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.mac
         PRODUCT_NAME: FLOWS            # menu bar / app name, not the target name
-        CODE_SIGN_IDENTITY: "-"   # ad-hoc for local testing
+        # Real signing identity, NOT ad-hoc: TCC keys permission grants to the
+        # app's designated requirement. Ad-hoc signatures change every build,
+        # so macOS re-prompted for Location on each rebuild; a team-anchored
+        # signature makes one grant persist across all future builds. The
+        # entitlements here are all unrestricted — no provisioning profile
+        # needed for local macOS signing.
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: 3T5JWQ4XW4
         # Static-link the Rust core (asm hot loops). `-u` force-keeps the C
         # symbol so FlowsCore.swift's dlsym(dlopen(nil)) resolves it and the
         # app runs the Rust/asm polyline decoder, not the Swift fallback.

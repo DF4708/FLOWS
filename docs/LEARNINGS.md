@@ -676,3 +676,28 @@ Three stacked causes on macOS, found by peeling one layer per repro:
 Also: a card that peaks Yellow with no named hazard now says "elevated by
 forecast conditions" instead of "All clear — no active alerts or elevated
 conditions" (the band bar and the sentence must agree).
+
+## 13. Signing, TCC persistence, and the cancellation trap (2026-07-13)
+
+- **Ad-hoc signing re-prompts TCC forever.** macOS keys permission grants to
+  the app's code-signing designated requirement; an ad-hoc signature's DR is
+  effectively the CDHash of THAT build, so every rebuild looked like a new
+  app and Location re-prompted. Signing with the real Apple Development
+  identity (team-anchored DR: bundle id + cert CN) makes one grant persist
+  across all future rebuilds. None of our entitlements are restricted, so
+  local macOS signing needs no provisioning profile.
+- **Cancellation is not a host failure.** The first HostBreaker counted every
+  thrown error as a transport failure — including `URLError.cancelled` from
+  a camera move superseding the viewport hazard sweep. At launch (GPS fix →
+  map flies → mass-cancel) that opened the breaker on a HEALTHY
+  api.weather.gov: bare risk map, cards spinning forever, and the one-shot
+  6 s weather retry died inside the 120 s cooldown. Fixes: cancelled
+  requests never count toward the trip, and the incomplete-weather retry is
+  a backoff series (6/15/15/30/30/60 s) that outlives one breaker window.
+  Symptom to remember: "everything network-ish silently empty right after
+  launch" smells like the breaker, not the feeds.
+- **A transit itinerary must call out a dominant access walk.** A suburban
+  start with a downtown-only Greyhound stop produced "6 h 47 m" whose first
+  leg was a 5 h 14 m WALK — labeled, but easy to read as a normal ride. The
+  card now flags "Mostly walking: nearest stop is X on foot" whenever the
+  access walk exceeds an hour and the ride itself.
