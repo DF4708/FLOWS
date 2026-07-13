@@ -701,3 +701,34 @@ conditions" (the band bar and the sentence must agree).
   leg was a 5 h 14 m WALK — labeled, but easy to read as a normal ride. The
   card now flags "Mostly walking: nearest stop is X on foot" whenever the
   access walk exceeds an hour and the ride itself.
+
+## 14. The map was honest but LOUD (2026-07-13)
+
+User feedback: "many flood warnings and a fire warning just between Augusta
+and Columbia — is something exaggerated in the equations?" Ground truth at
+that moment: ONE Special Weather Statement in all of SC, zero GA alerts.
+The equations were right; the presentation lied three ways:
+
+- **Rain probability wore the flood costume.** `dominantKind` fell through
+  to the flood wave icon for plain forecast PoP — a 60% July thunderstorm
+  chance badged as "Flood". PoP now gets its own `rain` kind ("Rain
+  chance", cloud icon). "Flood" is reserved for realized water.
+- **The loud layers drew below the app's own quiet line.** Badges and
+  striped ZCTA areas floored at 0.25 realized — deep inside the CLEAR band
+  (green starts at 0.398). Summer predictor noise (PoP + heat + outlook,
+  each capped, noisy-OR'd) sits ~0.3-0.5 across whole states, so the map
+  painted stripes everywhere while claiming "normal stays quiet".
+  `riskDisplayFloor` is now the clear/green boundary (walking mode 0.30);
+  sub-floor weather still shows as the faint grid tint.
+- **Unnamed things showed as mystery triangles.** A Special Weather
+  Statement (sub-severe convective) fell to the generic triangle — now
+  mapped to the storm icon. The remaining triangles are route-corridor
+  risk markers (blended sample risk, no single named family); their tap
+  popup explains the score honestly.
+
+Also: park-and-ride. The transit access leg walked ANY distance — a
+suburban start produced "walk 5 h 14 m to the Greyhound terminal" inside a
+"6 h 47 m" option. Beyond a 45-minute walk the first leg is now DRIVE +
+park (the traveller has a car at the start — it's a driving app), and the
+same trip reads 1 h 53 m. The no-car rule still holds at the FAR end: the
+last mile is always on foot.

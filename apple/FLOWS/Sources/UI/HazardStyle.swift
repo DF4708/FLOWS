@@ -29,6 +29,12 @@ enum HazardStyle {
     static let tornado = HazardKind(name: "Tornado", symbol: "tornado", color: .red)
     static let storm = HazardKind(name: "Storm", symbol: "cloud.bolt.rain.fill", color: .purple)
     static let flood = HazardKind(name: "Flood", symbol: "water.waves", color: .blue)
+    /// Rain PROBABILITY (forecast PoP) — a predictor, NOT flooding. Gets its
+    /// own icon so a 60% summer thunderstorm chance never wears the flood
+    /// costume ("I have many flood warnings between Augusta and Columbia" —
+    /// no, those were rain-chance badges drawn with the flood wave).
+    static let rain = HazardKind(name: "Rain chance", symbol: "cloud.rain.fill",
+                                 color: Color(red: 0.3, green: 0.55, blue: 0.75))
     static let snow = HazardKind(name: "Snow", symbol: "snowflake", color: .cyan)
     static let ice = HazardKind(name: "Ice", symbol: "thermometer.snowflake", color: .teal)
     static let heat = HazardKind(name: "Heat", symbol: "thermometer.sun.fill", color: .orange)
@@ -59,6 +65,9 @@ enum HazardStyle {
         if e.contains("blizzard") || e.contains("snow") || e.contains("winter") { return snow }
         if e.contains("ice") || e.contains("freezing") || e.contains("frost") { return ice }
         if e.contains("thunder") || e.contains("severe") || e.contains("storm") { return storm }
+        // A Special Weather Statement is NWS's short-fused sub-severe
+        // convective product — name it a storm, not a mystery triangle.
+        if e.contains("special weather") { return storm }
         if e.contains("heat") { return heat }
         if e.contains("chill") || e.contains("cold") { return cold }
         if e.contains("wind") { return wind }
