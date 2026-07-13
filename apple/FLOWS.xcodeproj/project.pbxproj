@@ -577,6 +577,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					E17DA01B583B5FF59C598D7E = {
+						DevelopmentTeam = 3T5JWQ4XW4;
+						ProvisioningStyle = Manual;
+					};
 				};
 			};
 			buildConfigurationList = F4602BDA71AF5EC8F782D078 /* Build configuration list for PBXProject "FLOWS" */;
@@ -897,8 +901,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "FLOWS/Generated/FLOWS-macOS.entitlements";
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 3T5JWQ4XW4;
 				INFOPLIST_FILE = "FLOWS/Generated/Info-macOS.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1151,8 +1157,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "FLOWS/Generated/FLOWS-macOS.entitlements";
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 3T5JWQ4XW4;
 				INFOPLIST_FILE = "FLOWS/Generated/Info-macOS.plist";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

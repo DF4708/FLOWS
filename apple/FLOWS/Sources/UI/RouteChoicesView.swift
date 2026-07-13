@@ -320,6 +320,21 @@ struct RouteChoicesView: View {
             // In-app itinerary: every leg, with the ARRIVAL-station walk called
             // out — you took the train, so the last mile is on foot, not a drive.
             if let itin = t.itinerary {
+                // A "transit" option whose ACCESS WALK dominates (suburban
+                // start, downtown-only station) is technically correct but
+                // reads as a normal ride — call the walk out up front instead
+                // of letting a 5-hour hike hide inside a 6h47m total.
+                if let firstWalk = itin.legs.first, firstWalk.kind == .walk,
+                   let walkSec = firstWalk.seconds, walkSec > 3600,
+                   let ride = itin.legs.first(where: { $0.kind == .ride }),
+                   walkSec > (ride.seconds ?? 0) {
+                    Label("Mostly walking: the nearest stop is "
+                          + "\(TransitPlanning.fmt(walkSec)) on foot — "
+                          + "consider driving or a rideshare to the station",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.orange)
+                }
                 ForEach(Array(itin.legs.enumerated()), id: \.offset) { i, leg in
                     transitLegRow(leg, isLast: i == itin.legs.count - 1)
                 }
@@ -944,9 +959,11 @@ private struct RouteCard: View {
                 }
             } else if route.hazardSummaries.isEmpty {
                 // "All clear" must agree with the band bar: a corridor that
-                // peaks yellow+ with no named hazard is elevated by forecast
+                // peaks YELLOW+ with no named hazard is elevated by forecast
                 // conditions (rain/wind predictors), not actually clear.
-                Text(route.peakRisk >= FlowsCore.riskGreenMin
+                // A green peak is normal driving weather — don't call it
+                // "elevated" (green sits above clear, below yellow).
+                Text(route.peakRisk >= FlowsCore.riskYellowMin
                      ? "No active alerts — elevated by forecast conditions along the corridor."
                      : "All clear — no active alerts or elevated conditions.")
                     .font(.caption)
