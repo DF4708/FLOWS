@@ -33,6 +33,9 @@ struct RouteChoicesView: View {
         /// This option's own itinerary — rail and bus cards coexist, each with
         /// its own legs; tapping a card draws ITS itinerary on the map.
         var itinerary: TransitItinerary?
+        /// Rental counters near the destination — the traveller arrives
+        /// WITHOUT a car (that's the whole point of leg 3 being a walk).
+        var rentals: [RentalCars.Office] = []
     }
     /// Per-mode transit options (true = rail, false = bus) — car, train, AND
     /// bus can all be selected together; the planner shows every option.
@@ -163,10 +166,32 @@ struct RouteChoicesView: View {
             return (route.polyline, route.distance / 1609.344, route.expectedTravelTime)
         }
 
-        // The three directions requests are independent — run them concurrently.
+        // Rental counters near the destination — any operator MapKit knows
+        // (Hertz, Enterprise, a local independent), keyless like every other
+        // POI source. The traveller arrives car-less; three biggest-brand
+        // offices with distance + booking link answer "now what?".
+        @Sendable func rentalOffices(_ dest: CLLocationCoordinate2D)
+            async -> [RentalCars.Office] {
+            let req = MKLocalSearch.Request()
+            req.naturalLanguageQuery = "car rental"
+            req.pointOfInterestFilter = MKPointOfInterestFilter(including: [.carRental])
+            req.region = MKCoordinateRegion(center: dest,
+                                            latitudinalMeters: 30_000,
+                                            longitudinalMeters: 30_000)
+            let items = (try? await MKLocalSearch(request: req).start())?.mapItems ?? []
+            return RentalCars.recommend(items.map { item in
+                RentalCars.Office(
+                    name: item.name ?? "Car rental",
+                    miles: POIRanking.meters(item.placemark.coordinate, dest) / 1609.344,
+                    url: item.url ?? RentalCars.bookingURL(name: item.name))
+            })
+        }
+
+        // The four requests are independent — run them concurrently.
         async let w1 = walk(ep.from, boardC)
         async let rideG = rideGeometry(boardC, alightC)
         async let w3 = maybeWalk(alightC, ep.to, alight != nil)
+        async let rentalsNearDest = rentalOffices(ep.to)
         let (w1poly, w1sec, w1steps, w1mi) = await w1
         let (ridePolyOpt, rideRoadMi, driveSec) = await rideG
         let last = await w3
@@ -260,7 +285,8 @@ struct RouteChoicesView: View {
                     + String(format: "$%.2f (carriers set final pricing).", fare),
             fare: fare, destination: dest,
             ticketLabel: ticketLabel, ticketURL: ticketURL,
-            itinerary: itinerary)
+            itinerary: itinerary,
+            rentals: await rentalsNearDest)
     }
 
     /// One rail/bus toggle button: colored while its mode is active.
@@ -396,6 +422,29 @@ struct RouteChoicesView: View {
                               systemImage: "ticket")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
+                    }
+                }
+                // Wheels at the far end: the traveller arrives WITHOUT a car
+                // (leg 3 is a walk by design). Nearest office per brand,
+                // biggest brands first — any operator MapKit knows, with the
+                // office's own page (or the brand's booking site) linked.
+                if !t.rentals.isEmpty {
+                    Divider()
+                    Label("Rental cars at the destination",
+                          systemImage: "car.2.fill")
+                        .font(.caption2.weight(.bold))
+                    ForEach(Array(t.rentals.enumerated()), id: \.offset) { _, office in
+                        HStack(spacing: 4) {
+                            Text("\(office.name) · \(String(format: "%.1f mi", office.miles))")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            if let url = office.url {
+                                Link("Book", destination: url)
+                                    .font(.system(size: 10, weight: .bold))
+                            }
+                        }
                     }
                 }
             } else {
