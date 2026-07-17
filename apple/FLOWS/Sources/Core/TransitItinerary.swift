@@ -134,6 +134,83 @@ enum TransitPlanning {
     }
 }
 
+/// Rental cars at the FAR END of a transit trip — the traveller rode the
+/// train/bus, so they arrive without a car; the last-mile walk works for a
+/// hotel but not for a week of errands. Offices come from MKLocalSearch
+/// (keyless, the same source as every POI pick) near the destination; this
+/// type ranks them and supplies a booking link. Any operator MapKit knows
+/// appears — Hertz, Enterprise, a local independent — biggest brands first.
+enum RentalCars {
+    struct Office {
+        let name: String
+        let miles: Double        // from the trip destination
+        let url: URL?            // office's own page, else the brand's site
+    }
+
+    /// US rental-brand order (fleet size / market share; lower = bigger).
+    /// Enterprise Holdings brands lead (Enterprise/National/Alamo), then
+    /// Hertz group (Hertz/Dollar/Thrifty), then Avis Budget, then the rest;
+    /// unknown local agencies sort after every recognized brand.
+    static let brandOrder: [String] = [
+        "enterprise", "hertz", "avis", "budget", "national", "alamo",
+        "sixt", "thrifty", "dollar", "zipcar", "turo", "u-haul",
+    ]
+
+    /// Index into the brand table (case-insensitive substring), or count
+    /// (= after every known brand) when unrecognized.
+    static func brandRank(name: String?) -> Int {
+        guard let lower = name?.lowercased(), !lower.isEmpty
+        else { return brandOrder.count }
+        return brandOrder.firstIndex(where: { lower.contains($0) })
+            ?? brandOrder.count
+    }
+
+    /// Keyless booking fallback when MapKit has no office URL: the brand's
+    /// own reservation site. Unrecognized brands get nil (the row still
+    /// shows — name + distance are useful without a link).
+    static func bookingURL(name: String?) -> URL? {
+        guard let lower = name?.lowercased() else { return nil }
+        let sites: [(String, String)] = [
+            ("enterprise", "https://www.enterprise.com"),
+            ("hertz", "https://www.hertz.com"),
+            ("avis", "https://www.avis.com"),
+            ("budget", "https://www.budget.com"),
+            ("national", "https://www.nationalcar.com"),
+            ("alamo", "https://www.alamo.com"),
+            ("sixt", "https://www.sixt.com"),
+            ("thrifty", "https://www.thrifty.com"),
+            ("dollar", "https://www.dollar.com"),
+            ("zipcar", "https://www.zipcar.com"),
+            ("turo", "https://turo.com"),
+            ("u-haul", "https://www.uhaul.com"),
+        ]
+        return sites.first(where: { lower.contains($0.0) })
+            .flatMap { URL(string: $0.1) }
+    }
+
+    /// Pick the offices worth showing: nearest office PER BRAND (an
+    /// Enterprise downtown and one at the airport are the same booking),
+    /// ordered by brand size then distance, capped at three. Unknown local
+    /// agencies keep their own name as the dedupe key so two different
+    /// independents both survive.
+    static func recommend(_ offices: [Office], limit: Int = 3) -> [Office] {
+        var bestPerBrand: [String: Office] = [:]
+        for o in offices {
+            let rank = brandRank(name: o.name)
+            let key = rank < brandOrder.count
+                ? brandOrder[rank] : o.name.lowercased()
+            if let held = bestPerBrand[key], held.miles <= o.miles { continue }
+            bestPerBrand[key] = o
+        }
+        return bestPerBrand.values
+            .sorted {
+                let (ra, rb) = (brandRank(name: $0.name), brandRank(name: $1.name))
+                return ra != rb ? ra < rb : $0.miles < $1.miles
+            }
+            .prefix(limit).map { $0 }
+    }
+}
+
 /// The EXACT ticket to buy for a transit itinerary — carrier booking page +
 /// a label naming the precise ride (board → alight), so FLOWS directs the
 /// traveler to the purchase instead of handing off to Maps.

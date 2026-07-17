@@ -733,6 +733,39 @@ final class AdaptiveTuningTests: XCTestCase {
         XCTAssertLessThanOrEqual(hi, cap, "gate exceeded the device concurrency cap")
     }
 
+    /// Rental recommendations at a transit destination: nearest office PER
+    /// BRAND (airport + downtown Enterprise = one booking), biggest brands
+    /// first, unknown independents keep their own dedupe key and sort last,
+    /// capped at three; the booking link falls back to the brand site.
+    func testRentalCarRecommendations() {
+        func office(_ name: String, _ miles: Double) -> RentalCars.Office {
+            RentalCars.Office(name: name, miles: miles, url: nil)
+        }
+        let picks = RentalCars.recommend([
+            office("Hertz Car Rental - Columbia Airport", 6.2),
+            office("Hertz", 1.1),                      // nearer Hertz wins the brand
+            office("Enterprise Rent-A-Car", 0.8),
+            office("Bob's Rent-a-Wreck", 0.2),         // unknown: sorts after brands
+            office("Avis Car Rental", 2.5),
+        ])
+        XCTAssertEqual(picks.map(\.name),
+                       ["Enterprise Rent-A-Car", "Hertz", "Avis Car Rental"],
+                       "brand-size order, nearest per brand, top 3")
+        XCTAssertEqual(picks[1].miles, 1.1, accuracy: 1e-9,
+                       "the 1.1 mi Hertz beats the airport one")
+        // Two different independents both survive dedupe (own-name keys).
+        let locals = RentalCars.recommend([
+            office("Bob's Rentals", 0.5), office("Carol's Cars", 0.7)])
+        XCTAssertEqual(locals.count, 2)
+        // Booking fallback: recognized brands link to their own site;
+        // unknown agencies get nil (name + distance still shown).
+        XCTAssertEqual(RentalCars.bookingURL(name: "Hertz Car Rental")?.host,
+                       "www.hertz.com")
+        XCTAssertEqual(RentalCars.bookingURL(name: "Enterprise Rent-A-Car")?.host,
+                       "www.enterprise.com")
+        XCTAssertNil(RentalCars.bookingURL(name: "Bob's Rent-a-Wreck"))
+    }
+
     /// Per-host circuit breaker: transport failures trip it after N in a row,
     /// an open breaker refuses the host (fast-fail — zombie sockets must not
     /// hold the permit pool), the cooldown admits exactly ONE probe whose
