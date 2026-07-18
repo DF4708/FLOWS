@@ -1,3 +1,11 @@
+<!--
+  Copyright (c) David B. Foster. All rights reserved.
+  Contact: d.foster@marquette.edu
+  Unauthorized copying, distribution, modification, or use of this file, in
+  whole or in part, is strictly prohibited without the express written
+  permission of the copyright holder.
+-->
+
 # FLOWS — documentation index
 
 Everything a maintainer needs to work on FLOWS. Read in this order.

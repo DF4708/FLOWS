@@ -1,3 +1,11 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) David B. Foster. All rights reserved.
+// Contact: d.foster@marquette.edu
+// Unauthorized copying, distribution, modification, or use of this file, in
+// whole or in part, is strictly prohibited without the express written
+// permission of the copyright holder.
+// -----------------------------------------------------------------------------
+
 //! ch.rs — contraction hierarchies over the CSR graph (CONUS router phase 2).
 //!
 //! CH precomputes "shortcut" edges so a shortest-path query only ever walks

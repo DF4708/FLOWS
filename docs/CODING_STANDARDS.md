@@ -1,3 +1,11 @@
+<!--
+  Copyright (c) David B. Foster. All rights reserved.
+  Contact: d.foster@marquette.edu
+  Unauthorized copying, distribution, modification, or use of this file, in
+  whole or in part, is strictly prohibited without the express written
+  permission of the copyright holder.
+-->
+
 # FLOWS — coding standards (performance + resource SOP)
 
 Standing operating procedure for the Rust core, the Swift app, and the R

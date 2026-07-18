@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
 # autonomous_test_runner.sh — continuous local test/measurement loop.
 #
 # Keeps the local machine saturated with useful testing work so there is

@@ -1,3 +1,11 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) David B. Foster. All rights reserved.
+// Contact: d.foster@marquette.edu
+// Unauthorized copying, distribution, modification, or use of this file, in
+// whole or in part, is strictly prohibited without the express written
+// permission of the copyright holder.
+// -----------------------------------------------------------------------------
+
 //! Risk band classification — byte-identical port of R/scoring.R.
 //!
 //! The R oracle (`risk_label_from_score`, `risk_rgb_hex`) and these Rust

@@ -1,4 +1,8 @@
 #!/bin/bash
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
 # Create (once) a stable local code-signing identity "FLOWS Local Dev".
 #
 # WHY: ad-hoc signatures change on every rebuild, and macOS TCC keys privacy

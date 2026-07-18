@@ -1,3 +1,11 @@
+<!--
+  Copyright (c) David B. Foster. All rights reserved.
+  Contact: d.foster@marquette.edu
+  Unauthorized copying, distribution, modification, or use of this file, in
+  whole or in part, is strictly prohibited without the express written
+  permission of the copyright holder.
+-->
+
 # Autonomous worker — and why FLOW.app was removed
 
 > **Historical note.** An earlier design hosted the continuous worker in a
