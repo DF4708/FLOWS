@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 # Copyright (c) David B. Foster. All rights reserved.
-# Contact: d.foster@marquette.edu
+# Contact: wizeman555@gmail.com
 # Unauthorized copying, distribution, modification, or use of this file, in
 # whole or in part, is strictly prohibited without the express written
 # permission of the copyright holder.
@@ -67,7 +67,7 @@ DEFAULT_REFERENCE_LAYERS <- c("county_outline", "zip_outline", "road_reference")
 FORECAST_REGION_COUNT <- 18L
 ROUTE_NODE_SNAP_METERS <- 25
 ALERT_LINK_SEP <- "<<ALERTSEP>>"
-NOAA_USER_AGENT_DEFAULT <- "Satellite-Flooding/1.0 (contact: d.foster@marquette.edu)"
+NOAA_USER_AGENT_DEFAULT <- "Satellite-Flooding/1.0 (contact: wizeman555@gmail.com)"
 NOAA_USER_AGENT <- trimws(Sys.getenv("NOAA_USER_AGENT", NOAA_USER_AGENT_DEFAULT))
 if (!nzchar(NOAA_USER_AGENT)) NOAA_USER_AGENT <- NOAA_USER_AGENT_DEFAULT
 WI511_API_KEY <- trimws(Sys.getenv("WI511_API_KEY", ""))
