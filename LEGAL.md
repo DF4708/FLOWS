@@ -1,10 +1,10 @@
 # LEGAL NOTICE
 
-**Copyright © [2026] [DAVID B. FOSTER]. All rights reserved.**
+**Copyright © 2026 David B. Foster. All rights reserved.**
 
-This repository, including without limitation its source code, architecture, algorithms, specifications, documentation, images, icons, branding, audiovisual materials, configuration files, data schemas, and other original materials, is proprietary intellectual property of **[DAVID B. FOSTER]** unless a specific file or section expressly states otherwise.
+This repository, including without limitation its source code, architecture, algorithms, specifications, documentation, images, icons, branding, audiovisual materials, configuration files, data schemas, and other original materials, is proprietary intellectual property of **David B. Foster** unless a specific file or section expressly states otherwise.
 
-No part of this repository may be copied, reproduced, modified, distributed, published, displayed, performed, transmitted, reverse engineered, used to create derivative works, or used for training, fine-tuning, distillation, benchmarking, or dataset creation without prior express written permission from **[DAVID B. FOSTER]**, except to the extent a separate written license signed by **[DAVID B. FOSTER]** expressly permits a narrower use.
+No part of this repository may be copied, reproduced, modified, distributed, published, displayed, performed, transmitted, reverse engineered, used to create derivative works, or used for training, fine-tuning, distillation, benchmarking, or dataset creation without prior express written permission from **David B. Foster**, except to the extent a separate written license signed by **David B. Foster** expressly permits a narrower use.
 
 Any unauthorized use is strictly prohibited.
 
@@ -16,8 +16,8 @@ This notice is intended to make ownership and reservation of rights explicit. In
 
 Unless a file explicitly states that third-party rights apply, all original content in this repository is claimed as the property of:
 
-**[DAVID B. FOSTER]** 
-**[https://github.com/DF4708]**
+**David B. Foster**
+**https://github.com/DF4708**
 
 ## Reserved rights
 
@@ -32,11 +32,11 @@ Without limiting the generality of the foregoing, all rights are reserved with r
 
 ## Third-party materials
 
-Any third-party names, marks, code, libraries, frameworks, media, or other materials remain the property of their respective owners and are subject to their own license terms. Their inclusion, if any, does not transfer ownership to **[DAVID B. FOSTER]** and does not expand any permission granted by those third-party terms.
+Any third-party names, marks, code, libraries, frameworks, media, or other materials remain the property of their respective owners and are subject to their own license terms. Their inclusion, if any, does not transfer ownership to **David B. Foster** and does not expand any permission granted by those third-party terms.
 
 ## Trademark / branding reservation
 
-The names, product names, mascots, logos, icons, and branding elements associated with this project, including **FLOWS** and related visual identifiers, are reserved for use by **[DAVID B. FOSTER]** unless explicitly licensed in writing.
+The names, product names, mascots, logos, icons, and branding elements associated with this project, including **FLOWS** and related visual identifiers, are reserved for use by **David B. Foster** unless explicitly licensed in writing.
 
 ## Recommended operational follow-up
 
@@ -48,4 +48,4 @@ For stronger protection and enforcement posture, consider:
 
 ## Not legal advice
 
-This template is general informational material and not a substitute for legal advice from a qualified attorney in the relevant jurisdiction. WIPO also cautions that its educational materials are not a substitute for professional legal advice. 
+This notice is general informational material and not a substitute for legal advice from a qualified attorney in the relevant jurisdiction.
