@@ -1,3 +1,7 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
 # FLOWS Rust core — workspace root.
 # Phase R0 proof-of-concept per docs/RUST_SWIFT_MIGRATION.md.
 # Keeps the R app as the correctness oracle: every function here is verified

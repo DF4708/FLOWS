@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
 # build_ftt.sh — convert a fetched GTFS feed into a .ftt timetable shard.
 #
 # Usage: scripts/build_ftt.sh <name> [YYYYMMDD]

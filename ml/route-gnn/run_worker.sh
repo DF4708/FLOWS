@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
 # FLOWS route-risk background trainer launcher.
 #
 #   ./run_worker.sh          # train now, then retrain every FLOWS_GNN_INTERVAL

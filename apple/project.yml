@@ -1,3 +1,7 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
 # FLOWS Apple app — xcodegen project definition.
 # Regenerate the .xcodeproj with:  cd apple && xcodegen generate
 # (FLOWS.xcodeproj is generated output and git-ignored.)

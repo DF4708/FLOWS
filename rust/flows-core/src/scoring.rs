@@ -1,3 +1,11 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) David B. Foster. All rights reserved.
+// Contact: d.foster@marquette.edu
+// Unauthorized copying, distribution, modification, or use of this file, in
+// whole or in part, is strictly prohibited without the express written
+// permission of the copyright holder.
+// -----------------------------------------------------------------------------
+
 //! Piecewise hazard scoring — byte-identical port of R/scoring.R
 //! `piecewise_score`, the single primitive behind ~20 hazard scorers (AQI,
 //! FFG, NWPS gauges, wind, POP, UV, seismic, convective, WPC, radnet…).

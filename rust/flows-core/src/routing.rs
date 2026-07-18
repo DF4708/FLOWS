@@ -1,3 +1,11 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) David B. Foster. All rights reserved.
+// Contact: d.foster@marquette.edu
+// Unauthorized copying, distribution, modification, or use of this file, in
+// whole or in part, is strictly prohibited without the express written
+// permission of the copyright holder.
+// -----------------------------------------------------------------------------
+
 //! routing.rs — shortest-path core for the CONUS router (phase R-route).
 //!
 //! Pure-std Dijkstra over a CSR (compressed-sparse-row) directed weighted graph.

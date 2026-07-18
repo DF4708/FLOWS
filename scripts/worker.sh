@@ -1,4 +1,8 @@
 #!/bin/bash
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
 # FLOWS self-contained worker (FANS pattern). Runs the continuous test runner
 # entirely within /Users/Shared/flows/repo (a mirror of the project) so it
 # NEVER touches ~/Documents — no TCC, no Gatekeeper, no grants. launchd
