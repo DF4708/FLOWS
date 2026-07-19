@@ -123,20 +123,36 @@ impl<'a> Raptor<'a> {
         }
 
         // --- Rounds 1..=max_rounds. ---
+        // Per-round scratch hoisted OUT of the loop: route_hop was an
+        // O(n_routes) allocate+fill per round and touched/trip_marked fresh
+        // Vecs — reused now, with route_hop reset only at its touched
+        // entries after each round.
         let mut marked = vec![false; n];
+        let mut route_hop: Vec<u32> = vec![u32::MAX; tt.n_routes()];
+        let mut touched_routes: Vec<u32> = Vec::new();
+        let mut trip_marked: Vec<u32> = Vec::new();
         for k in 1..=k_max {
             r.rounds_run = k as u32;
             // A stop reachable with k-1 trips is reachable with k; carry forward
             // both the arrival bound and its provenance so reconstruction of a
             // round-k journey can follow a boarding stop back through round k-1.
-            r.round_arr[k] = r.round_arr[k - 1].clone();
-            r.parent[k] = r.parent[k - 1].clone();
+            // split_at_mut gives DISJOINT flat prev/cur rows: the copy lands in
+            // the already-allocated row k (the old per-round `.clone()`
+            // allocated a fresh n-length Vec and threw away its INF-fill), and
+            // the scan below reads/writes plain slices instead of nested Vec
+            // derefs the optimizer can't prove disjoint.
+            let (prev_rounds, cur_rounds) = r.round_arr.split_at_mut(k);
+            let prev_row: &[Time] = &prev_rounds[k - 1];
+            let cur_row: &mut [Time] = &mut cur_rounds[0];
+            cur_row.copy_from_slice(prev_row);
+            let (prev_parents, cur_parents) = r.parent.split_at_mut(k);
+            let cur_parent: &mut [Parent] = &mut cur_parents[0];
+            cur_parent.copy_from_slice(&prev_parents[k - 1]);
 
             // Collect the routes touching any stop marked in the previous round,
             // each at the EARLIEST pattern position we can board it from.
-            // route -> earliest boardable position (INF if not queued).
-            let mut route_hop: Vec<u32> = vec![u32::MAX; tt.n_routes()];
-            let mut touched_routes: Vec<u32> = Vec::new();
+            // route -> earliest boardable position (u32::MAX if not queued).
+            touched_routes.clear();
             for &p in &queue {
                 for sr in tt.routes_at(p) {
                     let cur = route_hop[sr.route as usize];
@@ -151,25 +167,35 @@ impl<'a> Raptor<'a> {
             queue.clear();
 
             // Scan each touched route once, from its earliest boardable stop.
-            let mut trip_marked: Vec<u32> = Vec::new();
+            trip_marked.clear();
             for &route in &touched_routes {
                 let hop = route_hop[route as usize];
                 let len = tt.route_len(route);
+                let route_stops = tt.route_stop_ids(route);
                 let mut cur_trip: Option<u32> = None;
                 let mut board_stop = 0u32;
                 let mut board_pos = 0u32;
                 let mut pos = hop;
+                // Target pruning bound, loaded ONCE per route scan instead of
+                // per stop (stores to best_arr[stop_id] alias it, so the
+                // compiler could never hoist this load): the only in-scan
+                // store that can lower it is the alight store at the target
+                // itself, mirrored into the local below. Footpath relaxation
+                // runs after all route scans, so the values are identical.
+                let mut target_bound = r.best_arr[target as usize];
                 while pos < len {
-                    let stop_id = tt.route_stop_ids(route)[pos as usize];
+                    let stop_id = route_stops[pos as usize];
                     // (1) Alight: if riding a trip, try to improve this stop.
                     if let Some(t) = cur_trip {
                         let arr = tt.event(route, t, pos).arr;
-                        let bound = r.best_arr[stop_id as usize]
-                            .min(r.best_arr[target as usize]);
+                        let bound = r.best_arr[stop_id as usize].min(target_bound);
                         if arr < bound {
-                            r.round_arr[k][stop_id as usize] = arr;
+                            cur_row[stop_id as usize] = arr;
                             r.best_arr[stop_id as usize] = arr;
-                            r.parent[k][stop_id as usize] = Parent::Ride {
+                            if stop_id == target {
+                                target_bound = arr;
+                            }
+                            cur_parent[stop_id as usize] = Parent::Ride {
                                 route,
                                 trip: t,
                                 board: board_stop,
@@ -185,7 +211,7 @@ impl<'a> Raptor<'a> {
                     // (2) Board: if we were here with <=k-1 trips early enough to
                     // catch a trip departing no sooner, hop on the earliest one —
                     // only ever moving to a strictly earlier trip.
-                    let prev = r.round_arr[k - 1][stop_id as usize];
+                    let prev = prev_row[stop_id as usize];
                     if prev != INF_TIME {
                         if let Some(et) = tt.earliest_trip(route, pos, prev) {
                             let take = match cur_trip {
@@ -202,19 +228,24 @@ impl<'a> Raptor<'a> {
                     pos += 1;
                 }
             }
+            // Reset route_hop at ONLY the entries this round touched — the
+            // O(n_routes) refill was per-round waste.
+            for &route in &touched_routes {
+                route_hop[route as usize] = u32::MAX;
+            }
 
             // Relax bounded footpaths from the stops trips improved this round.
             // Footpaths are transitively reduced offline, so a single hop suffices.
             for &q in &trip_marked {
-                let base = r.round_arr[k][q as usize];
+                let base = cur_row[q as usize];
                 for fp in tt.footpaths_at(q) {
                     let arr = base.saturating_add(fp.secs);
-                    if arr < r.round_arr[k][fp.to as usize] {
-                        r.round_arr[k][fp.to as usize] = arr;
+                    if arr < cur_row[fp.to as usize] {
+                        cur_row[fp.to as usize] = arr;
                         if arr < r.best_arr[fp.to as usize] {
                             r.best_arr[fp.to as usize] = arr;
                         }
-                        r.parent[k][fp.to as usize] = Parent::Walk {
+                        cur_parent[fp.to as usize] = Parent::Walk {
                             from: q,
                             secs: fp.secs,
                         };
@@ -678,10 +709,10 @@ mod tests {
                 }
             }
         }
-        for i in 0..n {
-            for j in 0..n {
-                if i != j && w[i][j] != INF {
-                    b.add_footpath(i as u32, j as u32, w[i][j]);
+        for (i, row) in w.iter().enumerate() {
+            for (j, &wij) in row.iter().enumerate() {
+                if i != j && wij != INF {
+                    b.add_footpath(i as u32, j as u32, wij);
                 }
             }
         }

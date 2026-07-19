@@ -187,11 +187,15 @@ impl Header {
 }
 
 /// Field accessor tolerant of short rows and absent optional columns.
-fn f<'a>(row: &'a [String], i: Option<usize>) -> &'a str {
+fn f(row: &[String], i: Option<usize>) -> &str {
     i.and_then(|i| row.get(i)).map(String::as_str).unwrap_or("")
 }
 
-fn open_csv(dir: &Path, name: &str) -> Result<Option<(Header, CsvReader<BufReader<File>>)>, GtfsError> {
+/// A named GTFS file, opened: its parsed header + a line reader (None when
+/// the file is absent — most GTFS extras are optional).
+type OpenedCsv = Option<(Header, CsvReader<BufReader<File>>)>;
+
+fn open_csv(dir: &Path, name: &str) -> Result<OpenedCsv, GtfsError> {
     let path = dir.join(name);
     if !path.exists() {
         return Ok(None);
@@ -581,9 +585,9 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     let c_stop = h.req("stop_id", "stop_times.txt")?;
     let c_seq = h.req("stop_sequence", "stop_times.txt")?;
     let (c_arr, c_dep) = (h.get("arrival_time"), h.get("departure_time"));
-    // trip_id -> (seq, stop, arr?, dep?)
-    let mut trip_rows: HashMap<String, Vec<(u32, u32, Option<Time>, Option<Time>)>> =
-        HashMap::new();
+    // trip_id -> rows of (seq, stop, arr?, dep?)
+    type StopTimeRow = (u32, u32, Option<Time>, Option<Time>);
+    let mut trip_rows: HashMap<String, Vec<StopTimeRow>> = HashMap::new();
     let mut stop_visits = vec![0u32; stop_ids.len()];
     while let Some(row) = r.next_record()? {
         let trip = f(&row, Some(c_trip));

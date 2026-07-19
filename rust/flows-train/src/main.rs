@@ -178,38 +178,67 @@ fn adam(p: &mut f64, g: f64, m: &mut f64, v: &mut f64, t: i32, lr: f64) {
 }
 
 /// Forward pass returning (pred, hidden, pre-activation) for backprop.
+///
+/// FMA + two-way accumulator split: the dot products were single serial
+/// fadd chains bound by ~3-cycle add latency; two independent partials cut
+/// the chain in half and `mul_add` fuses each step's rounding. This
+/// reassociates the sum and changes the low bits — LEGAL in the trainer
+/// (train() already accepts fp-order variance from thread chunking, and the
+/// Swift contract is feature order + weight JSON, not bit-exact training) —
+/// and BANNED in flows-core, whose kernels document the stricter rule
+/// (distance.rs: byte-identical to the R oracle, no FMA).
 fn forward(n: &Net, x: &[f64; NI]) -> (f64, [f64; NH], [f64; NH]) {
     let mut z1 = [0.0; NH];
     let mut h = [0.0; NH];
     for j in 0..NH {
-        let mut s = n.b1[j];
-        for i in 0..NI {
-            s += n.w1[j][i] * x[i];
+        let w = &n.w1[j];
+        let mut s0 = n.b1[j];
+        let mut s1 = 0.0;
+        let mut i = 0;
+        while i + 1 < NI {
+            s0 = w[i].mul_add(x[i], s0);
+            s1 = w[i + 1].mul_add(x[i + 1], s1);
+            i += 2;
         }
+        if i < NI {
+            s0 = w[i].mul_add(x[i], s0);
+        }
+        let s = s0 + s1;
         z1[j] = s;
         h[j] = s.max(0.0); // relu
     }
-    let mut z2 = n.b2;
-    for j in 0..NH {
-        z2 += n.w2[j] * h[j];
+    let mut z2a = n.b2;
+    let mut z2b = 0.0;
+    let mut j = 0;
+    while j + 1 < NH {
+        z2a = n.w2[j].mul_add(h[j], z2a);
+        z2b = n.w2[j + 1].mul_add(h[j + 1], z2b);
+        j += 2;
     }
+    if j < NH {
+        z2a = n.w2[j].mul_add(h[j], z2a);
+    }
+    let z2 = z2a + z2b;
     (1.0 / (1.0 + (-z2).exp()), h, z1) // sigmoid
 }
 
-/// Gradient of one row-chunk (the parallel unit). Pure function of (net, rows).
-fn chunk_grad(net: &Net, rows: &[Row], wmean: f64) -> Net {
+/// Gradient of one row-chunk (the parallel unit). Pure function of
+/// (net, rows, row weights). `wws[k]` is rows[k].w / wmean, hoisted out of
+/// the epoch loop by train(): the divisor is fixed for the whole run, so the
+/// per-row division was recomputed identically ~400x per row (~460M fdiv on
+/// the 20-year set). Same operands, same division, computed once.
+fn chunk_grad(net: &Net, rows: &[Row], wws: &[f64]) -> Net {
     let mut g = Net::zero();
-    for r in rows {
+    for (r, &ww) in rows.iter().zip(wws) {
         let (pred, h, z1) = forward(net, &r.x);
-        let ww = r.w / wmean;
         let dz2 = 2.0 * ww * (pred - r.y) * pred * (1.0 - pred); // MSE·sigmoid
         g.b2 += dz2;
         for j in 0..NH {
-            g.w2[j] += dz2 * h[j];
+            g.w2[j] = dz2.mul_add(h[j], g.w2[j]);
             let dz1 = if z1[j] > 0.0 { dz2 * net.w2[j] } else { 0.0 };
             g.b1[j] += dz1;
             for i in 0..NI {
-                g.w1[j][i] += dz1 * r.x[i];
+                g.w1[j][i] = dz1.mul_add(r.x[i], g.w1[j][i]);
             }
         }
     }
@@ -238,22 +267,57 @@ fn train(rows: &[Row], epochs: i32, lr: f64) -> Net {
     // 20-year history set; small row counts stay serial (thread spawn costs
     // more than it saves).
     let workers = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1);
+    // Row weights normalized ONCE — wmean is fixed for the whole run (see
+    // chunk_grad's doc comment).
+    let wws: Vec<f64> = rows.iter().map(|r| r.w / wmean).collect();
     for ep in 1..=epochs {
         let g = if rows.len() < 4_096 || workers < 2 {
-            chunk_grad(&net, rows, wmean)
+            chunk_grad(&net, rows, &wws)
         } else {
-            let chunk = rows.len().div_ceil(workers);
+            // DYNAMIC self-scheduling instead of one equal chunk per worker:
+            // Apple Silicon cores are asymmetric (P+E), so a static split
+            // finishes when the slowest E-core does. Workers claim fixed-size
+            // chunks from an atomic counter; partial gradients land BY CHUNK
+            // INDEX and reduce in ascending order, so the summation order is
+            // deterministic for a given row count — independent of which
+            // core ran which chunk.
+            const CHUNK: usize = 32_768;
+            let n_chunks = rows.len().div_ceil(CHUNK);
+            let next = std::sync::atomic::AtomicUsize::new(0);
             let net_ref = &net;
+            let wws_ref = &wws;
             std::thread::scope(|s| {
-                let handles: Vec<_> = rows
-                    .chunks(chunk)
-                    .map(|c| s.spawn(move || chunk_grad(net_ref, c, wmean)))
+                let handles: Vec<_> = (0..workers)
+                    .map(|_| {
+                        let next = &next;
+                        s.spawn(move || {
+                            let mut out: Vec<(usize, Net)> = Vec::new();
+                            loop {
+                                let k = next
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                if k >= n_chunks {
+                                    break;
+                                }
+                                let lo = k * CHUNK;
+                                let hi = (lo + CHUNK).min(rows.len());
+                                out.push((k, chunk_grad(net_ref, &rows[lo..hi],
+                                                        &wws_ref[lo..hi])));
+                            }
+                            out
+                        })
+                    })
                     .collect();
-                let mut total = Net::zero();
+                let mut parts: Vec<Option<Net>> = (0..n_chunks).map(|_| None).collect();
                 for h in handles {
-                    if let Ok(part) = h.join() {
-                        add_grad(&mut total, &part);
+                    if let Ok(chunks) = h.join() {
+                        for (k, g) in chunks {
+                            parts[k] = Some(g);
+                        }
                     }
+                }
+                let mut total = Net::zero();
+                for p in parts.into_iter().flatten() {
+                    add_grad(&mut total, &p);
                 }
                 total
             })

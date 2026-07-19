@@ -163,7 +163,7 @@ fn family_score(family: &str, lat: f64, lon: f64, week: u32) -> f64 {
         // climatology basis in this baseline -> 0.
         _ => 0.0,
     };
-    let s = raw.min(SCORE_MAX).max(0.0);
+    let s = raw.clamp(0.0, SCORE_MAX);   // == min(MAX).max(0) for these bounds
     if s < SCORE_FLOOR {
         0.0
     } else {
@@ -475,7 +475,7 @@ fn run(week: u32) -> Result<(), String> {
     out.push_str(&week.to_string());
     out.push_str(",\"zips\":[");
     let mut first = true;
-    for e in kept_raw.iter().map(|s| *s).chain(national.iter().map(String::as_str)) {
+    for e in kept_raw.iter().copied().chain(national.iter().map(String::as_str)) {
         if !first {
             out.push(',');
         }
@@ -555,7 +555,7 @@ mod tests {
                 for week in 0..52 {
                     for f in FAMS {
                         let s = family_score(f, lat, lon, week);
-                        assert!(s >= 0.0 && s <= SCORE_MAX && s < 0.699,
+                        assert!((0.0..=SCORE_MAX).contains(&s) && s < 0.699,
                             "{f} out of bounds at ({lat},{lon}) wk{week}: {s}");
                         assert!(s == 0.0 || s >= SCORE_FLOOR,
                             "{f} nonzero but under floor at ({lat},{lon}) wk{week}: {s}");

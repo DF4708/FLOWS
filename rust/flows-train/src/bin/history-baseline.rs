@@ -196,7 +196,7 @@ fn field<'a>(text: &'a str, span: (usize, usize, bool)) -> Cow<'a, str> {
 // ---------------------------------------------------------------- calendar
 
 fn is_leap(y: u32) -> bool {
-    (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
+    (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400)
 }
 
 /// Week-of-year 0..51 from yyyymm + day (week 51 absorbs days 358..366),
@@ -295,7 +295,7 @@ impl ZipGrid {
                             let dlat = z.lat - lat;
                             let dlon = (z.lon - lon) * coslat;
                             let d2 = dlat * dlat + dlon * dlon;
-                            if best.map_or(true, |(b, _)| d2 < b) {
+                            if best.is_none_or(|(b, _)| d2 < b) {
                                 best = Some((d2, i));
                             }
                         }
@@ -1211,7 +1211,7 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     let mut files: Vec<PathBuf> = fs::read_dir(storm_dir)
         .map_err(|e| format!("cannot list {}: {e}", storm_dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().map_or(false, |x| x == "csv"))
+        .filter(|p| p.extension().is_some_and(|x| x == "csv"))
         .collect();
     files.sort();
     if files.is_empty() {
@@ -1265,8 +1265,8 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     let mut active: Vec<usize> = Vec::new();
     'z: for zi in 0..zctas.len() {
         for wk in 0..N_WEEKS {
-            for f in 0..NF {
-                if score_from_count(hist.count(zi, wk, f), p95[f]) > 0.0 {
+            for (f, &p95f) in p95.iter().enumerate() {
+                if score_from_count(hist.count(zi, wk, f), p95f) > 0.0 {
                     active.push(zi);
                     continue 'z;
                 }
@@ -1523,7 +1523,11 @@ mod tests {
         assert!((score_from_count(p95, p95) - SCORE_MAX).abs() < 1e-12);
         // far above p95 still capped, always under the yellow cut
         assert_eq!(score_from_count(10.0 * p95, p95), SCORE_MAX);
-        assert!(SCORE_MAX < 0.699);
+        // Documentation-assert: the cap must sit under the app's yellow cut.
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(SCORE_MAX < 0.699);
+        }
         // tiny counts fall under the floor -> 0
         assert_eq!(score_from_count(0.05, p95), 0.0);
         // monotone in between
@@ -1553,10 +1557,10 @@ mod tests {
         let mut spike = [0.0f64; N_WEEKS];
         spike[20] = SCORE_MAX;
         let coef = harmonic_fit(&spike);
-        for w in 0..N_WEEKS {
+        for (w, &sw) in spike.iter().enumerate() {
             let v = harmonic_eval(&coef, w);
             assert!((0.0..=SCORE_MAX).contains(&v));
-            assert!((v - spike[w]).abs() <= SCORE_MAX);
+            assert!((v - sw).abs() <= SCORE_MAX);
         }
     }
 

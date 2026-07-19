@@ -697,8 +697,8 @@ pub unsafe extern "C" fn flows_transit_plan(
 
 /// Self-test: build a canonical two-leg transfer timetable INTERNALLY, run
 /// RAPTOR, and return the plan's arrival time (1500) — or -1 on any failure.
-/// A dead-simple way for the app to prove, in one C-ABI call, that the compiled
-/// + linked RAPTOR engine actually runs on-device (the transit analog of the
+/// A dead-simple way for the app to prove, in one C-ABI call, that the
+/// compiled-and-linked RAPTOR engine actually runs on-device (the transit analog of the
 /// polyline decoder's linkage check).
 #[no_mangle]
 pub extern "C" fn flows_transit_selftest() -> i64 {

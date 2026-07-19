@@ -1,0 +1,12 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
+# The shipped iOS device slice otherwise builds at rustc's aarch64-apple-ios
+# default of apple-a7 (2013). The app's iOS 17 deployment floor guarantees
+# A12+ (ARMv8.3: LSE atomics, better scheduling models), so let codegen use
+# it. rustc never enables fast-math or FP contraction from target-cpu, so the
+# pinned byte-identical kernels keep their exact rounding (distance.rs's
+# no-FMA pledge holds); the fixture tests gate any surprise.
+[target.aarch64-apple-ios]
+rustflags = ["-C", "target-cpu=apple-a12"]

@@ -1,0 +1,41 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
+# CI: the two suites that actually gate the product. Replaces r.yml, which
+# rcmdcheck'd the R engine retired in 5ed9cc0 (no DESCRIPTION, no R/ — it
+# could never pass and misled the repo status).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: macos-latest   # arm64 — same ISA family the product ships on
+    steps:
+      - uses: actions/checkout@v4
+      - name: clippy (warnings are errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        working-directory: rust
+      - name: tests (release — includes the CH/RAPTOR oracle gates)
+        run: cargo test --release --workspace
+        working-directory: rust
+
+  swift:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: xcodegen
+        run: brew install xcodegen
+      - name: generate project
+        run: xcodegen generate
+        working-directory: apple
+      - name: tests
+        run: >
+          xcodebuild -project FLOWS.xcodeproj -scheme FLOWSTests
+          -destination 'platform=macOS'
+          CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO test
+        working-directory: apple
