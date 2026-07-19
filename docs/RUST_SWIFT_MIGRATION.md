@@ -13,9 +13,19 @@ it to Rust and Assembly, with Swift for UI."* This ADR gives the honest
 assessment — where each technology genuinely fits, where it doesn't, and a
 phased plan that never loses the working R app as the correctness oracle.
 
-Status: **PROPOSED** — toolchains verified present (rustc 1.93, cargo 1.93,
-Swift 6.3.3, clang 21). No production code migrated yet; a proof-of-concept
-crate proves the path.
+Status: **DONE — this ADR's plan was executed and superseded.** As of
+2026-07-19 the migration is complete: the R/Shiny engine is fully retired
+(commit 5ed9cc0), the app ships as native Rust + Swift, and the risk/scoring
+paths are pinned byte-identical to frozen fixtures captured from the R oracle
+before it was removed. One prediction here was **overturned by measurement**:
+this ADR recommended SIMD intrinsics over hand-assembly and cautioned that
+raw `asm!` is rarely justified. A hand-written AArch64 varint kernel was in
+fact written and shipped — then **retired on 2026-07-19** when the bake-off in
+`rust/flows-core/src/bin/bench.rs` showed rustc's portable raw-pointer code
+*faster* than the hand kernel (2.59 vs 3.20 ns/byte). The doctrine below held:
+assembly must beat the compiler to earn its place, and it didn't. FLOWS now
+ships **two** languages, Rust + Swift. The rest of this document is preserved
+as the original decision record.
 
 ---
 

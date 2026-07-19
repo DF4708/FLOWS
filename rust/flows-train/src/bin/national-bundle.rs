@@ -10,10 +10,13 @@
 //! discipline as `flows-core` / `flows-train`.
 //!
 //! Merges a seasonal-climatology identified-risk baseline for every CONUS ZCTA
-//! into `data/runtime_cache/app_risk_bundle.json` so all states get the dense
-//! choropleth Wisconsin already has from the R engine. R-engine entries are
-//! preserved BYTE-FOR-BYTE (their raw JSON object slices are carried through
-//! untouched — floats are never re-encoded). National entries carry centroid
+//! into `data/runtime_cache/app_risk_bundle.json` so every state gets a dense
+//! choropleth. Any entry carrying a ring `p` is preserved BYTE-FOR-BYTE (its
+//! raw JSON object slice is carried through untouched — floats are never
+//! re-encoded). Historically that protected the R "Wisconsin" engine's
+//! ring-carrying entries; since the one-system merge (5ed9cc0) the bundle has
+//! ZERO ring entries, so preservation is a no-op safety net kept for the case
+//! a ring entry is ever reintroduced. National entries carry centroid
 //! `c` as [lon, lat] and scores `s` aligned with the bundle's own `families`
 //! array, no ring `p` (the app fetches ZCTA rings on demand).
 //!

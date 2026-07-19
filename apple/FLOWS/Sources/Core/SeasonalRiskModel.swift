@@ -298,6 +298,15 @@ final class SeasonalRiskModel: ObservableObject {
     private let exportURL: URL     // flat training rows the worker reads
     private let headURL: URL       // the trained MLP the worker drops in
     private var head: LearnedHead? // nil until the worker has produced one
+    /// SERIAL writer for persistence: snapshots are enqueued in call order
+    /// and drain FIFO, so a later trip's write can never be clobbered by an
+    /// earlier one landing late (the hazard of independent detached tasks).
+    /// Off the main actor (arrival-render moment) but at default QoS, not
+    /// .utility — .utility is deprioritized exactly when the app is being
+    /// suspended, widening the window where a just-recorded trip is lost
+    /// before its write drains.
+    private let persistQueue = DispatchQueue(label: "com.flows.seasonal.persist",
+                                             qos: .default)
 
     init() {
         let dir = (try? FileManager.default.url(
@@ -399,18 +408,21 @@ final class SeasonalRiskModel: ObservableObject {
     }
 
     private func persist() {
-        // Snapshot the value-type store, then encode + write OFF the main
-        // actor: persist() fires at arrival time — the exact moment the
-        // arrived banner renders — and the encode/CSV cost grows with trip
-        // history. Atomic writes keep the reader-side contract.
+        // Snapshot the value-type store on the main actor (a true copy — no
+        // shared ref), then encode + write on the serial persistQueue: the
+        // encode/CSV cost grows with trip history and this fires at arrival,
+        // the exact moment the arrived banner renders. FIFO ordering means
+        // two quick trips can't clobber each other; the store write is done
+        // FIRST (the durability-critical one) before the CSV export.
         let snapshot = store
         let url = self.url, exportURL = self.exportURL
-        Task.detached(priority: .utility) {
+        let now = Date().timeIntervalSince1970
+        persistQueue.async {
             if let data = try? JSONEncoder().encode(snapshot) {
                 try? data.write(to: url, options: .atomic)
             }
             // Flat CSV training view for the Rust trainer (rust/flows-train).
-            let rows = snapshot.trainingRows(now: Date().timeIntervalSince1970)
+            let rows = snapshot.trainingRows(now: now)
             var csv = "oLat,oLon,dLat,dLon,week,target,weight,crossCountry\n"
             for r in rows {
                 csv += "\(r["oLat"] ?? 0),\(r["oLon"] ?? 0),\(r["dLat"] ?? 0),\(r["dLon"] ?? 0),"

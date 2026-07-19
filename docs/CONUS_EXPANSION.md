@@ -8,6 +8,14 @@
 
 # Wisconsin → CONUS expansion
 
+> **HISTORICAL (2026-07-19).** This was the plan for widening the original
+> R engine from Wisconsin to CONUS. It has since been overtaken: the R
+> engine is retired, and the shipping native app already covers the whole
+> US uniformly — a 33,300-ZCTA on-device risk field scored from 20 years of
+> NOAA Storm Events history (no Wisconsin special-casing), plus Rust
+> Contraction-Hierarchies routing. `global.R` and the other R sources
+> referenced below no longer exist. Kept as the historical expansion record.
+
 Migration plan for widening FLOWS from Wisconsin-only to the whole
 continental United States (CONUS), with cross-country routing as fast
 as intrastate routing.
