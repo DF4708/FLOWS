@@ -9,71 +9,29 @@
 # FLOWS — Architecture
 
 > **Forecasted Live Operational Weather System** — hazard-aware travel.
-> Two deploy shapes share one risk model: (1) the original **Shiny R
-> application** that fuses federal weather / hydrology / air / radiation /
-> seismic / roadway feeds into a ZIP-code-precise Wisconsin hazard map —
-> now the reference engine and offline data producer — and (2) the
-> **native Apple app** (Swift UI + `rust/flows-core` compute) that ships
-> the same physics as a national driving / walking / transit navigator.
+> FLOWS is now a **single system**: the **native Apple app** (SwiftUI UI +
+> `rust/flows-core` compute over a C FFI) that fuses federal weather /
+> hydrology / air / radiation / seismic / roadway feeds into a
+> ZIP-code-precise national driving / walking / transit navigator.
+>
+> The product ships in exactly **two languages**: **Rust** (core
+> algorithms, data pipelines, on-device training) and **Swift** (the app).
+> The original R / Shiny "Wisconsin" engine that started the project was
+> **retired** in commit `5ed9cc0` (2026-07-11); the `R/` directory and the
+> root Shiny files were deleted. Its scoring survives only as pinned test
+> fixtures. See §9 for that history.
 
 This document is the map. If you need to change the codebase, start
 here to figure out which module owns the concept and which downstream
-consumers you'll break. Sections 1–8 describe the R engine (still live,
-still the training-data and bundle producer); section 9 describes the
-native app architecture that now carries the product.
+consumers you'll break. Sections 1–8 describe the live native app and
+its offline data pipelines; section 9 is the clearly-labeled historical
+record of the retired R engine — past tense, kept because it is
+legitimately part of the project's origin and because its scores are
+still the parity oracles for the Rust port.
 
 ---
 
 ## 1. Layers, top-down
-
-### 1a. R engine (reference / producer)
-
-```
-                     ┌────────────────────────────────────┐
-User's browser  ───▶ │  Shiny UI (ui.R + gomap.js +       │
-                     │  styles.css + Leaflet map)         │
-                     └──────────────┬─────────────────────┘
-                                    │
-                     ┌──────────────▼─────────────────────┐
-                     │  server.R — reactive orchestration │
-                     │  input events → payload builds     │
-                     │  → leafletProxy draws              │
-                     └──────────────┬─────────────────────┘
-                                    │
-                     ┌──────────────▼─────────────────────┐
-                     │  Build pipeline (R/build_view.R)   │
-                     │  build_risk_polygons → finalize_   │
-                     │  zip_view → build_driving_roads_   │
-                     │  overlay                           │
-                     └──────────────┬─────────────────────┘
-                                    │
-    ┌─────────┬──────────┬──────────┼──────────┬──────────┬──────────┐
-    │         │          │          │          │          │          │
-┌───▼──┐ ┌───▼──┐ ┌──────▼──┐ ┌─────▼──┐ ┌─────▼──┐ ┌─────▼──┐ ┌─────▼──┐
-│Family│ │Forec.│ │External │ │511     │ │Routing │ │Alerts  │ │Reference│
-│layer │ │baseln│ │bundle   │ │pipeline│ │(route.R│ │(NWS)   │ │loaders  │
-│      │ │      │ │(11 feeds│ │(9 files)│ │+ pathfd│ │        │ │(gpkg,   │
-│      │ │      │ │per horiz│ │        │ │+ chkpt)│ │        │ │osm rds) │
-└──────┘ └──────┘ └─────────┘ └────────┘ └────────┘ └────────┘ └─────────┘
-    │         │          │          │          │          │          │
-    └─────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
-                                    │
-                     ┌──────────────▼─────────────────────┐
-                     │  Cache tiers                       │
-                     │  1. in-process live_cache env      │
-                     │  2. disk snapshots                 │
-                     │     (data/runtime_cache/*.rds)     │
-                     │  3. reference data                 │
-                     │     (data/reference/*.gpkg,*.rds)  │
-                     └──────────────┬─────────────────────┘
-                                    │
-                     ┌──────────────▼─────────────────────┐
-                     │  16 external feeds (all HTTP JSON  │
-                     │  or shapefile)                     │
-                     └────────────────────────────────────┘
-```
-
-### 1b. Native Apple app (product)
 
 ```
                      ┌────────────────────────────────────┐
@@ -104,308 +62,174 @@ SwiftUI / MapKit ──▶ │  UI layer (apple/FLOWS/Sources/UI) │
                             │
              ┌──────────────▼──────────────────────────────┐
              │ Bundled data (apple/FLOWS/Resources):       │
-             │ app_risk_bundle.json (national ZIP field),  │
-             │ nwr_stations.json, shower CityTables        │
+             │ app_risk_bundle.frb1 (national ZIP field,   │
+             │ FRB1 binary), nwr_stations.json, shower     │
+             │ CityTables, baseline_route_head.json        │
              └─────────────────────────────────────────────┘
 ```
 
-The R engine exports `data/runtime_cache/app_risk_bundle.json`
-(`scripts/export_app_risk_bundle.R` + `scripts/generate_national_bundle.sh`)
-which is copied into the app bundle; `rust/flows-train` trains the
-learned route head the app loads. Nothing in the app calls R at runtime.
+The app is **fully self-contained at runtime**: it ships the national
+risk field as a binary FRB1 file and reaches keyless live feeds
+directly; there is no server component and nothing calls R. The offline
+data pipelines that produce the bundle (`rust/flows-train`) and train the
+learned route head are Rust; the app statically links `rust/flows-core`
+over the C FFI (`rust/flows-core/src/ffi.rs`).
 
 ---
 
 ## 2. Directory map
 
+The source tree is **`rust/` + `apple/`**. R is gone.
+
 ```
 FLOWS/
-├── global.R                      ← constants, source loader, config
-├── server.R                      ← Shiny reactives
-├── ui.R                          ← Shiny UI shell
-├── styles.css / gomap.js         ← client assets
-├── R/                            ← 43 modules
-│   ├── util.R  scoring.R  cache.R  timing.R
-│   ├── build_view.R              ← top-level orchestration
-│   ├── families.R                ← environmental noisy-OR family scoring
-│   ├── forecast.R                ← NWS forecast baseline
-│   ├── external_bundle.R         ← 11-family external risk bundle
-│   ├── alerts.R  zone_alerts.R   ← NWS alert ingest + zone→zip
-│   ├── driving.R                 ← driving risk composition
-│   ├── route.R  route_pathfind.R ← native A* router
-│   ├── popups.R                  ← per-ZIP HTML popup builder
-│   ├── snapshots.R               ← disk snapshot orchestration
-│   ├── nwps.R  wpc.R  ffg.R      ← flood signals (NWPS gauges, WPC)
-│   ├── airnow.R  radnet_nrc.R  uv_seismic.R   ← non-flood externals
-│   ├── glm.R  spc_convective.R                ← convective / lightning
-│   ├── wi_loaders.R              ← reference geometry loaders
-│   ├── geo.R  geom_utils.R  polyline.R        ← spatial helpers
-│   ├── http.R                    ← http_json + safely + extract_named_*
-│   ├── wi511_*.R (9 files)       ← WI511 transport pipeline (thematic split)
-│   └── checkpoints/              ← immutable routing backups
-├── apple/                        ← native Apple app (see §9)
-│   ├── FLOWS/Sources/Core/       ← ~45 Swift service/model files
-│   ├── FLOWS/Sources/UI/         ← ContentView, PlannerPanel, HUD, …
-│   ├── FLOWS/Resources/          ← app_risk_bundle.json, nwr_stations.json,
-│   │                               per-brand shower city tables
-│   ├── FLOWSTests/               ← 153 Swift tests
-│   ├── FLOWSWatch/               ← watchOS companion
-│   └── project.yml               ← xcodegen project spec
+├── apple/                          ← native Apple app (see §7)
+│   ├── FLOWS/
+│   │   ├── Sources/
+│   │   │   ├── Core/               ← ~51 Swift service/model files
+│   │   │   ├── UI/                 ← ContentView, PlannerPanel, HUD, …
+│   │   │   ├── CarPlay/            ← CarPlay scene
+│   │   │   ├── FLOWSApp.swift  FLOWSIntents.swift  Theme.swift
+│   │   ├── Resources/              ← app_risk_bundle.frb1 (national ZIP
+│   │   │                             field), nwr_stations.json,
+│   │   │                             baseline_route_head.json,
+│   │   │                             per-brand shower city tables
+│   │   └── Generated/              ← xcodegen output
+│   ├── FLOWSTests/                 ← 162 Swift tests
+│   ├── FLOWSWatch/                 ← watchOS companion
+│   ├── tools/                      ← app-side build tooling
+│   └── project.yml                 ← xcodegen project spec
 ├── rust/
-│   ├── flows-core/               ← scoring, risk, distance, polyline,
-│   │   └── src/transit/          ← CH router, owned RAPTOR transit engine
-│   └── flows-train/              ← learned-head trainer (pure std, zero
-│       └── src/bin/national-bundle.rs   crates) + national bundle builder
-├── ml/route-gnn/                 ← run_worker.sh weekly training worker
-│                                   (launchd template, logs, models)
+│   ├── flows-core/                 ← scoring, risk, distance, polyline,
+│   │   ├── src/transit/            ← CH router, owned RAPTOR transit engine
+│   │   └── src/bin/                ← bench.rs (kernel bake-off), gtfs-ftt.rs
+│   └── flows-train/                ← learned-head trainer (pure std, zero
+│       └── src/bin/                   crates) + data builders:
+│                                      national-bundle.rs, history-baseline.rs,
+│                                      bundle-frb.rs, places-shard.rs
+├── ml/route-gnn/                   ← run_worker.sh weekly training worker
+│                                     (launchd template, logs, models)
 ├── scripts/
-│   ├── warm_live_startup_snapshot.R      ← foreground warmer
-│   ├── warm_external_risk_bundle.R       ← per-horizon warmer
-│   ├── export_app_risk_bundle.R          ← R snapshot → app JSON bundle
-│   ├── generate_national_bundle.sh       ← WI-preserving national bundle
-│   ├── runtime_smoke_test.R              ← quickest sanity check
-│   ├── autonomous_test_runner.sh         ← cron-driven build+test loop
-│   ├── build_wisconsin_reference_assets.py
-│   └── validate_wisconsin_reference_assets.py
-├── tests/
-│   ├── sqa_runner.R                      ← 8-suite SQA gate
-│   ├── mutation_test.R                   ← 13 mutant kill tests
-│   ├── test_modeled_road_risk.R          ← vectorised equivalence
-│   ├── static_analysis.R                 ← lint-style scanner
-│   ├── score_matrix.R                    ← scorer cross-check
-│   └── conus_experiment_harness.R        ← scientific-method runner
+│   ├── generate_national_bundle.sh ← national-bundle → bundle-frb → FRB1
+│   ├── build_history_baseline.sh   ← 20-yr NOAA Storm Events baseline
+│   ├── build_ftt.sh  fetch_gtfs.sh ← transit timetable build
+│   ├── build_places_shards.sh  fsq_places_to_tsv.py   ← POI shards
+│   ├── autonomous_test_runner.sh   ← cron-driven build+test loop
+│   ├── worker.sh  sync_to_shared.sh
+├── .github/workflows/ci.yml        ← Rust + Swift CI (replaced dead r.yml)
 ├── docs/
-│   ├── ARCHITECTURE.md                   ← this file
-│   ├── APPLE_APP.md / FLOW_APP.md        ← native-app feature docs
-│   ├── RUST_SWIFT_MIGRATION.md           ← stack rule + FFI surface
-│   ├── TRANSIT_ROUTING.md                ← owned RAPTOR engine
+│   ├── ARCHITECTURE.md             ← this file
+│   ├── APPLE_APP.md / FLOW_APP.md  ← native-app feature docs
+│   ├── LANGUAGE_ARCHITECTURE.md    ← the two-language rule
+│   ├── RUST_SWIFT_MIGRATION.md     ← stack rule + FFI surface
+│   ├── TRANSIT_ROUTING.md          ← owned RAPTOR engine
+│   ├── DATA_FEEDS.md  CRASH_SURVIVAL.md
 │   ├── LEARNINGS.md / TESTING_STRATEGY.md
 │   ├── CONUS_EXPANSION.md
-│   └── MOBILE_PACKAGING.md
+│   └── MOBILE_PACKAGING.md         ← historical (packaging the R app)
 ├── data/
-│   ├── reference/                        ← tracked geometry (gpkg, rds)
-│   └── runtime_cache/                    ← gitignored disk snapshots +
-│                                           app_risk_bundle.json (33,300 zips)
-└── images/                               ← UI banner + docs figures
+│   ├── reference/                  ← pipeline inputs: ZCTA gazetteer,
+│   │                                 ZCTA↔county, NOAA storm_events/,
+│   │                                 places TSV, zone↔county
+│   ├── places/  transit/  results/ ← POI shards, .ftt timetables, outputs
+│   └── runtime_cache/              ← dev/regeneration sources +
+│                                     app_risk_bundle.json (33,300 zips) +
+│                                     gitignored leftovers
+└── images/                         ← UI banner + docs figures
 ```
 
 ---
 
-## 3. Data flow — a single build pass (R engine)
+## 3. Data flow — the national risk field
 
-The map user sees a ZIP polygon is the output of this pipeline. Each
-call is memoised in `live_cache` for the horizon-scoped TTL and, when
-appropriate, persisted to `data/runtime_cache/*.rds` so the next process
-starts warm.
+The app never builds the choropleth live; it **ships** it. The national
+ZIP risk field is produced offline by Rust tools, converted to a binary
+shard, and parsed on the launch path with zero JSON cost.
 
 ```
-prefetch_live_startup_payload  (R/build_view.R)
+scripts/build_history_baseline.sh
+│   downloads keyless inputs (NOAA NCEI Storm Events details CSVs
+│   2005–2024, Census ZCTA gazetteer + ZCTA↔county + NWS zone↔county)
 │
-├── fetch_wisconsin_alerts               (R/alerts.R)
-│     └── NWS Alerts API (per-state active)
+├── history-baseline.rs   (rust/flows-train/src/bin)
+│     per ZCTA × week-of-year × hazard family:
+│     20-year event frequencies from NOAA Storm Events; point events
+│     snap to the nearest ZCTA centroid, county/zone-coded events spread
+│     over their ZCTAs with weight 1/n; log-linear score normalized to a
+│     per-family p95, hard-capped at 0.6 (< the 0.699 yellow cut — a
+│     historical PRIOR may never manufacture a realized hazard)
 │
-├── build_fast_live_baseline             (R/forecast.R)
-│     └── one NWS points/hourly probe + broadcasts to all zips
+scripts/generate_national_bundle.sh
 │
-├── ★ mcparallel fork ★  511 road prefetch
-│     ├── build_511_roads_overlay        (R/wi511_transport.R)
-│     │   ├── fetch_511_winter_roads_live       (winter feed)
-│     │   ├── fetch_511_events_live             (crashes/hazmat)
-│     │   └── snap_511_overlay_to_osm_roads     (laser-detection)
-│     ├── compute_511_message_sign_road_signal
-│     └── compute_511_road_proximity_signal
+├── national-bundle.rs    seasonal-climatology floor for every CONUS ZCTA
+│     (week-of-year sinusoid; blended max(history, climatology))
 │
-├── build_risk_polygons                  (R/build_view.R)
-│     ├── build_forecast_baseline        (R/forecast.R)
-│     │     └── parallel NWS forecast per forecast_region (18)
-│     │         + degraded-snapshot guard
-│     ├── enrich_external_risks          (R/external_bundle.R)
-│     │     ├── flood: get_wpc_qpf_sf,
-│     │     │           get_wpc_flood_outlook_sf,
-│     │     │           get_owp_fho_sf,
-│     │     │           fetch_nwps_gauge_context (455 gauges, 24-core parallel)
-│     │     │           compute_nwps_corridor_signal,
-│     │     │           fetch_ffg_zip_sensitivity
-│     │     ├── winter, fire, convective, lightning, heat, UV, radiation,
-│     │     │   NRC, seismic, air-quality guidance (one step each)
-│     │     └── transport: compute_511_zip_transport_risk
-│     ├── apply_alert_coverage_to_zips  (R/alerts.R)
-│     ├── apply_family_risk_totals      (R/families.R)
-│     ├── combine_environmental_risk_score
-│     ├── apply_proximity_boost
-│     └── finalize_zip_view              (R/build_view.R)
-│           ├── compute_driving_risk    (R/driving.R)
-│           ├── compute_primary_fill_score
-│           ├── risk_label_from_score (vectorised)
-│           ├── risk_rgba (vectorised)
-│           ├── compose_risk_reason_vec       (family reason line)
-│           ├── compose_risk_component_summary_vec
-│           ├── compose_risk_type_summary_vec
-│           └── build_popup_vectorized
-│
-└── build_driving_roads_overlay         (R/driving.R)
-      ├── build_511_roads_overlay       (cache hit from prefetch)
-      ├── compute_511_road_proximity_signal   (cache hit)
-      ├── build_modeled_road_risk_index (R/wi_loaders.R, vectorised)
-      ├── 511 boost merge
-      ├── style (risk_rgb_hex vectorised)
-      └── manual sf-concat (drop_geometry + rbind + c(sfc)+st_sf)
+└── bundle-frb.rs         JSON → FRB1 binary (bit-exact f64 doubles)
+      writes app_risk_bundle.frb1 and copies it into
+      apple/FLOWS/Resources/
 ```
 
-Cache scopes:
-- **In-process (`live_cache`)**: TTL-bounded, evicted on TTL expiry
-  or LRU cap. `cache_get / cache_put / cache_peek` in
-  [R/cache.R](../R/cache.R).
-- **Disk snapshots**: `save_runtime_snapshot / load_runtime_snapshot`
-  around `data/runtime_cache/*.rds`. Used by `startup_live_environmental.rds`
-  (whole map payload) and by every per-family
-  `derived_external-bundle-<horizon>-<hash>.rds`.
-- **Reference data**: `data/reference/wisconsin_reference.gpkg` (14 MB
-  Wisconsin geometry — ZCTAs, counties, places, zones) and
-  `data/reference/wi_osm_roads.rds` (7.6 MB OSM road network for
-  routing). Built offline by `scripts/build_wisconsin_reference_assets.py`.
+The result is **one unified national field of 33,300 ZCTAs**, every one
+scored from the 20-year NOAA Storm Events history baseline (with the
+seasonal climatology as a conservative floor). There are **no
+special-cased or byte-preserved Wisconsin / R-engine entries** — every
+ZCTA carries the same `z` (ZIP) / `c` (centroid `[lon, lat]`) / `s`
+(scores aligned to the bundle's `families` array) / `t` (optional summary)
+shape — and there are **no polygon rings in the bundle**:
+`ZCTAFetcher` (`apple/FLOWS/Sources/Core/ZipBordersAndTransit.swift`)
+fetches ZCTA borders on demand.
 
-**Bundle export**: `scripts/export_app_risk_bundle.R` dumps the warmed
-snapshot's per-ZIP families to `data/runtime_cache/app_risk_bundle.json`;
-`scripts/generate_national_bundle.sh` +
-`rust/flows-train/src/bin/national-bundle.rs` extend it to 33,300 ZIPs
-nationally — the 861 R-engine Wisconsin entries are preserved
-byte-for-byte, and the ~32.4k non-WI ZCTAs get seasonal-climatology
-entries recomputed for the current week. The app carries this bundle;
-there are **no polygon rings in it** — `ZCTAFetcher`
-(`apple/FLOWS/Sources/Core/ZipBordersAndTransit.swift`) fetches ZCTA
-borders on demand.
+**On-device load** — `Core/RiskFieldService.swift` parses
+`app_risk_bundle.frb1` via `parseFRB1` (magic `FRB1`, little-endian
+fixed-width records, FNV-1a integrity check) with no JSONDecoder on the
+cold-start path, and selects visible ZIPs through a spatial grid
+(`selectZips`). The 2.85 MB JSON copy was removed from `Resources`;
+`data/runtime_cache/app_risk_bundle.json` remains only as the
+dev/regeneration source and an on-disk fallback.
+
+The app's *live* map layer is a thin dynamic overlay on top of this
+static field: `Core/WeatherAlertService.swift` pulls NWS active alerts
+for the viewport and `Core/LiveHazardFeeds.swift` serves DOT closures and
+the other live primary hazards (§7.2).
 
 ---
 
-## 4. Routing pipeline (R engine)
+## 4. Routing & transit
 
-Cold-cache route request:
+There is no server-side router. Trip planning is on-device
+(`Core/RouteService.swift`, `Core/NavigationEngine.swift`,
+`UI/RouteChoicesView.swift`):
 
-```
-plan_route_options(start_point, end_point, horizon_key, ...)
-│                                              R/route.R
-├── build_route_segments(zips, horizon_key)   [cached per zips+horizon]
-│     ├── load_wi_roads()                     [reference gpkg]
-│     ├── build_modeled_road_risk_index()     [driving risk join]
-│     └── produce ~90k-edge table with
-│         segment_risk, closure_penalty,
-│         route_tier, from/to node IDs
-│
-└── native_plan_routes(start_point, end_point,
-                        full_segments,
-                        progress, horizon_key)      R/route_pathfind.R
-      ├── For each profile in {fastest, safest, metrorail}:
-      │     ├── build_route_graph(segments, profile)
-      │     │     [edge weights = length / adjusted_speed
-      │     │      × (1 + 4·risk + closure)]
-      │     ├── find_polygon_or_point_nodes()
-      │     ├── pq_new / pq_push / pq_pop / pq_empty  (binary heap)
-      │     ├── A* with landmark-free heuristic
-      │     └── route_edges → route summary + popup HTML
-      └── ranking + dedup: the three profiles (fastest/safest/metro) yield
-          distinct paths; clone_route_profile() (route_pathfind.R) substitutes
-          when one collapses onto another
-```
+- **Corridor scoring** — the app requests candidate routes from MapKit
+  Directions and scores each corridor with `RiskEquations` over sampled
+  grid points, fusing the static ZIP field with live NWS alerts
+  (`corridorRisk`) and WZDx closures. This MapKit-directions +
+  corridor-scoring path is what carries the national (CONUS) scale that a
+  single Wisconsin OSM graph could not.
+- **Two-truths ranking** — `RiskEquations.rankingRisk` (route ordering
+  only, never the display band) noisy-ORs the realized band with
+  0.6-discounted identified ZIP exposure; as the on-device seasonal prior
+  accrues confidence it takes over from the static field.
+- **GO gating** — the GO affordance is gated per-route on `weatherScored`:
+  a route can't be started before its corridor score has landed.
+- **Transit** — the MapKit transit stopgap is being replaced by the
+  **owned Rust RAPTOR engine** over `.ftt` timetables
+  (`rust/flows-core/src/transit/`, binary-searched `earliest_trip`) — see
+  [`TRANSIT_ROUTING.md`](TRANSIT_ROUTING.md). Rail + bus multi-select
+  cards each carry their own itinerary (`Core/TransitItinerary.swift`) and
+  exact ticket links (`TransitTickets`).
+- **CH router status** — the Rust contraction-hierarchy router
+  (`rust/flows-core/src/ch.rs`) is built and tested (query cost ==
+  Dijkstra, faster in practice) but not yet wired into the app's routing
+  UI; it is retained for the transit/graph work.
 
-Key algorithmic properties (Wisconsin baseline):
-- Graph size: ~97k nodes, ~90k edges (WI OSM extract).
-- Complexity: O((V+E)·log V) per profile (three profiles). Route-plan latency
-  in practice is ~5 s p50 under the worker's memory pressure — the "sub-second
-  intrastate" target was refuted (see TESTING_STRATEGY.md).
-- Production heuristic: the R A* uses a landmark-free (admissible euclidean)
-  heuristic; an optional `cppRouting` bidirectional-Dijkstra backend is used
-  when the package is installed. The Rust contraction-hierarchy router
-  (`rust/flows-core/src/ch.rs`) remains built and tested (query cost ==
-  Dijkstra, faster in practice) and is still not wired into the R router —
-  the CONUS scaling need it targeted is instead met by the native app's
-  MapKit-directions + corridor-scoring path (§9.4) and the owned transit
-  engine (`rust/flows-core/src/transit/`, RAPTOR over `.ftt` timetables —
-  see [`TRANSIT_ROUTING.md`](TRANSIT_ROUTING.md)).
-- ETA source: `base_speed_mph` per road tier with a −5 mph penalty in
-  `adjusted_route_speed_mph` when segment risk exceeds `RISK_RED_MIN`.
-  **No real-time traffic input.** 511WI travel-time delays are
-  deliberately excluded from both risk and ETA per the
-  safety-vs-throughput audit.
+ETA has **no real-time traffic input**; road-tier base speeds carry a
+risk penalty. See §7.4 for the full trip-planning surface (cost banners,
+walking fallback, tourist filter).
 
 ---
 
-## 5. Caching, threading, concurrency (R engine)
-
-### Cache namespaces (`R/cache.R`)
-
-- `"reference"` — long-lived, TTL up to 24h (public forecast zones,
-  county polygons).
-- `"derived"` — computed outputs, TTL by horizon:
-  `ALERT_TTL_SECONDS` (90 s) for live alerts, `FORECAST_TTL_SECONDS`
-  (900 s / 15 min) for forecast layers.
-- `live_cache` is a plain env; `prune_cache_namespace` runs on
-  every put with a per-namespace size cap.
-
-### Disk snapshots (`R/snapshots.R`)
-
-- `STARTUP_MAP_SNAPSHOT_PATH` — whole map payload, loaded on server
-  start to give an instant paint.
-- `derived_external-bundle-<horizon>-<hash>.rds` — per-horizon /
-  per-feature bundle, used to sidestep a cold external fetch.
-- All snapshots are gitignored (regenerable).
-
-### Fork model
-
-- `parallel::mclapply` for the per-region NWS forecast fan-out
-  (8-worker cap) and for NWPS gauge fetches (24-worker cap).
-- `parallel::mcparallel` for the 511 road prefetch fork in
-  `prefetch_live_startup_payload` so the 511 pipeline runs while
-  the parent works on the polygon stack.
-- **Fork-safety rule**: `curl`, `httr2`, `sf` must be loaded in the
-  parent *before* the first fork. Warmer scripts eager-load them at
-  the top; documented in [LEARNINGS.md](LEARNINGS.md#fork-safety).
-
-### Progress reporting
-
-`notify_progress(progress, value, detail)` in `R/forecast.R` is the
-uniform channel — the Shiny progress bar reads from it; band-render
-observers gate `reset_progress()` on `!isTRUE(payload$is_snapshot)`
-so "Map ready" only fires after a fresh (non-snapshot) build paints.
-
----
-
-## 6. External feeds inventory
-
-### R engine feeds
-
-| Feed | Layer | Endpoint | Refresh |
-|---|---|---|---|
-| NWS alerts | alerts | `api.weather.gov/alerts/active?area=WI` | 90 s |
-| NWS forecast (per region) | forecast baseline | `api.weather.gov/gridpoints/...` | 15 min |
-| WPC QPF | flood | `weather.gov/source/gis/Shapefiles/...` | 15 min |
-| WPC winter | winter | `ftp.wpc.ncep.noaa.gov/shapefiles/winter/...` | 30 min |
-| WPC flood outlook | flood | `ftp.wpc.ncep.noaa.gov/shapefiles/fop/...` | 60 min |
-| OWP flood hazard outlook | flood | `mapservices.weather.noaa.gov/experimental/rest/services/owp_fho` | 60 min |
-| NWPS gauges | flood (gauge) | `api.water.noaa.gov/nwps/v1/gauges` | 15 min |
-| FFG (flash-flood guidance) | flood | `mapservices.weather.noaa.gov/raster/rest/services/precip/rfc_gridded_ffg` | 60 min |
-| SPC convective outlook | storm | `mapservices.weather.noaa.gov/vector/rest/services/outlooks/SPC_wx_outlks` | 60 min |
-| SPC fire outlook | fire | `mapservices.weather.noaa.gov/vector/rest/services/fire_weather/SPC_firewx` | 60 min |
-| GOES GLM lightning | storm | AWS S3 `noaa-goes*` | 15 min |
-| NWS HeatRisk | heat | official CSV | 60 min |
-| EPA AirNow | air | `files.airnowtech.org/airnow/today` | 60 min |
-| EPA UV daily | radiation | `data.epa.gov/dmapservice/getEnvirofactsUVDAILY` | 24 h |
-| RadNet radiation | radiation | scraped (4 stations) | 15 min |
-| NRC event RSS | radiation | `nrc.gov/public-involve/rss?feed=event` | 15 min |
-| USGS seismic | seismic | `earthquake.usgs.gov/fdsnws/event/1/query` | 15 min |
-| WI511 winter roads | transport | `511wi.gov/api/v3/get/winterroads` | 60 s |
-| WI511 events | transport | `511wi.gov/api/v2/get/event` | 60 s |
-| WI511 message signs | transport | `511wi.gov/api/v2/get/messagesigns` | 60 s |
-| WI511 alerts (prose) | transport | `511wi.gov/api/v2/get/alerts` | 60 s |
-| Census TIGER | reference | `www2.census.gov/geo/tiger/...` | build-time (annual) |
-| OSM Geofabrik | reference | `download.geofabrik.de/north-america/us/wisconsin-latest.osm.pbf` | build-time (weekly) |
-
-**No paid API key required** for any weather / flood / air / radiation /
-seismic feed. WI511 requires a free WisDOT key set via
-`WI511_API_KEY` env var; the pipeline degrades gracefully to
-`empty_road_overlay_sf()` when absent.
-
-### Native-app feeds (all keyless)
+## 5. External feeds inventory (all keyless)
 
 | Feed | Owner | Purpose |
 |---|---|---|
@@ -417,84 +241,48 @@ seismic feed. WI511 requires a free WisDOT key set via
 | Census ZCTA borders | `Core/ZipBordersAndTransit.swift` (`ZCTAFetcher`) | on-demand ZIP polygons (bundle ships no rings) |
 | NOAA Weather Radio station list | `Resources/nwr_stations.json` (static) | trucker radio GPS-nearest streams |
 
-All app network access funnels through `Core/ThrottledNet.swift`.
+**No paid API key** is required for any feed. All app network access
+funnels through `Core/ThrottledNet.swift`. The offline pipelines (§3)
+pull NOAA NCEI Storm Events and Census reference files, also keyless.
+
+For the full endpoint-by-endpoint list see
+[`DATA_FEEDS.md`](DATA_FEEDS.md).
 
 ---
 
-## 7. Test harness
+## 6. Test harness & CI
 
-R tiers (all runnable without external network):
+- **Swift**: **162 tests** in `apple/FLOWSTests/` (risk equations and
+  realization, climate profiles, harmonic climatology, badge clustering,
+  towing/vehicle limits, transit/route attributes, seasonal model, places
+  store, latitude-band parity, driver features, crash logic, …).
+- **Rust**: **90 `#[test]`s** across `flows-core` (scoring / risk R-parity
+  oracles, distance, polyline equivalence, CH, transit RAPTOR) and
+  `flows-train` (trainer, `national-bundle`, `history-baseline`,
+  `bundle-frb`). The polyline suite pins the shipped kernel and the safe
+  oracle byte-identical (§8).
 
-1. **Runtime smoke** (`scripts/runtime_smoke_test.R`) — verifies
-   `global.R + ui.R + server.R` all source clean. Fastest check.
-2. **SQA suite** (`tests/sqa_runner.R`) — 8 property tests: function
-   presence / dead-code absence / operational-vs-safety sign scoring /
-   sanitiser correctness / boundary threshold /
-   parse_iso_time / etc.
-3. **Mutation harness** (`tests/mutation_test.R`) — 13 semantic
-   mutations injected into safety-critical functions; oracle suite must
-   detect each. 100 % kill rate is the acceptance gate.
+The whole tree is **zero-warnings** and `cargo clippy --all-targets -D
+warnings` clean. CI is [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
+a Rust job (`cargo clippy -D warnings` + `cargo test --release`) and a
+Swift job (`xcodegen generate` + `xcodebuild … test`). It replaced the
+dead `r.yml`, which `rcmdcheck`'d the R engine retired in `5ed9cc0` and
+could never pass. The autonomous build+test loop runs
+`scripts/autonomous_test_runner.sh`.
 
-Additional pieces:
-- **Modeled-road equivalence** (`tests/test_modeled_road_risk.R`) —
-  vectorised `build_modeled_road_risk_index` vs a copy of the pre-fix
-  scalar implementation must match column-for-column on ~1500 rows.
-- **Static analysis** (`tests/static_analysis.R`) — custom scanner for
-  14 R footguns (`==NA`, untyped `NA`, `1:n` zero-bug, etc.).
-
-Native tiers:
-
-- **Swift**: 153 tests in `apple/FLOWSTests/` (risk equations,
-  climate profiles, badge clustering, towing limits, transit
-  itineraries, seasonal model, crash logic, …), run by
-  `scripts/autonomous_test_runner.sh` on the cron loop.
-- **Rust**: 48 `#[test]`s — 37 in `flows-core` (scoring/risk R-parity,
-  distance, polyline, CH, transit RAPTOR) and 11 in `flows-train`
-  (trainer + `national-bundle.rs` builder).
-
-The CONUS experiments layer on top of this
-(`tests/conus_experiment_harness.R`, scientific-method runner —
-described in [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md)).
+The R engine's scoring survives only as **pinned fixtures**: the Rust
+scorer's R-parity oracles reproduce the retired engine's numbers exactly,
+so the physics is preserved even though the R code is gone. The CONUS
+experiments layer on top (see [`TESTING_STRATEGY.md`](TESTING_STRATEGY.md)
+and [`CONUS_EXPANSION.md`](CONUS_EXPANSION.md)).
 
 ---
 
-## 8. Deploy shape (present)
-
-Two shapes:
-
-1. **R engine** — a single R process running a Shiny server; browser
-   hits it, server-side reactives build the map payload, ship JSON to
-   Leaflet. This is now the reference implementation, the source of
-   R-parity oracles for the Rust port, and the producer of the app's
-   risk bundle. *(The earlier framing of this as the sole product,
-   with mobile delivered by packaging the R app per
-   [`MOBILE_PACKAGING.md`](MOBILE_PACKAGING.md), is superseded.)*
-2. **Native Apple app** — the product. Swift/SwiftUI app
-   (iOS / macOS / iPadOS via one `apple/project.yml` xcodegen spec,
-   plus a watchOS companion in `apple/FLOWSWatch/`) statically linking
-   `rust/flows-core` over a C FFI (`rust/flows-core/src/ffi.rs`). It
-   is fully self-contained at runtime: bundled national risk field +
-   keyless live feeds; no server component. See §9 and
-   [`APPLE_APP.md`](APPLE_APP.md).
-
-**Stack rule** (see [`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md)
-and [`CODING_STANDARDS.md`](CODING_STANDARDS.md)): the product is
-**Rust + AArch64 assembly + Swift only** — no Python ships in or powers
-the product; Python remains acceptable as repo tooling/verification
-(reference-asset builders, preflight checks). Dead code is removed, not
-kept "just in case": the `risk_band` variant experiments, the NEON /
-autovectorised distance kernels (scalar reference retained in
-`rust/flows-core/src/distance.rs`), and `hazardFieldShapes` were all
-deleted after losing their benchmarks or callers.
-
----
-
-## 9. Native app architecture
+## 7. Native app architecture
 
 Everything below lives under `apple/FLOWS/Sources/` unless noted.
-This section is the Swift/Rust counterpart of §3–§6.
 
-### 9.1 Risk model — two-tier realized risk
+### 7.1 Risk model — two-tier realized risk
 
 `Core/RiskEquations.swift` is the single scoring authority (shared by
 the map, the route scorer, and the live corridor monitor):
@@ -528,11 +316,11 @@ the map, the route scorer, and the live corridor monitor):
   winter/summer norms sinusoidally by week-of-year, and
   `temperatureBeyondNormal` / `windBeyondNormal` gate display:
   weather that is normal for *here, this season* never draws.
-  `Core/LatitudeBands.swift` is retained only as an R-parity scoring
-  input; the 1-D latitude bands are superseded for temperature
-  normalization.
+  `Core/LatitudeBands.swift` is retained only as a parity-scoring input
+  (matching the retired R engine's latitude bands); the 1-D latitude
+  bands are superseded for temperature normalization.
 
-### 9.2 Ingestion & the national ZIP field
+### 7.2 Ingestion & the national ZIP field
 
 - `Core/WeatherAlertService.swift` pulls NWS active alerts for the map
   viewport and computes per-sweep `corridorRisk` over route grid
@@ -544,12 +332,13 @@ the map, the route scorer, and the live corridor monitor):
   primary on both the map and route corridors, plus the other live
   primary-hazard feeds.
 - `Core/RiskFieldService.swift` loads the national
-  `app_risk_bundle.json` (33,300 ZIPs: 861 byte-preserved R-engine WI
-  entries + seasonal-climatology entries for the rest, built per §3)
-  and selects visible ZIPs through a spatial grid (`selectZips`).
-  Borders come from `ZCTAFetcher` on demand.
+  `app_risk_bundle.frb1` (33,300 ZIPs scored from the 20-yr NOAA Storm
+  Events history baseline, built per §3; no special-cased Wisconsin
+  entries, no polygon rings) via `parseFRB1` and selects visible ZIPs
+  through a spatial grid (`selectZips`). Borders come from `ZCTAFetcher`
+  on demand.
 
-### 9.3 Map presentation
+### 7.3 Map presentation
 
 `UI/ContentView.swift` + `UI/HazardStyle.swift`:
 
@@ -567,18 +356,11 @@ the map, the route scorer, and the live corridor monitor):
   an `NWPathMonitor` banner plus a "Find my way back" affordance
   retrace it with no connectivity.
 
-### 9.4 Routing & trip planning
+### 7.4 Routing & trip planning
 
 `Core/RouteService.swift`, `UI/RouteChoicesView.swift`,
-`Core/NavigationEngine.swift`:
+`Core/NavigationEngine.swift` (routing engine overview in §4):
 
-- **Two-truths ranking** — `RiskEquations.rankingRisk` (route ordering
-  only, never the display band) noisy-ORs the realized band with
-  0.6-discounted identified ZIP exposure; as the on-device seasonal
-  prior accrues confidence it takes over from the static field.
-- **GO gating** — the GO affordance is gated per-route on
-  `weatherScored`: a route can't be started before its corridor score
-  has landed.
 - **Walking** — a single pedestrian MapKit request with a driving
   fallback; the substitution is disclosed via the `plannerNotice`
   banner (`RouteChoicesView`).
@@ -587,17 +369,12 @@ the map, the route scorer, and the live corridor monitor):
   per-fuel gCO₂ and per-passenger-mile transit constants).
 - **Tourist route filter** — pins attractions along candidates and
   shows per-card attraction counts.
-- **Transit** — rail + bus multi-select cards, each with its own
-  itinerary (`Core/TransitItinerary.swift`) and **exact ticket links**
-  (`TransitTickets`: Amtrak/Greyhound booking pages, the station's own
-  URL for local agencies — no Apple Maps handoff). When no local rail
-  exists, the planner recommends the nearest Amtrak station. The
-  MapKit transit stopgap is being replaced by the owned Rust RAPTOR
-  engine over `.ftt` timetables (`rust/flows-core/src/transit/`,
-  binary-searched `earliest_trip`) — see
-  [`TRANSIT_ROUTING.md`](TRANSIT_ROUTING.md).
+- **Transit tickets** — `TransitTickets` gives exact booking links
+  (Amtrak/Greyhound pages, the station's own URL for local agencies —
+  no Apple Maps handoff). When no local rail exists, the planner
+  recommends the nearest Amtrak station.
 
-### 9.5 Learned route prediction
+### 7.5 Learned route prediction
 
 `Core/SeasonalRiskModel.swift` + `rust/flows-train`:
 
@@ -609,12 +386,13 @@ the map, the route scorer, and the live corridor monitor):
   `RouteFeatures` 6-vector, trained off-device by `rust/flows-train`
   (pure std, zero crates) via `ml/route-gnn/run_worker.sh` (weekly
   launchd template `com.flows.routegnn.plist.template`); the app loads
-  the JSON weights when present, nil until the worker produces one.
+  the JSON weights when present (`Resources/baseline_route_head.json`
+  seeds it), nil until the worker produces one.
 - **Phase 2b (future, documented not built)** — a GNN over the trip
   graph, Rust-trained, executed in Swift via MLTensor/BNNS on the ANE
   (see [`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md)).
 
-### 9.6 POI layer
+### 7.6 POI layer
 
 `Core/POIService.swift`, `Core/POIRanking.swift`,
 `Core/RatingsAndCost.swift`, `Core/TruckerRadio.swift`:
@@ -623,7 +401,7 @@ the map, the route scorer, and the live corridor monitor):
   market-share, brand-augmented search queries, no MapKit category
   filter. **Tourist** kind for attractions.
 - **Showers** — verified per-city tables for Pilot / Flying J plus
-  Love's (576) and TA/Petro (324), each brand its own `CityTable`
+  Love's and TA/Petro, each brand its own `CityTable`
   (`RatingsAndCost.swift`); shipped as
   `Resources/{pilot_city,loves_city,ta_petro_city,truckstop}_showers.json`.
 - **Trucker radio** — GPS-nearest NOAA Weather Radio stream with
@@ -631,7 +409,7 @@ the map, the route scorer, and the live corridor monitor):
   `Resources/nwr_stations.json`), plus cab-radio rows shown as an
   honest disabled state: there are no licensed CB/HAR streams to play.
 
-### 9.7 Vehicle & towing
+### 7.7 Vehicle & towing
 
 `Core/VehicleSpecs.swift`, `Core/TowingLimits.swift`,
 `Core/EPAVehicleDatabase.swift`:
@@ -642,7 +420,7 @@ the map, the route scorer, and the live corridor monitor):
 - Towing compliance is re-checked on every GPS tick with a one-shot
   violation banner.
 
-### 9.8 Performance notes
+### 7.8 Performance notes
 
 - `earliest_trip` binary search in the RAPTOR inner loop
   (`rust/flows-core/src/transit/`).
@@ -650,3 +428,92 @@ the map, the route scorer, and the live corridor monitor):
   profile: `RoutePath.nearest`, the shower city tables, SMN station
   lookup (`InternationalWeather`), and `RiskFieldService.selectZips`.
 - Per-sweep overlay caches keep map redraws off the network.
+- The launch path decodes the risk field from the FRB1 binary shard,
+  not JSON (§3).
+
+---
+
+## 8. Deploy shape & stack rule
+
+**One shape.** The product is the Swift/SwiftUI app
+(iOS / macOS / iPadOS via one `apple/project.yml` xcodegen spec, plus a
+watchOS companion in `apple/FLOWSWatch/` and a CarPlay scene) statically
+linking `rust/flows-core` over a C FFI (`rust/flows-core/src/ffi.rs`). It
+is fully self-contained at runtime: bundled national risk field (FRB1) +
+keyless live feeds; **no server component**. See §7 and
+[`APPLE_APP.md`](APPLE_APP.md).
+
+**Stack rule** (see [`LANGUAGE_ARCHITECTURE.md`](LANGUAGE_ARCHITECTURE.md),
+[`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md) and
+[`CODING_STANDARDS.md`](CODING_STANDARDS.md)): the product is **Rust +
+Swift only** — no Python and no hand-written assembly ship in or power the
+product; Python remains acceptable as repo tooling/verification
+(reference-asset builders, preflight checks).
+
+**Dead code is removed, not kept "just in case."** The clearest recent
+case: the hand-written **AArch64 assembly polyline kernel was retired on
+2026-07-19**. A three-way bake-off in
+[`rust/flows-core/src/bin/bench.rs`](../rust/flows-core/src/bin/bench.rs)
+measured rustc's portable raw-pointer code *faster* than the hand kernel
+(asm 3.20 ns/byte vs 2.59 ns/byte on M-series; `Vec::push` 2.83).
+`polyline::decode_deltas()` now uses the portable raw-pointer body on all
+targets (writing through `reserve` + a raw pointer — the asm wrapper's one
+real trick, kept); `decode_deltas_rust` is the fully-safe oracle, and the
+equivalence tests still pin the two byte-identical. Assembly must *earn*
+its keep against the compiler or it goes. Earlier removals in the same
+spirit: the `risk_band` variant experiments, the NEON / autovectorised
+distance kernels (scalar reference retained in
+`rust/flows-core/src/distance.rs`), and `hazardFieldShapes`.
+
+---
+
+## 9. Historical: the retired R / Shiny "Wisconsin" engine
+
+> **Retired 2026-07-11 (commit `5ed9cc0`).** The `R/` directory and the
+> root Shiny files (`global.R`, `server.R`, `ui.R`, `gomap.js`,
+> `styles.css`) were deleted from the repo; the R export scripts and the
+> `tests/*.R` harness are gone. **Nothing below is live.** This section is
+> kept as design history — the engine is where the risk physics was born,
+> and its scores remain the parity oracles the Rust port is tested
+> against (§6). The rest of this document (§1–§8) is the current system.
+
+**What it was.** FLOWS began as a single R process running a **Shiny**
+server. A browser hit it; server-side reactives (`server.R`) built a
+map payload and shipped JSON to a Leaflet map (`ui.R` + `gomap.js` +
+`styles.css`). It covered **Wisconsin only**, at ZIP-code precision.
+
+**Build pipeline.** `R/build_view.R` orchestrated a single build pass:
+`prefetch_live_startup_payload` fetched alerts (`R/alerts.R`) and a fast
+forecast baseline (`R/forecast.R`), forked the 511WI road prefetch with
+`parallel::mcparallel`, then `build_risk_polygons` fused ~11 external
+hazard families (`R/external_bundle.R` — flood via NWPS gauges / WPC /
+FFG, plus winter, fire, convective, lightning, heat, UV, radiation, NRC,
+seismic, air) with the forecast baseline and alert coverage, applied
+noisy-OR family scoring (`R/families.R`), and finalized per-ZIP fills,
+labels, and popups (`finalize_zip_view`). A native A\* router
+(`R/route.R` + `R/route_pathfind.R`) planned fastest/safest/metro
+profiles over a ~97k-node / ~90k-edge Wisconsin OSM graph.
+
+**Caching & concurrency.** A three-tier cache — in-process `live_cache`
+env, disk `.rds` snapshots under `data/runtime_cache/`, and reference
+geometry under `data/reference/` — plus `parallel::mclapply` fan-out for
+per-region NWS forecasts and NWPS gauge fetches, under a strict
+fork-safety rule (load `curl` / `httr2` / `sf` before the first fork).
+
+**Feeds.** ~22 keyless federal feeds (NWS alerts + forecast, WPC/OWP
+flood, NWPS gauges, FFG, SPC convective/fire, GOES GLM lightning, NWS
+HeatRisk, EPA AirNow / UV, RadNet, NRC, USGS seismic) plus the 511WI
+transport pipeline (free WisDOT key, degrades gracefully when absent).
+
+**Tests.** An R-only harness lived under `tests/`: a runtime smoke test,
+an 8-suite SQA gate (`sqa_runner.R`), a 13-mutant mutation harness
+(`mutation_test.R`), modeled-road equivalence, and a static-analysis
+scanner for R footguns. These validated the scoring that the Rust
+`flows-core` R-parity oracles now reproduce.
+
+**Why it's gone.** The native app carries the product at national scale
+with no server; the R engine's Wisconsin-only, single-process, Leaflet
+shape could not. Rather than keep two systems in sync, the R engine was
+retired and its physics frozen into the Rust port's test fixtures. The
+earlier plan to deliver mobile by packaging the R app
+([`MOBILE_PACKAGING.md`](MOBILE_PACKAGING.md)) is likewise historical.

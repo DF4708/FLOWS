@@ -50,7 +50,7 @@ The native Swift app (`apple/`) — the "native Swift" path from
 MOBILE_PACKAGING.md, built. SwiftUI + MapKit across macOS/iOS/iPadOS,
 MKDirections NA-wide routing with FLOWS corridor weather scoring,
 dynamic-zoom turn-by-turn navigation, CarPlay + Apple Music stubs, and
-the Rust/assembly core bridge. Build, architecture, and roadmap.
+the Rust core bridge. Build, architecture, and roadmap.
 
 ## Companion directories
 

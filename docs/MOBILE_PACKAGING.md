@@ -8,7 +8,15 @@
 
 # Mobile packaging — iOS / macOS / iPadOS
 
-Three viable paths. Each preserves different amounts of the current
+> **SUPERSEDED (2026-07-19).** This document weighed three packaging paths
+> back when FLOWS was still a Shiny R app. The project took the **native
+> Swift** path (option 3): the R/Shiny engine is retired, and FLOWS ships as
+> a native SwiftUI + MapKit app across macOS/iOS/iPadOS/watchOS/CarPlay on a
+> pure Rust compute core — see `docs/APPLE_APP.md` and `docs/ARCHITECTURE.md`
+> for the built system. The analysis below is preserved as the historical
+> record of that decision.
+
+Three viable paths. Each preserves different amounts of the (then-current)
 Shiny R app. Each has different Apple approval requirements and different
 timelines. Pick after the CONUS expansion has advanced enough to warrant
 mobile investment.

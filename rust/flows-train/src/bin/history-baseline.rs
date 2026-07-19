@@ -39,9 +39,13 @@
 //! never creates a mapping, it only weights one.
 //!
 //! OUTPUTS (all under the repo root):
-//!   A. data/runtime_cache/app_risk_bundle.json rebuilt: the 861 R-engine WI
-//!      entries (the ones carrying a "p" ring) are preserved BYTE-FOR-BYTE via
-//!      the raw-slice scanner from national-bundle.rs; every other entry's "s"
+//!   A. data/runtime_cache/app_risk_bundle.json rebuilt: any entry carrying a
+//!      "p" ring is preserved BYTE-FOR-BYTE via the raw-slice scanner from
+//!      national-bundle.rs. (As of the one-system merge in 5ed9cc0 the bundle
+//!      has ZERO ring-carrying entries — the R "Wisconsin" engine was retired
+//!      and the field regenerated with no specials — so this preservation is
+//!      a no-op safety net today; it still protects a ring entry if one is
+//!      ever reintroduced.) Every other entry's "s"
 //!      becomes max(existing climatology, history score at the CLI week). The
 //!      previous bundle is backed up to app_risk_bundle.pre_history.json once
 //!      (the backup is never overwritten on re-runs).

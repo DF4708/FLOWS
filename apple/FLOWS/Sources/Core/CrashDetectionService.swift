@@ -55,6 +55,14 @@ final class CrashDetectionService: ObservableObject {
     private var audioEngine: AVAudioEngine?
     private var recognitionTask: SFSpeechRecognitionTask?
     private static let accelWindowSize = 25
+    /// Bumped every begin(); an impact hop carries the generation it was
+    /// enqueued under and drops itself if end() (or a new begin()) has since
+    /// moved on. Moving samples off the main queue removed the mutual
+    /// exclusion end() used to have — a sample detected on motionQueue can
+    /// enqueue a MainActor Task that would otherwise run AFTER end() and fire
+    /// a spurious post-trip crash check-in (state == .idle can't tell
+    /// "never started" from "just torn down").
+    private var monitorGeneration = 0
 
     /// 50 Hz samples land HERE, not on the main queue — a multi-hour drive
     /// is hours of per-sample main-thread wakeups otherwise. Serial, utility
@@ -70,6 +78,8 @@ final class CrashDetectionService: ObservableObject {
 
     func begin() {
         guard motion.isAccelerometerAvailable, !motion.isAccelerometerActive else { return }
+        monitorGeneration += 1
+        let generation = monitorGeneration
         motion.accelerometerUpdateInterval = 1.0 / 50.0
         // Rolling ~0.5 s (25 samples @ 50 Hz) of |acceleration| magnitudes, so
         // an impact is judged over a window (hard spike, or a corroborated
@@ -89,7 +99,11 @@ final class CrashDetectionService: ObservableObject {
             if CrashLogic.isImpact(window: window) {
                 window.removeAll(keepingCapacity: true) // consume — don't re-fire this event
                 Task { @MainActor [weak self] in
-                    guard let self, self.state == .idle else { return }
+                    // Drop a hop enqueued before end()/a new begin(): its
+                    // generation is stale, so it can't fire a check-in after
+                    // the trip it belonged to has ended.
+                    guard let self, self.monitorGeneration == generation,
+                          self.state == .idle else { return }
                     self.impactDetected()
                 }
             }
@@ -98,6 +112,7 @@ final class CrashDetectionService: ObservableObject {
 
     func end() {
         motion.stopAccelerometerUpdates()
+        monitorGeneration += 1   // invalidate any impact hop still in flight
         stopCheckIn()
         state = .idle
     }

@@ -14,14 +14,19 @@ written here, verified by the test harness and the resource governor.
 
 ---
 
-## 0. The stack rule: Rust + AArch64 assembly + Swift, nothing else in the product
+## 0. The stack rule: Rust + Swift, nothing else in the product
 
-The product ships exactly three languages: **Rust** (core algorithms,
-training), **AArch64 inline assembly** (the rare proven hot loop, §1), and
-**Swift** (the app). No Python, no JS, no interpreter of any kind runs in or
-ships with the product. Python remains legitimate as *repo tooling* —
-verification scripts, one-off data checks — but never as a runtime dependency
-or a build step the product needs.
+The product ships exactly two languages: **Rust** (core algorithms, data
+pipelines, on-device training) and **Swift** (the app). No Python, no JS, no
+interpreter of any kind runs in or ships with the product. Python remains
+legitimate as *repo tooling* — verification scripts, one-off data checks — but
+never as a runtime dependency or a build step the product needs.
+
+Hand-written **AArch64 assembly** is not a shipping language but a last-resort
+*technique* (§1): legitimate, but a hand kernel earns its place only by
+**measurably beating** the compiler, and one that stops winning is deleted. As
+of 2026-07 nothing ships through `asm!` — the sole kernel was retired (§1). The
+doctrine stays; the bar is what keeps it honest.
 
 The same rule extends to crates: prefer zero dependencies where std suffices.
 `rust/flows-train` (the on-device-model trainer and the national-bundle
@@ -53,7 +58,7 @@ a lower tier speculatively — every descent must be justified by a profile.
 | **Branchless** | SOP for hot classifiers | Replace data-dependent branches with arithmetic + table lookup so the branch predictor has nothing to mispredict. |
 | **SIMD (NEON / std::simd)** | Static hot loop, data-parallel math | ARM NEON intrinsics (Apple Silicon) or portable `std::simd`. Held byte-identical to scalar by tests. |
 | **GPU (Metal / wgpu)** | Very large dense matrices | 32 Metal cores for CONUS-scale distance/CH work. Same accuracy (f64), gated on min-size so small matrices stay on CPU. |
-| **Hand assembly (`asm!`)** | Last resort | ONLY for a *static* hot loop where a flamegraph proves it dominates AND the SIMD form still leaves cycles on the table. Statistically-significant, measured boost required — never speculative. |
+| **Hand assembly (`asm!`)** | Last resort | ONLY for a *static* hot loop where a flamegraph proves it dominates AND the SIMD form still leaves cycles on the table. The hand kernel must **measurably beat** the compiler's output — statistically-significant, measured, never speculative — and a kernel that stops winning is deleted (see below). |
 
 ### On assembly specifically
 
@@ -64,6 +69,18 @@ first, benchmark it, and only drop to `asm!` if the numbers demand it and the
 kernel is stable enough that hand-tuned assembly won't rot. Most kernels
 never qualify — LLVM's scheduler and register allocator are very good — but
 the door is open when a profile mandates it.
+
+**Worked example — the retired kernel (2026-07-19).** For a while the one
+shipping `asm!` kernel was the polyline varint decoder (`decode_deltas_asm`).
+It stopped earning its place: the pure-std bake-off in
+`rust/flows-core/src/bin/bench.rs` measured the hand kernel at **3.20 ns/byte**
+against **2.59** for the portable raw-pointer Rust body — rustc out-scheduled
+it. Per this very standard (a flamegraph must prove it dominates; measured,
+never speculative), the assembly was deleted. `decode_deltas()` now ships the
+portable raw-pointer body on **all** targets, still pinned byte-identical to
+the safe oracle `decode_deltas_rust` by the equivalence tests. Zero `asm!`
+kernels ship today — and that is the standard working exactly as designed, not
+a retreat from it.
 
 ---
 
@@ -223,8 +240,9 @@ shows up as a shifted p95, not a lucky single run.
 Every faster path (branchless, SIMD, GPU) is held **byte-identical** (or
 within a documented float tolerance) to the readable reference by a test:
 
-- `decode_deltas_asm` == `decode_deltas_rust` on 2,000 random + malformed
-  inputs (the shipped AArch64 hot loop vs. the portable Rust oracle).
+- `decode_deltas` == `decode_deltas_rust` on 2,000 random + malformed inputs
+  (the portable raw-pointer body vs. the safe Rust oracle — the equivalence
+  tests outlived the retired `asm!` kernel they were first written for).
 - `euclidean_distance_matrix` GPU path == CPU `outer()` (R oracle).
 
 If a fast path can't be proven equal to the reference, it does not replace
