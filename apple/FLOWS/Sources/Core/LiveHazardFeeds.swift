@@ -852,12 +852,16 @@ actor LiveHazardFeedFetcher {
     func tsunamiEvents() async -> [(lat: Double, lon: Double, level: String)] {
         if Date().timeIntervalSince(tsunamisFetched) < AdaptiveTuning.shared.ttl(600) { return tsunamis }
         var out: [(lat: Double, lon: Double, level: String)] = []
+        // Empty is the normal case here (no active events), so an isEmpty
+        // guard can't tell failure from all-clear — track fetch success.
+        var anyFeedSucceeded = false
         for feed in ["https://www.tsunami.gov/events/xml/PAAQAtom.xml",
                      "https://www.tsunami.gov/events/xml/PHEBAtom.xml"] {
             guard let u = URL(string: feed),
                   let (data, resp) = try? await ThrottledNet.fetch(u),
                   (resp as? HTTPURLResponse)?.statusCode == 200,
                   let xml = String(data: data, encoding: .utf8) else { continue }
+            anyFeedSucceeded = true
             // The product level ("Tsunami Warning/Watch/Advisory") appears in
             // a title at feed and/or entry level; scan the whole document for
             // the strongest word rather than trusting one title's position.
@@ -892,8 +896,12 @@ actor LiveHazardFeedFetcher {
                 out.append((lat, lon, level))
             }
         }
-        tsunamis = out
-        tsunamisFetched = Date()
+        if anyFeedSucceeded {
+            tsunamis = out
+            tsunamisFetched = Date()
+        } else {
+            tsunamisFetched = Date().addingTimeInterval(-600 + 60)  // keep stale, 1-min retry
+        }
         return tsunamis
     }
 
