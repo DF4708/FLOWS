@@ -399,17 +399,25 @@ final class SeasonalRiskModel: ObservableObject {
     }
 
     private func persist() {
-        if let data = try? JSONEncoder().encode(store) {
-            try? data.write(to: url, options: .atomic)
+        // Snapshot the value-type store, then encode + write OFF the main
+        // actor: persist() fires at arrival time — the exact moment the
+        // arrived banner renders — and the encode/CSV cost grows with trip
+        // history. Atomic writes keep the reader-side contract.
+        let snapshot = store
+        let url = self.url, exportURL = self.exportURL
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(snapshot) {
+                try? data.write(to: url, options: .atomic)
+            }
+            // Flat CSV training view for the Rust trainer (rust/flows-train).
+            let rows = snapshot.trainingRows(now: Date().timeIntervalSince1970)
+            var csv = "oLat,oLon,dLat,dLon,week,target,weight,crossCountry\n"
+            for r in rows {
+                csv += "\(r["oLat"] ?? 0),\(r["oLon"] ?? 0),\(r["dLat"] ?? 0),\(r["dLon"] ?? 0),"
+                csv += "\(Int(r["week"] ?? 0)),\(r["target"] ?? 0),\(r["weight"] ?? 0),"
+                csv += "\(Int(r["crossCountry"] ?? 0))\n"
+            }
+            try? csv.write(to: exportURL, atomically: true, encoding: .utf8)
         }
-        // Flat CSV training view for the Rust trainer (rust/flows-train).
-        let rows = store.trainingRows(now: Date().timeIntervalSince1970)
-        var csv = "oLat,oLon,dLat,dLon,week,target,weight,crossCountry\n"
-        for r in rows {
-            csv += "\(r["oLat"] ?? 0),\(r["oLon"] ?? 0),\(r["dLat"] ?? 0),\(r["dLon"] ?? 0),"
-            csv += "\(Int(r["week"] ?? 0)),\(r["target"] ?? 0),\(r["weight"] ?? 0),"
-            csv += "\(Int(r["crossCountry"] ?? 0))\n"
-        }
-        try? csv.write(to: exportURL, atomically: true, encoding: .utf8)
     }
 }

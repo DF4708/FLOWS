@@ -88,6 +88,9 @@ enum RouteAttributes {
 actor RouteAttributeFetcher {
     static let shared = RouteAttributeFetcher()
 
+    // DELIBERATELY unbounded: terrain elevation and FEMA zone membership are
+    // static facts — refetching them is pure waste, and the ~0.01° key
+    // rounding bounds growth to the corridors actually driven this session.
     private var elevationCache: [String: Double?] = [:]
     private var floodZoneCache: [String: Bool?] = [:]   // key -> high-risk?
     private var clearanceCache: [String:
@@ -97,6 +100,13 @@ actor RouteAttributeFetcher {
         "\(Int((c.latitude * 100).rounded()))|\(Int((c.longitude * 100).rounded()))"
     }
 
+    /// One live fetch per rounded coordinate: grade sampling and the flood
+    /// waterline probe hit the same cells from concurrent route hydrations,
+    /// and each miss used to spawn its own EPQS/NFHL request through the
+    /// actor's reentrancy window.
+    private var elevationInFlight: [String: Task<Double?, Never>] = [:]
+    private var floodZoneInFlight: [String: Task<Bool?, Never>] = [:]
+
     /// USGS EPQS point elevation (meters); nil on failure/no-coverage.
     /// Failures are NOT cached — an outage tonight must not read as
     /// "no elevation here" forever once the service recovers. (Dead-host
@@ -104,16 +114,23 @@ actor RouteAttributeFetcher {
     func elevation(at c: CLLocationCoordinate2D) async -> Double? {
         let k = key(c)
         if let cached = elevationCache[k] { return cached }
-        var value: Double?
-        if let url = URL(string: String(
-            format: "https://epqs.nationalmap.gov/v1/json?x=%.5f&y=%.5f&wkid=4326&units=Meters&includeDate=false",
-            c.longitude, c.latitude)),
-           let (data, resp) = try? await ThrottledNet.fetch(url),
-           (resp as? HTTPURLResponse)?.statusCode == 200,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            if let v = json["value"] as? Double { value = v }
-            else if let s = json["value"] as? String { value = Double(s) }
+        if let running = elevationInFlight[k] { return await running.value }
+        let lat = c.latitude, lon = c.longitude
+        let task = Task<Double?, Never> {
+            guard let url = URL(string: String(
+                format: "https://epqs.nationalmap.gov/v1/json?x=%.5f&y=%.5f&wkid=4326&units=Meters&includeDate=false",
+                lon, lat)),
+               let (data, resp) = try? await ThrottledNet.fetch(url),
+               (resp as? HTTPURLResponse)?.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return nil }
+            if let v = json["value"] as? Double { return v }
+            if let s = json["value"] as? String { return Double(s) }
+            return nil
         }
+        elevationInFlight[k] = task
+        let value = await task.value
+        elevationInFlight[k] = nil
         guard let value else { return nil }
         elevationCache[k] = value
         return value
@@ -124,21 +141,27 @@ actor RouteAttributeFetcher {
     func highRiskFloodZone(at c: CLLocationCoordinate2D) async -> Bool? {
         let k = key(c)
         if let cached = floodZoneCache[k] { return cached }
-        var result: Bool?
-        let urlString = "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query"
-            + String(format: "?geometry=%.5f,%.5f", c.longitude, c.latitude)
-            + "&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects"
-            + "&outFields=FLD_ZONE&returnGeometry=false&f=json"
-        if let url = URL(string: urlString),
-           let (data, resp) = try? await ThrottledNet.fetch(url),
-           (resp as? HTTPURLResponse)?.statusCode == 200,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let features = json["features"] as? [[String: Any]] {
+        if let running = floodZoneInFlight[k] { return await running.value }
+        let lat = c.latitude, lon = c.longitude
+        let task = Task<Bool?, Never> {
+            let urlString = "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query"
+                + String(format: "?geometry=%.5f,%.5f", lon, lat)
+                + "&geometryType=esriGeometryPoint&inSR=4326&spatialRel=esriSpatialRelIntersects"
+                + "&outFields=FLD_ZONE&returnGeometry=false&f=json"
+            guard let url = URL(string: urlString),
+               let (data, resp) = try? await ThrottledNet.fetch(url),
+               (resp as? HTTPURLResponse)?.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let features = json["features"] as? [[String: Any]]
+            else { return nil }
             let zones = features.compactMap {
                 ($0["attributes"] as? [String: Any])?["FLD_ZONE"] as? String
             }
-            result = zones.contains(where: RouteAttributes.isHighRiskFloodZone)
+            return zones.contains(where: RouteAttributes.isHighRiskFloodZone)
         }
+        floodZoneInFlight[k] = task
+        let result = await task.value
+        floodZoneInFlight[k] = nil
         // Cache real answers (true/false), never failures — a FEMA hiccup
         // must not pin "unknown" on this cell for the app's lifetime.
         if result != nil { floodZoneCache[k] = result }
@@ -199,7 +222,9 @@ actor RouteAttributeFetcher {
                 return (m, lat, lon)
             }
             clearanceCache[cacheKey] = (Date(), hits)
-            if clearanceCache.count > 60 { clearanceCache = [:] }
+            if clearanceCache.count > 60 {
+                CacheEviction.dropOldestHalf(&clearanceCache) { $0.fetched }
+            }
             return hits
         }
         return nil

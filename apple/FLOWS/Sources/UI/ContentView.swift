@@ -616,6 +616,7 @@ struct ContentView: View {
                 // icon and a lone secondary — or a pile of small ones — never
                 // reads as life-threatening. Only genuinely-elevated points get
                 // a symbol.
+                let sp = flowsSignposter.beginInterval("badge-sweep")
                 clusteredBadgesCache = BadgeClustering.cluster(
                     found.compactMap { hz in
                         hz.realized >= model.riskDisplayFloor
@@ -625,6 +626,7 @@ struct ContentView: View {
                     },
                     minSeparationMeters: viewportHazardRadius * 2.5)
                 rebuildRiskOverlays()   // once per sweep, not per render
+                flowsSignposter.endInterval("badge-sweep", sp)
             }
             // Real ZIP borders for elevated US points (Census TIGERweb) —
             // the overlay outlines the actual affected ZCTA, sized by the
@@ -832,9 +834,21 @@ struct ContentView: View {
 
     private var mapLayer: some View {
         mapContent
-            .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in
-                // Grow the red-alert reach circle as time passes.
-                if model.imminentWarning?.incidentCoordinate != nil { redAlertTick += 1 }
+            // The red-alert reach-circle tick only exists while a red alert
+            // with a coordinate is actually showing — the old unconditional
+            // publisher woke the main thread every 30 s for the app's whole
+            // lifetime to serve a state that is almost never active. The
+            // timer rides a clear overlay so the Map's identity is stable;
+            // 5 s tolerance lets firings coalesce with other wakeups.
+            .overlay {
+                if model.imminentWarning?.incidentCoordinate != nil {
+                    Color.clear
+                        .allowsHitTesting(false)
+                        .onReceive(Timer.publish(every: 30, tolerance: 5,
+                                                 on: .main, in: .common).autoconnect()) { _ in
+                            redAlertTick += 1   // grow the reach circle
+                        }
+                }
             }
     }
 

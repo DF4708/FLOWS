@@ -127,6 +127,27 @@ enum ThrottledNet {
     }
 }
 
+/// Cap-overflow eviction for the app's in-memory fetch caches. The old
+/// policy — wipe the whole dictionary at the cap — discarded entries fetched
+/// seconds earlier, so the next viewport sweep or route re-score missed on
+/// everything and refetched a full round from the polite endpoints.
+enum CacheEviction {
+    /// Dated caches: drop the OLDEST half, keep the fresh half alive.
+    static func dropOldestHalf<V>(_ cache: inout [String: V], date: (V) -> Date) {
+        let doomed = cache.sorted { date($0.value) < date($1.value) }
+            .prefix(cache.count / 2)
+        for (k, _) in doomed { cache.removeValue(forKey: k) }
+    }
+
+    /// Undated caches (static data with no fetch stamp): drop an arbitrary
+    /// half — still strictly better than losing everything.
+    static func dropHalf<K, V>(_ cache: inout [K: V]) {
+        for k in Array(cache.keys.prefix(cache.count / 2)) {
+            cache.removeValue(forKey: k)
+        }
+    }
+}
+
 /// Per-host circuit breaker. A host that fails at the TRANSPORT level (times
 /// out, refuses connections) `trip` times in a row stops receiving requests
 /// for `cooldown` — its zombie sockets must not hold the app-wide permit

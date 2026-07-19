@@ -54,30 +54,44 @@ final class CrashDetectionService: ObservableObject {
     private var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer()
     private var audioEngine: AVAudioEngine?
     private var recognitionTask: SFSpeechRecognitionTask?
-    /// Rolling ~0.5 s (25 samples @ 50 Hz) of |acceleration| magnitudes, so an
-    /// impact is judged over a window (hard spike, or a corroborated moderate
-    /// one) rather than a single trigger-happy sample — see CrashLogic.isImpact.
-    private var accelWindow: [Double] = []
     private static let accelWindowSize = 25
+
+    /// 50 Hz samples land HERE, not on the main queue — a multi-hour drive
+    /// is hours of per-sample main-thread wakeups otherwise. Serial, utility
+    /// QoS; only a detected impact (rare) hops to the MainActor.
+    private static let motionQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 1
+        q.qualityOfService = .utility
+        return q
+    }()
 
     static let isAvailable = true
 
     func begin() {
         guard motion.isAccelerometerAvailable, !motion.isAccelerometerActive else { return }
         motion.accelerometerUpdateInterval = 1.0 / 50.0
-        accelWindow.removeAll(keepingCapacity: true)
-        motion.startAccelerometerUpdates(to: .main) { [weak self] data, _ in
-            guard let self, let data, self.state == .idle else { return }
+        // Rolling ~0.5 s (25 samples @ 50 Hz) of |acceleration| magnitudes, so
+        // an impact is judged over a window (hard spike, or a corroborated
+        // moderate one) rather than a single trigger-happy sample — see
+        // CrashLogic.isImpact. Confined to the serial motionQueue: the
+        // MainActor never sees per-sample traffic.
+        var window: [Double] = []
+        motion.startAccelerometerUpdates(to: Self.motionQueue) { [weak self] data, _ in
+            guard self != nil, let data else { return }
             let g = sqrt(data.acceleration.x * data.acceleration.x
                          + data.acceleration.y * data.acceleration.y
                          + data.acceleration.z * data.acceleration.z)
-            self.accelWindow.append(g)
-            if self.accelWindow.count > Self.accelWindowSize {
-                self.accelWindow.removeFirst(self.accelWindow.count - Self.accelWindowSize)
+            window.append(g)
+            if window.count > Self.accelWindowSize {
+                window.removeFirst(window.count - Self.accelWindowSize)
             }
-            if CrashLogic.isImpact(window: self.accelWindow) {
-                self.accelWindow.removeAll(keepingCapacity: true) // consume — don't re-fire this event
-                self.impactDetected()
+            if CrashLogic.isImpact(window: window) {
+                window.removeAll(keepingCapacity: true) // consume — don't re-fire this event
+                Task { @MainActor [weak self] in
+                    guard let self, self.state == .idle else { return }
+                    self.impactDetected()
+                }
             }
         }
     }

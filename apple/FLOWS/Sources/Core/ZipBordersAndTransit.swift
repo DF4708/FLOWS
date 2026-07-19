@@ -68,7 +68,7 @@ actor ZCTAFetcher {
         let z = byCode[code] ?? ZCTA(code: code, ring: ring)
         byCode[code] = z
         cache[key] = z
-        if cache.count > 400 { cache = [:] }
+        if cache.count > 400 { CacheEviction.dropHalf(&cache) }
         return z
     }
 }
@@ -83,12 +83,17 @@ actor TomTomFuel {
     var apiKey = ""
     func setKey(_ key: String) { apiKey = key }
 
-    private var cache: [String: Double?] = [:]
+    /// Station prices with a 6 h TTL — pump prices reprice daily-ish, and the
+    /// old undated cache pinned a price for the whole app session.
+    private var cache: [String: (fetched: Date, price: Double?)] = [:]
+    private let ttl: TimeInterval = 21_600
 
     func price(near point: CLLocationCoordinate2D, fuel: FuelType) async -> Double? {
         guard !apiKey.isEmpty else { return nil }
         let key = "\(Int(point.latitude * 500))|\(Int(point.longitude * 500))|\(fuel.rawValue)"
-        if let hit = cache[key] { return hit }
+        if let hit = cache[key], Date().timeIntervalSince(hit.fetched) < ttl {
+            return hit.price
+        }
         let url = "https://api.tomtom.com/search/2/poiSearch/gas%20station.json"
             + "?key=\(apiKey)&lat=\(point.latitude)&lon=\(point.longitude)"
             + "&radius=500&limit=1&fuelSet=\(fuel == .diesel ? "Diesel" : "Petrol")"
@@ -104,8 +109,10 @@ actor TomTomFuel {
            let p = prices.first?["price"] as? Double {
             out = p
         }
-        cache[key] = out
-        if cache.count > 300 { cache = [:] }
+        cache[key] = (Date(), out)
+        if cache.count > 300 {
+            CacheEviction.dropOldestHalf(&cache) { $0.fetched }
+        }
         return out
     }
 }

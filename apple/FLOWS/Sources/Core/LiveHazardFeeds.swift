@@ -573,7 +573,7 @@ actor LiveHazardFeedFetcher {
             }
             firePerimCache[key] = (Date(), rings)
         }
-        if firePerimCache.count > 40 { firePerimCache = [:] }
+        if firePerimCache.count > 40 { CacheEviction.dropOldestHalf(&firePerimCache) { $0.0 } }
         return rings
     }
 
@@ -605,7 +605,7 @@ actor LiveHazardFeedFetcher {
             }
             floodCache[key] = (Date(), out)
         }
-        if floodCache.count > 40 { floodCache = [:] }
+        if floodCache.count > 40 { CacheEviction.dropOldestHalf(&floodCache) { $0.0 } }
         return out
     }
 
@@ -662,7 +662,7 @@ actor LiveHazardFeedFetcher {
                 if near { out.append(p) }
             }
         }
-        if waterCache.count > 400 { waterCache = [:] }
+        if waterCache.count > 400 { CacheEviction.dropOldestHalf(&waterCache) { $0.0 } }
         return out
     }
 
@@ -972,7 +972,7 @@ actor LiveHazardFeedFetcher {
             }
         }
         speedCache[key] = mph
-        if speedCache.count > 100 { speedCache = [:] }
+        if speedCache.count > 100 { CacheEviction.dropHalf(&speedCache) }
         return mph
     }
 
@@ -1008,7 +1008,7 @@ actor LiveHazardFeedFetcher {
         let (aqi, uv) = await task.value
         airCells[key] = AirCell(aqi: aqi, uv: uv, fetched: Date())
         airInFlight[key] = nil
-        if airCells.count > 200 { airCells = [:] }
+        if airCells.count > 200 { CacheEviction.dropOldestHalf(&airCells) { $0.fetched } }
         return (aqi, uv)
     }
 

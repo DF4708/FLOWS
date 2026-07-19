@@ -35,10 +35,13 @@ struct PlacesShard {
     }
 
     private let data: Data
-    private let recordOffsets: [Int]
+    /// Byte offsets/counts as u32, not Int: shards are < 4 GB by format
+    /// guard, and a CA-sized shard's ~1M-record offset table at 8 B/element
+    /// was half wasted resident memory.
+    private let recordOffsets: [UInt32]
     private let cellKeys: [Int64]
-    private let cellStart: [Int]
-    private let cellCount: [Int]
+    private let cellStart: [UInt32]
+    private let cellCount: [UInt32]
 
     /// Parse + validate a shard; nil on any structural or hash mismatch
     /// (a corrupt shard is refused, never "repaired").
@@ -60,6 +63,7 @@ struct PlacesShard {
         let storedHash = u64(20)
         let nCells = u32(28)
         guard nRecords >= 0, nCells >= 0, gridOffset >= 32,
+              gridOffset <= Int(UInt32.max),   // u32 offset tables below
               gridOffset + nCells * 16 == data.count else { return nil }
         // fnv1a-64 over records + grid index — reject corruption.
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
@@ -72,14 +76,14 @@ struct PlacesShard {
         guard hash == storedHash else { return nil }
 
         // One sequential scan → byte offset of every record (variable length).
-        var offsets = [Int]()
+        var offsets = [UInt32]()
         offsets.reserveCapacity(nRecords)
         var ok = true
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             var off = 32
             for _ in 0..<nRecords {
                 guard off + 10 <= gridOffset else { ok = false; return }
-                offsets.append(off)
+                offsets.append(UInt32(off))
                 off += 10   // lat f32 + lon f32 + group u8 + flags u8
                 for _ in 0..<5 {   // name, street, city, website, tel
                     guard off + 2 <= gridOffset else { ok = false; return }
@@ -95,14 +99,14 @@ struct PlacesShard {
         guard ok, offsets.count == nRecords else { return nil }
 
         var keys = [Int64](); keys.reserveCapacity(nCells)
-        var starts = [Int](); starts.reserveCapacity(nCells)
-        var counts = [Int](); counts.reserveCapacity(nCells)
+        var starts = [UInt32](); starts.reserveCapacity(nCells)
+        var counts = [UInt32](); counts.reserveCapacity(nCells)
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
             var off = gridOffset
             for _ in 0..<nCells {
                 keys.append(raw.loadUnaligned(fromByteOffset: off, as: Int64.self))
-                starts.append(Int(raw.loadUnaligned(fromByteOffset: off + 8, as: UInt32.self)))
-                counts.append(Int(raw.loadUnaligned(fromByteOffset: off + 12, as: UInt32.self)))
+                starts.append(raw.loadUnaligned(fromByteOffset: off + 8, as: UInt32.self))
+                counts.append(raw.loadUnaligned(fromByteOffset: off + 12, as: UInt32.self))
                 off += 16
             }
         }
@@ -120,26 +124,29 @@ struct PlacesShard {
 
     private func decode(recordAt index: Int) -> Place? {
         guard index < recordOffsets.count else { return nil }
-        var off = recordOffsets[index]
+        var off = Int(recordOffsets[index])
         return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Place? in
             let lat = raw.loadUnaligned(fromByteOffset: off, as: Float.self)
             let lon = raw.loadUnaligned(fromByteOffset: off + 4, as: Float.self)
             let group = raw[off + 8]
             off += 10
-            var strings: [String] = []
-            for _ in 0..<5 {
+            // Five inline reads, no temporary array: a dense-cell POI query
+            // decodes hundreds of records — one array alloc per record was
+            // pure overhead.
+            func str() -> String {
                 let len = Int(raw.loadUnaligned(fromByteOffset: off, as: UInt16.self))
                 off += 2
-                let s = String(decoding: raw[off..<(off + len)], as: UTF8.self)
-                strings.append(s)
-                off += len
+                defer { off += len }
+                return String(decoding: raw[off..<(off + len)], as: UTF8.self)
             }
+            let name = str(), street = str(), city = str()
+            let website = str(), tel = str()
             let postcode = raw.loadUnaligned(fromByteOffset: off, as: UInt32.self)
             return Place(
                 coordinate: CLLocationCoordinate2D(latitude: Double(lat),
                                                    longitude: Double(lon)),
-                group: group, name: strings[0], street: strings[1], city: strings[2],
-                website: strings[3], tel: strings[4], postcode: postcode)
+                group: group, name: name, street: street, city: city,
+                website: website, tel: tel, postcode: postcode)
         }
     }
 
@@ -158,11 +165,26 @@ struct PlacesShard {
             for lon5 in lon5Lo...lon5Hi {
                 guard let ci = cellIndex(Self.cellKey(lat5: lat5, lon5: lon5))
                 else { continue }
-                for r in cellStart[ci]..<(cellStart[ci] + cellCount[ci]) {
-                    guard let p = decode(recordAt: r), groups.contains(p.group)
+                let start = Int(cellStart[ci])
+                for r in start..<(start + Int(cellCount[ci])) {
+                    // Peek the 9-byte fixed prefix (lat, lon, group) before
+                    // decoding the five variable-length strings — most
+                    // records fail the group or radius test, and full decode
+                    // is only paid by survivors.
+                    let off = Int(recordOffsets[r])
+                    let (lat, lon, group) = data.withUnsafeBytes {
+                        (raw: UnsafeRawBufferPointer) in
+                        (raw.loadUnaligned(fromByteOffset: off, as: Float.self),
+                         raw.loadUnaligned(fromByteOffset: off + 4, as: Float.self),
+                         raw[off + 8])
+                    }
+                    guard groups.contains(group) else { continue }
+                    let c = CLLocationCoordinate2D(latitude: Double(lat),
+                                                   longitude: Double(lon))
+                    let d = POIRanking.meters(c, center)
+                    guard d <= radiusMeters, let p = decode(recordAt: r)
                     else { continue }
-                    let d = POIRanking.meters(p.coordinate, center)
-                    if d <= radiusMeters { out.append((p, d)) }
+                    out.append((p, d))
                 }
             }
         }
@@ -220,8 +242,17 @@ final class PlacesStore: ObservableObject {
         if let hit = cache[state] { return hit }
         for root in Self.candidateRoots() {
             let path = "\(root)/\(state).fps"
-            guard let data = FileManager.default.contents(atPath: path),
-                  let shard = PlacesShard(data: data) else { continue }
+            // Map, don't copy: shards are 10 MB+ each and queries touch only
+            // a few cells after the one-time validation pass. Mapped pages
+            // are clean and file-backed, so memory pressure evicts them
+            // instead of jetsamming the app; .mappedIfSafe falls back to a
+            // read on filesystems where mapping is unsafe.
+            let sp = flowsSignposter.beginInterval("shard-parse")
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path),
+                                       options: .mappedIfSafe),
+                  let shard = PlacesShard(data: data)
+            else { flowsSignposter.endInterval("shard-parse", sp); continue }
+            flowsSignposter.endInterval("shard-parse", sp)
             cache[state] = shard
             lru.append(state)
             if lru.count > 3 {                    // LRU cap: 3 parsed states
