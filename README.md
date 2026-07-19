@@ -61,17 +61,17 @@ FLOWS fuses the firehose of federal and provincial weather, hydrology, fire, air
 
 ## The stack
 
-FLOWS ships exactly three languages, by rule: **Rust** (core algorithms, data pipelines, on-device training), **AArch64 assembly** (the one proven polyline hot loop), and **Swift** (the app). The original Wisconsin R engine has been fully retired — its scoring survives as pinned test fixtures and its 20-year successor pipeline runs in pure Rust. No Python, JavaScript, or interpreter runs in or ships with the product — Python is used only as repo tooling for one-off data checks. Dependencies are taken only when owning the code would be worse; `flows-train` is pure standard library with an empty dependency list.
+FLOWS ships exactly two languages, by rule: **Rust** (core algorithms, data pipelines, on-device training) and **Swift** (the app). A hand-written AArch64 assembly kernel once carried the polyline hot loop — it was retired when a measured bake-off showed the compiler beating it (the discipline that admitted that is the point: assembly must out-run rustc to ship, and dead fast-variants get deleted). The original Wisconsin R engine has been fully retired — its scoring survives as pinned test fixtures and its 20-year successor pipeline runs in pure Rust. No Python, JavaScript, or interpreter runs in or ships with the product — Python is used only as repo tooling for one-off data checks. Dependencies are taken only when owning the code would be worse; `flows-train` is pure standard library with an empty dependency list.
 
 ```
 apple/FLOWS/Sources/     Swift app — Core/ (services), UI/, FLOWSApp.swift
-rust/flows-core/         risk · scoring · polyline (+asm) · routing/CH · transit (RAPTOR + GTFS/.ftt) · FFI
+rust/flows-core/         risk · scoring · polyline · routing/CH · transit (RAPTOR + GTFS/.ftt) · FFI
 rust/flows-train/        pure-std ranking-head trainer + national climatology bundle generator
 scripts/                 bundle export, GTFS fetch/build, sync
 docs/                    ARCHITECTURE · APPLE_APP · TRANSIT_ROUTING · DATA_FEEDS · TESTING_STRATEGY · LEARNINGS
 ```
 
-**Tested:** 159 Swift XCTest + 87 Rust tests, zero compiler warnings. The risk/scoring paths are pinned byte-identical to their original reference oracle's frozen fixtures; the RAPTOR engine is gated against a Dijkstra reference.
+**Tested:** 162 Swift XCTest + 90 Rust tests, zero compiler warnings, `cargo clippy -D warnings` clean in CI. The risk/scoring paths are pinned byte-identical to their original reference oracle's frozen fixtures; the RAPTOR engine is gated against a Dijkstra reference.
 
 ---
 

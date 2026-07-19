@@ -6,7 +6,7 @@
   permission of the copyright holder.
 -->
 
-# FLOWS — language architecture: Rust compute, asm hot loops, Swift UI
+# FLOWS — language architecture: Rust compute, Swift UI
 
 The rule: **Rust owns the compute, Assembly owns the innermost hot loops, Swift
 owns the UI, C is the thin ABI between them.** A thing is written in the highest
@@ -46,10 +46,13 @@ The app calls these through the C ABI in `ffi.rs`. Batch granularity is what
 makes the FFI worth it — one call amortized over many values.
 
 ### Assembly — only the innermost kernel, only where measured
-- `polyline.rs` carries an **AArch64 hand-written kernel** (`decode_deltas_asm`)
-  with a portable scalar fallback (`decode_deltas_rust`); `decode_deltas`
-  dispatches. The two are held **byte-identical** by
-  `polyline::tests::asm_and_rust_kernels_are_equivalent`.
+- `polyline.rs` SHIPPED an **AArch64 hand-written kernel** until 2026-07-19,
+  when the pure-std bake-off (`flows-core/src/bin/bench.rs`) measured rustc
+  out-scheduling it (asm 3.20 ns/byte vs portable-raw-pointer 2.59). The asm
+  was deleted per the dead-fast-variant rule; the shipped kernel is the
+  portable raw-pointer body, still pinned against the safe oracle
+  (`decode_deltas_rust`) by the same equivalence tests that once held the
+  asm byte-identical.
 - `distance.rs` is scalar-only — reached only through the R `.C()` bridge, not
   the app, so it stays the plain reference; the SIMD seam waits behind its
   signature until a profile mandates it (see docs/CODING_STANDARDS.md).
@@ -69,7 +72,7 @@ Swift and R both speak. No business logic lives in C; it's the boundary layer.
 | Any on-screen UI, map, gestures | Swift | SwiftUI/MapKit are Apple-only |
 | GPS, BLE, speech, motion, CarPlay, Watch | Swift | Apple framework APIs |
 | Traffic-aware turn-by-turn routing | Swift (`MKDirections`) | Apple's live-traffic router; no portable equal |
-| Portable algorithms / hot loops | Rust (+asm) | one tested implementation, all platforms |
+| Portable algorithms / hot loops | Rust | one tested implementation, all platforms |
 | Swift ⇄ Rust ⇄ R calling convention | C ABI | the shared, stable interface |
 | Per-scalar helper inside a tight loop | Swift inline | FFI overhead > the compute (documented exception) |
 

@@ -17,7 +17,9 @@
 //!   risk     — risk band classification (port of R/scoring.R)
 //!   scoring  — piecewise hazard scoring (port of R/scoring.R piecewise_score)
 //!   distance — Euclidean distance kernel (scalar reference; R-bridge only)
-//!   polyline — encoded-polyline decoder (AArch64 asm hot loop + portable Rust)
+//!   polyline — encoded-polyline decoder (raw-pointer fast kernel + safe oracle;
+//!              the hand-asm variant was retired when bin/bench.rs showed rustc
+//!              out-scheduling it — asm must beat the compiler to ship)
 //!   ffi      — C-ABI exports for Swift
 //!
 //! Nothing here performs I/O or holds state; every function is a pure

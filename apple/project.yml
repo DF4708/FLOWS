@@ -99,7 +99,7 @@ targets:
         PRODUCT_NAME: FLOWS            # menu bar / app name, not the target name
         TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
         SUPPORTS_MACCATALYST: NO
-        # Static-link the Rust core (asm hot loops) per SDK — the device and
+        # Static-link the Rust core per SDK — the device and
         # simulator need their own cross-compiled slices. `-u` force-keeps the
         # C symbol so FlowsCore's loader resolves it (Swift fallback otherwise).
         OTHER_LDFLAGS[sdk=iphoneos*]: $(SRCROOT)/../rust/target/aarch64-apple-ios/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
@@ -191,12 +191,12 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: 3T5JWQ4XW4
-        # Static-link the Rust core (asm hot loops). `-u` force-keeps the C
+        # Static-link the Rust core. `-u` force-keeps the C
         # symbol so FlowsCore.swift's dlsym(dlopen(nil)) resolves it and the
-        # app runs the Rust/asm polyline decoder, not the Swift fallback.
+        # app runs the Rust polyline decoder, not the Swift fallback.
         OTHER_LDFLAGS: $(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
     preBuildScripts:
-      - name: Build Rust flows-core (asm hot loops)
+      - name: Build Rust flows-core
         basedOnDependencyAnalysis: false
         script: |
           export PATH="$HOME/.cargo/bin:$PATH"

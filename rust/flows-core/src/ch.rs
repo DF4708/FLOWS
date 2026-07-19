@@ -77,15 +77,16 @@ impl ContractionHierarchy {
         let mut level = vec![0u32; n];
         let mut shortcuts = 0usize;
         let mut middle: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        let mut wscratch = WitnessScratch::new(n);
         let mut heap: BinaryHeap<Reverse<(i64, u32)>> = BinaryHeap::new();
         for v in 0..n {
-            heap.push(Reverse((importance(&adj, &contracted, &level, v), v as u32)));
+            heap.push(Reverse((importance(&adj, &contracted, &level, v, &mut wscratch), v as u32)));
         }
         let mut order = 0u32;
         while let Some(Reverse((_imp, vn))) = heap.pop() {
             let v = vn as usize;
             if contracted[v] { continue; } // stale duplicate
-            let imp_now = importance(&adj, &contracted, &level, v);
+            let imp_now = importance(&adj, &contracted, &level, v, &mut wscratch);
             if let Some(&Reverse((next_imp, _))) = heap.peek() {
                 if imp_now > next_imp {
                     heap.push(Reverse((imp_now, vn))); // stale score: defer
@@ -100,7 +101,7 @@ impl ContractionHierarchy {
             }
             rank[v] = order;
             order += 1;
-            shortcuts += contract_node(&mut adj, &contracted, v, &mut middle);
+            shortcuts += contract_node(&mut adj, &contracted, v, &mut middle, &mut wscratch);
             contracted[v] = true;
         }
         ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts, middle }
@@ -116,9 +117,10 @@ impl ContractionHierarchy {
         let mut rank = vec![0u32; n];
         let mut shortcuts = 0usize;
         let mut middle: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        let mut wscratch = WitnessScratch::new(n);
         for (k, &v) in order.iter().enumerate() {
             rank[v] = k as u32;
-            shortcuts += contract_node(&mut adj, &contracted, v, &mut middle);
+            shortcuts += contract_node(&mut adj, &contracted, v, &mut middle, &mut wscratch);
             contracted[v] = true;
         }
         ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts, middle }
@@ -274,7 +276,12 @@ impl ContractionHierarchy {
 /// Count the shortcuts contracting `v` would add now (witness-checked), without
 /// mutating the graph. Each undirected shortcut counts once (the reverse
 /// ordered pair sees the just-decided edge and is skipped).
-fn count_shortcuts_if_contracted(adj: &[BTreeMap<u32, f64>], contracted: &[bool], v: usize) -> usize {
+fn count_shortcuts_if_contracted(
+    adj: &[BTreeMap<u32, f64>],
+    contracted: &[bool],
+    v: usize,
+    ws: &mut WitnessScratch,
+) -> usize {
     let nbrs: Vec<(u32, f64)> = adj[v]
         .iter()
         .filter(|(&x, _)| !contracted[x as usize])
@@ -290,7 +297,7 @@ fn count_shortcuts_if_contracted(adj: &[BTreeMap<u32, f64>], contracted: &[bool]
             let key = if u < w { (u, w) } else { (w, u) };
             let direct = wuv + wvw;
             if seen.contains_key(&key) { continue; }
-            if !witness_within(adj, contracted, u as usize, w as usize, v, direct) {
+            if !witness_within(adj, contracted, u as usize, w as usize, v, direct, ws) {
                 let existed = adj[u as usize].get(&w).is_some_and(|&e| e <= direct);
                 if !existed { cnt += 1; seen.insert(key, direct); }
             }
@@ -311,6 +318,7 @@ fn contract_node(
     contracted: &[bool],
     v: usize,
     middle: &mut BTreeMap<(u32, u32), u32>,
+    ws: &mut WitnessScratch,
 ) -> usize {
     let nbrs: Vec<(u32, f64)> = adj[v]
         .iter()
@@ -324,7 +332,7 @@ fn contract_node(
             let (u, wuv) = nbrs[i];
             let (w, wvw) = nbrs[j];
             let direct = wuv + wvw;
-            if !witness_within(adj, contracted, u as usize, w as usize, v, direct) {
+            if !witness_within(adj, contracted, u as usize, w as usize, v, direct, ws) {
                 let existed = adj[u as usize].get(&w).is_some_and(|&e| e <= direct);
                 relax_min(&mut adj[u as usize], w, direct);
                 relax_min(&mut adj[w as usize], u, direct);
@@ -353,8 +361,14 @@ fn live_degree(adj: &[BTreeMap<u32, f64>], contracted: &[bool], v: usize) -> usi
 /// Adding `level` spreads contractions out spatially and keeps the hierarchy
 /// shallow, which bounds shortcut density as the graph grows (the scaling
 /// lever). Lower importance = contract earlier.
-fn importance(adj: &[BTreeMap<u32, f64>], contracted: &[bool], level: &[u32], v: usize) -> i64 {
-    count_shortcuts_if_contracted(adj, contracted, v) as i64
+fn importance(
+    adj: &[BTreeMap<u32, f64>],
+    contracted: &[bool],
+    level: &[u32],
+    v: usize,
+    ws: &mut WitnessScratch,
+) -> i64 {
+    count_shortcuts_if_contracted(adj, contracted, v, ws) as i64
         - live_degree(adj, contracted, v) as i64
         + level[v] as i64
 }
@@ -378,6 +392,31 @@ fn relax_min(m: &mut BTreeMap<u32, f64>, k: u32, w: f64) {
     m.entry(k).and_modify(|e| { if w < *e { *e = w; } }).or_insert(w);
 }
 
+/// Reusable witness-search state. A dist entry is valid only while its
+/// epoch stamp equals `cur`, so each bounded local Dijkstra costs
+/// O(settled) instead of an O(n) INFINITY-fill per call — at scale the
+/// fill (and the cache eviction it caused) dominated the tiny searches it
+/// served, millions of times per preprocess. Numeric behavior is identical:
+/// a stale epoch reads exactly as INFINITY did, and the cost==Dijkstra
+/// tests gate the equivalence.
+struct WitnessScratch {
+    dist: Vec<f64>,
+    epoch: Vec<u32>,
+    cur: u32,
+    heap: BinaryHeap<HeapItem>,
+}
+
+impl WitnessScratch {
+    fn new(n: usize) -> Self {
+        WitnessScratch {
+            dist: vec![f64::INFINITY; n],
+            epoch: vec![0; n],
+            cur: 0,
+            heap: BinaryHeap::new(),
+        }
+    }
+}
+
 /// Limited Dijkstra: is there a path `u -> w` avoiding `banned` (and any
 /// contracted node) with total cost <= `limit`? Bounded by `limit` so it stays
 /// local. Returns true if a witness within `limit` exists.
@@ -388,25 +427,35 @@ fn witness_within(
     w: usize,
     banned: usize,
     limit: f64,
+    s: &mut WitnessScratch,
 ) -> bool {
     if u == w { return true; }
-    let n = adj.len();
-    let mut dist = vec![f64::INFINITY; n];
-    dist[u] = 0.0;
-    let mut heap = BinaryHeap::new();
-    heap.push(HeapItem { dist: 0.0, node: u as u32 });
-    while let Some(HeapItem { dist: d, node }) = heap.pop() {
+    s.cur = s.cur.wrapping_add(1);
+    if s.cur == 0 {
+        // u32 wrapped (needs 4B searches): hard-reset so no stale stamp can
+        // collide with the new epoch.
+        s.epoch.fill(0);
+        s.cur = 1;
+    }
+    let cur = s.cur;
+    s.heap.clear();
+    s.dist[u] = 0.0;
+    s.epoch[u] = cur;
+    s.heap.push(HeapItem { dist: 0.0, node: u as u32 });
+    while let Some(HeapItem { dist: d, node }) = s.heap.pop() {
         let x = node as usize;
-        if d > dist[x] { continue; }
+        if d > s.dist[x] { continue; }
         if d > limit { break; } // nothing else can be within limit (min-heap)
         if x == w { return d <= limit; }
         for (&y, &wt) in adj[x].iter() {
             let yi = y as usize;
             if yi == banned || contracted[yi] { continue; }
             let nd = d + wt;
-            if nd <= limit && nd < dist[yi] {
-                dist[yi] = nd;
-                heap.push(HeapItem { dist: nd, node: y });
+            let dy = if s.epoch[yi] == cur { s.dist[yi] } else { f64::INFINITY };
+            if nd <= limit && nd < dy {
+                s.dist[yi] = nd;
+                s.epoch[yi] = cur;
+                s.heap.push(HeapItem { dist: nd, node: y });
             }
         }
     }
@@ -426,10 +475,11 @@ mod tests {
         let n = g.num_nodes();
         let adj = ContractionHierarchy::build_adj(g);
         let none = vec![false; n];
+        let mut ws = WitnessScratch::new(n);
         let mut scored: Vec<(i64, usize)> = (0..n)
             .map(|v| {
                 let deg = adj[v].len() as i64;
-                let sc = count_shortcuts_if_contracted(&adj, &none, v) as i64;
+                let sc = count_shortcuts_if_contracted(&adj, &none, v, &mut ws) as i64;
                 (sc - deg, v)
             })
             .collect();

@@ -515,7 +515,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6B69D4F385C5870478C3EAC0 /* Build configuration list for PBXNativeTarget "FLOWS-macOS" */;
 			buildPhases = (
-				334A595343AC371E6D689E3E /* Build Rust flows-core (asm hot loops) */,
+				400A84E9CE19C97C944CB60B /* Build Rust flows-core */,
 				734D0951850C5F877367BAFA /* Sources */,
 				83D3F616C8408C12B1BD2EC7 /* Resources */,
 			);
@@ -658,7 +658,7 @@
 			shellPath = /bin/sh;
 			shellScript = "export PATH=\"$HOME/.cargo/bin:$PATH\"\ncommand -v cargo >/dev/null 2>&1 || { echo \"cargo not on PATH — linking existing libflows_core.a\"; exit 0; }\ncd \"$SRCROOT/../rust\"\ncargo build --release --target aarch64-apple-ios || echo \"device slice build failed\"\ncargo build --release --target aarch64-apple-ios-sim || echo \"sim slice build failed\"\n";
 		};
-		334A595343AC371E6D689E3E /* Build Rust flows-core (asm hot loops) */ = {
+		400A84E9CE19C97C944CB60B /* Build Rust flows-core */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -668,7 +668,7 @@
 			);
 			inputPaths = (
 			);
-			name = "Build Rust flows-core (asm hot loops)";
+			name = "Build Rust flows-core";
 			outputFileListPaths = (
 			);
 			outputPaths = (

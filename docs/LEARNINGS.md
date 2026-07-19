@@ -740,3 +740,49 @@ suburban start produced "walk 5 h 14 m to the Greyhound terminal" inside a
 park (the traveller has a car at the start — it's a driving app), and the
 same trip reads 1 h 53 m. The no-car rule still holds at the FAR end: the
 last mile is always on foot.
+
+## 15. The compendium cross-reference pass (2026-07-19)
+
+A 260-technique optimization compendium was cross-referenced against the
+codebase (12-domain audit incl. disassembly of the release build): 43
+followed, 30 partial, 29 opportunities, none high-impact. What landed:
+
+- **Launch path**: the 4 loop-invariant sin/cos hoisted out of the 33k-zip
+  rescore (byte-identical); the risk bundle now ships as FRB1 binary
+  (bundle-frb.rs; bit-exact doubles proven against JSONDecoder output on
+  all 33,300 entries by an independent parser) — zero JSON parse at launch
+  and 2.85MB JSON out of Resources.
+- **Memory**: places shards are mapped (.mappedIfSafe), not copied — clean
+  evictable pages instead of jetsam-bait; FPS1 offset tables are u32;
+  record decode peeks the fixed prefix before paying for strings.
+- **Network waste**: in-flight coalescing added to the 3 fetchers missing
+  it; 10 wipe-all cache evictions became drop-oldest-half; fuel prices got
+  a TTL.
+- **Engines**: RAPTOR rounds now copy into preallocated flat rows
+  (split_at_mut) with hoisted per-round scratch and a per-scan target
+  bound; CH witness searches share an epoch-stamped scratch (O(settled)
+  resets, not O(n) INF-fills — the flows-core suite itself dropped
+  34s→22s). Both gated by their differential oracles.
+- **Trainer** (legal there, banned in flows-core): mul_add + two-way
+  accumulators, the wmean division hoisted (~460M fdiv → 1.16M), dynamic
+  chunk self-scheduling for P/E-core balance with deterministic reduce
+  order.
+- **THE ASM RETIRED.** The bench bake-off (bin/bench.rs) measured the hand
+  AArch64 polyline kernel at 3.20 ns/byte vs 2.59 for the portable
+  raw-pointer body — rustc out-scheduled it. Per our own doctrine (asm
+  must beat the compiler; dead fast-variants get deleted) the kernel is
+  gone; the raw-pointer body ships on all targets, pinned to the safe
+  oracle by the same equivalence tests. FLOWS now ships two languages.
+  The lesson: the previous bake-off compared asm only against Vec::push —
+  the win was never the assembly, it was avoiding the push.
+- **Hygiene**: QoS on stragglers (pollers, persistence, the 50Hz motion
+  stream off main), the red-alert timer gated + tolerant, signposts on the
+  heavy phases, iOS device slice now builds at target-cpu=apple-a12 (the
+  deployment floor), the broken R-era corpse deleted (global.R etc.
+  sourced a directory removed in 5ed9cc0), and r.yml — CI that could
+  never pass — replaced by a real clippy -D warnings + dual-suite gate.
+
+Deferred with reasons recorded in the audit artifact: Swift grid
+flattening + ZipEntry hot/cold split (medium, has brute-force equality
+tests to gate it), CH up-graph CSR flatten, RAPTOR cross-query scratch
+(NA-scale), PGO, the god-file split.

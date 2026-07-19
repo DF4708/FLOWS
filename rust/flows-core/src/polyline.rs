@@ -18,7 +18,8 @@
 //!
 //! Both implementations of the hot loop are kept and equivalence-tested:
 //!   - `decode_deltas_rust`: portable reference.
-//!   - `decode_deltas_asm`: AArch64 inline-assembly kernel (Apple Silicon /
+//!   - `bench::deltas_rust_rawptr`: the SHIPPED kernel (portable, writes
+//!     through reserve + raw pointer; formerly an AArch64 inline-asm kernel —
 //!     iPhone / iPad). Integer-only varint+zigzag work is the profitable kind
 //!     of hand-assembly; float math stays in Rust where the compiler is
 //!     already optimal.
@@ -28,15 +29,14 @@
 
 /// A valid |delta| <= 2*180e5 fits in 7 five-bit chunks; anything past 10
 /// chunks (50 bits) is malformed input, matching the R decoder's guard.
-/// (The asm kernel hardcodes the same bound as `cmp {chunks:w}, #11`.)
+/// (The fast kernel enforces the same bound in its chunk counter.)
 #[cfg_attr(target_arch = "aarch64", allow(dead_code))] // test oracle on aarch64
 const MAX_CHUNKS: u32 = 10;
 
 /// Portable reference: decode zigzag varints into signed deltas.
 /// Appends to `out`; stops at a truncated trailing varint or the first
 /// overlong (malformed) varint. On AArch64 builds this stays compiled as the
-/// equivalence-test oracle for the asm kernel.
-#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
+/// equivalence-test oracle for the fast kernel.
 fn decode_deltas_rust(bytes: &[u8], out: &mut Vec<i64>) {
     let mut acc: u64 = 0;
     let mut shift: u32 = 0;
@@ -61,79 +61,64 @@ fn decode_deltas_rust(bytes: &[u8], out: &mut Vec<i64>) {
     // trailing incomplete varint falls off the end and is dropped
 }
 
-/// AArch64 hand-assembly of the same kernel. One pass, integer-only:
-/// ldrb -> subtract 63 -> merge low 5 bits at `shift` -> on terminator,
-/// zigzag-decode with `eor xN, xN, xacc, lsr #1` and store.
-#[cfg(target_arch = "aarch64")]
-fn decode_deltas_asm(bytes: &[u8], out: &mut Vec<i64>) {
-    if bytes.is_empty() {
-        return;
+/// The shipped kernel + the safe oracle, exposed for `bin/bench.rs`.
+/// (`deltas_rust_rawptr` IS `decode_deltas`; the module keeps the bake-off
+/// interface that retired the asm kernel — see decode_deltas' history note.)
+#[doc(hidden)]
+pub mod bench {
+    pub fn deltas_rust(bytes: &[u8], out: &mut Vec<i64>) {
+        super::decode_deltas_rust(bytes, out)
     }
-    // Upper bound: every byte could terminate a varint -> one delta per byte.
-    out.reserve(bytes.len());
-    let mut count: usize;
-    unsafe {
-        let out_ptr = out.as_mut_ptr().add(out.len());
-        core::arch::asm!(
-            "mov {acc}, xzr",            // acc    = 0
-            "mov {shift:w}, wzr",        // shift  = 0
-            "mov {chunks:w}, wzr",       // chunks = 0
-            "mov {count}, xzr",          // count  = 0
-            "2:",                        // -- per-byte loop --
-            "ldrb {b:w}, [{inp}], #1",   // b = *inp++ (zero-extended)
-            "sub {b:w}, {b:w}, #63",     // b -= 63 (may go negative)
-            "add {chunks:w}, {chunks:w}, #1",
-            "cmp {chunks:w}, #11",
-            "b.hs 3f",                   // > MAX_CHUNKS -> malformed, stop
-            "and {t}, {b}, #0x1f",       // low 5 payload bits
-            "lsl {t}, {t}, {shift}",     // << shift   (shift <= 45 here)
-            "orr {acc}, {acc}, {t}",     // acc |= payload
-            "add {shift:w}, {shift:w}, #5",
-            "cmp {b:w}, #0x20",
-            "b.ge 4f",                   // continuation bit set -> next byte
-            "and {t}, {acc}, #1",        // -- end of varint: zigzag decode --
-            "neg {t}, {t}",              // t = -(acc & 1)
-            "eor {t}, {t}, {acc}, lsr #1", // t ^= acc >> 1
-            "str {t}, [{outp}], #8",     // *outp++ = delta
-            "add {count}, {count}, #1",
-            "mov {acc}, xzr",            // reset varint state
-            "mov {shift:w}, wzr",
-            "mov {chunks:w}, wzr",
-            "4:",
-            "subs {len}, {len}, #1",
-            "b.ne 2b",
-            "3:",
-            inp = inout(reg) bytes.as_ptr() => _,
-            len = inout(reg) bytes.len() => _,
-            outp = inout(reg) out_ptr => _,
-            count = out(reg) count,
-            acc = out(reg) _,
-            shift = out(reg) _,
-            chunks = out(reg) _,
-            b = out(reg) _,
-            t = out(reg) _,
-            options(nostack),
-        );
-        // SAFETY: `count` <= `bytes.len()`. A delta is stored exactly once per
-        // terminator byte (the `str` at label 4 runs only when b < 0x20), each
-        // terminator consumes one input byte, and no byte is reprocessed — so the
-        // number of stores never exceeds the byte count we `reserve`d above. The
-        // writes therefore stay within the reserved capacity; `set_len` is sound.
-        out.set_len(out.len() + count);
+
+    pub fn deltas_rust_rawptr(bytes: &[u8], out: &mut Vec<i64>) {
+        if bytes.is_empty() {
+            return;
+        }
+        out.reserve(bytes.len());
+        let mut acc: u64 = 0;
+        let mut shift: u32 = 0;
+        let mut chunks: u32 = 0;
+        let mut count = 0usize;
+        unsafe {
+            let base = out.as_mut_ptr().add(out.len());
+            for &raw in bytes {
+                let b = i32::from(raw) - 63;
+                chunks += 1;
+                if chunks > super::MAX_CHUNKS {
+                    break; // malformed varint: drop it and everything after
+                }
+                acc |= u64::from((b & 0x1f) as u32) << shift;
+                shift += 5;
+                if b < 0x20 {
+                    let v = ((acc >> 1) as i64) ^ -((acc & 1) as i64);
+                    // SAFETY: count <= bytes.len() (one store per terminator
+                    // byte), within the reserve above — same argument as the
+                    // asm wrapper's set_len.
+                    base.add(count).write(v);
+                    count += 1;
+                    acc = 0;
+                    shift = 0;
+                    chunks = 0;
+                }
+            }
+            out.set_len(out.len() + count);
+        }
     }
 }
 
-/// Decode zigzag varints into signed deltas using the fastest kernel for the
-/// target (assembly on AArch64, portable Rust elsewhere).
+/// Decode zigzag varints into signed deltas.
+///
+/// HISTORY: this dispatched to a hand-written AArch64 assembly kernel. A
+/// three-way bake-off (bin/bench.rs, 2026-07-19: asm 3.20 ns/byte vs
+/// portable-raw-pointer 2.59 vs portable-Vec::push 2.83 on M-series)
+/// showed rustc out-scheduling the hand kernel, so it was retired per the
+/// repo doctrine — asm must EARN its keep against the compiler, and dead
+/// fast-variants get deleted, not kept for sentiment. The shipped kernel is
+/// the portable body writing through reserve + raw pointer (the asm
+/// wrapper's one real trick, kept); `decode_deltas_rust` stays as the
+/// fully-safe oracle the tests pin both against.
 pub fn decode_deltas(bytes: &[u8], out: &mut Vec<i64>) {
-    #[cfg(target_arch = "aarch64")]
-    {
-        decode_deltas_asm(bytes, out);
-    }
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        decode_deltas_rust(bytes, out);
-    }
+    bench::deltas_rust_rawptr(bytes, out);
 }
 
 /// Decode an encoded polyline into (lon, lat) pairs — same column order as the
@@ -230,6 +215,9 @@ mod tests {
             decode_deltas_rust(enc.as_bytes(), &mut a);
             decode_deltas(enc.as_bytes(), &mut b);
             assert_eq!(a, b, "kernel divergence in case {case}: {enc}");
+            let mut c: Vec<i64> = Vec::new();
+            bench::deltas_rust_rawptr(enc.as_bytes(), &mut c);
+            assert_eq!(a, c, "rawptr kernel divergence in case {case}: {enc}");
         }
     }
 
@@ -245,6 +233,9 @@ mod tests {
             decode_deltas_rust(input.as_bytes(), &mut a);
             decode_deltas(input.as_bytes(), &mut b);
             assert_eq!(a, b, "kernel divergence on malformed input {input:?}");
+            let mut c: Vec<i64> = Vec::new();
+            bench::deltas_rust_rawptr(input.as_bytes(), &mut c);
+            assert_eq!(a, c, "rawptr divergence on malformed input {input:?}");
         }
     }
 
