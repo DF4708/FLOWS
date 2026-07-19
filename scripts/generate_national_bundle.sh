@@ -21,3 +21,10 @@ PATH="$HOME/.cargo/bin:$PATH" cargo build --release -p flows-train \
     --manifest-path "$REPO/rust/Cargo.toml"
 cd "$REPO"
 ./rust/target/release/national-bundle "$WEEK"
+# FRB1 binary sibling: the app parses this with zero JSON cost on the launch
+# path (bit-exact doubles; bundle-frb.rs documents the format). Refresh the
+# bundled Resources copy so device builds ship the same bytes.
+./rust/target/release/bundle-frb \
+    data/runtime_cache/app_risk_bundle.json \
+    data/runtime_cache/app_risk_bundle.frb1
+cp data/runtime_cache/app_risk_bundle.frb1 apple/FLOWS/Resources/app_risk_bundle.frb1

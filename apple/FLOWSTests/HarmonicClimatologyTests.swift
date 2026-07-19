@@ -77,4 +77,78 @@ final class HarmonicClimatologyTests: XCTestCase {
         good.replaceSubrange(0..<4, with: "XXXX".utf8)
         XCTAssertNil(HarmonicClimatology(data: good))
     }
+
+    // MARK: FRB1 — the binary risk bundle (bundle-frb.rs is the writer)
+
+    /// Hand-assemble an FRB1 shard (2 families, 2 zips, one summary, one
+    /// ring), mirroring the Rust writer's layout byte for byte, and verify
+    /// the parser reconstructs exactly the entries the JSON path would have
+    /// produced — plus refusal on corruption and truncation.
+    func testFRB1ParseRoundTripAndCorruptionRefusal() {
+        var payload = Data()
+        func le32(_ v: UInt32) -> Data { withUnsafeBytes(of: v.littleEndian) { Data($0) } }
+        func le64(_ v: UInt64) -> Data { withUnsafeBytes(of: v.littleEndian) { Data($0) } }
+        func le16(_ v: UInt16) -> Data { withUnsafeBytes(of: v.littleEndian) { Data($0) } }
+        func f64(_ v: Double) -> Data { withUnsafeBytes(of: v.bitPattern.littleEndian) { Data($0) } }
+
+        let generated = "2026-07-04T11:39:45Z"
+        payload.append(contentsOf: generated.utf8)
+        for fam in ["wind", "fire"] {
+            payload.append(UInt8(fam.utf8.count))
+            payload.append(contentsOf: fam.utf8)
+        }
+        payload.append(contentsOf: "01001".utf8)
+        payload.append(contentsOf: "99999".utf8)
+        payload.append(f64(-72.6258)); payload.append(f64(42.0624))   // centroid 1 (lon,lat)
+        payload.append(f64(-100.5)); payload.append(f64(40.25))       // centroid 2
+        payload.append(f64(0.125)); payload.append(f64(0.5))          // scores z1
+        payload.append(f64(0)); payload.append(f64(0.043))            // scores z2
+        payload.append(le16(5)); payload.append(contentsOf: "windy".utf8)  // summary z1
+        payload.append(le16(0))                                       // summary z2: none
+        payload.append(le16(0))                                       // ring z1: none
+        payload.append(le16(3))                                       // ring z2: 3 pts
+        for (lon, lat) in [(-100.0, 40.0), (-100.1, 40.1), (-100.2, 40.0)] {
+            payload.append(f64(lon)); payload.append(f64(lat))
+        }
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in payload { hash ^= UInt64(b); hash = hash &* 0x0000_0100_0000_01b3 }
+
+        var shard = Data("FRB1".utf8)
+        shard.append(le32(1))                       // version
+        shard.append(le32(2))                       // nFams
+        shard.append(le32(2))                       // nZips
+        shard.append(le32(UInt32(generated.utf8.count)))
+        shard.append(le64(hash))
+        shard.append(payload)
+
+        guard let (entries, fams, gen) = RiskFieldService.parseFRB1(shard) else {
+            return XCTFail("valid FRB1 refused")
+        }
+        XCTAssertEqual(gen, generated)
+        XCTAssertEqual(fams, ["wind", "fire"])
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(entries[0].zip, "01001")
+        XCTAssertEqual(entries[0].centroid.latitude, 42.0624)
+        XCTAssertEqual(entries[0].centroid.longitude, -72.6258)
+        XCTAssertEqual(entries[0].scores, [0.125, 0.5])
+        XCTAssertEqual(entries[0].summary, "windy")
+        XCTAssertNil(entries[0].ring)
+        XCTAssertEqual(entries[1].zip, "99999")
+        XCTAssertEqual(entries[1].scores, [0, 0.043])
+        XCTAssertNil(entries[1].summary)
+        XCTAssertEqual(entries[1].ring?.count, 3)
+        XCTAssertEqual(entries[1].ring?[1].latitude, 40.1)
+        XCTAssertEqual(entries[1].ring?[1].longitude, -100.1)
+
+        // Corruption: one flipped payload byte fails the hash.
+        var corrupt = shard
+        corrupt[40] ^= 0xFF
+        XCTAssertNil(RiskFieldService.parseFRB1(corrupt))
+        // Truncation: refused (bounds guards, then the trailing-garbage check).
+        XCTAssertNil(RiskFieldService.parseFRB1(shard.prefix(shard.count - 5)))
+        // Wrong magic: refused.
+        var badMagic = shard
+        badMagic.replaceSubrange(0..<4, with: "XXXX".utf8)
+        XCTAssertNil(RiskFieldService.parseFRB1(badMagic))
+    }
 }

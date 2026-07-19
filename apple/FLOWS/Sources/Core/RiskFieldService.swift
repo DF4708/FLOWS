@@ -155,18 +155,133 @@ final class RiskFieldService: ObservableObject {
         let p: [[Double]]?
     }
 
+    /// FRB1 binary bundle first (zero JSON parse cost on the launch path —
+    /// rust/flows-train/src/bin/bundle-frb.rs writes it with bit-exact
+    /// doubles), JSON as the dev/legacy fallback.
     nonisolated private static func candidatePaths() -> [String] {
         #if os(macOS)
         let repo = ProcessInfo.processInfo.environment["FLOWS_REPO"]
             ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
         return [
+            Bundle.main.path(forResource: "app_risk_bundle", ofType: "frb1"),
+            "\(repo)/data/runtime_cache/app_risk_bundle.frb1",
+            "/Users/Shared/flows/repo/data/runtime_cache/app_risk_bundle.frb1",
             Bundle.main.path(forResource: "app_risk_bundle", ofType: "json"),
             "\(repo)/data/runtime_cache/app_risk_bundle.json",
             "/Users/Shared/flows/repo/data/runtime_cache/app_risk_bundle.json",
         ].compactMap { $0 }
         #else
-        return [Bundle.main.path(forResource: "app_risk_bundle", ofType: "json")].compactMap { $0 }
+        return [
+            Bundle.main.path(forResource: "app_risk_bundle", ofType: "frb1"),
+            Bundle.main.path(forResource: "app_risk_bundle", ofType: "json"),
+        ].compactMap { $0 }
         #endif
+    }
+
+    /// Parse the FRB1 binary risk bundle (see bundle-frb.rs for the format
+    /// contract: 28-byte header with fnv1a-64 over the payload, then
+    /// generated_utc, length-prefixed family names, 5-char zip index,
+    /// centroid f64 pairs, row-major f64 scores, length-prefixed summaries,
+    /// and optional rings). Corrupt shards are refused, never repaired —
+    /// same discipline as FPS1/FLHH.
+    nonisolated static func parseFRB1(_ data: Data)
+        -> (entries: [ZipEntry], families: [String], generated: String)? {
+        guard data.count > 28, data.prefix(4) == Data("FRB1".utf8) else { return nil }
+        return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer)
+            -> ([ZipEntry], [String], String)? in
+            func u32(_ at: Int) -> Int { Int(raw.loadUnaligned(fromByteOffset: at, as: UInt32.self)) }
+            guard u32(4) == 1 else { return nil }
+            let nFams = u32(8), nZips = u32(12), genLen = u32(16)
+            let storedHash = raw.loadUnaligned(fromByteOffset: 20, as: UInt64.self)
+            guard nFams > 0, nZips >= 0, genLen >= 0 else { return nil }
+            var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+            for i in 28..<data.count {
+                hash ^= UInt64(raw[i])
+                hash = hash &* 0x0000_0100_0000_01b3
+            }
+            guard hash == storedHash else { return nil }
+
+            var off = 28
+            func take(_ n: Int) -> Bool { // bounds guard before each section
+                guard off + n <= data.count else { return false }
+                return true
+            }
+            guard take(genLen) else { return nil }
+            let generated = String(decoding: raw[off..<off + genLen], as: UTF8.self)
+            off += genLen
+
+            var families: [String] = []; families.reserveCapacity(nFams)
+            for _ in 0..<nFams {
+                guard take(1) else { return nil }
+                let len = Int(raw[off]); off += 1
+                guard take(len) else { return nil }
+                families.append(String(decoding: raw[off..<off + len], as: UTF8.self))
+                off += len
+            }
+
+            guard take(nZips * 5) else { return nil }
+            var zipCodes: [String] = []; zipCodes.reserveCapacity(nZips)
+            for i in 0..<nZips {
+                zipCodes.append(String(decoding: raw[off + i * 5..<off + i * 5 + 5],
+                                       as: UTF8.self))
+            }
+            off += nZips * 5
+
+            guard take(nZips * 16) else { return nil }
+            let centroidBase = off
+            off += nZips * 16
+            guard take(nZips * nFams * 8) else { return nil }
+            let scoreBase = off
+            off += nZips * nFams * 8
+
+            var summaries: [String?] = []; summaries.reserveCapacity(nZips)
+            for _ in 0..<nZips {
+                guard take(2) else { return nil }
+                let len = Int(raw.loadUnaligned(fromByteOffset: off, as: UInt16.self))
+                off += 2
+                guard take(len) else { return nil }
+                summaries.append(len == 0 ? nil
+                    : String(decoding: raw[off..<off + len], as: UTF8.self))
+                off += len
+            }
+
+            var rings: [[CLLocationCoordinate2D]?] = []; rings.reserveCapacity(nZips)
+            for _ in 0..<nZips {
+                guard take(2) else { return nil }
+                let npts = Int(raw.loadUnaligned(fromByteOffset: off, as: UInt16.self))
+                off += 2
+                guard take(npts * 16) else { return nil }
+                if npts >= 3 {
+                    var ring: [CLLocationCoordinate2D] = []; ring.reserveCapacity(npts)
+                    for p in 0..<npts {
+                        let lon = raw.loadUnaligned(fromByteOffset: off + p * 16, as: Double.self)
+                        let lat = raw.loadUnaligned(fromByteOffset: off + p * 16 + 8, as: Double.self)
+                        ring.append(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+                    }
+                    rings.append(ring)
+                } else {
+                    rings.append(nil)
+                }
+                off += npts * 16
+            }
+            guard off == data.count else { return nil }   // no trailing garbage
+
+            var entries: [ZipEntry] = []; entries.reserveCapacity(nZips)
+            for i in 0..<nZips {
+                let lon = raw.loadUnaligned(fromByteOffset: centroidBase + i * 16, as: Double.self)
+                let lat = raw.loadUnaligned(fromByteOffset: centroidBase + i * 16 + 8, as: Double.self)
+                var scores: [Double] = []; scores.reserveCapacity(nFams)
+                for f in 0..<nFams {
+                    scores.append(raw.loadUnaligned(
+                        fromByteOffset: scoreBase + (i * nFams + f) * 8, as: Double.self))
+                }
+                entries.append(ZipEntry(
+                    zip: zipCodes[i],
+                    centroid: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    scores: scores, summary: summaries[i], ring: rings[i]))
+            }
+            return (entries, families, generated)
+        }
     }
 
     private func load() async {
@@ -175,8 +290,15 @@ final class RiskFieldService: ObservableObject {
             let sp = flowsSignposter.beginInterval("bundle-parse")
             defer { flowsSignposter.endInterval("bundle-parse", sp) }
             for path in Self.candidatePaths() {
-                guard let data = FileManager.default.contents(atPath: path),
-                      let raw = try? JSONDecoder().decode(RawBundle.self, from: data)
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path),
+                                           options: .mappedIfSafe) else { continue }
+                if path.hasSuffix(".frb1") {
+                    if let (entries, fams, generated) = Self.parseFRB1(data) {
+                        return (entries, fams, generated)
+                    }
+                    continue
+                }
+                guard let raw = try? JSONDecoder().decode(RawBundle.self, from: data)
                 else { continue }
                 let entries = raw.zips.compactMap { z -> ZipEntry? in
                     guard z.c.count >= 2 else { return nil }

@@ -81,6 +81,7 @@
 		6A713104D4C7CC8C74DB1ADB /* RouteAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FE795F7E4EE79FE1CE8B949 /* RouteAttributes.swift */; };
 		6DAFAB606C2AE792FF51404F /* RiskFieldService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ECD57DF5327312E358BC175 /* RiskFieldService.swift */; };
 		6E568195741992379E6D4138 /* TransitItinerary.swift in Sources */ = {isa = PBXBuildFile; fileRef = D19E5CB1DF5BC357124CBC31 /* TransitItinerary.swift */; };
+		70698A4B1470C86A39AEDBED /* app_risk_bundle.frb1 in Resources */ = {isa = PBXBuildFile; fileRef = 7F32B71654B63D89098564C5 /* app_risk_bundle.frb1 */; };
 		718C0861C49773731EB9168A /* ta_petro_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 632AB1C1790765011C5EABEE /* ta_petro_city_showers.json */; };
 		71C40D91BB6C14ABD5F4BEFD /* WMOAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */; };
 		71DBB04A9013C15FA8B160F2 /* HybridVanScenarioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 404296F265115CEEC15BD520 /* HybridVanScenarioTests.swift */; };
@@ -94,7 +95,6 @@
 		77238B6E275E63192D658AB2 /* FilterLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13EDC9355A222A2C521A1FB4 /* FilterLimits.swift */; };
 		77D805A4E8A0F7E64D55C6B2 /* POIRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 660C3752BEC9BCB24CCBE592 /* POIRanking.swift */; };
 		785F1EAB0FC453D1A6E05570 /* TowingLimits.swift in Sources */ = {isa = PBXBuildFile; fileRef = D628D7A33CE9AD3ABC7B4E5E /* TowingLimits.swift */; };
-		7869D1BCA1BD5EF8E887C533 /* app_risk_bundle.json in Resources */ = {isa = PBXBuildFile; fileRef = F1B1558593E1236C5903FC8F /* app_risk_bundle.json */; };
 		7AB89BEF2D8E33DA16C461B5 /* HarmonicClimatologyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20DAD9925D8BD6EF8243818F /* HarmonicClimatologyTests.swift */; };
 		7C83F59B6812832493327A60 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98F1803FA29F2721B8CF0DA /* LocationService.swift */; };
 		7C89F9027F44BC05B3726EBF /* FuelPrices.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94900C29B51436EB845A8017 /* FuelPrices.swift */; };
@@ -106,7 +106,6 @@
 		82CA1F4CB10335D2E4E8BE58 /* LocationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F98F1803FA29F2721B8CF0DA /* LocationService.swift */; };
 		86635AC86026D781C4475FCF /* PrimarySources.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC3AB54F853E5B5CBEBE8D76 /* PrimarySources.swift */; };
 		880E39A625D9D5C389F6B023 /* RouteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 806CEE6B6414930742FF6944 /* RouteService.swift */; };
-		887288077C6C4AE5B536B2D4 /* app_risk_bundle.json in Resources */ = {isa = PBXBuildFile; fileRef = F1B1558593E1236C5903FC8F /* app_risk_bundle.json */; };
 		8B8244A524B20CAB214FB89E /* VehicleSpecs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFDB7A95B830D374447FC250 /* VehicleSpecs.swift */; };
 		8B8EAF4AD0B7BE039D0BC1C2 /* pilot_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */; };
 		8C57618A815F591C16A61004 /* BadgeClustering.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FA4730BF33DCE1D5A1FD1A5 /* BadgeClustering.swift */; };
@@ -170,6 +169,7 @@
 		D56295E31E3866E669467657 /* CoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80CC13F27F247797796E314 /* CoreTests.swift */; };
 		D65BBE4BC8CC6259E1493CF7 /* FlowsCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66ECF897B5191C189DA09896 /* FlowsCore.swift */; };
 		D6DBB85315CEF92BCCC2F190 /* NavigationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3FCCB9BAC0B87101B634C86 /* NavigationEngine.swift */; };
+		D8A10628E5F084E20E540F1F /* app_risk_bundle.frb1 in Resources */ = {isa = PBXBuildFile; fileRef = 7F32B71654B63D89098564C5 /* app_risk_bundle.frb1 */; };
 		D92EADB109C9F500A6D4116B /* NWSForecastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FEC45A0A3C56E35C2A2DE4A /* NWSForecastService.swift */; };
 		D94FCBB14D0CCB9184D7D3BA /* VehicleProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92059E95929EBF8526200AFB /* VehicleProfile.swift */; };
 		D9844CDB5730CD0FCE34AAA1 /* WMOAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */; };
@@ -274,6 +274,7 @@
 		74AA571CE51632FF23C95AF6 /* FLOWSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FLOWSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		77711C5BAC03F1491966D65C /* EPAVehicleDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EPAVehicleDatabase.swift; sourceTree = "<group>"; };
 		777973DD3BD7DCCAE1B7A3E0 /* WMOAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WMOAlerts.swift; sourceTree = "<group>"; };
+		7F32B71654B63D89098564C5 /* app_risk_bundle.frb1 */ = {isa = PBXFileReference; path = app_risk_bundle.frb1; sourceTree = "<group>"; };
 		806CEE6B6414930742FF6944 /* RouteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteService.swift; sourceTree = "<group>"; };
 		80F7CC1237BC384F3E7BCD00 /* HazardStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HazardStyle.swift; sourceTree = "<group>"; };
 		821492DB9488F94DC8D47EF7 /* pilot_city_showers.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = pilot_city_showers.json; sourceTree = "<group>"; };
@@ -313,7 +314,6 @@
 		E809B4608904D3C0EA6C78A1 /* SafetyAndGradeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyAndGradeTests.swift; sourceTree = "<group>"; };
 		E8D270A4D35CC38D9CEDC327 /* WatchLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchLink.swift; sourceTree = "<group>"; };
 		ED4733E31C33ADB3C027FDB4 /* WeatherAlertService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherAlertService.swift; sourceTree = "<group>"; };
-		F1B1558593E1236C5903FC8F /* app_risk_bundle.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = app_risk_bundle.json; sourceTree = "<group>"; };
 		F28ECBE56F183452C216AADC /* Favorites.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Favorites.swift; sourceTree = "<group>"; };
 		F80CC13F27F247797796E314 /* CoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreTests.swift; sourceTree = "<group>"; };
 		F98F1803FA29F2721B8CF0DA /* LocationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationService.swift; sourceTree = "<group>"; };
@@ -360,7 +360,7 @@
 		7567981AFBF2B75D8BE9E6EA /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				F1B1558593E1236C5903FC8F /* app_risk_bundle.json */,
+				7F32B71654B63D89098564C5 /* app_risk_bundle.frb1 */,
 				B16A02C5000BF5AAE2F6E22D /* Assets.xcassets */,
 				909FC379707B66607F41338C /* baseline_route_head.json */,
 				1EDFA6F4181D7C97DA06EF52 /* loves_city_showers.json */,
@@ -611,7 +611,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				66980B460BE0B474C2D6CA05 /* Assets.xcassets in Resources */,
-				7869D1BCA1BD5EF8E887C533 /* app_risk_bundle.json in Resources */,
+				70698A4B1470C86A39AEDBED /* app_risk_bundle.frb1 in Resources */,
 				416E55A0123695FD147FDE2A /* baseline_route_head.json in Resources */,
 				C73E07362F8731EC924D04E5 /* loves_city_showers.json in Resources */,
 				3BE6F6ED6FC2136FE5CAE996 /* nwr_stations.json in Resources */,
@@ -626,7 +626,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C564A8D0331C8C005BBC4A31 /* Assets.xcassets in Resources */,
-				887288077C6C4AE5B536B2D4 /* app_risk_bundle.json in Resources */,
+				D8A10628E5F084E20E540F1F /* app_risk_bundle.frb1 in Resources */,
 				F64ED318EFC228FCE379886F /* baseline_route_head.json in Resources */,
 				010034D00B2174D20CA1F122 /* loves_city_showers.json in Resources */,
 				DD3F8BB1EA4C3DDDE6E1F03F /* nwr_stations.json in Resources */,
