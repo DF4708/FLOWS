@@ -88,15 +88,31 @@ struct HarmonicClimatology {
         return nil
     }
 
-    func score(zipIndex zi: Int, familyIndex fi: Int, week: Int) -> Double {
+    /// The four trig factors for a week, computed once. `score` needs only
+    /// these; hoisting them out of a bulk rescore (33k zips x families, one
+    /// fixed week) deletes ~10^5-10^6 redundant libm calls that all return
+    /// the identical bits. Same calls, same argument, same doubles — the
+    /// hoisted path is byte-identical to the per-call path by construction.
+    struct WeekTrig {
+        let cosT, sinT, cos2T, sin2T: Double
+        init(week: Int) {
+            let t = 2 * Double.pi * Double(((week % 52) + 52) % 52) / 52
+            cosT = cos(t); sinT = sin(t); cos2T = cos(2 * t); sin2T = sin(2 * t)
+        }
+    }
+
+    func score(zipIndex zi: Int, familyIndex fi: Int, trig: WeekTrig) -> Double {
         let base = (zi * nFamilies + fi) * 5
-        let t = 2 * Double.pi * Double(((week % 52) + 52) % 52) / 52
         let v = Double(coeffs[base])
-            + Double(coeffs[base + 1]) * cos(t)
-            + Double(coeffs[base + 2]) * sin(t)
-            + Double(coeffs[base + 3]) * cos(2 * t)
-            + Double(coeffs[base + 4]) * sin(2 * t)
+            + Double(coeffs[base + 1]) * trig.cosT
+            + Double(coeffs[base + 2]) * trig.sinT
+            + Double(coeffs[base + 3]) * trig.cos2T
+            + Double(coeffs[base + 4]) * trig.sin2T
         return min(max(v, 0), Self.scoreMax)
+    }
+
+    func score(zipIndex zi: Int, familyIndex fi: Int, week: Int) -> Double {
+        score(zipIndex: zi, familyIndex: fi, trig: WeekTrig(week: week))
     }
 
     /// Load from the same candidate roots the risk bundle uses.

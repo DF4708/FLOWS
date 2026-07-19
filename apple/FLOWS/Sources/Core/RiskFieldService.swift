@@ -172,6 +172,8 @@ final class RiskFieldService: ObservableObject {
     private func load() async {
         riskLog.info("load started; candidates: \(Self.candidatePaths().joined(separator: " | "))")
         let parsed: ([ZipEntry], [String], String)? = await Task.detached(priority: .utility) {
+            let sp = flowsSignposter.beginInterval("bundle-parse")
+            defer { flowsSignposter.endInterval("bundle-parse", sp) }
             for path in Self.candidatePaths() {
                 guard let data = FileManager.default.contents(atPath: path),
                       let raw = try? JSONDecoder().decode(RawBundle.self, from: data)
@@ -211,9 +213,16 @@ final class RiskFieldService: ObservableObject {
         let (final, builtGrid) = await Task.detached(
             priority: .utility
         ) { () -> ([ZipEntry], [Int: [Int]]) in
+            let sp = flowsSignposter.beginInterval("rescore+grid")
+            defer { flowsSignposter.endInterval("rescore+grid", sp) }
             var final = loadedEntries
             if let table = HarmonicClimatology.loadBundled() {
                 let week = SeasonalRiskModel.week()
+                // One trig evaluation for the whole rescore: `week` is fixed
+                // for every zip x family below, so the four sin/cos factors
+                // are loop-invariant (~10^5-10^6 identical libm calls saved,
+                // bit-identical results).
+                let trig = HarmonicClimatology.WeekTrig(week: week)
                 let famIdx: [(bundle: Int, harmonic: Int)] = fams.enumerated().compactMap {
                     (i, name) in table.families.firstIndex(of: name).map { (i, $0) }
                 }
@@ -222,7 +231,7 @@ final class RiskFieldService: ObservableObject {
                     guard let zi = table.zipIndex(final[e].zip) else { continue }
                     var scores = final[e].scores
                     for (bi, hi) in famIdx where bi < scores.count {
-                        scores[bi] = table.score(zipIndex: zi, familyIndex: hi, week: week)
+                        scores[bi] = table.score(zipIndex: zi, familyIndex: hi, trig: trig)
                     }
                     final[e] = ZipEntry(zip: final[e].zip, centroid: final[e].centroid,
                                         scores: scores, summary: final[e].summary,

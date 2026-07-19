@@ -116,11 +116,18 @@ final class WeatherAlertService: ObservableObject {
             // NOT cached, and reported via `complete` so callers can retry.
             await withTaskGroup(of: (String, [NWSAlert]?).self) { group in
                 for (key, pt) in batch {
-                    group.addTask { (key, await self.activeAlerts(at: pt)) }
+                    // Coalesced through the cache actor: concurrent corridor
+                    // scores (route alternates) join one fetch per cell
+                    // instead of each running their own. Success is cached
+                    // inside fetch(); failure returns nil uncached.
+                    group.addTask {
+                        (key, await self.cache.fetch(key) {
+                            await self.activeAlerts(at: pt)
+                        })
+                    }
                 }
                 for await (key, got) in group {
                     if let got {
-                        await cache.put(key, got)
                         cellAlerts[key] = got
                     } else {
                         fetchFailures += 1
@@ -464,6 +471,7 @@ actor AlertZoneCache {
 
     private var store: [String: Entry] = [:]
     private let ttl: TimeInterval = 180
+    private var inFlight: [String: Task<[WeatherAlertService.NWSAlert]?, Never>] = [:]
 
     func get(_ key: String) -> [WeatherAlertService.NWSAlert]? {
         guard let e = store[key], Date().timeIntervalSince(e.fetched) < AdaptiveTuning.shared.ttl(ttl) else { return nil }
@@ -472,6 +480,24 @@ actor AlertZoneCache {
 
     func put(_ key: String, _ hits: [WeatherAlertService.NWSAlert]) {
         store[key] = Entry(hits: hits, fetched: Date())
+    }
+
+    /// Coalesced fetch-or-join: alternate routes score concurrently and share
+    /// most of their corridor cells — without this, each alternate's miss on
+    /// the same cell spawned its own NWS fetch through the actor's reentrancy
+    /// window. At most one live fetch per cell; failures stay uncached (the
+    /// poisoned-cache contract) so the retry pass gets a real attempt.
+    func fetch(_ key: String,
+               make: @escaping @Sendable () async -> [WeatherAlertService.NWSAlert]?)
+        async -> [WeatherAlertService.NWSAlert]? {
+        if let hit = get(key) { return hit }
+        if let running = inFlight[key] { return await running.value }
+        let task = Task { await make() }
+        inFlight[key] = task
+        let out = await task.value
+        inFlight[key] = nil
+        if let out { put(key, out) }
+        return out
     }
 }
 

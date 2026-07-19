@@ -167,7 +167,7 @@ actor YelpLink {
                                 price: first["price"] as? String,
                                 isOpenNow: hoursBlock?["is_open_now"] as? Bool)
         cache[key] = info
-        if cache.count > 300 { cache = [:] }
+        if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
     }
 }
@@ -231,7 +231,7 @@ actor GooglePlacesLink {
         let info = YelpLink.BusinessInfo(rating: first["rating"] as? Double,
                                          price: price, isOpenNow: openNow)
         cache[key] = info
-        if cache.count > 300 { cache = [:] }
+        if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
     }
 }

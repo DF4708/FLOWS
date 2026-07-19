@@ -7,6 +7,13 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+import os
+
+/// Instruments-visible intervals for the known-heavy phases (bundle parse,
+/// 33k-zip rescore + grid build, shard parse, badge sweep). With these,
+/// launch and pan cost attribute by phase in Instruments instead of by
+/// guesswork. Zero behavior change; ~free when no tool is attached.
+let flowsSignposter = OSSignposter(subsystem: "com.flows.app", category: "perf")
 
 /// The single source of truth for how hard FLOWS may work the network and CPU,
 /// scaled to the device AND its live thermal/power state. This app has to run

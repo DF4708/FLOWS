@@ -86,6 +86,11 @@ actor NWSForecastFetcher {
 
     private var cache: [String: Entry] = [:]
     private let ttl: TimeInterval = 1800   // forecasts change hourly-ish
+    /// Coalesce concurrent misses: a viewport sweep fans out up to 36 grid
+    /// points and at metro zoom many round into the same 0.1° cell — without
+    /// this, every one of them runs its own full provider chain (2 NWS
+    /// requests each) through the actor's reentrancy window.
+    private var inFlight: [String: Task<ForecastConditions?, Never>] = [:]
 
     private func key(_ c: CLLocationCoordinate2D) -> String {
         "\(Int((c.latitude * 10).rounded()))|\(Int((c.longitude * 10).rounded()))"
@@ -105,12 +110,19 @@ actor NWSForecastFetcher {
         if let e = cache[k], Date().timeIntervalSince(e.fetched) < AdaptiveTuning.shared.ttl(ttl) {
             return e.conditions
         }
-        let out: ForecastConditions?
-        if let nws = await nwsConditions(at: c) { out = nws }
-        else if let apple = await appleWeatherKitConditions(at: c) { out = apple }
-        else if let eccc = await ecccConditions(at: c) { out = eccc }
-        else if let smn = await smnConditions(at: c) { out = smn }
-        else { out = nil }
+        if let running = inFlight[k] { return await running.value }
+        let task = Task<ForecastConditions?, Never> {
+            if let nws = await self.nwsConditions(at: c) { return nws }
+            if let apple = await self.appleWeatherKitConditions(at: c) { return apple }
+            if let eccc = await self.ecccConditions(at: c) { return eccc }
+            if let smn = await self.smnConditions(at: c) { return smn }
+            return nil
+        }
+        inFlight[k] = task
+        let out = await task.value
+        inFlight[k] = nil
+        // Failures are NOT cached — nil stays uncached so the next sweep
+        // retries instead of pinning "no forecast" for the TTL.
         if let out {
             cache[k] = Entry(conditions: out, fetched: Date())
         }

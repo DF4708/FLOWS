@@ -797,7 +797,9 @@ final class AppModel: ObservableObject {
         // pedestrian router hugs the intended corridor instead of shortcutting.
         let target = navigation.coordinateAhead(meters: Self.walkRefineWindowMeters) ?? here
         walkRefineTask?.cancel()
-        walkRefineTask = Task { [weak self] in
+        // Background geometry refinement — not latency-critical; keep it off
+        // the P-core/userInteractive band the MainActor would grant it.
+        walkRefineTask = Task(priority: .utility) { [weak self] in
             let req = MKDirections.Request()
             req.source = MKMapItem(placemark: MKPlacemark(coordinate: here))
             req.destination = MKMapItem(placemark: MKPlacemark(coordinate: target))
@@ -1911,7 +1913,7 @@ final class AppModel: ObservableObject {
     private func beginTrafficWatch() {
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
-        trafficWatchTask = Task { [weak self] in
+        trafficWatchTask = Task(priority: .utility) { [weak self] in
             while !Task.isCancelled {
                 // Hybrid cadence: tighter during commute/school/meal windows
                 // in the vehicle's LOCAL time (longitude-derived — crossing
