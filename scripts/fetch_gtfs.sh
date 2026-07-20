@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Copyright (c) David B. Foster. All rights reserved.
+# Copyright (c) 2026 David B. Foster. All rights reserved.
 # -----------------------------------------------------------------------------
 
 # fetch_gtfs.sh — politely download and unzip a GTFS feed into data/transit/<name>/.

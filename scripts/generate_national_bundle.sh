@@ -1,6 +1,6 @@
 #!/bin/sh
 # -----------------------------------------------------------------------------
-# Copyright (c) David B. Foster. All rights reserved.
+# Copyright (c) 2026 David B. Foster. All rights reserved.
 # -----------------------------------------------------------------------------
 # Regenerate the national seasonal-climatology ZIP baseline and merge it into
 # data/runtime_cache/app_risk_bundle.json, then emit the FRB1 binary sibling

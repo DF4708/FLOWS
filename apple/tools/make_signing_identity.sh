@@ -1,6 +1,6 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
-# Copyright (c) David B. Foster. All rights reserved.
+# Copyright (c) 2026 David B. Foster. All rights reserved.
 # -----------------------------------------------------------------------------
 
 # Create (once) a stable local code-signing identity "FLOWS Local Dev".

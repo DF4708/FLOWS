@@ -1,6 +1,6 @@
 #!/bin/bash
 # -----------------------------------------------------------------------------
-# Copyright (c) David B. Foster. All rights reserved.
+# Copyright (c) 2026 David B. Foster. All rights reserved.
 # -----------------------------------------------------------------------------
 
 # FLOWS self-contained worker (FANS pattern). Runs the continuous test runner

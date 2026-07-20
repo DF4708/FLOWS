@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -----------------------------------------------------------------------------
-# Copyright (c) David B. Foster. All rights reserved.
+# Copyright (c) 2026 David B. Foster. All rights reserved.
 # -----------------------------------------------------------------------------
 # REPO TOOLING ONLY (never a product dependency): one-time conversion of the
 # Foursquare OS Places dataset (Apache 2.0) into the flat TSV that the pure-std

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Copyright (c) David B. Foster. All rights reserved.
+# Copyright (c) 2026 David B. Foster. All rights reserved.
 # -----------------------------------------------------------------------------
 # Build the FLOWS 20-year historical hazard baseline end to end:
 #   1. download-if-missing the free, keyless inputs (polite: sequential, 1/s)
