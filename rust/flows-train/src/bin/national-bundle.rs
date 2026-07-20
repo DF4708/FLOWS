@@ -9,16 +9,15 @@
 //! FLOWS national ZIP risk baseline — pure std, ZERO external crates, the same
 //! discipline as `flows-core` / `flows-train`.
 //!
-//! Merges a seasonal-climatology identified-risk baseline for every CONUS ZCTA
-//! into `data/runtime_cache/app_risk_bundle.json` so every state gets a dense
-//! choropleth. Any entry carrying a ring `p` is preserved BYTE-FOR-BYTE (its
-//! raw JSON object slice is carried through untouched — floats are never
-//! re-encoded). Historically that protected the R "Wisconsin" engine's
-//! ring-carrying entries; since the one-system merge (5ed9cc0) the bundle has
-//! ZERO ring entries, so preservation is a no-op safety net kept for the case
-//! a ring entry is ever reintroduced. National entries carry centroid
-//! `c` as [lon, lat] and scores `s` aligned with the bundle's own `families`
-//! array, no ring `p` (the app fetches ZCTA rings on demand).
+//! Fills a seasonal-climatology identified-risk baseline for every CONUS ZCTA
+//! not already present in `data/runtime_cache/app_risk_bundle.json` so every
+//! state gets a dense choropleth. Every entry already in the bundle is carried
+//! through BYTE-FOR-BYTE (its raw JSON object slice is copied untouched — floats
+//! are never re-encoded); only uncovered ZCTAs get a freshly generated entry.
+//! The field is a single unified national climatology: no special-cased or
+//! byte-preserved Wisconsin / R-engine entries, and no polygon ring `p` (the app
+//! fetches ZCTA rings on demand). Entries carry centroid `c` as [lon, lat] and
+//! scores `s` aligned with the bundle's own `families` array.
 //!
 //! Climatology is a PRIOR, not a realized hazard: every score is conservative,
 //! in [0.05, 0.6] when present and hard-capped well below the 0.699 yellow cut.
@@ -178,7 +177,7 @@ fn family_score(family: &str, lat: f64, lon: f64, week: u32) -> f64 {
 
 /// Byte-preserving split of the existing bundle:
 /// (prefix up to the `"zips"` key, raw per-zip object slices, suffix after `]`).
-/// A tiny depth/string-aware scanner — the R-engine entries are carried through
+/// A tiny depth/string-aware scanner — every existing entry is carried through
 /// verbatim, never re-encoded.
 fn split_bundle(text: &str) -> Result<(&str, Vec<&str>, &str), String> {
     let bytes = text.as_bytes();
@@ -457,7 +456,7 @@ fn run(week: u32) -> Result<(), String> {
 
     let mut covered: Vec<String> = Vec::with_capacity(kept_raw.len());
     for e in &kept_raw {
-        covered.push(raw_zip_code(e).ok_or("R-engine entry missing \"z\"")?);
+        covered.push(raw_zip_code(e).ok_or("existing entry missing \"z\"")?);
     }
     let covered_set: std::collections::HashSet<&str> =
         covered.iter().map(String::as_str).collect();
@@ -471,7 +470,7 @@ fn run(week: u32) -> Result<(), String> {
         zctas.iter().map(|z| national_entry(z, &families, week)).collect();
 
     // prefix ends just before the `"zips"` key (so its trailing ',' is intact);
-    // inject metadata, then R-engine raw entries first, then national by zip.
+    // inject metadata, then the existing raw entries first, then national by zip.
     let mut out = String::with_capacity(original.len() + national.len() * 96);
     out.push_str(prefix);
     out.push_str("\"national_baseline\":true,\"national_week\":");
@@ -494,7 +493,7 @@ fn run(week: u32) -> Result<(), String> {
     fs::rename(&tmp, &bundle_path).map_err(|e| format!("rename onto bundle: {e}"))?;
 
     println!("families: {}", families.len());
-    println!("r_engine_entries_kept: {}", kept_raw.len());
+    println!("existing_entries_kept: {}", kept_raw.len());
     println!("national_entries_added: {}", national.len());
     println!("total_entries: {}", kept_raw.len() + national.len());
     println!("bytes: {}", out.len());

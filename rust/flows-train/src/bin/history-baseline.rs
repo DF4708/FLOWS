@@ -39,14 +39,13 @@
 //! never creates a mapping, it only weights one.
 //!
 //! OUTPUTS (all under the repo root):
-//!   A. data/runtime_cache/app_risk_bundle.json rebuilt: any entry carrying a
-//!      "p" ring is preserved BYTE-FOR-BYTE via the raw-slice scanner from
-//!      national-bundle.rs. (As of the one-system merge in 5ed9cc0 the bundle
-//!      has ZERO ring-carrying entries — the R "Wisconsin" engine was retired
-//!      and the field regenerated with no specials — so this preservation is
-//!      a no-op safety net today; it still protects a ring entry if one is
-//!      ever reintroduced.) Every other entry's "s"
-//!      becomes max(existing climatology, history score at the CLI week). The
+//!   A. data/runtime_cache/app_risk_bundle.json rebuilt in place: every entry
+//!      is a unified national ZCTA (z/c/s[/t] shape, no polygon ring "p" — the
+//!      app fetches ZCTA rings on demand), so all entries flow through the same
+//!      rebuild. Each entry's "s" becomes max(existing climatology, history
+//!      score at the CLI week) with the summary "t" regenerated. There are no
+//!      special-cased or byte-preserved Wisconsin / R-engine entries: the whole
+//!      field is the 20-year NOAA Storm Events climatology built here. The
 //!      previous bundle is backed up to app_risk_bundle.pre_history.json once
 //!      (the backup is never overwritten on re-runs).
 //!   B. data/runtime_cache/history_dense.bin    dense u8 table (layout below)
@@ -632,8 +631,9 @@ fn harmonic_eval(c: &[f32; 5], w: usize) -> f64 {
 }
 
 // ------------------------------------------------------- raw JSON scan (A)
-// The byte-preserving scanner, same technique as national-bundle.rs: R-engine
-// entries are carried through as raw slices, never re-encoded.
+// A byte-preserving splitter, same technique as national-bundle.rs: the bundle
+// is sliced into raw per-zip object spans so the rebuild can re-derive each
+// entry's "z"/"c"/"s" without a full JSON parse.
 
 /// Byte-preserving split of the existing bundle:
 /// (prefix up to the `"zips"` key, raw per-zip object slices, suffix after `]`).
@@ -883,16 +883,15 @@ fn parse_families(text: &str) -> Result<Vec<String>, String> {
 // ---------------------------------------------------------------- merge (A)
 
 struct MergeStats {
-    wi_kept: usize,
     rescored: usize,
     unchanged: usize,
     bytes: usize,
 }
 
-/// Rebuild the bundle text: entries with a top-level "p" ring (the R-engine
-/// Wisconsin entries) are carried through BYTE-FOR-BYTE; every other entry's
-/// "s" becomes max(existing, history at `week`), with the summary "t"
-/// regenerated under the same > SUMMARY_MIN rule national-bundle uses.
+/// Rebuild the bundle text: every entry's "s" becomes max(existing, history at
+/// `week`), with the summary "t" regenerated under the same > SUMMARY_MIN rule
+/// national-bundle uses. The field is a single unified national climatology —
+/// no entry carries a polygon ring "p" and none is byte-preserved.
 fn rebuild_bundle(
     original: &str,
     week: u32,
@@ -918,7 +917,7 @@ fn rebuild_bundle(
         }
     }
 
-    let mut stats = MergeStats { wi_kept: 0, rescored: 0, unchanged: 0, bytes: 0 };
+    let mut stats = MergeStats { rescored: 0, unchanged: 0, bytes: 0 };
     let mut out = String::with_capacity(original.len() + 64);
     out.push_str(&clean_prefix);
     out.push_str("\"history_baseline\":true,\"history_week\":");
@@ -931,12 +930,6 @@ fn rebuild_bundle(
         }
         first = false;
         let pairs = top_level_pairs(e);
-        let has_ring = pairs.iter().any(|(k, _)| *k == "p");
-        if has_ring {
-            out.push_str(e); // R-engine entry: byte-for-byte
-            stats.wi_kept += 1;
-            continue;
-        }
         let z = pairs
             .iter()
             .find(|(k, _)| *k == "z")
@@ -1362,8 +1355,8 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     fs::write(&tmp, &rebuilt).map_err(|e| format!("write bundle tmp: {e}"))?;
     fs::rename(&tmp, &bundle_path).map_err(|e| format!("rename onto bundle: {e}"))?;
     println!(
-        "bundle: wi_kept {}  rescored {}  unchanged {}  bytes {}",
-        mstats.wi_kept, mstats.rescored, mstats.unchanged, mstats.bytes
+        "bundle: rescored {}  unchanged {}  bytes {}",
+        mstats.rescored, mstats.unchanged, mstats.bytes
     );
 
     // ---- OUTPUT C: training rows in flows-train's read_csv format
@@ -1568,18 +1561,14 @@ mod tests {
         }
     }
 
-    // ---- WI byte-preservation through the merge
+    // ---- the merge rescores by history and is a fixed point on re-run
     #[test]
-    fn wi_entries_preserved_byte_for_byte() {
-        let wi = concat!(
-            "{\"z\":\"53703\",\"c\":[-89.3851,43.0731],\"s\":[0.1,0.2],",
-            "\"t\":\"say \\\"hi\\\" {ok}\",\"p\":[[-89.4,43.0],[-89.3,43.1],[-89.4,43.1]]}"
-        );
+    fn merge_rescores_history_and_is_idempotent() {
         let src = format!(
-            "{{\"generated_utc\":\"x\",\"families\":[\"wind\",\"winter\"],\"zips\":[{},{}]}}",
-            wi, "{\"z\":\"55401\",\"c\":[-93.27,44.98],\"s\":[0,0.1]}"
+            "{{\"generated_utc\":\"x\",\"families\":[\"wind\",\"winter\"],\"zips\":[{}]}}",
+            "{\"z\":\"55401\",\"c\":[-93.27,44.98],\"s\":[0,0.1]}"
         );
-        // history: winter 0.5 for 55401 at week 0; nothing for the WI zip
+        // history: winter 0.5 for 55401 at week 0
         let lookup = |zip: &str, _wk: u32, f: usize| -> f64 {
             if zip == "55401" && FAMS[f] == "winter" {
                 0.5
@@ -1588,18 +1577,16 @@ mod tests {
             }
         };
         let (out, stats) = rebuild_bundle(&src, 0, &lookup).expect("merge");
-        assert!(out.contains(wi), "R-engine entry must be carried byte-for-byte");
-        assert_eq!(stats.wi_kept, 1);
         assert_eq!(stats.rescored, 1);
         // 55401: winter max(0.1, 0.5) = 0.5, history won -> historical summary
         assert!(out.contains("{\"z\":\"55401\",\"c\":[-93.27,44.98],\"s\":[0,0.5],\"t\":\"Historical baseline: elevated winter risk (20-yr storm climatology)\"}"),
             "merged entry wrong: {out}");
         assert!(out.contains("\"history_baseline\":true,\"history_week\":0,"));
-        // idempotency: merging the output again yields exactly one history key
+        // idempotency: merging the output again is a byte-for-byte fixed point
         let (out2, stats2) = rebuild_bundle(&out, 0, &lookup).expect("re-merge");
         assert_eq!(out2.matches("\"history_baseline\"").count(), 1);
         assert_eq!(out2, out);
-        assert_eq!(stats2.wi_kept, 1);
+        assert_eq!(stats2.unchanged, 1);
     }
 
     // ---- unchanged national entries survive byte-identically
