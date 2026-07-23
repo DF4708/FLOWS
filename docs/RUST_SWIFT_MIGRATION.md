@@ -15,7 +15,7 @@ phased plan that never loses the working R app as the correctness oracle.
 
 Status: **DONE — this ADR's plan was executed and superseded.** As of
 2026-07-19 the migration is complete: the R/Shiny engine is fully retired
-(commit 5ed9cc0), the app ships as native Rust + Swift, and the risk/scoring
+(commit c8a903e), the app ships as native Rust + Swift, and the risk/scoring
 paths are pinned byte-identical to frozen fixtures captured from the R oracle
 before it was removed. One prediction here was **overturned by measurement**:
 this ADR recommended SIMD intrinsics over hand-assembly and cautioned that

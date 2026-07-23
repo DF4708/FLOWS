@@ -20,7 +20,7 @@ rsync -a --delete \
   --exclude='.git/' --exclude='data/runtime_cache/' --include-from=/dev/null --exclude='rust/target/' \
   --exclude='images/' --exclude='*.pbf' --exclude='data/results/' \
   --exclude='apple/DerivedData/' --exclude='apple/build/' --exclude='apple/FLOWS.xcodeproj/' \
-  --exclude='apple/FLOWS/Generated/' --exclude='.claude/' \
+  --exclude='apple/FLOWS/Generated/' --exclude='/.??*/' \
   --exclude='.Renviron' --exclude='.Renviron.*' --exclude='.Rhistory' --exclude='.RData' \
   --exclude='.Ruserdata' --exclude='.env' --exclude='*.pem' --exclude='*.key' \
   "$FLOWS/" "$SHARED/repo/"

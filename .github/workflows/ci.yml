@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 
 # CI: the two suites that actually gate the product. Replaces r.yml, which
-# rcmdcheck'd the R engine retired in 5ed9cc0 (no DESCRIPTION, no R/ — it
+# rcmdcheck'd the R engine retired in c8a903e (no DESCRIPTION, no R/ — it
 # could never pass and misled the repo status).
 name: ci
 

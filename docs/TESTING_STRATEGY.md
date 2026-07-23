@@ -19,7 +19,7 @@ during that expansion runs through the harness described here.
 > **Scope update (2026-07).** The product is now the native app
 > (Rust + AArch64 assembly + Swift only — Python is allowed as repo
 > tooling/verification, never in the product). The R/Shiny engine
-> described in §§2–9 was **RETIRED** (commit `5ed9cc0`, 2026-07-11; the
+> described in §§2–9 was **RETIRED** (commit `c8a903e`, 2026-07-11; the
 > `R/` directory is gone and `global.R`/`server.R`/`ui.R` were deleted
 > 2026-07-19). It no longer runs and no longer gates anything — there is
 > no `source global.R` step, no `Rscript`, no R harness. But before it

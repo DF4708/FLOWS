@@ -53,10 +53,11 @@ apple/FLOWS/Generated/
 apple/build/
 apple/DerivedData/
 
-# Editor/agent session-local state (launch.json IS tracked — it defines the
-# local dev server; worktrees are per-session scratch)
-.claude/worktrees/
-.claude/settings.local.json
+# Session-local tool state: any hidden directory at the repo root except
+# .github (CI config, tracked). Editors and dev tools drop scratch dirs
+# here; none of it belongs in history.
+/.*/
+!/.github/
 
 # App risk bundle copies are generated (rust national-bundle + history-baseline)
 apple/FLOWS/Resources/app_risk_bundle.json

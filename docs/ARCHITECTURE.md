@@ -17,7 +17,7 @@
 > The product ships in exactly **two languages**: **Rust** (core
 > algorithms, data pipelines, on-device training) and **Swift** (the app).
 > The original R / Shiny "Wisconsin" engine that started the project was
-> **retired** in commit `5ed9cc0` (2026-07-11); the `R/` directory and the
+> **retired** in commit `c8a903e` (2026-07-11); the `R/` directory and the
 > root Shiny files were deleted. Its scoring survives only as pinned test
 > fixtures. See §9 for that history.
 
@@ -266,7 +266,7 @@ The whole tree is **zero-warnings** and `cargo clippy --all-targets -D
 warnings` clean. CI is [`.github/workflows/ci.yml`](../.github/workflows/ci.yml):
 a Rust job (`cargo clippy -D warnings` + `cargo test --release`) and a
 Swift job (`xcodegen generate` + `xcodebuild … test`). It replaced the
-dead `r.yml`, which `rcmdcheck`'d the R engine retired in `5ed9cc0` and
+dead `r.yml`, which `rcmdcheck`'d the R engine retired in `c8a903e` and
 could never pass. The autonomous build+test loop runs
 `scripts/autonomous_test_runner.sh`.
 
@@ -469,7 +469,7 @@ distance kernels (scalar reference retained in
 
 ## 9. Historical: the retired R / Shiny "Wisconsin" engine
 
-> **Retired 2026-07-11 (commit `5ed9cc0`).** The `R/` directory and the
+> **Retired 2026-07-11 (commit `c8a903e`).** The `R/` directory and the
 > root Shiny files (`global.R`, `server.R`, `ui.R`, `gomap.js`,
 > `styles.css`) were deleted from the repo; the R export scripts and the
 > `tests/*.R` harness are gone. **Nothing below is live.** This section is

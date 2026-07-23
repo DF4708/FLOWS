@@ -779,7 +779,7 @@ followed, 30 partial, 29 opportunities, none high-impact. What landed:
   stream off main), the red-alert timer gated + tolerant, signposts on the
   heavy phases, iOS device slice now builds at target-cpu=apple-a12 (the
   deployment floor), the broken R-era corpse deleted (global.R etc.
-  sourced a directory removed in 5ed9cc0), and r.yml — CI that could
+  sourced a directory removed in c8a903e), and r.yml — CI that could
   never pass — replaced by a real clippy -D warnings + dual-suite gate.
 
 Deferred with reasons recorded in the audit artifact: Swift grid
