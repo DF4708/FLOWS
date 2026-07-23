@@ -87,11 +87,13 @@ is no live R process to diff against:
   Rust-internal — CH vs Dijkstra and RAPTOR vs time-dependent Dijkstra
   (§0.3).
 - **National ZIP bundle → FRB1.** `scripts/generate_national_bundle.sh`
-  merges the 32,439 seasonal-climatology entries from
-  `rust/flows-train/src/bin/national-bundle.rs` into
-  `data/runtime_cache/app_risk_bundle.json` (33,300 ZIPs) while
-  preserving the 861 original Wisconsin entries **byte-for-byte**; that
-  JSON is the dev/regeneration source. The script then serializes it to
+  fills every uncovered CONUS ZCTA with a seasonal-climatology entry from
+  `rust/flows-train/src/bin/national-bundle.rs` and copies every
+  already-present entry through **byte-for-byte**, so
+  `data/runtime_cache/app_risk_bundle.json` covers all 33,300 ZIPs as one
+  unified 20-yr NOAA Storm Events field (no special-cased Wisconsin /
+  R-engine entries, no polygon rings); that JSON is the dev/regeneration
+  source. The script then serializes it to
   the binary **FRB1** sibling (`bundle-frb.rs`, bit-exact doubles) and
   copies it to `apple/FLOWS/Resources/app_risk_bundle.frb1` — the app
   loads THAT with **zero JSON parse** on the launch path

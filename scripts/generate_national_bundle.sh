@@ -4,9 +4,10 @@
 # -----------------------------------------------------------------------------
 # Regenerate the national seasonal-climatology ZIP baseline and merge it into
 # data/runtime_cache/app_risk_bundle.json, then emit the FRB1 binary sibling
-# the app ships. Any ring-carrying ("p") entry is preserved byte-for-byte —
-# a no-op today (the bundle has none since the R engine retired in 5ed9cc0),
-# kept as a safety net; only the national tail is recomputed per week.
+# the app ships. Every entry already in the bundle is copied through
+# byte-for-byte; only ZCTAs not yet present get a freshly generated entry. The
+# field is one unified national climatology — no special-cased Wisconsin /
+# R-engine entries and no polygon rings.
 #
 # Usage: scripts/generate_national_bundle.sh [week 0-51]
 set -eu
