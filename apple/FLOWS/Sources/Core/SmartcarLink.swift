@@ -26,18 +26,24 @@ final class SmartcarLink: ObservableObject {
     @Published var clientID: String = UserDefaults.standard.string(forKey: "flows.smartcar.id") ?? "" {
         didSet { UserDefaults.standard.set(clientID, forKey: "flows.smartcar.id") }
     }
-    @Published var clientSecret: String = UserDefaults.standard.string(forKey: "flows.smartcar.secret") ?? "" {
-        didSet { UserDefaults.standard.set(clientSecret, forKey: "flows.smartcar.secret") }
+    // Sensitive: OAuth client secret + refresh token live in the Keychain,
+    // never plaintext UserDefaults (which is backed up and readable off
+    // device). Migrated on first access.
+    @Published var clientSecret: String =
+        SecureStore.migrateFromDefaults(key: "smartcar.secret", defaultsKey: "flows.smartcar.secret") {
+        didSet { SecureStore.set(clientSecret, for: "smartcar.secret") }
     }
     @Published private(set) var connected =
-        UserDefaults.standard.string(forKey: "flows.smartcar.refresh") != nil
+        SecureStore.get("smartcar.refresh") != nil
     @Published private(set) var status = ""
     @Published private(set) var fuelFraction: Double?
     @Published private(set) var tirePressuresPsi: [String: Double] = [:]
 
     private var accessToken: String?
-    private var refreshToken: String? =
-        UserDefaults.standard.string(forKey: "flows.smartcar.refresh")
+    private var refreshToken: String? = {
+        let v = SecureStore.migrateFromDefaults(key: "smartcar.refresh", defaultsKey: "flows.smartcar.refresh")
+        return v.isEmpty ? nil : v
+    }()
 
     static let redirectURI = "flows://smartcar"
 
@@ -103,7 +109,7 @@ final class SmartcarLink: ObservableObject {
         accessToken = access
         if let refresh = json["refresh_token"] as? String {
             refreshToken = refresh
-            UserDefaults.standard.set(refresh, forKey: "flows.smartcar.refresh")
+            SecureStore.set(refresh, for: "smartcar.refresh")
         }
         connected = true
         status = "Connected."
@@ -156,7 +162,7 @@ final class SmartcarLink: ObservableObject {
         fuelFraction = nil
         tirePressuresPsi = [:]
         connected = false
-        UserDefaults.standard.removeObject(forKey: "flows.smartcar.refresh")
+        SecureStore.set(nil, for: "smartcar.refresh")
         status = "Disconnected."
     }
 

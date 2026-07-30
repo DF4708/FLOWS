@@ -26,7 +26,12 @@ final class BreadcrumbTrail: ObservableObject {
 
     nonisolated static let minStepMeters: CLLocationDistance = 25
     static let maxPoints = 6_000            // ≈150 km of 25 m steps
-    private static let saveEvery = 40       // persist once per km, not per fix
+    // Persist every ~200 m (8 × 25 m steps), not every ~1 km. This is a
+    // retrace-to-safety trail with zero signal — the most likely failure is
+    // the phone's battery dying, which no graceful-shutdown hook can catch,
+    // so the newest segment must already be on disk. Re-encoding ≤6,000
+    // points is cheap enough to do this often.
+    private static let saveEvery = 8
 
     private let url: URL
     private var sinceSave = 0

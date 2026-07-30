@@ -315,8 +315,10 @@ final class AppModel: ObservableObject {
     @Published var emergencyContactPhone = UserDefaults.standard.string(forKey: "flows.icePhone") ?? "" {
         didSet { UserDefaults.standard.set(emergencyContactPhone, forKey: "flows.icePhone") }
     }
-    @Published var medicalNotes = UserDefaults.standard.string(forKey: "flows.medicalNotes") ?? "" {
-        didSet { UserDefaults.standard.set(medicalNotes, forKey: "flows.medicalNotes") }
+    // Health data -> Keychain, not plaintext UserDefaults (backed up, readable).
+    @Published var medicalNotes =
+        SecureStore.migrateFromDefaults(key: "medicalNotes", defaultsKey: "flows.medicalNotes") {
+        didSet { SecureStore.set(medicalNotes, for: "medicalNotes") }
     }
     private var serviceSubscriptions: Set<AnyCancellable> = []
 
