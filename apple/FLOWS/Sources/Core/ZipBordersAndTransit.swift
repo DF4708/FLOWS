@@ -101,13 +101,17 @@ actor TomTomFuel {
         let url = "https://api.tomtom.com/search/2/poiSearch/gas%20station.json"
             + "?key=\(apiKey)&lat=\(point.latitude)&lon=\(point.longitude)"
             + "&radius=500&limit=1&fuelSet=\(fuel == .diesel ? "Diesel" : "Petrol")"
+        // Only a completed, parsed response is cacheable — "no priceInfo" from
+        // a 200 is a real answer (TomTom doesn't license this station's price;
+        // cache nil). A transport failure is UNKNOWN: caching it would pin
+        // "no live price" for the 6 h TTL after one radio dropout.
+        guard let u = URL(string: url),
+              let (data, resp) = try? await ThrottledNet.fetch(u),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let results = json["results"] as? [[String: Any]] else { return nil }
         var out: Double?
-        if let u = URL(string: url),
-           let (data, resp) = try? await ThrottledNet.fetch(u),
-           (resp as? HTTPURLResponse)?.statusCode == 200,
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let results = json["results"] as? [[String: Any]],
-           let first = results.first,
+        if let first = results.first,
            let priceInfo = first["priceInfo"] as? [String: Any],
            let prices = priceInfo["fuelPrices"] as? [[String: Any]],
            let p = prices.first?["price"] as? Double {

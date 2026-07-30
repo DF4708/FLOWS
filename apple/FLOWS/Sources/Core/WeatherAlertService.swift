@@ -20,7 +20,6 @@ final class WeatherAlertService: ObservableObject {
     @Published private(set) var activeHeadlines: [String] = []
 
     private var watchTask: Task<Void, Never>?
-    private var seenAlertIDs = Set<String>()
     private let cache = AlertZoneCache()
 
     /// One NWS alert polygon, map-drawable — the corridor-scoped analog of
@@ -179,9 +178,10 @@ final class WeatherAlertService: ObservableObject {
         var eventSeen = Set<String>()
         let events = unique.compactMap { eventSeen.insert($0.event).inserted ? $0.event : nil }
 
-        let polygons: [AlertPolygon] = unique.compactMap { h in
-            guard let ring = h.polygon, ring.count >= 3 else { return nil }
-            return AlertPolygon(coordinates: ring, severity: h.severityScore, event: h.event)
+        let polygons: [AlertPolygon] = unique.flatMap { h -> [AlertPolygon] in
+            var rings = (h.polygon?.count ?? 0) >= 3 ? [h.polygon!] : []
+            rings += h.extraRings.filter { $0.count >= 3 }
+            return rings.map { AlertPolygon(coordinates: $0, severity: h.severityScore, event: h.event) }
         }.prefix(40).map { $0 }   // was 12 — clipped visible weather on long routes
 
         return CorridorScore(
@@ -220,7 +220,6 @@ final class WeatherAlertService: ObservableObject {
         onUpdate: (@MainActor (CorridorScore) -> Void)? = nil
     ) {
         watchTask?.cancel()
-        seenAlertIDs.removeAll()
         let polyline = route.route.polyline
         let spacing = 40_000.0
         let allSamples = RouteService.samplePoints(of: polyline, everyMeters: spacing)
@@ -250,6 +249,11 @@ final class WeatherAlertService: ObservableObject {
                     max(0, (base + Double($0) * spacing - w.along) * secondsPerMeter)
                 }
                 let score = await self.corridorRisk(at: windowed, arrivalOffsets: offsets)
+                // A leg swap cancels this task, but the awaited cell fetches
+                // run in the cache actor's own coalescing tasks and complete
+                // anyway — without this guard the OLD corridor's score lands
+                // on the NEW leg (stale headlines, wrong escalation baseline).
+                guard !Task.isCancelled else { return }
                 self.activeHeadlines = score.headlines
                 onUpdate?(score)
                 try? await Task.sleep(for: .seconds(max(w.cadence, 60) * AdaptiveTuning.shared.settings.ttlMultiplier))
@@ -274,6 +278,10 @@ final class WeatherAlertService: ObservableObject {
         /// (many alerts are zone-referenced with `geometry: null` — those
         /// still score, they just can't be drawn).
         let polygon: [CLLocationCoordinate2D]?
+        /// Remaining rings of a MultiPolygon alert (disjoint warned areas —
+        /// split tornado polygons, island coastal warnings). Display-only:
+        /// scoring is point-queried, but the map must tint EVERY warned area.
+        var extraRings: [[CLLocationCoordinate2D]] = []
         /// When the alert expires (imminent-alert policy: expiry within ~2 h
         /// makes an upper-yellow risk "transient" → wait it out at a rest
         /// area instead of driving into it).
@@ -392,9 +400,11 @@ final class WeatherAlertService: ObservableObject {
             let source = (props["url"] as? String).flatMap(URL.init(string:))
                 ?? URL(string: "https://weather.gc.ca/warnings/index_e.html")
             let detail = (props["descrip_en"] as? String).map { String($0.prefix(280)) }
+            let rings = Self.allRings(of: feature["geometry"] as? [String: Any])
             return NWSAlert(
                 id: id, event: event, headline: headline, severityScore: score,
-                polygon: Self.outerRing(of: feature["geometry"] as? [String: Any]),
+                polygon: rings.first,
+                extraRings: Array(rings.dropFirst()),
                 expires: expires,
                 sourceURL: source,
                 detail: detail)
@@ -434,12 +444,14 @@ final class WeatherAlertService: ObservableObject {
             // for this alert (feature id is its URL).
             let source = (feature["id"] as? String).flatMap(URL.init(string:))
             let detail = (props["description"] as? String).map { String($0.prefix(280)) }
+            let rings = Self.allRings(of: feature["geometry"] as? [String: Any])
             return NWSAlert(
                 id: id,
                 event: (props["event"] as? String) ?? headline,
                 headline: headline,
                 severityScore: score,
-                polygon: Self.outerRing(of: feature["geometry"] as? [String: Any]),
+                polygon: rings.first,
+                extraRings: Array(rings.dropFirst()),
                 expires: expires,
                 onset: onset,
                 sourceURL: source,
@@ -447,27 +459,32 @@ final class WeatherAlertService: ObservableObject {
         })
     }
 
-    /// Extract a drawable outer ring from GeoJSON Polygon/MultiPolygon,
-    /// decimated to <= 150 points (alert rings can carry thousands; the map
-    /// fill doesn't need them).
-    nonisolated private static func outerRing(of geometry: [String: Any]?) -> [CLLocationCoordinate2D]? {
-        guard let geometry, let type = geometry["type"] as? String else { return nil }
-        let ring: [[Double]]?
+    /// Extract every drawable outer ring from GeoJSON Polygon/MultiPolygon
+    /// (one per part — a MultiPolygon's later parts are warned areas too),
+    /// each decimated to <= 150 points (alert rings can carry thousands; the
+    /// map fill doesn't need them).
+    nonisolated private static func allRings(of geometry: [String: Any]?) -> [[CLLocationCoordinate2D]] {
+        guard let geometry, let type = geometry["type"] as? String else { return [] }
+        let raws: [[[Double]]]
         switch type {
         case "Polygon":
-            ring = (geometry["coordinates"] as? [[[Double]]])?.first
+            raws = (geometry["coordinates"] as? [[[Double]]])?.first.map { [$0] } ?? []
         case "MultiPolygon":
-            ring = (geometry["coordinates"] as? [[[[Double]]]])?.first?.first
+            raws = (geometry["coordinates"] as? [[[[Double]]]])?.compactMap(\.first) ?? []
         default:
-            ring = nil
+            raws = []
         }
-        guard var pts = ring, pts.count >= 3 else { return nil }
-        if pts.count > 150 {
-            let step = pts.count / 150 + 1
-            pts = stride(from: 0, to: pts.count, by: step).map { pts[$0] }
-        }
-        return pts.compactMap { c in
-            c.count >= 2 ? CLLocationCoordinate2D(latitude: c[1], longitude: c[0]) : nil
+        return raws.compactMap { raw in
+            var pts = raw
+            guard pts.count >= 3 else { return nil }
+            if pts.count > 150 {
+                let step = pts.count / 150 + 1
+                pts = stride(from: 0, to: pts.count, by: step).map { pts[$0] }
+            }
+            let ring = pts.compactMap { c in
+                c.count >= 2 ? CLLocationCoordinate2D(latitude: c[1], longitude: c[0]) : nil
+            }
+            return ring.count >= 3 ? ring : nil
         }
     }
 }
@@ -571,7 +588,7 @@ actor WMOAlertCache {
             return exp > now
         }.prefix(24)
         var out: [WeatherAlertService.NWSAlert] = []
-        await withTaskGroup(of: WeatherAlertService.NWSAlert?.self) { group in
+        await withTaskGroup(of: [WeatherAlertService.NWSAlert].self) { group in
             for item in items {
                 group.addTask {
                     guard let u = URL(string: item.link),
@@ -579,20 +596,25 @@ actor WMOAlertCache {
                           (r as? HTTPURLResponse)?.statusCode == 200,
                           let capXML = String(data: d, encoding: .utf8),
                           let cap = WMOAlertParsing.parseCAP(capXML),
-                          !cap.polygon.isEmpty else { return nil }
-                    return WeatherAlertService.NWSAlert(
-                        id: item.link,
-                        event: cap.event,
-                        headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
-                        severityScore: WeatherAlertService.severityScore(cap.severity),
-                        polygon: cap.polygon,
-                        expires: cap.expires.flatMap { capDate.date(from: $0) },
-                        onset: cap.effective.flatMap { capDate.date(from: $0) },
-                        sourceURL: cap.web.flatMap(URL.init(string:)) ?? URL(string: item.link),
-                        detail: cap.description)
+                          !cap.polygons.isEmpty else { return [] }
+                    // One NWSAlert per ring, SAME id: a multi-area alert warns
+                    // every ring it covers, while corridor coverage still
+                    // groups the rings as one alert (dedupe is by id).
+                    return cap.polygons.map { ring in
+                        WeatherAlertService.NWSAlert(
+                            id: item.link,
+                            event: cap.event,
+                            headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
+                            severityScore: WeatherAlertService.severityScore(cap.severity),
+                            polygon: ring,
+                            expires: cap.expires.flatMap { capDate.date(from: $0) },
+                            onset: cap.effective.flatMap { capDate.date(from: $0) },
+                            sourceURL: cap.web.flatMap(URL.init(string:)) ?? URL(string: item.link),
+                            detail: cap.description)
+                    }
                 }
             }
-            for await hit in group { if let hit { out.append(hit) } }
+            for await hits in group { out.append(contentsOf: hits) }
         }
         return out
     }

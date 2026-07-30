@@ -78,7 +78,12 @@ enum WMOAlertParsing {
     struct ParsedCAP {
         let event: String
         let severity: String
-        let polygon: [CLLocationCoordinate2D]
+        /// EVERY <polygon> in the CAP, one ring each — an alert can span
+        /// disjoint areas (<area> blocks / multiple polygons per area), and a
+        /// driver inside the second ring is just as warned as one in the first.
+        let polygons: [[CLLocationCoordinate2D]]
+        /// First ring, for callers that only need one (tests, previews).
+        var polygon: [CLLocationCoordinate2D] { polygons.first ?? [] }
         let areaDesc: String?
         let expires: String?
         let effective: String?
@@ -104,16 +109,25 @@ enum WMOAlertParsing {
             return String(xml[s.upperBound..<e.lowerBound])
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        // A ring needs ≥3 vertices to enclose area. compactMap can silently drop
-        // garbled coordinate pairs below that; treat a sub-3-point result as NO
-        // polygon so the caller's `!polygon.isEmpty` check rejects it, rather than
-        // storing an alert that point-in-polygon can never match (un-locatable).
-        let parsed = tag("polygon").map(polygonCoords) ?? []
-        let poly = parsed.count >= 3 ? parsed : []
+        // ALL <polygon> occurrences, not just the first — CAP allows several
+        // <area> blocks each with polygons, and services like SMN emit them
+        // for warnings spanning disjoint regions. A ring needs ≥3 vertices to
+        // enclose area; garbled sub-3-point rings are dropped (un-locatable),
+        // so an alert with only garbled rings ends up with no polygons and the
+        // caller's emptiness check rejects it.
+        var rings: [[CLLocationCoordinate2D]] = []
+        var search = xml[xml.startIndex...]
+        while let s = search.range(of: "<polygon>"),
+              let e = search.range(of: "</polygon>", range: s.upperBound..<search.endIndex) {
+            let ring = polygonCoords(String(search[s.upperBound..<e.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines))
+            if ring.count >= 3 { rings.append(ring) }
+            search = search[e.upperBound...]
+        }
         return ParsedCAP(
             event: tag("event") ?? "Weather alert",
             severity: tag("severity") ?? "Moderate",
-            polygon: poly,
+            polygons: rings,
             areaDesc: tag("areaDesc"),
             expires: tag("expires"),
             effective: tag("effective") ?? tag("onset"),

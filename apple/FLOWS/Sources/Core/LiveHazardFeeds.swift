@@ -650,7 +650,7 @@ actor LiveHazardFeedFetcher {
         }
         if !uncached.isEmpty {
             let results = await withTaskGroup(
-                of: (String, CLLocationCoordinate2D, Bool)?.self
+                of: (String, CLLocationCoordinate2D, Bool?)?.self
             ) { group in
                 for (key, p) in uncached {
                     group.addTask { (key, p, await Self.nhdWaterNear(p)) }
@@ -660,7 +660,7 @@ actor LiveHazardFeedFetcher {
                     try? await Task.sleep(nanoseconds: 6_000_000_000)
                     return nil
                 }
-                var done: [(String, CLLocationCoordinate2D, Bool)] = []
+                var done: [(String, CLLocationCoordinate2D, Bool?)] = []
                 for await r in group {
                     guard let r else { group.cancelAll(); break }   // deadline
                     done.append(r)
@@ -669,6 +669,10 @@ actor LiveHazardFeedFetcher {
                 return done
             }
             for (key, p, near) in results {
+                // nil = the NHD lookup itself failed — never cache a failure
+                // as "no water nearby" (24 h TTL would suppress the flood
+                // amplifier beside a real river); the next scoring pass retries.
+                guard let near else { continue }
                 waterCache[key] = (Date(), near)
                 if near { out.append(p) }
             }
@@ -679,8 +683,10 @@ actor LiveHazardFeedFetcher {
 
     /// One keyless NHD count query: is a river (layer 4) or lake (layer 10)
     /// within 800 m? Small-scale layers keep the query fast at corridor zoom.
-    private static func nhdWaterNear(_ p: CLLocationCoordinate2D) async -> Bool {
-        func count(layer: Int, meters: Int) async -> Int {
+    /// nil = the count query failed (unknown); false = NHD confirmed nothing
+    /// within range. Callers must not cache nil.
+    private static func nhdWaterNear(_ p: CLLocationCoordinate2D) async -> Bool? {
+        func count(layer: Int, meters: Int) async -> Int? {
             let base = "https://hydro.nationalmap.gov/arcgis/rest/services/nhd/MapServer/\(layer)/query"
             let q = "?geometry=\(p.longitude),\(p.latitude)&geometryType=esriGeometryPoint"
                 + "&inSR=4326&spatialRel=esriSpatialRelIntersects&distance=\(meters)"
@@ -689,11 +695,13 @@ actor LiveHazardFeedFetcher {
                   let (data, resp) = try? await ThrottledNet.fetch(u),
                   (resp as? HTTPURLResponse)?.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let n = json["count"] as? Int else { return 0 }
+                  let n = json["count"] as? Int else { return nil }
             return n
         }
-        if await count(layer: 4, meters: 500) > 0 { return true }   // river/stream
-        return await count(layer: 10, meters: 800) > 0              // lake/reservoir
+        guard let rivers = await count(layer: 4, meters: 500) else { return nil }
+        if rivers > 0 { return true }                                // river/stream
+        guard let lakes = await count(layer: 10, meters: 800) else { return nil }
+        return lakes > 0                                             // lake/reservoir
     }
 
     // MARK: volcanic — USGS HANS elevated volcanoes (US live status), 30-min TTL
@@ -1047,7 +1055,13 @@ actor LiveHazardFeedFetcher {
         }
         airInFlight[key] = task
         let (aqi, uv) = await task.value
-        airCells[key] = AirCell(aqi: aqi, uv: uv, fetched: Date())
+        // Double-nil means both fetches failed, not "no air/UV data here"
+        // (Open-Meteo coverage is global) — leave the cell uncached so the
+        // next call retries instead of serving "clear" through a smoke plume
+        // for the 30-min TTL.
+        if aqi != nil || uv != nil {
+            airCells[key] = AirCell(aqi: aqi, uv: uv, fetched: Date())
+        }
         airInFlight[key] = nil
         if airCells.count > 200 { CacheEviction.dropOldestHalf(&airCells) { $0.fetched } }
         return (aqi, uv)
