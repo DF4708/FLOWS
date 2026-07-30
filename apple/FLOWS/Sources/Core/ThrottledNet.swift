@@ -27,7 +27,7 @@ enum ThrottledNet {
         cfg.timeoutIntervalForResource = 30
         cfg.httpMaximumConnectionsPerHost = 3
         cfg.waitsForConnectivity = true
-        cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (davidfoster4708@gmail.com)"]
+        cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
         return URLSession(configuration: cfg)
     }()
 

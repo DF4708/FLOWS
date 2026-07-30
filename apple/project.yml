@@ -49,8 +49,13 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSExceptionDomains:
-            weatherusa.net:
-              NSIncludesSubdomains: true
+            # NOAA Weather Radio audio relays only (TruckerRadio streams).
+            # Scoped to the radio host — the directory page on www stays under
+            # full ATS (a failed scrape falls back to the bundled station
+            # list). TLS 1.2 still required; only forward secrecy is waived,
+            # and no location or personal data ever goes to this host.
+            radio.weatherusa.net:
+              NSIncludesSubdomains: false
               NSExceptionRequiresForwardSecrecy: false
               NSExceptionMinimumTLSVersion: TLSv1.2
         NSLocationWhenInUseUsageDescription: >-
@@ -149,8 +154,13 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSAppTransportSecurity:
           NSExceptionDomains:
-            weatherusa.net:
-              NSIncludesSubdomains: true
+            # NOAA Weather Radio audio relays only (TruckerRadio streams).
+            # Scoped to the radio host — the directory page on www stays under
+            # full ATS (a failed scrape falls back to the bundled station
+            # list). TLS 1.2 still required; only forward secrecy is waived,
+            # and no location or personal data ever goes to this host.
+            radio.weatherusa.net:
+              NSIncludesSubdomains: false
               NSExceptionRequiresForwardSecrecy: false
               NSExceptionMinimumTLSVersion: TLSv1.2
         NSLocationUsageDescription: >-

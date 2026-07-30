@@ -105,7 +105,7 @@ let session: URLSession = {
     let cfg = URLSessionConfiguration.default
     cfg.timeoutIntervalForRequest = 10
     cfg.httpAdditionalHeaders = [
-        "User-Agent": "FLOWS (davidfoster4708@gmail.com)",
+        "User-Agent": "FLOWS (wizeman555@gmail.com)",
         "Accept": "application/geo+json",
     ]
     return URLSession(configuration: cfg)

@@ -3,7 +3,7 @@
 _Effective: July 5, 2026_
 
 FLOWS is a weather-aware navigation app for North America, developed by
-David B. Foster (contact: davidfoster4708@gmail.com).
+David B. Foster (contact: wizeman555@gmail.com).
 
 ## What FLOWS collects — and where it stays
 
@@ -16,9 +16,14 @@ device and stored only on your device:
   (Apple Maps routing/search, NWS/ECCC/SMN weather, USGS elevation and
   earthquakes, NOAA fire data, OpenStreetMap Overpass, Open-Meteo, EPA
   fueleconomy.gov, RainViewer radar tiles — each per its own policy).
-- **Vehicle profile, favorites, trip settings, emergency contact, medical
-  notes** — stored in the app's local preferences on your device only.
-  Medical notes appear only in the crash-report message YOU send.
+  Trucker mode's NOAA Weather Radio streams come from weatherusa.net's
+  public relays (radio.weatherusa.net); no location or personal data is
+  sent to that host — the app only downloads the audio stream.
+- **Vehicle profile, favorites, trip settings, emergency contact** —
+  stored in the app's local preferences on your device only.
+- **Medical notes and connected-account secrets** — stored in the device
+  Keychain (never synced, never included in backups). Medical notes appear
+  only in the crash-report message YOU send.
 - **Bluetooth tire/fuel data** — read from your own sensors/adapter,
   processed on device, never transmitted.
 - **Connected-vehicle accounts (Smartcar or OEM)** — optional. OAuth tokens

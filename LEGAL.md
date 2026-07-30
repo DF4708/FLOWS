@@ -38,13 +38,13 @@ Any third-party names, marks, code, libraries, frameworks, media, or other mater
 
 The names, product names, mascots, logos, icons, and branding elements associated with this project, including **FLOWS** and related visual identifiers, are reserved for use by **David B. Foster** unless explicitly licensed in writing.
 
-## Recommended operational follow-up
+## Copyright registration
 
-For stronger protection and enforcement posture, consider:
-
-1. replacing all placeholders in this file and in your file headers;
-2. preserving authorship records and dated copies of major revisions;
-3. registering eligible works with the U.S. Copyright Office where appropriate, since registration is not automatic and may be necessary to enforce rights in court for U.S. works.
+Registration with the U.S. Copyright Office is not automatic and may be
+required before enforcing rights in court for U.S. works (17 U.S.C. § 411(a));
+timely registration also preserves statutory-damages and attorney's-fee
+remedies (17 U.S.C. § 412). Authorship records and dated copies of major
+revisions are preserved by the project's version-control history.
 
 ## Not legal advice
 
