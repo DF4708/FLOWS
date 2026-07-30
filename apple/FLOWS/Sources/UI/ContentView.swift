@@ -2049,13 +2049,30 @@ struct SettingsSheet: View {
             Text("Data sources & refresh")
                 .font(.system(size: 14, weight: .semibold))
             Text("Weather alerts: NWS api.weather.gov — live, re-checked every "
-                 + "4 min while driving. Risk field: FLOWS R engine export (see "
-                 + "generated time in Map Filter). Elevation/grades: USGS EPQS, "
-                 + "fetched per plan, cached. Low bridges: OpenStreetMap maxheight "
-                 + "via Overpass, per plan. Floodplain: FEMA NFHL zones, per plan. "
+                 + "4 min while driving. Risk field: FLOWS 20-year NOAA Storm "
+                 + "Events climatology baseline (see generated time in Map Filter). "
+                 + "Elevation/grades: USGS EPQS, fetched per plan, cached. Low "
+                 + "bridges: OpenStreetMap maxheight via Overpass, per plan. "
+                 + "Floodplain: FEMA NFHL zones, per plan. "
                  + "Unknown data never excludes a route.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Divider()
+            Text("Attribution & licenses")
+                .font(.system(size: 14, weight: .semibold))
+            Text("Places (fuel, food, lodging, medical, transit): Foursquare "
+                 + "Open Source Places, © Foursquare Labs, Inc., licensed under "
+                 + "Apache License 2.0.\n"
+                 + "Low-bridge clearances and water features: © OpenStreetMap "
+                 + "contributors, available under the Open Database License (ODbL) "
+                 + "— openstreetmap.org/copyright.\n"
+                 + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
+                 + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
+                 + "data. FLOWS is not affiliated with any of these agencies.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
         }
         .padding(20)
         }
