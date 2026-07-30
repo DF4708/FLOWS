@@ -717,7 +717,11 @@ final class AppModel: ObservableObject {
     /// includes a toll-free variant up front when that filter is already on.
     func plan(from: CLLocationCoordinate2D, fromName: String,
               to: CLLocationCoordinate2D, toName: String) async throws -> [PlannedRoute] {
-        lastPlanEndpoints = (from, fromName, to, toName)
+        // Commit lastPlanEndpoints only when a plan actually lands (below).
+        // Setting it up front meant a throw/empty result left the app still
+        // showing the OLD A→B routes while lastPlanEndpoints pointed at the
+        // NEW destination — a later filter toggle then appended routes to the
+        // wrong destination into the visible list.
         let routes = try await router.planRoutes(
             from: from, fromName: fromName, to: to, toName: toName,
             includeTollFree: routeFilters.contains(.noTolls),
@@ -754,9 +758,11 @@ final class AppModel: ObservableObject {
                 : "Beyond the pedestrian router's range — WALKING ESTIMATE along "
                     + "LOCAL ROADS only (3.1 mph pace): verify sidewalk/shoulder "
                     + "availability before setting out."
+            if !estimates.isEmpty { lastPlanEndpoints = (from, fromName, to, toName) }
             return estimates
         }
         plannerNotice = nil
+        if !routes.isEmpty { lastPlanEndpoints = (from, fromName, to, toName) }
         return routes
     }
 

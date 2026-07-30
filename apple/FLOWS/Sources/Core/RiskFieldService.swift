@@ -121,10 +121,16 @@ final class RiskFieldService: ObservableObject {
         // the candidate — hoist it out of the ~90-entry neighbourhood scan.
         // Same value, computed once → byte-identical.
         let cosLat = cos(coord.latitude * .pi / 180)
-        // 5×5 of 0.2° cells covers the full 0.27° cutoff (3×3 only reached
-        // 0.2°, silently missing centroids in the 0.2–0.27° shell).
-        for dy in -2...2 {
-            for dx in -2...2 {
+        // The 0.27° cutoff is applied to COS-SCALED longitude, so the RAW
+        // longitude reach it needs is 0.27/cosLat degrees — which exceeds the
+        // ±0.4° that ±2 cells of 0.2° give above ~47.5°N. A fixed ±2 window
+        // silently missed ZIPs in Alaska/high-latitude Canada. Widen the
+        // longitude half-window with latitude; ±2 for latitude is enough
+        // (0.27/0.2 ≈ 1.35). Clamped so a near-pole query can't blow up.
+        let dyMax = 2
+        let dxMax = min(6, max(2, Int((0.27 / max(cosLat, 0.15) / 0.2).rounded(.up))))
+        for dy in -dyMax...dyMax {
+            for dx in -dxMax...dxMax {
                 for idx in grid[Self.cellKey(cy + dy, cx + dx)] ?? [] {
                     let e = entries[idx]
                     let dLat = e.centroid.latitude - coord.latitude
