@@ -31,6 +31,15 @@ struct ContentView: View {
     /// Navigation camera mode: follows GPS until the user pans; a re-center
     /// button restores following (Apple/Google Maps behavior).
     @State private var cameraFollows = true
+    /// Stable identity for the reach-circle tick: built inline, the publisher
+    /// was recreated (and its 30 s countdown restarted) on every re-render —
+    /// at ~1 Hz GPS ticks it never fired at all.
+    @State private var redAlertTimer = Timer.publish(
+        every: 30, tolerance: 5, on: .main, in: .common).autoconnect()
+    /// Last settled camera heading (deg). A pan during navigation KEEPS the
+    /// camera's heading-up rotation — the marker must rotate relative to the
+    /// world's rotation, not assume a panned camera is north-up.
+    @State private var cameraHeading: Double = 0
     /// Set while THIS view moves the camera, so onMapCameraChange can tell
     /// our animations from the user's gestures.
     @State private var programmaticCameraMove = Date.distantPast
@@ -83,7 +92,11 @@ struct ContentView: View {
             for i in 0..<ring.count {
                 let a = ring[i], b = ring[(i + 1) % ring.count]
                 let ka = a.latitude + a.longitude, kb = b.latitude + b.longitude
-                if (ka - k) * (kb - k) < 0 {                 // edge strictly crosses
+                // Half-open (<= vs >), not a strict sign test: a vertex lying
+                // EXACTLY on the scan line must count as one crossing, not
+                // zero from both incident edges — an odd hit count shifts the
+                // even-odd pairing and paints stripes outside a concave ring.
+                if (ka <= k) != (kb <= k) {
                     let t = (k - ka) / (kb - ka)
                     hits.append(CLLocationCoordinate2D(
                         latitude: a.latitude + t * (b.latitude - a.latitude),
@@ -758,8 +771,10 @@ struct ContentView: View {
             return ("car.fill", .blue)
         }()
         // Heading-up camera already rotates the WORLD to the course — rotating
-        // the marker again pointed it wrong by 2×course. Only rotate on a
-        // north-up (free) camera.
+        // the marker again pointed it wrong by 2×course. On a free camera,
+        // rotate by course MINUS the retained camera heading: a pan mid-drive
+        // keeps the heading-up world, so assuming north-up re-created the
+        // double-rotation this comment warns about.
         let rotate = model.mode == .navigating && model.location.course >= 0
             && !cameraFollows
         return Image(systemName: symbol)
@@ -770,7 +785,7 @@ struct ContentView: View {
             .clipShape(Circle())
             .overlay(Circle().stroke(.white, lineWidth: 2.5))
             .shadow(radius: 3)
-            .rotationEffect(.degrees(rotate ? model.location.course : 0))
+            .rotationEffect(.degrees(rotate ? model.location.course - cameraHeading : 0))
     }
 
     /// Which itinerary leg the traveler is currently ON: nearest leg polyline
@@ -844,8 +859,7 @@ struct ContentView: View {
                 if model.imminentWarning?.incidentCoordinate != nil {
                     Color.clear
                         .allowsHitTesting(false)
-                        .onReceive(Timer.publish(every: 30, tolerance: 5,
-                                                 on: .main, in: .common).autoconnect()) { _ in
+                        .onReceive(redAlertTimer) { _ in
                             redAlertTick += 1   // grow the reach circle
                         }
                 }
@@ -1141,6 +1155,7 @@ struct ContentView: View {
         })
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
+            cameraHeading = context.camera.heading
             refreshViewportHazards(context.region)
 
             // A camera settle we didn't initiate while navigating = the user
@@ -1190,7 +1205,8 @@ struct ContentView: View {
             }
         }
         ForEach(Array(risky.enumerated()), id: \.offset) { i, sample in
-            if corridorAreaRouteID != route.id || !corridorCoveredSamples.contains(i) {
+            if corridorAreaRouteID != route.id
+                || !corridorCoveredSamples.contains(Self.sampleKey(sample.coordinate)) {
                 MapCircle(center: sample.coordinate, radius: 18_000)
                     .foregroundStyle(corridorKind(sample).color.opacity(0.18))
                     .stroke(corridorKind(sample).color.opacity(0.6), lineWidth: 1.5)
@@ -1368,19 +1384,26 @@ struct ContentView: View {
     }
     @State private var corridorAreas: [CorridorHazardArea] = []
     @State private var corridorAreaRouteID: UUID?
-    @State private var corridorCoveredSamples: Set<Int> = []
+    /// Keyed by sample COORDINATE, not the filtered enumeration offset —
+    /// the display floor changes with walking mode, which shifts the filtered
+    /// index space and made offset-keyed coverage suppress the WRONG circles.
+    @State private var corridorCoveredSamples: Set<String> = []
+
+    private static func sampleKey(_ c: CLLocationCoordinate2D) -> String {
+        "\(c.latitude)|\(c.longitude)"
+    }
     @State private var corridorBadges: [BadgeClustering.Item<HazardKind>] = []
 
     private func rebuildCorridorAreas(for route: PlannedRoute) async {
         // Index space = the FILTERED list, matching the renderer's enumeration.
         let risky = route.riskSamples.filter { $0.risk >= model.riskDisplayFloor }
         var areas: [CorridorHazardArea] = []
-        var covered: Set<Int> = []
+        var covered: Set<String> = []
         var seenCodes: Set<String> = []
-        for (idx, sample) in risky.enumerated().prefix(20) {
+        for sample in risky.prefix(20) {
             guard let z = await ZCTAFetcher.shared.zcta(containing: sample.coordinate)
             else { continue }
-            covered.insert(idx)
+            covered.insert(Self.sampleKey(sample.coordinate))
             guard seenCodes.insert(z.code).inserted else { continue }
             areas.append(CorridorHazardArea(
                 id: z.code, ring: z.ring, kind: corridorKind(sample)))
@@ -2449,8 +2472,25 @@ struct VehicleEditorSheet: View {
             .onChange(of: epaYear) { _, y in
                 vehicleYear = y
                 Task {
-                    epaMakes = await EPAVehicleDatabase.shared.makes(year: y)
-                    epaMake = epaMakes.first ?? ""
+                    let makes = await EPAVehicleDatabase.shared.makes(year: y)
+                    // Commit only if this fetch still matches the picker (two
+                    // quick changes race; the slower stale one must lose).
+                    guard y == epaYear else { return }
+                    epaMakes = makes
+                    let make = makes.contains(epaMake) ? epaMake : (makes.first ?? "")
+                    // Refetch models even when the make NAME is unchanged —
+                    // onChange won't fire for an equal value, and make lists
+                    // are near-identical across years, so 2024's models would
+                    // silently stand in for 2025's (applyEPA then keeps the
+                    // previous vehicle's specs behind a new label).
+                    if make == epaMake {
+                        let models = await EPAVehicleDatabase.shared.models(year: y, make: make)
+                        guard y == epaYear, make == epaMake else { return }
+                        epaModels = models
+                        epaModel = models.first ?? ""
+                    } else {
+                        epaMake = make
+                    }
                 }
             }
             Picker("Make", selection: $epaMake) {
@@ -2459,8 +2499,10 @@ struct VehicleEditorSheet: View {
             .labelsHidden()
             .onChange(of: epaMake) { _, m in
                 Task {
-                    epaModels = await EPAVehicleDatabase.shared.models(year: epaYear, make: m)
-                    epaModel = epaModels.first ?? ""
+                    let models = await EPAVehicleDatabase.shared.models(year: epaYear, make: m)
+                    guard m == epaMake else { return }   // superseded by a newer tap
+                    epaModels = models
+                    epaModel = models.first ?? ""
                 }
             }
             Picker("Model", selection: $epaModel) {

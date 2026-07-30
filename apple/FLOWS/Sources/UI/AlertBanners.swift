@@ -269,7 +269,14 @@ struct GaugeDial: View {
                 DragGesture(minimumDistance: 0).onChanged { value in
                     let dx = value.location.x - center.x
                     let dy = center.y - value.location.y
-                    let angle = atan2(dy, dx)          // 0 = right, π = left
+                    // A finger drifting BELOW the baseline gets a negative
+                    // angle near -pi, which `1 - angle/pi` maps to ~2 — the
+                    // needle snapped from Empty to Full (and fed the refuel
+                    // learning a reading at the wrong end of the scale).
+                    // Clamp to the semicircle by the finger's SIDE instead.
+                    let angle = dy >= 0
+                        ? atan2(dy, dx)                // 0 = right, π = left
+                        : (dx >= 0 ? 0 : .pi)          // below baseline → nearest end
                     let f = 1 - angle / .pi
                     fraction = min(max(f, 0), 1)
                 }

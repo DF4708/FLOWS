@@ -1658,6 +1658,25 @@ mod tests {
         assert_eq!(stats2.unchanged, 1);
     }
 
+    // ---- a bad score token fails the merge instead of shifting families
+    #[test]
+    fn unparseable_score_tokens_fail_the_merge() {
+        // Dropping the null would slide 0.55 from heat into winter.
+        let src = concat!(
+            "{\"families\":[\"wind\",\"winter\",\"heat\"],\"zips\":[",
+            "{\"z\":\"55401\",\"c\":[0,0],\"s\":[0.4,null,0.55]}]}"
+        );
+        let lookup = |_z: &str, _w: u32, _f: usize| 0.0;
+        let err = match rebuild_bundle(src, 0, &lookup) {
+            Err(e) => e,
+            Ok(_) => panic!("a null score token must fail the merge"),
+        };
+        assert!(err.contains("unparseable score token"), "got: {err}");
+        // An empty "s" (and a missing one) is still fine: it pads with zeros.
+        let empty = "{\"families\":[\"wind\"],\"zips\":[{\"z\":\"55401\",\"c\":[0,0],\"s\":[]}]}";
+        assert!(rebuild_bundle(empty, 0, &lookup).is_ok());
+    }
+
     // ---- unchanged national entries survive byte-identically
     #[test]
     fn untouched_national_entries_are_byte_identical() {
@@ -1760,5 +1779,20 @@ mod tests {
         assert_eq!(zctas[i as usize].zip, "90210");
         // far away from everything within the ring budget -> None
         assert!(grid.nearest(&zctas, 60.0, -150.0, 5).is_none());
+    }
+
+    #[test]
+    fn grid_nearest_expands_past_the_first_occupied_ring() {
+        // Event at the NE corner of its cell; centroid A shares the cell
+        // (ring 0) at the far SW corner (~0.28 deg), centroid B sits two
+        // rings north at only ~0.20 deg. A first-hit-plus-one-ring cutoff
+        // would return A; the true nearest is B.
+        let zctas = vec![
+            Zcta { zip: "00001".into(), lat: 0.001, lon: 0.001 },
+            Zcta { zip: "00002".into(), lat: 0.401, lon: 0.199 },
+        ];
+        let grid = ZipGrid::build(&zctas);
+        let i = grid.nearest(&zctas, 0.199, 0.199, 10).expect("hit");
+        assert_eq!(zctas[i as usize].zip, "00002");
     }
 }

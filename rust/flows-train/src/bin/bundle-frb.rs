@@ -79,14 +79,21 @@ impl Json {
     }
 }
 
+/// Nesting ceiling: value() recurses through array()/object(), so parse depth
+/// is bounded by the thread stack. A real bundle nests 4 deep; a corrupt or
+/// crafted file of repeated '[' must get the clean parse-error contract, not
+/// a stack-overflow abort.
+const MAX_DEPTH: u32 = 512;
+
 struct Parser<'a> {
     b: &'a [u8],
     i: usize,
+    depth: u32,
 }
 
 impl<'a> Parser<'a> {
     fn new(text: &'a str) -> Self {
-        Parser { b: text.as_bytes(), i: 0 }
+        Parser { b: text.as_bytes(), i: 0, depth: 0 }
     }
 
     fn err(&self, msg: &str) -> String {
@@ -225,10 +232,15 @@ impl<'a> Parser<'a> {
 
     fn array(&mut self) -> Result<Json, String> {
         self.eat(b'[', "expected [")?;
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return Err(self.err("nesting too deep"));
+        }
         let mut out = Vec::new();
         self.ws();
         if self.peek() == Some(b']') {
             self.i += 1;
+            self.depth -= 1;
             return Ok(Json::Arr(out));
         }
         loop {
@@ -240,6 +252,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(b']') => {
                     self.i += 1;
+                    self.depth -= 1;
                     return Ok(Json::Arr(out));
                 }
                 _ => return Err(self.err("expected , or ]")),
@@ -249,10 +262,15 @@ impl<'a> Parser<'a> {
 
     fn object(&mut self) -> Result<Json, String> {
         self.eat(b'{', "expected {")?;
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return Err(self.err("nesting too deep"));
+        }
         let mut out = Vec::new();
         self.ws();
         if self.peek() == Some(b'}') {
             self.i += 1;
+            self.depth -= 1;
             return Ok(Json::Obj(out));
         }
         loop {
@@ -269,6 +287,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(b'}') => {
                     self.i += 1;
+                    self.depth -= 1;
                     return Ok(Json::Obj(out));
                 }
                 _ => return Err(self.err("expected , or }")),
@@ -514,6 +533,20 @@ mod tests {
         assert_eq!(u16::from_le_bytes(b[o..o + 2].try_into().unwrap()), 3);
         o += 2 + 3 * 16;
         assert_eq!(o, b.len());
+    }
+
+    #[test]
+    fn deeply_nested_input_errors_instead_of_overflowing() {
+        // ~100k unclosed '[' would blow the thread stack without the depth
+        // ceiling; it must get the same clean error contract as any other
+        // malformed input.
+        let deep = "[".repeat(100_000);
+        assert!(parse_json(&deep).is_err());
+        let deep_obj = "{\"k\":".repeat(100_000);
+        assert!(parse_json(&deep_obj).is_err());
+        // Sane nesting still parses.
+        let shallow = "[[[[[[[[[[0]]]]]]]]]]";
+        assert!(parse_json(shallow).is_ok());
     }
 
     #[test]
