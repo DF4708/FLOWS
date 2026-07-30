@@ -239,7 +239,16 @@ final class WeatherAlertService: ObservableObject {
                 let lo = Int(min(max(w.along / spacing, 0), maxIdx))
                 let hi = Int(min(max((w.along + w.lookahead) / spacing + 1, 0), maxIdx))
                 let windowed = lo <= hi ? Array(allSamples[lo...hi]) : allSamples
-                let offsets = (0..<windowed.count).map { Double($0) * spacing * secondsPerMeter }
+                // Offsets are time-to-reach from the VEHICLE, not the window
+                // start: windowed[i] is at (lo+i)*spacing along the route while
+                // the vehicle is at w.along. Measuring from windowed[0]
+                // overstated every offset by up to a full lookahead (~25 min),
+                // discounting alerts that expire in that window as if the
+                // driver arrived far later than they will.
+                let base = lo <= hi ? Double(lo) * spacing : 0
+                let offsets = (0..<windowed.count).map {
+                    max(0, (base + Double($0) * spacing - w.along) * secondsPerMeter)
+                }
                 let score = await self.corridorRisk(at: windowed, arrivalOffsets: offsets)
                 self.activeHeadlines = score.headlines
                 onUpdate?(score)
@@ -331,7 +340,10 @@ final class WeatherAlertService: ObservableObject {
     /// whose polygon contains this point.
     nonisolated private func wmoAlerts(at point: CLLocationCoordinate2D) async -> [NWSAlert]? {
         guard let code = WMOAlertParsing.feedCode(for: point) else { return nil }
-        let all = await WMOAlertCache.shared.alerts(code: code)
+        // nil = the RSS index fetch itself failed (unknown), NOT an all-clear —
+        // propagate it so the corridor's `complete` flag stays false and GO
+        // can't unlock on a false "no alerts" during a WMO-region blip.
+        guard let all = await WMOAlertCache.shared.alerts(code: code) else { return nil }
         return all.filter { alert in
             alert.polygon.map { HazardFeedScores.pointInPolygon(point, $0) } ?? false
         }
@@ -511,7 +523,7 @@ actor WMOAlertCache {
     static let shared = WMOAlertCache()
     private struct Entry { let fetched: Date; let alerts: [WeatherAlertService.NWSAlert] }
     private var byCode: [String: Entry] = [:]
-    private var inFlight: [String: Task<[WeatherAlertService.NWSAlert], Never>] = [:]
+    private var inFlight: [String: Task<[WeatherAlertService.NWSAlert]?, Never>] = [:]
 
     // ISO8601DateFormatter is thread-safe (post-iOS 10) so the concurrent CAP
     // tasks can share it; the RFC822 parser is used only in the serial filter.
@@ -523,26 +535,29 @@ actor WMOAlertCache {
         f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"; return f
     }()
 
-    func alerts(code: String) async -> [WeatherAlertService.NWSAlert] {
+    /// nil = the RSS index fetch/parse failed (unknown); [] = a genuine
+    /// all-clear. Failures are NOT cached — the next call retries — so a
+    /// blip can't pin "no alerts" for the TTL and defeat the GO gate.
+    func alerts(code: String) async -> [WeatherAlertService.NWSAlert]? {
         if let e = byCode[code], Date().timeIntervalSince(e.fetched) < AdaptiveTuning.shared.ttl(600) { return e.alerts }
         if let t = inFlight[code] { return await t.value }
-        let task = Task<[WeatherAlertService.NWSAlert], Never> {
+        let task = Task<[WeatherAlertService.NWSAlert]?, Never> {
             await Self.fetch(code: code)
         }
         inFlight[code] = task
         let result = await task.value
-        byCode[code] = Entry(fetched: Date(), alerts: result)
+        if let result { byCode[code] = Entry(fetched: Date(), alerts: result) }
         inFlight[code] = nil
         return result
     }
 
     private static func fetch(
         code: String
-    ) async -> [WeatherAlertService.NWSAlert] {
+    ) async -> [WeatherAlertService.NWSAlert]? {
         guard let rss = WMOAlertParsing.rssURL(code: code),
               let (data, resp) = try? await ThrottledNet.fetch(rss),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let xml = String(data: data, encoding: .utf8) else { return [] }
+              let xml = String(data: data, encoding: .utf8) else { return nil }
         let now = Date()
         let items = WMOAlertParsing.parseRSSItems(xml).filter { item in
             // CAP `cap:expires` is ISO8601 (2026-07-06T18:00:00-06:00), so try the

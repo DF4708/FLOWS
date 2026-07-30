@@ -535,6 +535,10 @@ actor LiveHazardFeedFetcher {
     ) async -> [[CLLocationCoordinate2D]] {
         let key = "\(Int(minLat * 4))|\(Int(minLon * 4))|\(Int(maxLat * 4))|\(Int(maxLon * 4))"
         if let c = firePerimCache[key], Date().timeIntervalSince(c.0) < AdaptiveTuning.shared.ttl(1800) { return c.1 }
+        // Stale perimeters to fall back on if this refresh fails — a fire
+        // does not vanish because one ArcGIS request timed out. Captured
+        // before any eviction below.
+        let stale = firePerimCache[key]?.1
         let base = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/"
             + "WFIGS_Interagency_Perimeters/FeatureServer/0/query"
         var comps = URLComponents(string: base)
@@ -572,9 +576,12 @@ actor LiveHazardFeedFetcher {
                 }
             }
             firePerimCache[key] = (Date(), rings)
+            if firePerimCache.count > 40 { CacheEviction.dropOldestHalf(&firePerimCache) { $0.0 } }
+            return rings
         }
-        if firePerimCache.count > 40 { CacheEviction.dropOldestHalf(&firePerimCache) { $0.0 } }
-        return rings
+        // Fetch failed: keep the still-active perimeters (timestamp untouched
+        // so the next call retries) rather than reporting "no fire".
+        return stale ?? rings
     }
 
     // MARK: flood — NWS/NWPS river gauges at flood stage, viewport TTL
@@ -587,6 +594,9 @@ actor LiveHazardFeedFetcher {
     ) async -> [(lat: Double, lon: Double, category: String)] {
         let key = "\(Int(minLat * 4))|\(Int(minLon * 4))|\(Int(maxLat * 4))|\(Int(maxLon * 4))"
         if let c = floodCache[key], Date().timeIntervalSince(c.0) < AdaptiveTuning.shared.ttl(900) { return c.1 }
+        // A gauge at major flood stage is a Red-capable realized primary;
+        // keep the last-known readings if this refresh fails.
+        let stale = floodCache[key]?.1
         let url = "https://api.water.noaa.gov/nwps/v1/gauges?bbox.xmin=\(minLon)"
             + "&bbox.ymin=\(minLat)&bbox.xmax=\(maxLon)&bbox.ymax=\(maxLat)&srid=EPSG_4326"
         var out: [(lat: Double, lon: Double, category: String)] = []
@@ -604,9 +614,10 @@ actor LiveHazardFeedFetcher {
                 out.append((lat, lon, cat))
             }
             floodCache[key] = (Date(), out)
+            if floodCache.count > 40 { CacheEviction.dropOldestHalf(&floodCache) { $0.0 } }
+            return out
         }
-        if floodCache.count > 40 { CacheEviction.dropOldestHalf(&floodCache) { $0.0 } }
-        return out
+        return stale ?? out
     }
 
     // MARK: hydrography — USGS NHD rivers/lakes proximity (keyless), 24-h TTL
@@ -733,12 +744,19 @@ actor LiveHazardFeedFetcher {
 
     // MARK: avalanche — Avalanche.org (US polygons) + Avalanche Canada (bbox), 3-h TTL
 
-    private var avalancheZones: [(rings: [[CLLocationCoordinate2D]], rating: Int)] = []
+    // Kept PER SOURCE: a US-feed success must not wipe stale Canadian zones
+    // (and vice-versa), and an all-clear from a source that answered must be
+    // able to clear that source's stale zones. Same doctrine as tsunami.
+    private var avalancheZonesUS: [(rings: [[CLLocationCoordinate2D]], rating: Int)] = []
+    private var avalancheZonesCA: [(rings: [[CLLocationCoordinate2D]], rating: Int)] = []
     private var avalancheFetched = Date.distantPast
 
     func avalanche() async -> [(rings: [[CLLocationCoordinate2D]], rating: Int)] {
-        if Date().timeIntervalSince(avalancheFetched) < AdaptiveTuning.shared.ttl(10_800) { return avalancheZones }
+        if Date().timeIntervalSince(avalancheFetched) < AdaptiveTuning.shared.ttl(10_800) {
+            return avalancheZonesUS + avalancheZonesCA
+        }
         var zones: [(rings: [[CLLocationCoordinate2D]], rating: Int)] = []
+        var usOK = false
         // US — GeoJSON zones with danger_level 0…5.
         if let u = URL(string: "https://api.avalanche.org/v2/public/products/map-layer"),
            let (data, resp) = try? await ThrottledNet.fetch(u),
@@ -763,8 +781,13 @@ actor LiveHazardFeedFetcher {
                 }
                 if !rings.isEmpty { zones.append((rings, rating)) }
             }
+            usOK = true
         }
+        // US answered → replace its slot (empty = genuine all-clear); else keep stale.
+        if usOK { avalancheZonesUS = zones }
         // Canada — per-region bulletins carry a bbox + banded danger ratings.
+        var caZones: [(rings: [[CLLocationCoordinate2D]], rating: Int)] = []
+        var caOK = false
         if let u = URL(string: "https://api.avalanche.ca/forecasts/en/products"),
            let (data, resp) = try? await ThrottledNet.fetch(u),
            (resp as? HTTPURLResponse)?.statusCode == 200,
@@ -810,14 +833,15 @@ actor LiveHazardFeedFetcher {
                     CLLocationCoordinate2D(latitude: n, longitude: e),
                     CLLocationCoordinate2D(latitude: s, longitude: e),
                 ]
-                zones.append(([ring], maxRating))
+                caZones.append(([ring], maxRating))
             }
+            caOK = true
         }
-        if !zones.isEmpty || avalancheZones.isEmpty {
-            avalancheZones = zones
-            avalancheFetched = Date()
-        }
-        return avalancheZones
+        if caOK { avalancheZonesCA = caZones }
+        // Advance the TTL only if at least one source answered; otherwise
+        // leave it expired so the next call retries both.
+        if usOK || caOK { avalancheFetched = Date() }
+        return avalancheZonesUS + avalancheZonesCA
     }
 
     // MARK: tropical — NHC active storms, 30-min TTL
@@ -846,14 +870,16 @@ actor LiveHazardFeedFetcher {
 
     // MARK: tsunami — NWS Tsunami Warning Centers (NTWC + PTWC) CAP/Atom, 10-min TTL
 
-    private var tsunamis: [(lat: Double, lon: Double, level: String)] = []
+    // Events kept PER FEED (per warning center): one center's feed failing
+    // must not wipe the other center's active warnings. Empty is the normal
+    // all-clear, so failure is distinguished by success, never by isEmpty.
+    private var tsunamisByFeed: [String: [(lat: Double, lon: Double, level: String)]] = [:]
     private var tsunamisFetched = Date.distantPast
 
     func tsunamiEvents() async -> [(lat: Double, lon: Double, level: String)] {
-        if Date().timeIntervalSince(tsunamisFetched) < AdaptiveTuning.shared.ttl(600) { return tsunamis }
-        var out: [(lat: Double, lon: Double, level: String)] = []
-        // Empty is the normal case here (no active events), so an isEmpty
-        // guard can't tell failure from all-clear — track fetch success.
+        if Date().timeIntervalSince(tsunamisFetched) < AdaptiveTuning.shared.ttl(600) {
+            return tsunamisByFeed.values.flatMap { $0 }
+        }
         var anyFeedSucceeded = false
         for feed in ["https://www.tsunami.gov/events/xml/PAAQAtom.xml",
                      "https://www.tsunami.gov/events/xml/PHEBAtom.xml"] {
@@ -862,6 +888,7 @@ actor LiveHazardFeedFetcher {
                   (resp as? HTTPURLResponse)?.statusCode == 200,
                   let xml = String(data: data, encoding: .utf8) else { continue }
             anyFeedSucceeded = true
+            var out: [(lat: Double, lon: Double, level: String)] = []
             // The product level ("Tsunami Warning/Watch/Advisory") appears in
             // a title at feed and/or entry level; scan the whole document for
             // the strongest word rather than trusting one title's position.
@@ -895,14 +922,17 @@ actor LiveHazardFeedFetcher {
                       let lat = Double(latS), let lon = Double(lonS) else { continue }
                 out.append((lat, lon, level))
             }
+            // This center's feed succeeded → replace ONLY its events (an
+            // empty result here is a genuine all-clear for this center).
+            tsunamisByFeed[feed] = out
         }
         if anyFeedSucceeded {
-            tsunamis = out
             tsunamisFetched = Date()
         } else {
-            tsunamisFetched = Date().addingTimeInterval(-600 + 60)  // keep stale, 1-min retry
+            // Both centers unreachable: keep every prior warning, retry in 1 min.
+            tsunamisFetched = Date().addingTimeInterval(-600 + 60)
         }
-        return tsunamis
+        return tsunamisByFeed.values.flatMap { $0 }
     }
 
     // MARK: convective — SPC Day-1 categorical outlook (US), 1-h TTL
@@ -940,10 +970,13 @@ actor LiveHazardFeedFetcher {
             }
             if !rings.isEmpty { zones.append((rings, score)) }
         }
-        if !zones.isEmpty || spcZones.isEmpty {
-            spcZones = zones
-            spcFetched = Date()
-        }
+        // Reached only on a successful fetch (the guard above returns stale
+        // on transport failure), so an empty result is a genuine all-clear:
+        // replace unconditionally and stamp the TTL. The old `!zones.isEmpty`
+        // gate left yesterday's MDT polygon on the map through a calm day and
+        // never bumped the timestamp, refetching every call.
+        spcZones = zones
+        spcFetched = Date()
         return spcZones
     }
 
