@@ -1,6 +1,0 @@
-fare_media_id,fare_media_name,fare_media_type
-Fare,Cash,0
-FF_T,Fast Fare Ticket,1
-FF_C,Fast Fare Card,2
-c_EMV,Tap to Pay,3
-FF_A,Fast Fare App,4

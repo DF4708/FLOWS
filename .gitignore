@@ -62,8 +62,10 @@ apple/DerivedData/
 # App risk bundle copies are generated (rust national-bundle + history-baseline)
 apple/FLOWS/Resources/app_risk_bundle.json
 
-# Re-downloadable reference data (Census gazetteer, scrape backups)
-data/reference/
+# Re-downloadable reference data (Census gazetteer, scrape backups) — the
+# README documenting what belongs here stays tracked.
+data/reference/*
+!data/reference/README.md
 data/runtime_cache/app_risk_bundle.wi_only.json
 
 # Offline POI shards built from the FSQ OS Places TSV (regenerable:

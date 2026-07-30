@@ -1,2 +1,0 @@
-feed_publisher_name,feed_publisher_url,feed_lang,feed_start_date,feed_end_date,feed_version,feed_contact_email,feed_contact_url
-Metro Transit-City of Madison,http://mymetrobus.com/,en,20260510,20260815,S070_202605050858,mymetrobus@cityofmadison.com,https://www.cityofmadison.com/metro/contact/feedback/
