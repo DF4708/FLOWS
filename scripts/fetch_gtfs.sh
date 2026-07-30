@@ -29,7 +29,7 @@ mkdir -p "$dir"
 # feeds off an agency's server).
 curl_args=(
   -L --fail --retry 3 --retry-delay 2 --connect-timeout 30
-  -A "FLOWS/1.0 GTFS fetch (davidfoster4708@gmail.com)"
+  -A "FLOWS/1.0 GTFS fetch (wizeman555@gmail.com)"
   -o "$zip"
 )
 if [ -f "$zip" ]; then
