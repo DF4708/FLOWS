@@ -115,7 +115,10 @@ fn read_csv(path: &str) -> Vec<Row> {
             continue;
         }
         let f: Vec<f64> = line.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-        if f.len() >= 8 {
+        // Drop any row with a non-finite field: `f[5].clamp(0,1)` on a NaN
+        // returns NaN, and one NaN row poisons the whole gradient — the
+        // trainer would then write an all-NaN model that ships.
+        if f.len() >= 8 && f.iter().take(8).all(|v| v.is_finite()) {
             rows.push(Row {
                 x: features(f[0], f[1], f[2], f[3], f[4], f[7] > 0.5),
                 y: f[5].clamp(0.0, 1.0),

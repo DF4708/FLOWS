@@ -227,7 +227,10 @@ pub(crate) fn parse_gtfs_time(s: &str) -> Option<Time> {
     let h: u32 = h.trim().parse().ok()?;
     let m: u32 = m.trim().parse().ok()?;
     let sec: u32 = sec.trim().parse().ok()?;
-    if m > 59 || sec > 59 {
+    // GTFS allows hours past 24 for trips after midnight, but never anywhere
+    // near this — cap at 48 h so h*3600 can't overflow u32 in release (which
+    // would wrap a garbage hour to a valid-looking time).
+    if h > 48 || m > 59 || sec > 59 {
         return None;
     }
     Some(h * 3600 + m * 60 + sec)

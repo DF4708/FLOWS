@@ -1,9 +1,0 @@
-# -----------------------------------------------------------------------------
-# Copyright (c) 2026 David B. Foster. All rights reserved.
-# -----------------------------------------------------------------------------
-# Pin the toolchain so CI's clippy/test run matches the dev machine. clippy
-# lints change between Rust releases; an unpinned CI runner used a newer
-# toolchain whose added lints failed `-D warnings` while local was clean.
-[toolchain]
-channel = "1.93"
-components = ["clippy", "rustfmt"]

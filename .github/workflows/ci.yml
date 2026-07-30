@@ -17,6 +17,14 @@ jobs:
     runs-on: macos-latest   # arm64 — same ISA family the product ships on
     steps:
       - uses: actions/checkout@v4
+      # Pin the toolchain so CI's clippy matches the dev machine: an unpinned
+      # runner used a newer Rust whose added lints failed -D warnings while
+      # local (1.93.1) was clean. Pinned here, not in a repo-wide
+      # rust-toolchain.toml, so it doesn't force a second toolchain install
+      # on developers who track `stable`.
+      - uses: dtolnay/rust-toolchain@1.93.1
+        with:
+          components: clippy
       - name: clippy (warnings are errors)
         run: cargo clippy --workspace --all-targets -- -D warnings
         working-directory: rust

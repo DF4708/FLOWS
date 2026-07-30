@@ -150,7 +150,13 @@ impl<'a> Parser<'a> {
         let text = std::str::from_utf8(&self.b[start..self.i]).map_err(|_| self.err("utf8"))?;
         // Correctly-rounded decimal -> f64: same result Foundation's JSON
         // number parsing produces, which is what makes FRB1 bit-exact.
-        text.parse::<f64>().map(Json::Num).map_err(|_| self.err("bad number"))
+        // Reject non-finite: "1e999" parses to +inf, which would silently
+        // encode a garbage score. Real bundles are clamped to [0, 0.6]; a
+        // non-finite literal means the input is corrupt.
+        match text.parse::<f64>() {
+            Ok(n) if n.is_finite() => Ok(Json::Num(n)),
+            _ => Err(self.err("bad or non-finite number")),
+        }
     }
 
     fn string(&mut self) -> Result<String, String> {
