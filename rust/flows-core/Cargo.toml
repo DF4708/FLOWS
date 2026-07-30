@@ -13,9 +13,8 @@ publish = false
 [lib]
 # staticlib: links directly into the Swift binary (libflows_core.a).
 # rlib: lets the Rust test harness exercise the same code.
-# cdylib: a .dylib R can dyn.load() to call the C-ABI kernels via .C(), so the
-#   same compiled core is verified byte-identical against the R oracle (the
-#   R->Rust FFI bridge, phase R1). One core, exercised from Swift AND R.
+# cdylib: the .dylib the Swift app dlopens in dev builds (FlowsCore.swift);
+# staticlib: linked into device/App Store builds; rlib: the workspace bins.
 crate-type = ["staticlib", "rlib", "cdylib"]
 
 [dependencies]

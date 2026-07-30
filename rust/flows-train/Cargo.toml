@@ -37,4 +37,8 @@ path = "src/bin/history-baseline.rs"
 name = "places-shard"
 path = "src/bin/places-shard.rs"
 
+[[bin]]
+name = "bundle-frb"
+path = "src/bin/bundle-frb.rs"
+
 [dependencies]

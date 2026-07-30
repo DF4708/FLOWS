@@ -30,7 +30,6 @@
 /// A valid |delta| <= 2*180e5 fits in 7 five-bit chunks; anything past 10
 /// chunks (50 bits) is malformed input, matching the R decoder's guard.
 /// (The fast kernel enforces the same bound in its chunk counter.)
-#[cfg_attr(target_arch = "aarch64", allow(dead_code))] // test oracle on aarch64
 const MAX_CHUNKS: u32 = 10;
 
 /// Portable reference: decode zigzag varints into signed deltas.
@@ -123,7 +122,8 @@ pub fn decode_deltas(bytes: &[u8], out: &mut Vec<i64>) {
 
 /// Decode an encoded polyline into (lon, lat) pairs — same column order as the
 /// R decoder's matrix.
-pub fn decode_polyline(encoded: &str) -> Vec<[f64; 2]> {
+#[cfg(test)]
+pub(crate) fn decode_polyline(encoded: &str) -> Vec<[f64; 2]> {
     let mut deltas: Vec<i64> = Vec::new();
     decode_deltas(encoded.as_bytes(), &mut deltas);
     let n_pairs = deltas.len() / 2; // dangling lat without lon is dropped

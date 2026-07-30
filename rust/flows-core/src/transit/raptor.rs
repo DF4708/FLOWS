@@ -407,7 +407,8 @@ pub fn plan(
 /// The earliest arrival at `target` over ALL transfer counts (up to `max_rounds`),
 /// or [`INF_TIME`] if unreachable. This is the unbounded-transfer optimum RAPTOR
 /// converges to — the quantity checked against the reference algorithm.
-pub fn earliest_arrival(
+#[cfg(test)]
+pub(crate) fn earliest_arrival(
     tt: &Timetable,
     source: u32,
     target: u32,

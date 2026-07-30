@@ -34,7 +34,10 @@ pub struct ContractionHierarchy {
     up: Vec<Vec<(u32, f64)>>,
     /// Number of shortcut edges inserted during preprocessing (lower = faster
     /// queries; the whole point of a good node ordering).
-    pub shortcuts: usize,
+    // Written during preprocessing; READ only by the ordering tests'
+    // diagnostics — a product build never reads it back.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) shortcuts: usize,
     /// Shortcut-unpacking table: `middle[(a,b)]` (with a<b) is the contracted
     /// node `v` that the current min-weight edge a<->b bypasses (a..v..b).
     /// Absent => a<->b is an ORIGINAL graph edge. Populated as a pure by-product
@@ -110,7 +113,8 @@ impl ContractionHierarchy {
     /// Preprocess contracting nodes in the given explicit order (order[k] gets
     /// rank k). Any order is CORRECT; only the shortcut count (query speed)
     /// differs. Exposed so tests can compare orderings.
-    pub fn preprocess_with_order(g: &CsrGraph, order: &[usize]) -> ContractionHierarchy {
+    #[cfg(test)]
+    pub(crate) fn preprocess_with_order(g: &CsrGraph, order: &[usize]) -> ContractionHierarchy {
         let n = g.num_nodes();
         let mut adj = Self::build_adj(g);
         let mut contracted = vec![false; n];

@@ -18,10 +18,11 @@
 //!
 //! On the "assembly-level" tier (see docs/CODING_STANDARDS.md): SIMD intrinsics
 //! or hand-assembly are used ONLY where a profiler proves a kernel dominates.
-//! The one kernel that meets that bar today is the polyline varint decoder
-//! (`polyline::decode_deltas_asm`, AArch64) — an integer hot loop that actually
-//! runs on device. This float matrix does not, so it stays scalar. If a future
-//! profile shows it dominating the R bridge, the SIMD seam drops in behind this
+//! The one kernel that met that bar was the polyline varint decoder — first
+//! hand-written AArch64 asm, then retired 2026-07-19 when a bench bake-off
+//! showed rustc's portable raw-pointer kernel faster (`polyline::decode_deltas`).
+//! This float matrix never met the bar, so it stays scalar. If a future
+//! profile shows it dominating a hot path, the SIMD seam drops in behind this
 //! same signature (NEON `float64x2_t` = 2 f64 lanes), and MUST stay
 //! byte-identical via separate `vmulq`+`vaddq` — never a fused multiply-add,
 //! whose single rounding would diverge from this scalar/R oracle by ~1 ULP.

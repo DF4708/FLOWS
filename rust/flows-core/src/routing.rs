@@ -47,10 +47,6 @@ impl CsrGraph {
         self.offsets.len().saturating_sub(1)
     }
 
-    /// Number of edges.
-    pub fn num_edges(&self) -> usize {
-        self.targets.len()
-    }
 
     /// Single-source shortest paths from `source`. Returns the length-n distance
     /// vector (f64::INFINITY for unreachable nodes). O((n + m) log n).
@@ -84,7 +80,10 @@ impl CsrGraph {
 
     /// Shortest-path distance from `source` to `target` (early-exit Dijkstra),
     /// or f64::INFINITY if unreachable.
-    pub fn shortest_distance(&self, source: usize, target: usize) -> f64 {
+    /// Test-only ORACLE: the early-exit Dijkstra the CH tests compare
+    /// against — not app API (the FFI path uses `dijkstra`).
+    #[cfg(test)]
+    pub(crate) fn shortest_distance(&self, source: usize, target: usize) -> f64 {
         let n = self.num_nodes();
         if source >= n || target >= n {
             return f64::INFINITY;

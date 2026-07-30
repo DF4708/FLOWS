@@ -6,19 +6,21 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
-//! C-ABI FFI surface — how the Swift UI calls into the Rust core.
+//! C-ABI FFI surface — how the Swift app calls into the Rust core.
 //!
-//! Phase R0 uses the raw C ABI (smallest surface, proves the link works).
-//! Later phases migrate to UniFFI for ergonomic struct/enum/async marshalling
-//! (per docs/RUST_SWIFT_MIGRATION.md §4). These `extern "C"` functions are
-//! callable from Swift via a bridging header:
+//! Raw C ABI by design (smallest surface, no codegen dependency). Swift binds
+//! symbols via dlsym in dev (libflows_core.dylib) and static-links the .a for
+//! device builds:
 //!
 //!   // flows_core.h (bridging header)
 //!   const char* flows_risk_label(double score);
-//!   const char* flows_risk_rgb_hex(double score);
 //!
 //!   // Swift
 //!   let label = String(cString: flows_risk_label(0.75))  // "Yellow"
+//!
+//! Exports the app does not yet bind (graph/transit shims) are kept only when
+//! a Rust test exercises them — orphaned bridge shims from the retired R
+//! oracle era were removed once nothing referenced them.
 
 use crate::risk::risk_band;
 use std::os::raw::c_char;
@@ -37,20 +39,6 @@ pub extern "C" fn flows_risk_label(score: f64) -> *const c_char {
         "Yellow" => b"Yellow\0",
         "Red" => b"Red\0",
         _ => b"Transparent\0",
-    };
-    s.as_ptr() as *const c_char
-}
-
-/// Return the CSS hex colour for a score as a static C string (see above for
-/// ownership: 'static, do not free).
-#[no_mangle]
-pub extern "C" fn flows_risk_rgb_hex(score: f64) -> *const c_char {
-    let s: &'static [u8] = match risk_band(score).rgb_hex() {
-        "transparent" => b"transparent\0",
-        "#2ecc71" => b"#2ecc71\0",
-        "#f1c40f" => b"#f1c40f\0",
-        "#dc3545" => b"#dc3545\0",
-        _ => b"transparent\0",
     };
     s.as_ptr() as *const c_char
 }
@@ -94,117 +82,6 @@ pub unsafe extern "C" fn flows_distance_matrix(
     match result {
         Ok(()) => 0,
         Err(_) => -1,
-    }
-}
-
-/// R `.C()`-callable wrapper for `flows_distance_matrix`. R's `.C()` marshals
-/// every argument as a pointer, so the sizes arrive as `*const i32` rather
-/// than `usize`-by-value. This shim dereferences them and delegates to the
-/// core kernel (no logic duplication). Returns void per the `.C()` contract;
-/// results land in `out` (row-major n*m), which R reshapes with byrow=TRUE.
-///
-/// # Safety
-/// `a` must have 2*(*n) f64s, `b` 2*(*m), `out` (*n)*(*m); `n`,`m` non-null.
-#[no_mangle]
-pub unsafe extern "C" fn flows_distance_matrix_c(
-    a: *const f64,
-    n: *const i32,
-    b: *const f64,
-    m: *const i32,
-    out: *mut f64,
-) {
-    if n.is_null() || m.is_null() {
-        return;
-    }
-    let nn = (*n).max(0) as usize;
-    let mm = (*m).max(0) as usize;
-    flows_distance_matrix(a, nn, b, mm, out);
-}
-
-/// Scalar piecewise hazard score (see crate::scoring::piecewise_score).
-/// Byte-identical to R `piecewise_score`. Plain f64 in/out — callable from
-/// Swift directly and from R via `.C()` (R marshals scalars as length-1
-/// double pointers, but a by-value f64 also works through `.C` when passed
-/// as `as.double`; prefer the batch form below for R vector inputs).
-#[no_mangle]
-pub extern "C" fn flows_piecewise_score(value: f64, low: f64, medium: f64, high: f64) -> f64 {
-    crate::scoring::piecewise_score(value, low, medium, high)
-}
-
-/// R `.C()`-callable rowwise batch: score `*n` values against PER-ELEMENT
-/// threshold arrays `low`,`mid`,`high` (each `*n` long), writing `*n` results
-/// to `out`. This is the hottest scoring path — the per-zip risk builder with
-/// spatially-varying thresholds. Every arg is a pointer per the `.C()` ABI; the
-/// R wrapper recycles the threshold vectors to length n before calling.
-///
-/// # Safety
-/// `values`,`low`,`mid`,`high`,`out` must each have `*n` valid f64s; `n` non-null.
-#[no_mangle]
-pub unsafe extern "C" fn flows_piecewise_score_rowwise_batch(
-    values: *const f64,
-    n: *const i32,
-    low: *const f64,
-    mid: *const f64,
-    high: *const f64,
-    out: *mut f64,
-) {
-    if values.is_null() || n.is_null() || low.is_null() || mid.is_null()
-        || high.is_null() || out.is_null()
-    {
-        return;
-    }
-    let nn = (*n).max(0) as usize;
-    let v = std::slice::from_raw_parts(values, nn);
-    let lo = std::slice::from_raw_parts(low, nn);
-    let mi = std::slice::from_raw_parts(mid, nn);
-    let hi = std::slice::from_raw_parts(high, nn);
-    let o = std::slice::from_raw_parts_mut(out, nn);
-    for i in 0..nn {
-        o[i] = crate::scoring::piecewise_score_rowwise(v[i], lo[i], mi[i], hi[i]);
-    }
-}
-
-/// Scalar symmetric temperature risk (see crate::scoring::temperature_risk).
-/// Byte-identical to R `temperature_risk`. Plain f64 in/out for Swift + R `.C`.
-#[no_mangle]
-pub extern "C" fn flows_temperature_risk(
-    temp_f: f64,
-    comfort_low_f: f64,
-    comfort_high_f: f64,
-    record_low_f: f64,
-    record_high_f: f64,
-) -> f64 {
-    crate::scoring::temperature_risk(temp_f, comfort_low_f, comfort_high_f, record_low_f, record_high_f)
-}
-
-/// R `.C()`-callable batch: score `*n` values against the SCALAR thresholds
-/// (`*low`, `*medium`, `*high`), writing `*n` results into `out`. Every arg is
-/// a pointer per the `.C()` ABI. This is the vector hot path — it replaces an
-/// R-level `vapply(values, piecewise_score, ...)` loop with one compiled pass.
-///
-/// # Safety
-/// `values` and `out` must each have `*n` valid f64s; `n`,`low`,`medium`,`high`
-/// non-null. Standard C-ABI contract.
-#[no_mangle]
-pub unsafe extern "C" fn flows_piecewise_score_batch(
-    values: *const f64,
-    n: *const i32,
-    low: *const f64,
-    medium: *const f64,
-    high: *const f64,
-    out: *mut f64,
-) {
-    if values.is_null() || n.is_null() || out.is_null()
-        || low.is_null() || medium.is_null() || high.is_null()
-    {
-        return;
-    }
-    let nn = (*n).max(0) as usize;
-    let (lo, me, hi) = (*low, *medium, *high);
-    let vs = std::slice::from_raw_parts(values, nn);
-    let os = std::slice::from_raw_parts_mut(out, nn);
-    for i in 0..nn {
-        os[i] = crate::scoring::piecewise_score(vs[i], lo, me, hi);
     }
 }
 
