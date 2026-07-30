@@ -180,7 +180,9 @@ fn check_offsets(off: &[u32], total: u32, what: &str) -> io::Result<()> {
         return Err(bad(format!("ftt: {what} offsets must be non-decreasing")));
     }
     if off.last() != Some(&total) {
-        return Err(bad(format!("ftt: {what} offsets must end at the section count")));
+        return Err(bad(format!(
+            "ftt: {what} offsets must end at the section count"
+        )));
     }
     Ok(())
 }
@@ -398,7 +400,11 @@ mod tests {
             ],
             Mode::Rail,
         );
-        b.add_route(&[c, d], vec![vec![ev(1400, 1400), ev(2000, 2000)]], Mode::Subway);
+        b.add_route(
+            &[c, d],
+            vec![vec![ev(1400, 1400), ev(2000, 2000)]],
+            Mode::Subway,
+        );
         b.add_route(&[a, d], vec![vec![ev(0, 0), ev(4000, 4000)]], Mode::Coach);
         b.add_footpath(bb, c, 120);
         b.add_footpath(c, bb, 120);
@@ -407,7 +413,11 @@ mod tests {
 
     fn tmp_path(name: &str) -> PathBuf {
         let mut p = std::env::temp_dir();
-        p.push(format!("flows_ftt_test_{}_{}.ftt", name, std::process::id()));
+        p.push(format!(
+            "flows_ftt_test_{}_{}.ftt",
+            name,
+            std::process::id()
+        ));
         p
     }
 
@@ -420,7 +430,11 @@ mod tests {
 
         // Byte-equal arrays: the reloaded timetable re-encodes to the same bytes
         // (covers every field of every section), and each array matches directly.
-        assert_eq!(to_bytes(&tt), to_bytes(&tt2), "re-encode must be byte-identical");
+        assert_eq!(
+            to_bytes(&tt),
+            to_bytes(&tt2),
+            "re-encode must be byte-identical"
+        );
         assert_eq!(tt.stops, tt2.stops);
         assert_eq!(tt.route_stops, tt2.route_stops);
         assert_eq!(tt.stop_events, tt2.stop_events);
@@ -470,7 +484,10 @@ mod tests {
         let mut flipped = good.clone();
         let i = FTT_HEADER_LEN + 5;
         flipped[i] ^= 0xFF;
-        assert!(from_bytes(&flipped).is_err(), "hash mismatch must be refused");
+        assert!(
+            from_bytes(&flipped).is_err(),
+            "hash mismatch must be refused"
+        );
 
         // Truncated body.
         assert!(from_bytes(&good[..good.len() - 1]).is_err());
@@ -494,7 +511,10 @@ mod tests {
         bad_stop[route_stops_at..route_stops_at + 4].copy_from_slice(&999u32.to_le_bytes());
         let h = fnv1a64(&bad_stop[FTT_HEADER_LEN..]);
         bad_stop[40..48].copy_from_slice(&h.to_le_bytes());
-        assert!(from_bytes(&bad_stop).is_err(), "out-of-range stop id must be refused");
+        assert!(
+            from_bytes(&bad_stop).is_err(),
+            "out-of-range stop id must be refused"
+        );
 
         // Empty and garbage inputs.
         assert!(from_bytes(&[]).is_err());
@@ -505,8 +525,8 @@ mod tests {
     fn out_of_order_or_negative_dwell_trips_are_refused() {
         let tt = rich_timetable();
         let good = to_bytes(&tt);
-        let ev_at = FTT_HEADER_LEN + tt.n_stops() * 8 + tt.n_routes() * 20
-            + tt.route_stops.len() * 4;
+        let ev_at =
+            FTT_HEADER_LEN + tt.n_stops() * 8 + tt.n_routes() * 20 + tt.route_stops.len() * 4;
         let rehash = |b: &mut [u8]| {
             let h = fnv1a64(&b[FTT_HEADER_LEN..]);
             b[40..48].copy_from_slice(&h.to_le_bytes());
@@ -520,7 +540,10 @@ mod tests {
         swapped.copy_within(ev_at + 24..ev_at + 48, ev_at);
         swapped[ev_at + 24..ev_at + 48].copy_from_slice(&first);
         rehash(&mut swapped);
-        assert!(from_bytes(&swapped).is_err(), "overtaking trip order must be refused");
+        assert!(
+            from_bytes(&swapped).is_err(),
+            "overtaking trip order must be refused"
+        );
 
         // An event that departs before it arrives is equally invalid.
         let mut neg_dwell = good.clone();

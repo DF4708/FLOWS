@@ -69,14 +69,17 @@ pub fn piecewise_score(value: f64, low: f64, medium: f64, high: f64) -> f64 {
 /// bit-identical f64 results.
 #[inline]
 pub fn piecewise_score_rowwise(value: f64, low: f64, mid: f64, high: f64) -> f64 {
-    if !(value.is_finite() && low.is_finite() && mid.is_finite() && high.is_finite() && value > 0.0) {
+    if !(value.is_finite() && low.is_finite() && mid.is_finite() && high.is_finite() && value > 0.0)
+    {
         return 0.0;
     }
     if value > low && value <= mid {
-        return RISK_GREEN_MIN + (RISK_YELLOW_MIN - RISK_GREEN_MIN) * ((value - low) / (mid - low).max(1e-9));
+        return RISK_GREEN_MIN
+            + (RISK_YELLOW_MIN - RISK_GREEN_MIN) * ((value - low) / (mid - low).max(1e-9));
     }
     if value > mid && value <= high {
-        return RISK_YELLOW_MIN + (RISK_RED_MIN - RISK_YELLOW_MIN) * ((value - mid) / (high - mid).max(1e-9));
+        return RISK_YELLOW_MIN
+            + (RISK_RED_MIN - RISK_YELLOW_MIN) * ((value - mid) / (high - mid).max(1e-9));
     }
     if value > high {
         return (RISK_RED_MIN + (1.0 - RISK_RED_MIN) * ((value - high) / high.max(1e-9))).min(1.0);
@@ -122,7 +125,7 @@ mod tests {
         assert_eq!(temperature_risk(f64::NAN, 60.0, 80.0, 0.0, 110.0), 0.0);
         assert_eq!(temperature_risk(60.0, 60.0, 80.0, 0.0, 110.0), 0.0); // == comfort_low
         assert_eq!(temperature_risk(80.0, 60.0, 80.0, 0.0, 110.0), 0.0); // == comfort_high
-        // Cold side halfway to record low.
+                                                                         // Cold side halfway to record low.
         assert!((temperature_risk(30.0, 60.0, 80.0, 0.0, 110.0) - 0.5).abs() < 1e-12);
         // Hot side halfway to record high.
         assert!((temperature_risk(95.0, 60.0, 80.0, 0.0, 110.0) - 0.5).abs() < 1e-12);
@@ -139,7 +142,7 @@ mod tests {
         assert_eq!(piecewise_score(-5.0, 25.0, 75.0, 150.0), 0.0);
         assert_eq!(piecewise_score(0.0, 25.0, 75.0, 150.0), 0.0);
         assert_eq!(piecewise_score(25.0, 25.0, 75.0, 150.0), 0.0); // == low
-        // Green band lower edge just above low.
+                                                                   // Green band lower edge just above low.
         let g = piecewise_score(26.0, 25.0, 75.0, 150.0);
         assert!(g > RISK_GREEN_MIN && g < RISK_YELLOW_MIN);
         // Exactly medium -> top of green band = YELLOW min.

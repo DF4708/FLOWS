@@ -72,16 +72,16 @@ struct Row {
 fn seed_rows() -> Vec<Row> {
     // (o_lat, o_lon, d_lat, d_lon, cross)
     let routes: [(f64, f64, f64, f64, bool); 10] = [
-        (43.07, -89.40, 43.20, -89.20, false), // Madison local
-        (44.98, -93.27, 45.10, -93.10, false), // Minneapolis local (cold)
-        (25.76, -80.19, 26.10, -80.30, false), // Miami local (tropical)
+        (43.07, -89.40, 43.20, -89.20, false),   // Madison local
+        (44.98, -93.27, 45.10, -93.10, false),   // Minneapolis local (cold)
+        (25.76, -80.19, 26.10, -80.30, false),   // Miami local (tropical)
         (34.05, -118.24, 34.20, -118.10, false), // LA local
-        (40.71, -74.01, 40.90, -74.20, false), // NYC local
-        (25.76, -80.19, 41.88, -87.63, true),  // Miami -> Chicago
-        (47.61, -122.33, 34.05, -118.24, true), // Seattle -> LA
-        (41.88, -87.63, 39.74, -104.99, true), // Chicago -> Denver
-        (29.76, -95.37, 32.78, -96.80, true),  // Houston -> Dallas
-        (42.36, -71.06, 38.90, -77.04, true),  // Boston -> DC
+        (40.71, -74.01, 40.90, -74.20, false),   // NYC local
+        (25.76, -80.19, 41.88, -87.63, true),    // Miami -> Chicago
+        (47.61, -122.33, 34.05, -118.24, true),  // Seattle -> LA
+        (41.88, -87.63, 39.74, -104.99, true),   // Chicago -> Denver
+        (29.76, -95.37, 32.78, -96.80, true),    // Houston -> Dallas
+        (42.36, -71.06, 38.90, -77.04, true),    // Boston -> DC
     ];
     let mut rows = Vec::new();
     for &(o_lat, o_lon, d_lat, d_lon, cross) in &routes {
@@ -109,12 +109,17 @@ fn seed_rows() -> Vec<Row> {
 /// The app's flat CSV export (header + rows). Missing/garbled ⇒ seed only.
 fn read_csv(path: &str) -> Vec<Row> {
     let mut rows = Vec::new();
-    let Ok(text) = fs::read_to_string(path) else { return rows };
+    let Ok(text) = fs::read_to_string(path) else {
+        return rows;
+    };
     for line in text.lines() {
         if line.starts_with("oLat") || line.trim().is_empty() {
             continue;
         }
-        let f: Vec<f64> = line.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+        let f: Vec<f64> = line
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
         // Drop any row with a non-finite field: `f[5].clamp(0,1)` on a NaN
         // returns NaN, and one NaN row poisons the whole gradient — the
         // trainer would then write an all-NaN model that ships.
@@ -140,7 +145,12 @@ struct Net {
 }
 impl Net {
     fn zero() -> Net {
-        Net { w1: [[0.0; NI]; NH], b1: [0.0; NH], w2: [0.0; NH], b2: 0.0 }
+        Net {
+            w1: [[0.0; NI]; NH],
+            b1: [0.0; NH],
+            w2: [0.0; NH],
+            b2: 0.0,
+        }
     }
 }
 
@@ -148,7 +158,10 @@ impl Net {
 struct Lcg(u64);
 impl Lcg {
     fn unit(&mut self) -> f64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (self.0 >> 11) as f64 / (1u64 << 53) as f64
     }
     fn sym(&mut self, a: f64) -> f64 {
@@ -269,7 +282,9 @@ fn train(rows: &[Row], epochs: i32, lr: f64) -> Net {
     // differs, within Adam's noise floor). ~cores× faster on the 1.16M-row
     // 20-year history set; small row counts stay serial (thread spawn costs
     // more than it saves).
-    let workers = std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1);
+    let workers = std::thread::available_parallelism()
+        .map(|p| p.get())
+        .unwrap_or(1);
     // Row weights normalized ONCE — wmean is fixed for the whole run (see
     // chunk_grad's doc comment).
     let wws: Vec<f64> = rows.iter().map(|r| r.w / wmean).collect();
@@ -296,15 +311,13 @@ fn train(rows: &[Row], epochs: i32, lr: f64) -> Net {
                         s.spawn(move || {
                             let mut out: Vec<(usize, Net)> = Vec::new();
                             loop {
-                                let k = next
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 if k >= n_chunks {
                                     break;
                                 }
                                 let lo = k * CHUNK;
                                 let hi = (lo + CHUNK).min(rows.len());
-                                out.push((k, chunk_grad(net_ref, &rows[lo..hi],
-                                                        &wws_ref[lo..hi])));
+                                out.push((k, chunk_grad(net_ref, &rows[lo..hi], &wws_ref[lo..hi])));
                             }
                             out
                         })
@@ -327,10 +340,31 @@ fn train(rows: &[Row], epochs: i32, lr: f64) -> Net {
         };
         adam(&mut net.b2, g.b2 / n, &mut m.b2, &mut v.b2, ep, lr);
         for j in 0..NH {
-            adam(&mut net.w2[j], g.w2[j] / n, &mut m.w2[j], &mut v.w2[j], ep, lr);
-            adam(&mut net.b1[j], g.b1[j] / n, &mut m.b1[j], &mut v.b1[j], ep, lr);
+            adam(
+                &mut net.w2[j],
+                g.w2[j] / n,
+                &mut m.w2[j],
+                &mut v.w2[j],
+                ep,
+                lr,
+            );
+            adam(
+                &mut net.b1[j],
+                g.b1[j] / n,
+                &mut m.b1[j],
+                &mut v.b1[j],
+                ep,
+                lr,
+            );
             for i in 0..NI {
-                adam(&mut net.w1[j][i], g.w1[j][i] / n, &mut m.w1[j][i], &mut v.w1[j][i], ep, lr);
+                adam(
+                    &mut net.w1[j][i],
+                    g.w1[j][i] / n,
+                    &mut m.w1[j][i],
+                    &mut v.w1[j][i],
+                    ep,
+                    lr,
+                );
             }
         }
     }
@@ -341,7 +375,10 @@ fn rmse(net: &Net, rows: &[Row]) -> f64 {
     if rows.is_empty() {
         return 0.0;
     }
-    let se: f64 = rows.iter().map(|r| (forward(net, &r.x).0 - r.y).powi(2)).sum();
+    let se: f64 = rows
+        .iter()
+        .map(|r| (forward(net, &r.x).0 - r.y).powi(2))
+        .sum();
     (se / rows.len() as f64).sqrt()
 }
 
@@ -388,7 +425,11 @@ fn write_head(net: &Net, version: i64, rows: usize, path: &str) {
 
 fn next_version(models_dir: &str) -> i64 {
     let vf = format!("{models_dir}/version.txt");
-    let v = fs::read_to_string(&vf).ok().and_then(|s| s.trim().parse::<i64>().ok()).unwrap_or(0) + 1;
+    let v = fs::read_to_string(&vf)
+        .ok()
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .unwrap_or(0)
+        + 1;
     let _ = fs::write(&vf, v.to_string());
     v
 }
@@ -407,25 +448,42 @@ fn main() {
     let real = read_csv(&csv);
     let n_real = real.len();
     rows.extend(real);
-    eprintln!("training on {} rows ({n_real} real on-device, {n_seed} seed)", rows.len());
+    eprintln!(
+        "training on {} rows ({n_real} real on-device, {n_seed} seed)",
+        rows.len()
+    );
 
     // Deterministic 90/10 split (every 10th row -> validation): the held-out
     // number is what generalization actually looks like.
     let mut tr: Vec<Row> = Vec::with_capacity(rows.len());
     let mut va: Vec<Row> = Vec::new();
     for (i, r) in rows.into_iter().enumerate() {
-        if i % 10 == 9 { va.push(r) } else { tr.push(r) }
+        if i % 10 == 9 {
+            va.push(r)
+        } else {
+            tr.push(r)
+        }
     }
     let t0 = std::time::Instant::now();
     let net = train(&tr, 400, 0.02);
     eprintln!(
         "  train RMSE = {:.4} | val RMSE = {:.4} | {:.1}s on {} threads",
-        rmse(&net, &tr), rmse(&net, &va), t0.elapsed().as_secs_f64(),
-        std::thread::available_parallelism().map(|p| p.get()).unwrap_or(1));
+        rmse(&net, &tr),
+        rmse(&net, &va),
+        t0.elapsed().as_secs_f64(),
+        std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(1)
+    );
 
     let version = next_version(models);
     write_head(&net, version, tr.len() + va.len(), &head_out);
-    write_head(&net, version, tr.len() + va.len(), &format!("{models}/route_head_v{version}.json"));
+    write_head(
+        &net,
+        version,
+        tr.len() + va.len(),
+        &format!("{models}/route_head_v{version}.json"),
+    );
     eprintln!("  wrote v{version} -> {head_out}");
 }
 

@@ -88,11 +88,11 @@ mod tests {
         let cases: &[(f64, &str)] = &[
             (0.100, "Transparent"),
             (0.397, "Transparent"),
-            (0.398, "Green"),   // == GREEN_MIN
+            (0.398, "Green"), // == GREEN_MIN
             (0.399, "Green"),
             (0.500, "Green"),
             (0.698, "Green"),
-            (0.699, "Yellow"),  // == YELLOW_MIN
+            (0.699, "Yellow"), // == YELLOW_MIN
             (0.700, "Yellow"),
             (0.875, "Yellow"),
             (0.8751, "Yellow"), // == RED_MIN (<=)

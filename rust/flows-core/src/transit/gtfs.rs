@@ -36,7 +36,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
-use super::{Mode, Time, Timetable, TimetableBuilder, TripEvents, StopEvent};
+use super::{Mode, StopEvent, Time, Timetable, TimetableBuilder, TripEvents};
 
 /// Ingestion error: an I/O failure or a described feed problem.
 #[derive(Debug)]
@@ -398,7 +398,9 @@ impl ServiceCalendar {
         let wd = weekday_index(date);
         let mut set = std::collections::HashSet::new();
         for (id, flags, start, end) in &self.weekly {
-            if flags[wd] && *start <= date && date <= *end
+            if flags[wd]
+                && *start <= date
+                && date <= *end
                 && !self.removed.contains(&(id.clone(), date))
             {
                 set.insert(id.clone());
@@ -439,13 +441,13 @@ impl ServiceCalendar {
 /// assumption). Suburban-railway extended codes map to `Commuter`.
 pub(crate) fn mode_for_route_type(rt: i64) -> Mode {
     match rt {
-        106 | 109 => Mode::Commuter,           // suburban / commuter railway
-        2 | 100..=199 => Mode::Rail,           // intercity/long-distance rail
+        106 | 109 => Mode::Commuter,            // suburban / commuter railway
+        2 | 100..=199 => Mode::Rail,            // intercity/long-distance rail
         0 | 1 | 5 | 6 | 7 | 12 => Mode::Subway, // tram/metro/cable/funicular/monorail
-        3 | 11 => Mode::Bus,                   // bus / trolleybus
-        200..=299 => Mode::Coach,              // coach services
-        400..=499 | 900..=999 => Mode::Subway, // urban railway / tram services
-        700..=899 => Mode::Bus,                // bus / trolleybus services
+        3 | 11 => Mode::Bus,                    // bus / trolleybus
+        200..=299 => Mode::Coach,               // coach services
+        400..=499 | 900..=999 => Mode::Subway,  // urban railway / tram services
+        700..=899 => Mode::Bus,                 // bus / trolleybus services
         _ => Mode::Bus,
     }
 }
@@ -498,8 +500,8 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
 
     // --- stops.txt → dense ids. All rows kept (stations/entrances included;
     // only stops referenced by trips/transfers ever matter to RAPTOR). ---
-    let (h, mut r) = open_csv(dir, "stops.txt")?
-        .ok_or_else(|| err("stops.txt missing or empty"))?;
+    let (h, mut r) =
+        open_csv(dir, "stops.txt")?.ok_or_else(|| err("stops.txt missing or empty"))?;
     let c_id = h.req("stop_id", "stops.txt")?;
     let (c_name, c_lat, c_lon) = (h.get("stop_name"), h.get("stop_lat"), h.get("stop_lon"));
     let mut stop_ids: Vec<String> = Vec::new();
@@ -523,8 +525,8 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     }
 
     // --- routes.txt → mode + label. ---
-    let (h, mut r) = open_csv(dir, "routes.txt")?
-        .ok_or_else(|| err("routes.txt missing or empty"))?;
+    let (h, mut r) =
+        open_csv(dir, "routes.txt")?.ok_or_else(|| err("routes.txt missing or empty"))?;
     let c_id = h.req("route_id", "routes.txt")?;
     let (c_type, c_short, c_long) = (
         h.get("route_type"),
@@ -572,8 +574,8 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     }
 
     // --- trips.txt: keep only trips whose service runs on the date. ---
-    let (h, mut r) = open_csv(dir, "trips.txt")?
-        .ok_or_else(|| err("trips.txt missing or empty"))?;
+    let (h, mut r) =
+        open_csv(dir, "trips.txt")?.ok_or_else(|| err("trips.txt missing or empty"))?;
     let c_trip = h.req("trip_id", "trips.txt")?;
     let c_route = h.req("route_id", "trips.txt")?;
     let c_service = h.req("service_id", "trips.txt")?;
@@ -595,8 +597,8 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     let n_gtfs_trips = active_trips.len();
 
     // --- stop_times.txt (streamed): rows for active trips only. ---
-    let (h, mut r) = open_csv(dir, "stop_times.txt")?
-        .ok_or_else(|| err("stop_times.txt missing or empty"))?;
+    let (h, mut r) =
+        open_csv(dir, "stop_times.txt")?.ok_or_else(|| err("stop_times.txt missing or empty"))?;
     let c_trip = h.req("trip_id", "stop_times.txt")?;
     let c_stop = h.req("stop_id", "stop_times.txt")?;
     let c_seq = h.req("stop_sequence", "stop_times.txt")?;
@@ -642,9 +644,10 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
         );
         while let Some(row) = r.next_record()? {
             let trip = f(&row, Some(c_trip)).to_string();
-            let (Some(start), Some(end)) =
-                (parse_gtfs_time(f(&row, c_start)), parse_gtfs_time(f(&row, c_end)))
-            else {
+            let (Some(start), Some(end)) = (
+                parse_gtfs_time(f(&row, c_start)),
+                parse_gtfs_time(f(&row, c_end)),
+            ) else {
                 continue;
             };
             let Ok(head) = f(&row, c_head).trim().parse::<Time>() else {
@@ -686,9 +689,7 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
             })
             .collect();
         // GTFS requires timed first/last stops; drop the trip if they're blank.
-        if times.first().copied().flatten().is_none()
-            || times.last().copied().flatten().is_none()
-        {
+        if times.first().copied().flatten().is_none() || times.last().copied().flatten().is_none() {
             n_dropped += 1;
             continue;
         }
@@ -743,12 +744,19 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
                             if a < 0 || d < 0 {
                                 None
                             } else {
-                                Some(StopEvent { arr: a as Time, dep: d as Time })
+                                Some(StopEvent {
+                                    arr: a as Time,
+                                    dep: d as Time,
+                                })
                             }
                         })
                         .collect();
                     if let Some(evs) = shifted {
-                        raw.push(RawTrip { route, pattern: pattern.clone(), events: evs });
+                        raw.push(RawTrip {
+                            route,
+                            pattern: pattern.clone(),
+                            events: evs,
+                        });
                         emitted += 1;
                     }
                     t = t.saturating_add(headway);
@@ -763,7 +771,11 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
             for &s in &pattern {
                 stop_visits[s as usize] += 1;
             }
-            raw.push(RawTrip { route, pattern, events });
+            raw.push(RawTrip {
+                route,
+                pattern,
+                events,
+            });
         }
     }
     drop(trip_rows);
@@ -774,7 +786,10 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     // `earliest_trip`'s binary-search invariant. ---
     let mut groups: HashMap<(u32, Vec<u32>), Vec<TripEvents>> = HashMap::new();
     for rt in raw {
-        groups.entry((rt.route, rt.pattern)).or_default().push(rt.events);
+        groups
+            .entry((rt.route, rt.pattern))
+            .or_default()
+            .push(rt.events);
     }
     let mut keys: Vec<(u32, Vec<u32>)> = groups.keys().cloned().collect();
     keys.sort(); // deterministic engine-route order
@@ -950,7 +965,11 @@ mod tests {
         assert_eq!(parse_gtfs_time("08:30:15"), Some(8 * 3600 + 30 * 60 + 15));
         assert_eq!(parse_gtfs_time("8:30:15"), Some(8 * 3600 + 30 * 60 + 15));
         assert_eq!(parse_gtfs_time("24:00:00"), Some(86_400));
-        assert_eq!(parse_gtfs_time("25:30:00"), Some(91_800), ">24h service past midnight");
+        assert_eq!(
+            parse_gtfs_time("25:30:00"),
+            Some(91_800),
+            ">24h service past midnight"
+        );
         assert_eq!(parse_gtfs_time(" 07:05:00 "), Some(7 * 3600 + 5 * 60));
         assert_eq!(parse_gtfs_time(""), None);
         assert_eq!(parse_gtfs_time("12:60:00"), None);
@@ -965,8 +984,16 @@ mod tests {
         assert_eq!(weekday_index(20260713), 0, "2026-07-13 is a Monday");
         assert_eq!(weekday_index(19700101), 3, "epoch day is a Thursday");
         assert_eq!(days_to_date(date_to_days(20260710) + 1), 20260711);
-        assert_eq!(days_to_date(date_to_days(20261231) + 1), 20270101, "year rollover");
-        assert_eq!(days_to_date(date_to_days(20280228) + 1), 20280229, "leap day");
+        assert_eq!(
+            days_to_date(date_to_days(20261231) + 1),
+            20270101,
+            "year rollover"
+        );
+        assert_eq!(
+            days_to_date(date_to_days(20280228) + 1),
+            20280229,
+            "leap day"
+        );
     }
 
     // ---- Synthetic-feed helpers. ----
@@ -988,7 +1015,8 @@ mod tests {
         C,Gamma,43.09,-89.38\n";
     const ROUTES: &str = "route_id,route_short_name,route_long_name,route_type\n\
         R1,10,Crosstown,3\n";
-    const CALENDAR: &str = "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n\
+    const CALENDAR: &str =
+        "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n\
         WK,1,1,1,1,1,0,0,20260706,20260731\n";
 
     #[test]
@@ -1033,7 +1061,11 @@ mod tests {
         let fri = load_gtfs(&dir, Some(20260710)).unwrap();
         assert_eq!(fri.n_gtfs_trips, 1);
         let js = plan(&fri.timetable, 0, 1, 0, 8);
-        assert_eq!(js[0].arrival, 9 * 3600 + 1200, "only the exception-added trip runs");
+        assert_eq!(
+            js[0].arrival,
+            9 * 3600 + 1200,
+            "only the exception-added trip runs"
+        );
         // Saturday 2026-07-11: SAT weekly.
         let sat = load_gtfs(&dir, Some(20260711)).unwrap();
         assert_eq!(sat.n_gtfs_trips, 1);
@@ -1068,7 +1100,10 @@ mod tests {
         );
         let load = load_gtfs(&dir, Some(20260708)).unwrap();
         assert_eq!(load.n_gtfs_trips, 1);
-        assert!(load_gtfs(&dir, Some(20260709)).is_err(), "no service the next day");
+        assert!(
+            load_gtfs(&dir, Some(20260709)).is_err(),
+            "no service the next day"
+        );
         // Default-date scan also lands on the only (weekday) date.
         assert_eq!(load_gtfs(&dir, None).unwrap().service_date, 20260708);
         let _ = fs::remove_dir_all(&dir);
@@ -1093,7 +1128,10 @@ mod tests {
         );
         let load = load_gtfs(&dir, Some(20260708)).unwrap();
         let js = plan(&load.timetable, 0, 1, 23 * 3600, 8);
-        assert_eq!(js[0].arrival, 91_800, "25:30:00 kept as 91800s, not wrapped");
+        assert_eq!(
+            js[0].arrival, 91_800,
+            "25:30:00 kept as 91800s, not wrapped"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1161,7 +1199,10 @@ mod tests {
         );
         // Depart 08:00 exactly: the slow one boards at 08:00 but express still
         // arrives first — RAPTOR must pick 08:40, not 09:00.
-        assert_eq!(earliest_arrival(&load.timetable, 0, 2, 8 * 3600, 8), 8 * 3600 + 40 * 60);
+        assert_eq!(
+            earliest_arrival(&load.timetable, 0, 2, 8 * 3600, 8),
+            8 * 3600 + 40 * 60
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1173,7 +1214,10 @@ mod tests {
                 ("stops.txt", STOPS),
                 ("routes.txt", ROUTES),
                 ("calendar.txt", CALENDAR),
-                ("trips.txt", "route_id,service_id,trip_id\nR1,WK,t1\nR1,WK,t2\n"),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1,WK,t1\nR1,WK,t2\n",
+                ),
                 (
                     "stop_times.txt",
                     "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
@@ -1185,7 +1229,11 @@ mod tests {
             ],
         );
         let load = load_gtfs(&dir, Some(20260708)).unwrap();
-        assert_eq!(load.timetable.n_routes(), 1, "well-behaved trips share a route");
+        assert_eq!(
+            load.timetable.n_routes(),
+            1,
+            "well-behaved trips share a route"
+        );
         assert_eq!(load.n_overtake_splits, 0);
         assert_eq!(load.n_trips, 2);
         let _ = fs::remove_dir_all(&dir);
@@ -1214,14 +1262,20 @@ mod tests {
             ],
         );
         let load = load_gtfs(&dir, Some(20260708)).unwrap();
-        assert_eq!(load.n_trips, 3, "three headway departures in [08:00, 09:00)");
+        assert_eq!(
+            load.n_trips, 3,
+            "three headway departures in [08:00, 09:00)"
+        );
         // Depart 08:05 → catch the 08:20 → arrive 08:35 (template ride = 15 min).
         assert_eq!(
             earliest_arrival(&load.timetable, 0, 1, 8 * 3600 + 300, 8),
             8 * 3600 + 35 * 60
         );
         // The 06:00 template itself must NOT run as a scheduled trip.
-        assert_eq!(earliest_arrival(&load.timetable, 0, 1, 0, 8), 8 * 3600 + 15 * 60);
+        assert_eq!(
+            earliest_arrival(&load.timetable, 0, 1, 0, 8),
+            8 * 3600 + 15 * 60
+        );
         // Busyness counts the CONCRETE departures, not the template.
         assert_eq!(load.stop_visits, vec![3, 3, 0]);
         let _ = fs::remove_dir_all(&dir);
@@ -1255,7 +1309,10 @@ mod tests {
         );
         let load = load_gtfs(&dir, Some(20260708)).unwrap();
         assert_eq!(load.n_trips, 1, "both windows rejected, template kept");
-        assert_eq!(earliest_arrival(&load.timetable, 0, 1, 0, 8), 6 * 3600 + 15 * 60);
+        assert_eq!(
+            earliest_arrival(&load.timetable, 0, 1, 0, 8),
+            6 * 3600 + 15 * 60
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1271,7 +1328,10 @@ mod tests {
                      R1,10,East,3\nR2,20,North,3\n",
                 ),
                 ("calendar.txt", CALENDAR),
-                ("trips.txt", "route_id,service_id,trip_id\nR1,WK,t1\nR2,WK,t2\n"),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1,WK,t1\nR2,WK,t2\n",
+                ),
                 (
                     "stop_times.txt",
                     "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
@@ -1295,7 +1355,10 @@ mod tests {
         let js = plan(&load.timetable, 0, 2, 0, 8);
         assert!(!js.is_empty(), "C reachable only via the transfer footpath");
         let j = &js[0];
-        assert!(j.legs.iter().any(|l| l.kind == LegKind::Walk && l.arr - l.dep == 180));
+        assert!(j
+            .legs
+            .iter()
+            .any(|l| l.kind == LegKind::Walk && l.arr - l.dep == 180));
         assert_eq!(j.arrival, 8 * 3600 + 600 + 180);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1342,13 +1405,19 @@ mod tests {
                      n1,08:25:00,08:25:00,B,1\n\
                      n1,08:45:00,08:45:00,C,2\n",
                 ),
-                ("transfers.txt", "from_stop_id,to_stop_id,transfer_type,min_transfer_time\nB,B,2,120\n"),
+                (
+                    "transfers.txt",
+                    "from_stop_id,to_stop_id,transfer_type,min_transfer_time\nB,B,2,120\n",
+                ),
             ],
         );
         let load = load_gtfs(&dir, Some(20260709)).unwrap();
         let tt = &load.timetable;
         assert_eq!(load.stop_ids, vec!["A", "B", "C"]);
-        assert_eq!(load.stop_names[0], "Alpha, Main", "quoted comma name survives");
+        assert_eq!(
+            load.stop_names[0], "Alpha, Main",
+            "quoted comma name survives"
+        );
 
         let mut path = std::env::temp_dir();
         path.push(format!("flows_gtfs_e2e_{}.ftt", std::process::id()));

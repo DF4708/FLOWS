@@ -472,7 +472,11 @@ mod tests {
         let bb = b.add_stop(0, 1_000_000);
         let c = b.add_stop(0, 2_000_000);
         b.add_route(&[a, bb], vec![vec![ev(0, 0), ev(600, 600)]], Mode::Rail);
-        b.add_route(&[bb, c], vec![vec![ev(900, 900), ev(1500, 1500)]], Mode::Rail);
+        b.add_route(
+            &[bb, c],
+            vec![vec![ev(900, 900), ev(1500, 1500)]],
+            Mode::Rail,
+        );
         let js = plan(&b.build(), a, c, 0, K);
         assert_eq!(js.len(), 1);
         let j = &js[0];
@@ -496,7 +500,11 @@ mod tests {
         let c = b.add_stop(10, 1_000_010);
         let d = b.add_stop(0, 2_000_000);
         b.add_route(&[a, bb], vec![vec![ev(0, 0), ev(600, 600)]], Mode::Rail);
-        b.add_route(&[c, d], vec![vec![ev(900, 900), ev(1500, 1500)]], Mode::Subway);
+        b.add_route(
+            &[c, d],
+            vec![vec![ev(900, 900), ev(1500, 1500)]],
+            Mode::Subway,
+        );
         b.add_footpath(bb, c, 120); // 2-minute walk between stations
         let js = plan(&b.build(), a, d, 0, K);
         assert_eq!(js.len(), 1);
@@ -523,7 +531,11 @@ mod tests {
         let bb = b.add_stop(0, 1_000_000);
         let c = b.add_stop(0, 2_000_000);
         b.add_route(&[a, bb], vec![vec![ev(0, 0), ev(600, 600)]], Mode::Rail);
-        b.add_route(&[bb, c], vec![vec![ev(700, 700), ev(1500, 1500)]], Mode::Rail);
+        b.add_route(
+            &[bb, c],
+            vec![vec![ev(700, 700), ev(1500, 1500)]],
+            Mode::Rail,
+        );
         b.add_route(&[a, c], vec![vec![ev(0, 0), ev(3000, 3000)]], Mode::Coach);
         let js = plan(&b.build(), a, c, 0, K);
         assert_eq!(js.len(), 2, "both frontier options returned");
@@ -547,12 +559,18 @@ mod tests {
         let c = b.add_stop(0, 1_000_000);
         b.add_route(
             &[a, c],
-            vec![vec![ev(0, 0), ev(600, 600)], vec![ev(1000, 1000), ev(1600, 1600)]],
+            vec![
+                vec![ev(0, 0), ev(600, 600)],
+                vec![ev(1000, 1000), ev(1600, 1600)],
+            ],
             Mode::Bus,
         );
         let js = plan(&b.build(), a, c, 500, K);
         assert_eq!(js.len(), 1);
-        assert_eq!(js[0].arrival, 1600, "catches the later trip, not the missed one");
+        assert_eq!(
+            js[0].arrival, 1600,
+            "catches the later trip, not the missed one"
+        );
         assert_eq!(js[0].legs[0].dep, 1000);
     }
 
@@ -591,7 +609,10 @@ mod tests {
     struct Lcg(u64);
     impl Lcg {
         fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             self.0
         }
         fn range(&mut self, lo: u32, hi: u32) -> u32 {
@@ -604,7 +625,12 @@ mod tests {
     /// Settling a stop at its final arrival, then boarding the earliest catchable
     /// trip on every serving route and relaxing every downstream stop, plus every
     /// footpath, yields the true earliest arrival.
-    fn reference_earliest(tt: &crate::transit::Timetable, source: u32, target: u32, depart: Time) -> Time {
+    fn reference_earliest(
+        tt: &crate::transit::Timetable,
+        source: u32,
+        target: u32,
+        depart: Time,
+    ) -> Time {
         let n = tt.n_stops();
         let mut arr = vec![INF; n];
         let mut settled = vec![false; n];
@@ -767,7 +793,10 @@ mod tests {
                 }
             }
         }
-        assert!(checks > 1000, "gate should exercise many OD pairs, ran {checks}");
+        assert!(
+            checks > 1000,
+            "gate should exercise many OD pairs, ran {checks}"
+        );
     }
 
     #[test]
@@ -789,7 +818,11 @@ mod tests {
                         continue;
                     }
                     assert!(!js.is_empty());
-                    assert_eq!(js.last().unwrap().arrival, best, "frontier reaches the optimum");
+                    assert_eq!(
+                        js.last().unwrap().arrival,
+                        best,
+                        "frontier reaches the optimum"
+                    );
                     for w in js.windows(2) {
                         assert!(w[1].arrival < w[0].arrival, "arrival strictly improves");
                         assert!(w[1].n_transfers > w[0].n_transfers, "at a transfer cost");

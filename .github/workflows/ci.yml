@@ -24,7 +24,10 @@ jobs:
       # on developers who track `stable`.
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
-          components: clippy
+          components: clippy, rustfmt
+      - name: formatting (rustfmt, no drift)
+        run: cargo fmt --all --check
+        working-directory: rust
       - name: clippy (warnings are errors)
         run: cargo clippy --workspace --all-targets -- -D warnings
         working-directory: rust

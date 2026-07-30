@@ -104,8 +104,13 @@ pub unsafe extern "C" fn flows_dijkstra_c(
     source: *const i32,
     out_dist: *mut f64,
 ) {
-    if offsets.is_null() || n_nodes.is_null() || targets.is_null() || weights.is_null()
-        || n_edges.is_null() || source.is_null() || out_dist.is_null()
+    if offsets.is_null()
+        || n_nodes.is_null()
+        || targets.is_null()
+        || weights.is_null()
+        || n_edges.is_null()
+        || source.is_null()
+        || out_dist.is_null()
     {
         return;
     }
@@ -139,7 +144,11 @@ pub unsafe extern "C" fn flows_dijkstra_c(
         let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
         let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
         let wts: Vec<f64> = wts_raw.to_vec();
-        let g = crate::routing::CsrGraph { offsets: off, targets: tgt, weights: wts };
+        let g = crate::routing::CsrGraph {
+            offsets: off,
+            targets: tgt,
+            weights: wts,
+        };
         g.dijkstra(src_raw as usize)
     }));
     match computed {
@@ -169,8 +178,15 @@ pub unsafe extern "C" fn flows_ch_query_c(
     n_queries: *const i32,
     out: *mut f64,
 ) {
-    if offsets.is_null() || n_nodes.is_null() || targets.is_null() || weights.is_null()
-        || n_edges.is_null() || srcs.is_null() || dsts.is_null() || n_queries.is_null() || out.is_null()
+    if offsets.is_null()
+        || n_nodes.is_null()
+        || targets.is_null()
+        || weights.is_null()
+        || n_edges.is_null()
+        || srcs.is_null()
+        || dsts.is_null()
+        || n_queries.is_null()
+        || out.is_null()
     {
         return;
     }
@@ -203,9 +219,15 @@ pub unsafe extern "C" fn flows_ch_query_c(
         let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
         let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
         let wts: Vec<f64> = wts_raw.to_vec();
-        let g = crate::routing::CsrGraph { offsets: off, targets: tgt, weights: wts };
+        let g = crate::routing::CsrGraph {
+            offsets: off,
+            targets: tgt,
+            weights: wts,
+        };
         let ch = crate::ch::ContractionHierarchy::preprocess(&g);
-        (0..nq).map(|i| ch.query(ss[i] as usize, ds[i] as usize)).collect::<Vec<f64>>()
+        (0..nq)
+            .map(|i| ch.query(ss[i] as usize, ds[i] as usize))
+            .collect::<Vec<f64>>()
     }));
     match computed {
         Ok(costs) => os.copy_from_slice(&costs),
@@ -244,9 +266,17 @@ pub unsafe extern "C" fn flows_ch_path_c(
     out_nodes: *mut i32,
     out_len: *mut i32,
 ) {
-    if offsets.is_null() || n_nodes.is_null() || targets.is_null() || weights.is_null()
-        || n_edges.is_null() || src.is_null() || dst.is_null() || cap.is_null()
-        || out_cost.is_null() || out_nodes.is_null() || out_len.is_null()
+    if offsets.is_null()
+        || n_nodes.is_null()
+        || targets.is_null()
+        || weights.is_null()
+        || n_edges.is_null()
+        || src.is_null()
+        || dst.is_null()
+        || cap.is_null()
+        || out_cost.is_null()
+        || out_nodes.is_null()
+        || out_len.is_null()
     {
         return;
     }
@@ -267,8 +297,10 @@ pub unsafe extern "C" fn flows_ch_path_c(
         && off_raw.windows(2).all(|w| w[0] >= 0 && w[1] >= w[0])
         && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn)
         && wts_raw.iter().all(|&w| w.is_finite() && w >= 0.0)
-        && s >= 0 && (s as usize) < nn
-        && d >= 0 && (d as usize) < nn;
+        && s >= 0
+        && (s as usize) < nn
+        && d >= 0
+        && (d as usize) < nn;
     if !valid {
         *out_cost = f64::NAN;
         *out_len = 0;
@@ -278,7 +310,11 @@ pub unsafe extern "C" fn flows_ch_path_c(
         let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
         let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
         let wts: Vec<f64> = wts_raw.to_vec();
-        let g = crate::routing::CsrGraph { offsets: off, targets: tgt, weights: wts };
+        let g = crate::routing::CsrGraph {
+            offsets: off,
+            targets: tgt,
+            weights: wts,
+        };
         let ch = crate::ch::ContractionHierarchy::preprocess(&g);
         ch.query_path(s as usize, d as usize)
     }));
@@ -425,8 +461,12 @@ unsafe fn build_timetable_ffi(
 
     let nr = n_routes as usize;
     if nr > 0 {
-        if route_pat_off.is_null() || route_pat_stops.is_null() || route_ntrips.is_null()
-            || route_ev_off.is_null() || ev_arr.is_null() || ev_dep.is_null()
+        if route_pat_off.is_null()
+            || route_pat_stops.is_null()
+            || route_ntrips.is_null()
+            || route_ev_off.is_null()
+            || ev_arr.is_null()
+            || ev_dep.is_null()
             || route_mode.is_null()
         {
             return None;
@@ -436,7 +476,8 @@ unsafe fn build_timetable_ffi(
         let ntrips = std::slice::from_raw_parts(route_ntrips, nr);
         let modes = std::slice::from_raw_parts(route_mode, nr);
         // Offsets must be monotonic and start at 0 (CSR invariant).
-        if pat_off[0] != 0 || ev_off[0] != 0
+        if pat_off[0] != 0
+            || ev_off[0] != 0
             || pat_off.windows(2).any(|w| w[1] < w[0])
             || ev_off.windows(2).any(|w| w[1] < w[0])
         {
@@ -467,7 +508,10 @@ unsafe fn build_timetable_ffi(
                 let base = es + t * n_pat;
                 trips.push(
                     (0..n_pat)
-                        .map(|j| StopEvent { arr: arr[base + j], dep: dep[base + j] })
+                        .map(|j| StopEvent {
+                            arr: arr[base + j],
+                            dep: dep[base + j],
+                        })
                         .collect(),
                 );
             }
@@ -552,8 +596,20 @@ pub unsafe extern "C" fn flows_transit_plan(
     }
     let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let tt = match build_timetable_ffi(
-            n_stops, stop_lat_e6, stop_lon_e6, n_routes, route_pat_off, route_pat_stops,
-            route_ntrips, route_ev_off, ev_arr, ev_dep, route_mode, n_fp, fp_from, fp_to,
+            n_stops,
+            stop_lat_e6,
+            stop_lon_e6,
+            n_routes,
+            route_pat_off,
+            route_pat_stops,
+            route_ntrips,
+            route_ev_off,
+            ev_arr,
+            ev_dep,
+            route_mode,
+            n_fp,
+            fp_from,
+            fp_to,
             fp_secs,
         ) {
             Some(t) => t,
@@ -628,12 +684,21 @@ pub extern "C" fn flows_transit_selftest() -> i64 {
         let c = b.add_stop(0, 2_000_000);
         b.add_route(
             &[a, bb],
-            vec![vec![StopEvent { arr: 0, dep: 0 }, StopEvent { arr: 600, dep: 600 }]],
+            vec![vec![
+                StopEvent { arr: 0, dep: 0 },
+                StopEvent { arr: 600, dep: 600 },
+            ]],
             Mode::Rail,
         );
         b.add_route(
             &[bb, c],
-            vec![vec![StopEvent { arr: 900, dep: 900 }, StopEvent { arr: 1500, dep: 1500 }]],
+            vec![vec![
+                StopEvent { arr: 900, dep: 900 },
+                StopEvent {
+                    arr: 1500,
+                    dep: 1500,
+                },
+            ]],
             Mode::Rail,
         );
         let tt = b.build();
@@ -672,22 +737,49 @@ mod tests {
         let (nn, me, src) = (2i32, 2i32, 0i32);
         let mut out = [0.0f64; 2];
         unsafe {
-            flows_dijkstra_c(offsets.as_ptr(), &nn, targets.as_ptr(), weights.as_ptr(), &me, &src, out.as_mut_ptr());
+            flows_dijkstra_c(
+                offsets.as_ptr(),
+                &nn,
+                targets.as_ptr(),
+                weights.as_ptr(),
+                &me,
+                &src,
+                out.as_mut_ptr(),
+            );
         }
-        assert!(out.iter().all(|v| v.is_nan()), "expected NaN sentinel, got {out:?}");
+        assert!(
+            out.iter().all(|v| v.is_nan()),
+            "expected NaN sentinel, got {out:?}"
+        );
         // Negative source: also invalid (was silently clamped to node 0).
         let targets_ok = [1i32, 0];
         let bad_src = -1i32;
         let mut out2 = [0.0f64; 2];
         unsafe {
-            flows_dijkstra_c(offsets.as_ptr(), &nn, targets_ok.as_ptr(), weights.as_ptr(), &me, &bad_src, out2.as_mut_ptr());
+            flows_dijkstra_c(
+                offsets.as_ptr(),
+                &nn,
+                targets_ok.as_ptr(),
+                weights.as_ptr(),
+                &me,
+                &bad_src,
+                out2.as_mut_ptr(),
+            );
         }
         assert!(out2.iter().all(|v| v.is_nan()));
         // Valid input still works.
         let good_src = 0i32;
         let mut out3 = [0.0f64; 2];
         unsafe {
-            flows_dijkstra_c(offsets.as_ptr(), &nn, targets_ok.as_ptr(), weights.as_ptr(), &me, &good_src, out3.as_mut_ptr());
+            flows_dijkstra_c(
+                offsets.as_ptr(),
+                &nn,
+                targets_ok.as_ptr(),
+                weights.as_ptr(),
+                &me,
+                &good_src,
+                out3.as_mut_ptr(),
+            );
         }
         assert_eq!(out3[0], 0.0);
         assert_eq!(out3[1], 1.0);
@@ -703,15 +795,33 @@ mod tests {
         let bad_dsts = [5i32]; // >= n_nodes -> invalid
         let mut out = [0.0f64; 1];
         unsafe {
-            flows_ch_query_c(offsets.as_ptr(), &nn, targets.as_ptr(), weights.as_ptr(), &me,
-                             srcs.as_ptr(), bad_dsts.as_ptr(), &nq, out.as_mut_ptr());
+            flows_ch_query_c(
+                offsets.as_ptr(),
+                &nn,
+                targets.as_ptr(),
+                weights.as_ptr(),
+                &me,
+                srcs.as_ptr(),
+                bad_dsts.as_ptr(),
+                &nq,
+                out.as_mut_ptr(),
+            );
         }
         assert!(out[0].is_nan());
         let good_dsts = [1i32];
         let mut out2 = [0.0f64; 1];
         unsafe {
-            flows_ch_query_c(offsets.as_ptr(), &nn, targets.as_ptr(), weights.as_ptr(), &me,
-                             srcs.as_ptr(), good_dsts.as_ptr(), &nq, out2.as_mut_ptr());
+            flows_ch_query_c(
+                offsets.as_ptr(),
+                &nn,
+                targets.as_ptr(),
+                weights.as_ptr(),
+                &me,
+                srcs.as_ptr(),
+                good_dsts.as_ptr(),
+                &nq,
+                out2.as_mut_ptr(),
+            );
         }
         assert_eq!(out2[0], 1.0);
     }
@@ -728,19 +838,50 @@ mod tests {
         let neg_w = [-1.0f64, 1.0];
         let mut out = [0.0f64; 2];
         unsafe {
-            flows_dijkstra_c(offsets.as_ptr(), &nn, targets.as_ptr(), nan_w.as_ptr(), &me, &src, out.as_mut_ptr());
+            flows_dijkstra_c(
+                offsets.as_ptr(),
+                &nn,
+                targets.as_ptr(),
+                nan_w.as_ptr(),
+                &me,
+                &src,
+                out.as_mut_ptr(),
+            );
         }
-        assert!(out.iter().all(|v| v.is_nan()), "NaN weight must fill the sentinel");
+        assert!(
+            out.iter().all(|v| v.is_nan()),
+            "NaN weight must fill the sentinel"
+        );
         let mut out2 = [0.0f64; 2];
         unsafe {
-            flows_dijkstra_c(offsets.as_ptr(), &nn, targets.as_ptr(), neg_w.as_ptr(), &me, &src, out2.as_mut_ptr());
+            flows_dijkstra_c(
+                offsets.as_ptr(),
+                &nn,
+                targets.as_ptr(),
+                neg_w.as_ptr(),
+                &me,
+                &src,
+                out2.as_mut_ptr(),
+            );
         }
-        assert!(out2.iter().all(|v| v.is_nan()), "negative weight must fill the sentinel");
+        assert!(
+            out2.iter().all(|v| v.is_nan()),
+            "negative weight must fill the sentinel"
+        );
         let (nq, srcs, dsts) = (1i32, [0i32], [1i32]);
         let mut out3 = [0.0f64; 1];
         unsafe {
-            flows_ch_query_c(offsets.as_ptr(), &nn, targets.as_ptr(), nan_w.as_ptr(), &me,
-                             srcs.as_ptr(), dsts.as_ptr(), &nq, out3.as_mut_ptr());
+            flows_ch_query_c(
+                offsets.as_ptr(),
+                &nn,
+                targets.as_ptr(),
+                nan_w.as_ptr(),
+                &me,
+                srcs.as_ptr(),
+                dsts.as_ptr(),
+                &nq,
+                out3.as_mut_ptr(),
+            );
         }
         assert!(out3[0].is_nan());
         let (s, d, cap) = (0i32, 1i32, 2i32);
@@ -748,8 +889,19 @@ mod tests {
         let mut nodes = [0i32; 2];
         let mut len = 0i32;
         unsafe {
-            flows_ch_path_c(offsets.as_ptr(), &nn, targets.as_ptr(), neg_w.as_ptr(), &me,
-                            &s, &d, &cap, &mut cost, nodes.as_mut_ptr(), &mut len);
+            flows_ch_path_c(
+                offsets.as_ptr(),
+                &nn,
+                targets.as_ptr(),
+                neg_w.as_ptr(),
+                &me,
+                &s,
+                &d,
+                &cap,
+                &mut cost,
+                nodes.as_mut_ptr(),
+                &mut len,
+            );
         }
         assert!(cost.is_nan());
         assert_eq!(len, 0);
@@ -763,7 +915,8 @@ mod tests {
         assert_eq!(n, 3);
         // pass 2: fill
         let mut buf = vec![0.0f64; 2 * n as usize];
-        let n2 = unsafe { flows_polyline_decode(enc.as_ptr(), enc.len(), buf.as_mut_ptr(), n as usize) };
+        let n2 =
+            unsafe { flows_polyline_decode(enc.as_ptr(), enc.len(), buf.as_mut_ptr(), n as usize) };
         assert_eq!(n2, 3);
         assert_eq!(buf[0].to_bits(), (-120.2f64).to_bits()); // lon first
         assert_eq!(buf[1].to_bits(), 38.5f64.to_bits());
@@ -773,8 +926,14 @@ mod tests {
         assert_eq!(n3, 3);
         assert_eq!(small[1].to_bits(), 38.5f64.to_bits());
         // degenerate inputs
-        assert_eq!(unsafe { flows_polyline_decode(std::ptr::null(), 5, std::ptr::null_mut(), 0) }, -1);
-        assert_eq!(unsafe { flows_polyline_decode(std::ptr::null(), 0, std::ptr::null_mut(), 0) }, 0);
+        assert_eq!(
+            unsafe { flows_polyline_decode(std::ptr::null(), 5, std::ptr::null_mut(), 0) },
+            -1
+        );
+        assert_eq!(
+            unsafe { flows_polyline_decode(std::ptr::null(), 0, std::ptr::null_mut(), 0) },
+            0
+        );
     }
 
     #[test]
@@ -782,9 +941,7 @@ mod tests {
         let a = [0.0f64, 0.0]; // one point (0,0)
         let b = [3.0f64, 4.0]; // one point (3,4)
         let mut out = [0.0f64; 1];
-        let rc = unsafe {
-            flows_distance_matrix(a.as_ptr(), 1, b.as_ptr(), 1, out.as_mut_ptr())
-        };
+        let rc = unsafe { flows_distance_matrix(a.as_ptr(), 1, b.as_ptr(), 1, out.as_mut_ptr()) };
         assert_eq!(rc, 0);
         assert!((out[0] - 5.0).abs() < 1e-15);
     }
@@ -801,10 +958,10 @@ mod tests {
         // Timetable: stops A(0) B(1) C(2); route0 A->B, route1 B->C. Plan A->C.
         let lat = [0i32, 0, 0];
         let lon = [0i32, 1_000_000, 2_000_000];
-        let pat_off = [0u32, 2, 4];        // route0 stops [0,1], route1 stops [1,2]
+        let pat_off = [0u32, 2, 4]; // route0 stops [0,1], route1 stops [1,2]
         let pat_stops = [0u32, 1, 1, 2];
         let ntrips = [1u32, 1];
-        let ev_off = [0u32, 2, 4];          // 1 trip * 2 stops each
+        let ev_off = [0u32, 2, 4]; // 1 trip * 2 stops each
         let ev_arr = [0u32, 600, 900, 1500];
         let ev_dep = [0u32, 600, 900, 1500];
         let modes = [0u8, 0];
@@ -812,33 +969,83 @@ mod tests {
         let mut counts = [0u32; 2];
         let rc = unsafe {
             flows_transit_plan(
-                3, lat.as_ptr(), lon.as_ptr(),
-                2, pat_off.as_ptr(), pat_stops.as_ptr(), ntrips.as_ptr(),
-                ev_off.as_ptr(), ev_arr.as_ptr(), ev_dep.as_ptr(), modes.as_ptr(),
-                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
-                0, 2, 0, 8,
-                std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, counts.as_mut_ptr(),
+                3,
+                lat.as_ptr(),
+                lon.as_ptr(),
+                2,
+                pat_off.as_ptr(),
+                pat_stops.as_ptr(),
+                ntrips.as_ptr(),
+                ev_off.as_ptr(),
+                ev_arr.as_ptr(),
+                ev_dep.as_ptr(),
+                modes.as_ptr(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                2,
+                0,
+                8,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                counts.as_mut_ptr(),
             )
         };
         assert_eq!(rc, 0);
         assert_eq!(counts[0], 1, "one Pareto journey");
         assert_eq!(counts[1], 2, "two ride legs");
         // Pass 2: fill.
-        let mut journeys: Vec<FfiJourney> = (0..counts[0]).map(|_| FfiJourney {
-            first_leg: 0, n_legs: 0, arrival: 0, n_transfers: 0, walk_secs: 0,
-        }).collect();
-        let mut legs: Vec<FfiLeg> = (0..counts[1]).map(|_| FfiLeg {
-            kind: 0, mode: 0, _pad: 0, from_stop: 0, to_stop: 0, dep: 0, arr: 0,
-            route: u32::MAX, trip: u32::MAX,
-        }).collect();
+        let mut journeys: Vec<FfiJourney> = (0..counts[0])
+            .map(|_| FfiJourney {
+                first_leg: 0,
+                n_legs: 0,
+                arrival: 0,
+                n_transfers: 0,
+                walk_secs: 0,
+            })
+            .collect();
+        let mut legs: Vec<FfiLeg> = (0..counts[1])
+            .map(|_| FfiLeg {
+                kind: 0,
+                mode: 0,
+                _pad: 0,
+                from_stop: 0,
+                to_stop: 0,
+                dep: 0,
+                arr: 0,
+                route: u32::MAX,
+                trip: u32::MAX,
+            })
+            .collect();
         let rc2 = unsafe {
             flows_transit_plan(
-                3, lat.as_ptr(), lon.as_ptr(),
-                2, pat_off.as_ptr(), pat_stops.as_ptr(), ntrips.as_ptr(),
-                ev_off.as_ptr(), ev_arr.as_ptr(), ev_dep.as_ptr(), modes.as_ptr(),
-                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
-                0, 2, 0, 8,
-                journeys.as_mut_ptr(), counts[0], legs.as_mut_ptr(), counts[1],
+                3,
+                lat.as_ptr(),
+                lon.as_ptr(),
+                2,
+                pat_off.as_ptr(),
+                pat_stops.as_ptr(),
+                ntrips.as_ptr(),
+                ev_off.as_ptr(),
+                ev_arr.as_ptr(),
+                ev_dep.as_ptr(),
+                modes.as_ptr(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                2,
+                0,
+                8,
+                journeys.as_mut_ptr(),
+                counts[0],
+                legs.as_mut_ptr(),
+                counts[1],
                 counts.as_mut_ptr(),
             )
         };
@@ -846,9 +1053,9 @@ mod tests {
         assert_eq!(journeys[0].arrival, 1500);
         assert_eq!(journeys[0].n_transfers, 1);
         assert_eq!(journeys[0].n_legs, 2);
-        assert_eq!(legs[0].kind, 0);        // ride A->B
+        assert_eq!(legs[0].kind, 0); // ride A->B
         assert_eq!(legs[0].from_stop, 0);
-        assert_eq!(legs[1].to_stop, 2);     // ride B->C
+        assert_eq!(legs[1].to_stop, 2); // ride B->C
     }
 
     #[test]
@@ -866,12 +1073,30 @@ mod tests {
         let mut counts = [0u32; 2];
         let sizing = |source: u32, target: u32, rounds: u32, counts: &mut [u32; 2]| unsafe {
             flows_transit_plan(
-                3, lat.as_ptr(), lon.as_ptr(),
-                2, pat_off.as_ptr(), pat_stops.as_ptr(), ntrips.as_ptr(),
-                ev_off.as_ptr(), ev_arr.as_ptr(), ev_dep.as_ptr(), modes.as_ptr(),
-                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
-                source, target, 0, rounds,
-                std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, counts.as_mut_ptr(),
+                3,
+                lat.as_ptr(),
+                lon.as_ptr(),
+                2,
+                pat_off.as_ptr(),
+                pat_stops.as_ptr(),
+                ntrips.as_ptr(),
+                ev_off.as_ptr(),
+                ev_arr.as_ptr(),
+                ev_dep.as_ptr(),
+                modes.as_ptr(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                source,
+                target,
+                0,
+                rounds,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                counts.as_mut_ptr(),
             )
         };
         // A runaway max_rounds must hit the -1 contract, never the allocator.
@@ -883,21 +1108,51 @@ mod tests {
         // -1 rather than journey ranges pointing past cap_legs.
         assert_eq!(sizing(0, 2, 8, &mut counts), 0);
         assert_eq!((counts[0], counts[1]), (1, 2));
-        let mut journeys: Vec<FfiJourney> = (0..counts[0]).map(|_| FfiJourney {
-            first_leg: 0, n_legs: 0, arrival: 0, n_transfers: 0, walk_secs: 0,
-        }).collect();
+        let mut journeys: Vec<FfiJourney> = (0..counts[0])
+            .map(|_| FfiJourney {
+                first_leg: 0,
+                n_legs: 0,
+                arrival: 0,
+                n_transfers: 0,
+                walk_secs: 0,
+            })
+            .collect();
         let mut legs = [FfiLeg {
-            kind: 0, mode: 0, _pad: 0, from_stop: 0, to_stop: 0, dep: 0, arr: 0,
-            route: u32::MAX, trip: u32::MAX,
+            kind: 0,
+            mode: 0,
+            _pad: 0,
+            from_stop: 0,
+            to_stop: 0,
+            dep: 0,
+            arr: 0,
+            route: u32::MAX,
+            trip: u32::MAX,
         }];
         let rc = unsafe {
             flows_transit_plan(
-                3, lat.as_ptr(), lon.as_ptr(),
-                2, pat_off.as_ptr(), pat_stops.as_ptr(), ntrips.as_ptr(),
-                ev_off.as_ptr(), ev_arr.as_ptr(), ev_dep.as_ptr(), modes.as_ptr(),
-                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
-                0, 2, 0, 8,
-                journeys.as_mut_ptr(), counts[0], legs.as_mut_ptr(), 1,
+                3,
+                lat.as_ptr(),
+                lon.as_ptr(),
+                2,
+                pat_off.as_ptr(),
+                pat_stops.as_ptr(),
+                ntrips.as_ptr(),
+                ev_off.as_ptr(),
+                ev_arr.as_ptr(),
+                ev_dep.as_ptr(),
+                modes.as_ptr(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                2,
+                0,
+                8,
+                journeys.as_mut_ptr(),
+                counts[0],
+                legs.as_mut_ptr(),
+                1,
                 counts.as_mut_ptr(),
             )
         };
@@ -910,12 +1165,30 @@ mod tests {
         // Null stops with a nonzero count → -1, never UB/panic across the ABI.
         let rc = unsafe {
             flows_transit_plan(
-                3, std::ptr::null(), std::ptr::null(),
-                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
-                std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(),
-                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
-                0, 1, 0, 8,
-                std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, counts.as_mut_ptr(),
+                3,
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                1,
+                0,
+                8,
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                0,
+                counts.as_mut_ptr(),
             )
         };
         assert_eq!(rc, -1);

@@ -16,15 +16,18 @@
 //! (2026-07-19: asm 3.20 ns/byte vs raw-pointer portable 2.59 — rustc
 //! out-scheduled it). The two remaining kernels keep each other honest.
 
+use flows_core::ch::ContractionHierarchy;
 use flows_core::polyline::bench as pk;
 use flows_core::routing::CsrGraph;
-use flows_core::ch::ContractionHierarchy;
 use std::time::Instant;
 
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0
     }
     fn f64(&mut self) -> f64 {
@@ -79,7 +82,12 @@ fn main() {
         corpus.push(enc);
     }
     let bytes: usize = corpus.iter().map(Vec::len).sum();
-    println!("polyline corpus: {} polylines, {} deltas, {} bytes", corpus.len(), total_deltas, bytes);
+    println!(
+        "polyline corpus: {} polylines, {} deltas, {} bytes",
+        corpus.len(),
+        total_deltas,
+        bytes
+    );
 
     let mut sink = 0i64; // defeat dead-code elimination
     let mut out: Vec<i64> = Vec::with_capacity(4_096);
@@ -98,10 +106,16 @@ fn main() {
             sink ^= out.last().copied().unwrap_or(0);
         }
     });
-    println!("decode_deltas  portable(Vec::push): {:>9} ns/pass  ({:.2} ns/byte)",
-             t_rust, t_rust as f64 / bytes as f64);
-    println!("decode_deltas  portable(raw ptr)  : {:>9} ns/pass  ({:.2} ns/byte)",
-             t_raw, t_raw as f64 / bytes as f64);
+    println!(
+        "decode_deltas  portable(Vec::push): {:>9} ns/pass  ({:.2} ns/byte)",
+        t_rust,
+        t_rust as f64 / bytes as f64
+    );
+    println!(
+        "decode_deltas  portable(raw ptr)  : {:>9} ns/pass  ({:.2} ns/byte)",
+        t_raw,
+        t_raw as f64 / bytes as f64
+    );
     // ---- CH: preprocess + query on a seeded weighted grid ----
     let side = 60usize; // 3,600 nodes, ~7,080 undirected edges
     let n = side * side;
@@ -134,20 +148,29 @@ fn main() {
         }
         offsets.push(targets.len() as u32);
     }
-    let g = CsrGraph { offsets, targets, weights };
+    let g = CsrGraph {
+        offsets,
+        targets,
+        weights,
+    };
     let t0 = Instant::now();
     let ch = ContractionHierarchy::preprocess(&g);
     let prep_ms = t0.elapsed().as_millis();
-    let queries: Vec<(usize, usize)> =
-        (0..500).map(|_| ((rng.next() as usize) % n, (rng.next() as usize) % n)).collect();
+    let queries: Vec<(usize, usize)> = (0..500)
+        .map(|_| ((rng.next() as usize) % n, (rng.next() as usize) % n))
+        .collect();
     let mut acc = 0.0f64;
     let t_q = time(11, || {
         for &(s, t) in &queries {
             acc += ch.query(s, t);
         }
     });
-    println!("ch: preprocess {n} nodes = {prep_ms} ms; {} queries = {} ns/pass ({} ns/query)",
-             queries.len(), t_q, t_q / queries.len() as u128);
+    println!(
+        "ch: preprocess {n} nodes = {prep_ms} ms; {} queries = {} ns/pass ({} ns/query)",
+        queries.len(),
+        t_q,
+        t_q / queries.len() as u128
+    );
     // Keep the sinks alive.
     if sink == i64::MIN && acc.is_nan() {
         println!("(unreachable sink print {sink} {acc})");

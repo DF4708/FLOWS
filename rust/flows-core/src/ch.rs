@@ -21,8 +21,8 @@
 //! we contract it as an undirected weighted graph (parallel edges collapsed to
 //! the min weight). The query is a bidirectional "upward" search.
 
-use std::collections::{BTreeMap, BinaryHeap};
 use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap};
 
 use crate::routing::{CsrGraph, HeapItem};
 
@@ -56,7 +56,9 @@ impl ContractionHierarchy {
             for k in s..e {
                 let v = g.targets[k];
                 let w = g.weights[k];
-                if !(w.is_finite() && w >= 0.0) { continue; }
+                if !(w.is_finite() && w >= 0.0) {
+                    continue;
+                }
                 relax_min(&mut adj[u], v, w);
                 relax_min(&mut adj[v as usize], u as u32, w);
             }
@@ -83,12 +85,17 @@ impl ContractionHierarchy {
         let mut wscratch = WitnessScratch::new(n);
         let mut heap: BinaryHeap<Reverse<(i64, u32)>> = BinaryHeap::new();
         for v in 0..n {
-            heap.push(Reverse((importance(&adj, &contracted, &level, v, &mut wscratch), v as u32)));
+            heap.push(Reverse((
+                importance(&adj, &contracted, &level, v, &mut wscratch),
+                v as u32,
+            )));
         }
         let mut order = 0u32;
         while let Some(Reverse((_imp, vn))) = heap.pop() {
             let v = vn as usize;
-            if contracted[v] { continue; } // stale duplicate
+            if contracted[v] {
+                continue;
+            } // stale duplicate
             let imp_now = importance(&adj, &contracted, &level, v, &mut wscratch);
             if let Some(&Reverse((next_imp, _))) = heap.peek() {
                 if imp_now > next_imp {
@@ -100,14 +107,20 @@ impl ContractionHierarchy {
             let vl = level[v];
             for (&x, _) in adj[v].iter() {
                 let xi = x as usize;
-                if !contracted[xi] && level[xi] < vl + 1 { level[xi] = vl + 1; }
+                if !contracted[xi] && level[xi] < vl + 1 {
+                    level[xi] = vl + 1;
+                }
             }
             rank[v] = order;
             order += 1;
             shortcuts += contract_node(&mut adj, &contracted, v, &mut middle, &mut wscratch);
             contracted[v] = true;
         }
-        ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts, middle }
+        ContractionHierarchy {
+            up: build_up_graph(&adj, &rank),
+            shortcuts,
+            middle,
+        }
     }
 
     /// Preprocess contracting nodes in the given explicit order (order[k] gets
@@ -127,7 +140,11 @@ impl ContractionHierarchy {
             shortcuts += contract_node(&mut adj, &contracted, v, &mut middle, &mut wscratch);
             contracted[v] = true;
         }
-        ContractionHierarchy { up: build_up_graph(&adj, &rank), shortcuts, middle }
+        ContractionHierarchy {
+            up: build_up_graph(&adj, &rank),
+            shortcuts,
+            middle,
+        }
     }
 
     /// Shortest-path cost from `s` to `t` via bidirectional upward search with
@@ -137,12 +154,26 @@ impl ContractionHierarchy {
     /// frontier distance can no longer beat `best`. Equal to the Dijkstra cost.
     pub fn query(&self, s: usize, t: usize) -> f64 {
         let n = self.up.len();
-        if s >= n || t >= n { return f64::INFINITY; }
-        if s == t { return 0.0; }
-        let mut df = vec![f64::INFINITY; n]; df[s] = 0.0;
-        let mut db = vec![f64::INFINITY; n]; db[t] = 0.0;
-        let mut hf = BinaryHeap::new(); hf.push(HeapItem { dist: 0.0, node: s as u32 });
-        let mut hb = BinaryHeap::new(); hb.push(HeapItem { dist: 0.0, node: t as u32 });
+        if s >= n || t >= n {
+            return f64::INFINITY;
+        }
+        if s == t {
+            return 0.0;
+        }
+        let mut df = vec![f64::INFINITY; n];
+        df[s] = 0.0;
+        let mut db = vec![f64::INFINITY; n];
+        db[t] = 0.0;
+        let mut hf = BinaryHeap::new();
+        hf.push(HeapItem {
+            dist: 0.0,
+            node: s as u32,
+        });
+        let mut hb = BinaryHeap::new();
+        hb.push(HeapItem {
+            dist: 0.0,
+            node: t as u32,
+        });
         let mut best = f64::INFINITY;
         loop {
             let ftop = hf.peek().map(|h| h.dist);
@@ -158,27 +189,45 @@ impl ContractionHierarchy {
             if go_fwd {
                 let HeapItem { dist: d, node } = hf.pop().unwrap();
                 let u = node as usize;
-                if d > df[u] { continue; }
-                if db[u].is_finite() { let c = d + db[u]; best = best.min(c); }
+                if d > df[u] {
+                    continue;
+                }
+                if db[u].is_finite() {
+                    let c = d + db[u];
+                    best = best.min(c);
+                }
                 for &(x, w) in &self.up[u] {
-                    let nd = d + w; let xi = x as usize;
+                    let nd = d + w;
+                    let xi = x as usize;
                     if nd < df[xi] {
                         df[xi] = nd;
                         hf.push(HeapItem { dist: nd, node: x });
-                        if db[xi].is_finite() { let c = nd + db[xi]; best = best.min(c); }
+                        if db[xi].is_finite() {
+                            let c = nd + db[xi];
+                            best = best.min(c);
+                        }
                     }
                 }
             } else {
                 let HeapItem { dist: d, node } = hb.pop().unwrap();
                 let u = node as usize;
-                if d > db[u] { continue; }
-                if df[u].is_finite() { let c = df[u] + d; best = best.min(c); }
+                if d > db[u] {
+                    continue;
+                }
+                if df[u].is_finite() {
+                    let c = df[u] + d;
+                    best = best.min(c);
+                }
                 for &(x, w) in &self.up[u] {
-                    let nd = d + w; let xi = x as usize;
+                    let nd = d + w;
+                    let xi = x as usize;
                     if nd < db[xi] {
                         db[xi] = nd;
                         hb.push(HeapItem { dist: nd, node: x });
-                        if df[xi].is_finite() { let c = df[xi] + nd; best = best.min(c); }
+                        if df[xi].is_finite() {
+                            let c = df[xi] + nd;
+                            best = best.min(c);
+                        }
                     }
                 }
             }
@@ -195,15 +244,29 @@ impl ContractionHierarchy {
     /// when t is unreachable (cost `INFINITY`). Cost equals `query(s,t)`.
     pub fn query_path(&self, s: usize, t: usize) -> (f64, Vec<u32>) {
         let n = self.up.len();
-        if s >= n || t >= n { return (f64::INFINITY, Vec::new()); }
-        if s == t { return (0.0, vec![s as u32]); }
+        if s >= n || t >= n {
+            return (f64::INFINITY, Vec::new());
+        }
+        if s == t {
+            return (0.0, vec![s as u32]);
+        }
         const NONE: u32 = u32::MAX;
-        let mut df = vec![f64::INFINITY; n]; df[s] = 0.0;
-        let mut db = vec![f64::INFINITY; n]; db[t] = 0.0;
+        let mut df = vec![f64::INFINITY; n];
+        df[s] = 0.0;
+        let mut db = vec![f64::INFINITY; n];
+        db[t] = 0.0;
         let mut pf = vec![NONE; n]; // forward predecessor (toward s)
         let mut pb = vec![NONE; n]; // backward predecessor (toward t)
-        let mut hf = BinaryHeap::new(); hf.push(HeapItem { dist: 0.0, node: s as u32 });
-        let mut hb = BinaryHeap::new(); hb.push(HeapItem { dist: 0.0, node: t as u32 });
+        let mut hf = BinaryHeap::new();
+        hf.push(HeapItem {
+            dist: 0.0,
+            node: s as u32,
+        });
+        let mut hb = BinaryHeap::new();
+        hb.push(HeapItem {
+            dist: 0.0,
+            node: t as u32,
+        });
         let mut best = f64::INFINITY;
         let mut meet = NONE;
         loop {
@@ -220,43 +283,91 @@ impl ContractionHierarchy {
             if go_fwd {
                 let HeapItem { dist: d, node } = hf.pop().unwrap();
                 let u = node as usize;
-                if d > df[u] { continue; }
-                if db[u].is_finite() { let c = d + db[u]; if c < best { best = c; meet = node; } }
+                if d > df[u] {
+                    continue;
+                }
+                if db[u].is_finite() {
+                    let c = d + db[u];
+                    if c < best {
+                        best = c;
+                        meet = node;
+                    }
+                }
                 for &(x, w) in &self.up[u] {
-                    let nd = d + w; let xi = x as usize;
+                    let nd = d + w;
+                    let xi = x as usize;
                     if nd < df[xi] {
-                        df[xi] = nd; pf[xi] = node;
+                        df[xi] = nd;
+                        pf[xi] = node;
                         hf.push(HeapItem { dist: nd, node: x });
-                        if db[xi].is_finite() { let c = nd + db[xi]; if c < best { best = c; meet = x; } }
+                        if db[xi].is_finite() {
+                            let c = nd + db[xi];
+                            if c < best {
+                                best = c;
+                                meet = x;
+                            }
+                        }
                     }
                 }
             } else {
                 let HeapItem { dist: d, node } = hb.pop().unwrap();
                 let u = node as usize;
-                if d > db[u] { continue; }
-                if df[u].is_finite() { let c = df[u] + d; if c < best { best = c; meet = node; } }
+                if d > db[u] {
+                    continue;
+                }
+                if df[u].is_finite() {
+                    let c = df[u] + d;
+                    if c < best {
+                        best = c;
+                        meet = node;
+                    }
+                }
                 for &(x, w) in &self.up[u] {
-                    let nd = d + w; let xi = x as usize;
+                    let nd = d + w;
+                    let xi = x as usize;
                     if nd < db[xi] {
-                        db[xi] = nd; pb[xi] = node;
+                        db[xi] = nd;
+                        pb[xi] = node;
                         hb.push(HeapItem { dist: nd, node: x });
-                        if df[xi].is_finite() { let c = df[xi] + nd; if c < best { best = c; meet = x; } }
+                        if df[xi].is_finite() {
+                            let c = df[xi] + nd;
+                            if c < best {
+                                best = c;
+                                meet = x;
+                            }
+                        }
                     }
                 }
             }
         }
-        if meet == NONE || !best.is_finite() { return (f64::INFINITY, Vec::new()); }
+        if meet == NONE || !best.is_finite() {
+            return (f64::INFINITY, Vec::new());
+        }
         // Reconstruct the up-graph node sequence s → meet (forward preds) then
         // meet → t (backward preds). Each consecutive pair is one up-edge.
         let mut up_nodes: Vec<u32> = Vec::new();
         let mut x = meet;
-        while x != NONE { up_nodes.push(x); if x as usize == s { break; } x = pf[x as usize]; }
+        while x != NONE {
+            up_nodes.push(x);
+            if x as usize == s {
+                break;
+            }
+            x = pf[x as usize];
+        }
         up_nodes.reverse(); // now s .. meet
         let mut x = pb[meet as usize];
-        while x != NONE { up_nodes.push(x); if x as usize == t { break; } x = pb[x as usize]; }
+        while x != NONE {
+            up_nodes.push(x);
+            if x as usize == t {
+                break;
+            }
+            x = pb[x as usize];
+        }
         // Expand every up-edge (some are shortcuts) into original edges.
         let mut path: Vec<u32> = vec![up_nodes[0]];
-        for w in up_nodes.windows(2) { self.unpack_edge_into(w[0], w[1], &mut path); }
+        for w in up_nodes.windows(2) {
+            self.unpack_edge_into(w[0], w[1], &mut path);
+        }
         (best, path)
     }
 
@@ -270,7 +381,10 @@ impl ContractionHierarchy {
         while let Some((x, y)) = stack.pop() {
             let key = if x < y { (x, y) } else { (y, x) };
             match self.middle.get(&key) {
-                Some(&mid) => { stack.push((mid, y)); stack.push((x, mid)); }
+                Some(&mid) => {
+                    stack.push((mid, y));
+                    stack.push((x, mid));
+                }
                 None => out.push(y), // original edge x->y
             }
         }
@@ -295,15 +409,22 @@ fn count_shortcuts_if_contracted(
     let mut cnt = 0usize;
     for i in 0..nbrs.len() {
         for j in 0..nbrs.len() {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             let (u, wuv) = nbrs[i];
             let (w, wvw) = nbrs[j];
             let key = if u < w { (u, w) } else { (w, u) };
             let direct = wuv + wvw;
-            if seen.contains_key(&key) { continue; }
+            if seen.contains_key(&key) {
+                continue;
+            }
             if !witness_within(adj, contracted, u as usize, w as usize, v, direct, ws) {
                 let existed = adj[u as usize].get(&w).is_some_and(|&e| e <= direct);
-                if !existed { cnt += 1; seen.insert(key, direct); }
+                if !existed {
+                    cnt += 1;
+                    seen.insert(key, direct);
+                }
             }
         }
     }
@@ -332,7 +453,9 @@ fn contract_node(
     let mut added = 0usize;
     for i in 0..nbrs.len() {
         for j in 0..nbrs.len() {
-            if i == j { continue; }
+            if i == j {
+                continue;
+            }
             let (u, wuv) = nbrs[i];
             let (w, wvw) = nbrs[j];
             let direct = wuv + wvw;
@@ -393,7 +516,13 @@ fn build_up_graph(adj: &[BTreeMap<u32, f64>], rank: &[u32]) -> Vec<Vec<(u32, f64
 }
 
 fn relax_min(m: &mut BTreeMap<u32, f64>, k: u32, w: f64) {
-    m.entry(k).and_modify(|e| { if w < *e { *e = w; } }).or_insert(w);
+    m.entry(k)
+        .and_modify(|e| {
+            if w < *e {
+                *e = w;
+            }
+        })
+        .or_insert(w);
 }
 
 /// Reusable witness-search state. A dist entry is valid only while its
@@ -433,7 +562,9 @@ fn witness_within(
     limit: f64,
     s: &mut WitnessScratch,
 ) -> bool {
-    if u == w { return true; }
+    if u == w {
+        return true;
+    }
     s.cur = s.cur.wrapping_add(1);
     if s.cur == 0 {
         // u32 wrapped (needs 4B searches): hard-reset so no stale stamp can
@@ -445,17 +576,32 @@ fn witness_within(
     s.heap.clear();
     s.dist[u] = 0.0;
     s.epoch[u] = cur;
-    s.heap.push(HeapItem { dist: 0.0, node: u as u32 });
+    s.heap.push(HeapItem {
+        dist: 0.0,
+        node: u as u32,
+    });
     while let Some(HeapItem { dist: d, node }) = s.heap.pop() {
         let x = node as usize;
-        if d > s.dist[x] { continue; }
-        if d > limit { break; } // nothing else can be within limit (min-heap)
-        if x == w { return d <= limit; }
+        if d > s.dist[x] {
+            continue;
+        }
+        if d > limit {
+            break;
+        } // nothing else can be within limit (min-heap)
+        if x == w {
+            return d <= limit;
+        }
         for (&y, &wt) in adj[x].iter() {
             let yi = y as usize;
-            if yi == banned || contracted[yi] { continue; }
+            if yi == banned || contracted[yi] {
+                continue;
+            }
             let nd = d + wt;
-            let dy = if s.epoch[yi] == cur { s.dist[yi] } else { f64::INFINITY };
+            let dy = if s.epoch[yi] == cur {
+                s.dist[yi]
+            } else {
+                f64::INFINITY
+            };
             if nd <= limit && nd < dy {
                 s.dist[yi] = nd;
                 s.epoch[yi] = cur;
@@ -501,25 +647,44 @@ mod tests {
         let mut targets = Vec::new();
         let mut weights = Vec::new();
         for es in adj.iter() {
-            for &(t, w) in es { targets.push(t); weights.push(w); }
+            for &(t, w) in es {
+                targets.push(t);
+                weights.push(w);
+            }
             offsets.push(targets.len() as u32);
         }
-        CsrGraph { offsets, targets, weights }
+        CsrGraph {
+            offsets,
+            targets,
+            weights,
+        }
     }
 
     #[test]
     fn ch_matches_dijkstra_reference() {
         // Wikipedia graph; CH query cost must equal Dijkstra distance.
-        let g = from_undirected(6, &[
-            (0,1,7.0),(0,2,9.0),(0,5,14.0),(1,2,10.0),(1,3,15.0),
-            (2,3,11.0),(2,5,2.0),(3,4,6.0),(4,5,9.0),
-        ]);
+        let g = from_undirected(
+            6,
+            &[
+                (0, 1, 7.0),
+                (0, 2, 9.0),
+                (0, 5, 14.0),
+                (1, 2, 10.0),
+                (1, 3, 15.0),
+                (2, 3, 11.0),
+                (2, 5, 2.0),
+                (3, 4, 6.0),
+                (4, 5, 9.0),
+            ],
+        );
         let ch = ContractionHierarchy::preprocess(&g);
         let dij_all = g.dijkstra(0);
         for (t, &dij) in dij_all.iter().enumerate() {
             let q = ch.query(0, t);
-            assert!((dij - q).abs() < 1e-9 || (dij.is_infinite() && q.is_infinite()),
-                    "CH query 0->{t} = {q}, Dijkstra = {dij}");
+            assert!(
+                (dij - q).abs() < 1e-9 || (dij.is_infinite() && q.is_infinite()),
+                "CH query 0->{t} = {q}, Dijkstra = {dij}"
+            );
         }
     }
 
@@ -530,11 +695,18 @@ mod tests {
         let idx = |i: usize, j: usize| (i * k + j) as u32;
         let mut edges = Vec::new();
         let mut c = 0u64;
-        let mut w = || { c += 1; 1.0 + (c % 7) as f64 * 0.137 + (c % 3) as f64 * 0.041 };
+        let mut w = || {
+            c += 1;
+            1.0 + (c % 7) as f64 * 0.137 + (c % 3) as f64 * 0.041
+        };
         for i in 0..k {
             for j in 0..k {
-                if j + 1 < k { edges.push((idx(i, j), idx(i, j + 1), w())); }
-                if i + 1 < k { edges.push((idx(i, j), idx(i + 1, j), w())); }
+                if j + 1 < k {
+                    edges.push((idx(i, j), idx(i, j + 1), w()));
+                }
+                if i + 1 < k {
+                    edges.push((idx(i, j), idx(i + 1, j), w()));
+                }
             }
         }
         from_undirected(k * k, &edges)
@@ -557,13 +729,17 @@ mod tests {
             for (t, &e) in dij.iter().enumerate() {
                 for ch in [&ch_id, &ch_ed] {
                     let q = ch.query(s, t);
-                    assert!((e - q).abs() < 1e-9 || (e.is_infinite() && q.is_infinite()),
-                            "s={s} t={t}: CH={q} Dijkstra={e}");
+                    assert!(
+                        (e - q).abs() < 1e-9 || (e.is_infinite() && q.is_infinite()),
+                        "s={s} t={t}: CH={q} Dijkstra={e}"
+                    );
                 }
             }
         }
-        eprintln!("grid12 shortcuts (info): id-order={} static-edge-diff={}",
-                  ch_id.shortcuts, ch_ed.shortcuts);
+        eprintln!(
+            "grid12 shortcuts (info): id-order={} static-edge-diff={}",
+            ch_id.shortcuts, ch_ed.shortcuts
+        );
     }
 
     #[test]
@@ -577,7 +753,12 @@ mod tests {
         let ch = ContractionHierarchy::preprocess(&g); // id-order default
         let prep = tp.elapsed();
         let mut seed = 0x1234_5678u64;
-        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
         let pairs: Vec<(usize, usize)> = (0..500)
             .map(|_| ((next() % n as u64) as usize, (next() % n as u64) as usize))
             .collect();
@@ -585,16 +766,27 @@ mod tests {
         let ch_costs: Vec<f64> = pairs.iter().map(|&(s, t)| ch.query(s, t)).collect();
         let ch_time = tc.elapsed();
         let td = std::time::Instant::now();
-        let dij_costs: Vec<f64> = pairs.iter().map(|&(s, t)| g.shortest_distance(s, t)).collect();
+        let dij_costs: Vec<f64> = pairs
+            .iter()
+            .map(|&(s, t)| g.shortest_distance(s, t))
+            .collect();
         let dij_time = td.elapsed();
         for i in 0..pairs.len() {
             let (a, b) = (ch_costs[i], dij_costs[i]);
-            assert!((a - b).abs() < 1e-9 || (a.is_infinite() && b.is_infinite()),
-                    "pair {i}: CH={a} Dijkstra={b}");
+            assert!(
+                (a - b).abs() < 1e-9 || (a.is_infinite() && b.is_infinite()),
+                "pair {i}: CH={a} Dijkstra={b}"
+            );
         }
-        eprintln!("grid30 n={n} shortcuts={} prep={:?} | {} queries: CH={:?} Dijkstra={:?} ratio={:.2}x",
-                  ch.shortcuts, prep, pairs.len(), ch_time, dij_time,
-                  dij_time.as_secs_f64() / ch_time.as_secs_f64().max(1e-12));
+        eprintln!(
+            "grid30 n={n} shortcuts={} prep={:?} | {} queries: CH={:?} Dijkstra={:?} ratio={:.2}x",
+            ch.shortcuts,
+            prep,
+            pairs.len(),
+            ch_time,
+            dij_time,
+            dij_time.as_secs_f64() / ch_time.as_secs_f64().max(1e-12)
+        );
     }
 
     #[test]
@@ -606,7 +798,12 @@ mod tests {
             let n = g.num_nodes();
             let ch = ContractionHierarchy::preprocess(&g);
             let mut seed = 0x00AB_CDEFu64 ^ (k as u64).wrapping_mul(0x9E37);
-            let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+            let mut next = || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed
+            };
             let pairs: Vec<(usize, usize)> = (0..400)
                 .map(|_| ((next() % n as u64) as usize, (next() % n as u64) as usize))
                 .collect();
@@ -614,14 +811,26 @@ mod tests {
             let cc: Vec<f64> = pairs.iter().map(|&(s, t)| ch.query(s, t)).collect();
             let ct = tc.elapsed();
             let td = std::time::Instant::now();
-            let dc: Vec<f64> = pairs.iter().map(|&(s, t)| g.shortest_distance(s, t)).collect();
+            let dc: Vec<f64> = pairs
+                .iter()
+                .map(|&(s, t)| g.shortest_distance(s, t))
+                .collect();
             let dt = td.elapsed();
             for i in 0..pairs.len() {
-                assert!((cc[i] - dc[i]).abs() < 1e-9 || (cc[i].is_infinite() && dc[i].is_infinite()),
-                        "k={k} pair {i}: CH={} Dij={}", cc[i], dc[i]);
+                assert!(
+                    (cc[i] - dc[i]).abs() < 1e-9 || (cc[i].is_infinite() && dc[i].is_infinite()),
+                    "k={k} pair {i}: CH={} Dij={}",
+                    cc[i],
+                    dc[i]
+                );
             }
-            eprintln!("scale k={k} n={n} shortcuts={} ratio={:.2}x  (CH {:?} vs Dijkstra {:?})",
-                      ch.shortcuts, dt.as_secs_f64() / ct.as_secs_f64().max(1e-12), ct, dt);
+            eprintln!(
+                "scale k={k} n={n} shortcuts={} ratio={:.2}x  (CH {:?} vs Dijkstra {:?})",
+                ch.shortcuts,
+                dt.as_secs_f64() / ct.as_secs_f64().max(1e-12),
+                ct,
+                dt
+            );
         }
     }
 
@@ -633,10 +842,23 @@ mod tests {
         for u in 0..g.num_nodes() {
             let (s, e) = (g.offsets[u] as usize, g.offsets[u + 1] as usize);
             for k in s..e {
-                let v = g.targets[k]; let w = g.weights[k];
-                if !(w.is_finite() && w >= 0.0) { continue; }
-                let key = if (u as u32) < v { (u as u32, v) } else { (v, u as u32) };
-                m.entry(key).and_modify(|x| { if w < *x { *x = w; } }).or_insert(w);
+                let v = g.targets[k];
+                let w = g.weights[k];
+                if !(w.is_finite() && w >= 0.0) {
+                    continue;
+                }
+                let key = if (u as u32) < v {
+                    (u as u32, v)
+                } else {
+                    (v, u as u32)
+                };
+                m.entry(key)
+                    .and_modify(|x| {
+                        if w < *x {
+                            *x = w;
+                        }
+                    })
+                    .or_insert(w);
             }
         }
         m
@@ -651,8 +873,15 @@ mod tests {
         }
         let mut total = 0.0;
         for w in path.windows(2) {
-            let key = if w[0] < w[1] { (w[0], w[1]) } else { (w[1], w[0]) };
-            match edges.get(&key) { Some(&c) => total += c, None => return f64::INFINITY }
+            let key = if w[0] < w[1] {
+                (w[0], w[1])
+            } else {
+                (w[1], w[0])
+            };
+            match edges.get(&key) {
+                Some(&c) => total += c,
+                None => return f64::INFINITY,
+            }
         }
         total
     }
@@ -663,7 +892,12 @@ mod tests {
         // summed original-edge cost equals both query() and Dijkstra. This is
         // the non-circular gate for shortcut unpacking (Dijkstra is the oracle).
         let mut seed: u64 = 0xD1CE_5EED_1234_5678;
-        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
         for _ in 0..60 {
             let n = 4 + (next() % 22) as usize;
             let mut edges = Vec::new();
@@ -671,7 +905,9 @@ mod tests {
             for _ in 0..m {
                 let a = (next() % n as u64) as u32;
                 let b = (next() % n as u64) as u32;
-                if a == b { continue; }
+                if a == b {
+                    continue;
+                }
                 let w = 1.0 + (next() % 1000) as f64 / 10.0;
                 edges.push((a, b, w));
             }
@@ -685,17 +921,26 @@ mod tests {
                 let (cost, path) = ch.query_path(s, t);
                 let q = ch.query(s, t);
                 // Cost channel: query_path == query == Dijkstra.
-                assert!((cost - q).abs() < 1e-9 || (cost.is_infinite() && q.is_infinite()),
-                        "n={n} s={s} t={t}: query_path cost={cost} query={q}");
-                assert!((cost - dij).abs() < 1e-9 || (cost.is_infinite() && dij.is_infinite()),
-                        "n={n} s={s} t={t}: query_path cost={cost} Dijkstra={dij}");
+                assert!(
+                    (cost - q).abs() < 1e-9 || (cost.is_infinite() && q.is_infinite()),
+                    "n={n} s={s} t={t}: query_path cost={cost} query={q}"
+                );
+                assert!(
+                    (cost - dij).abs() < 1e-9 || (cost.is_infinite() && dij.is_infinite()),
+                    "n={n} s={s} t={t}: query_path cost={cost} Dijkstra={dij}"
+                );
                 if dij.is_finite() {
                     // Path channel: it's a real walk s..t and its edges sum to cost.
                     let pc = path_cost(&emap, &path, s, t);
-                    assert!((pc - dij).abs() < 1e-9,
-                            "n={n} s={s} t={t}: unpacked path cost={pc} Dijkstra={dij} path={path:?}");
+                    assert!(
+                        (pc - dij).abs() < 1e-9,
+                        "n={n} s={s} t={t}: unpacked path cost={pc} Dijkstra={dij} path={path:?}"
+                    );
                 } else {
-                    assert!(path.is_empty(), "n={n} s={s} t={t}: unreachable but path={path:?}");
+                    assert!(
+                        path.is_empty(),
+                        "n={n} s={s} t={t}: unreachable but path={path:?}"
+                    );
                 }
             }
         }
@@ -711,11 +956,15 @@ mod tests {
             let dij = g.dijkstra(s);
             for (t, &e) in dij.iter().enumerate() {
                 let (cost, path) = ch.query_path(s, t);
-                assert!((cost - e).abs() < 1e-9,
-                        "grid s={s} t={t}: CH path cost={cost} Dijkstra={e}");
+                assert!(
+                    (cost - e).abs() < 1e-9,
+                    "grid s={s} t={t}: CH path cost={cost} Dijkstra={e}"
+                );
                 let pc = path_cost(&emap, &path, s, t);
-                assert!((pc - e).abs() < 1e-9,
-                        "grid s={s} t={t}: unpacked cost={pc} Dijkstra={e}");
+                assert!(
+                    (pc - e).abs() < 1e-9,
+                    "grid s={s} t={t}: unpacked cost={pc} Dijkstra={e}"
+                );
             }
         }
         // s == t is a length-1 path at zero cost.
@@ -727,7 +976,12 @@ mod tests {
     fn ch_matches_dijkstra_random() {
         // Deterministic LCG so the test is reproducible without rand.
         let mut seed: u64 = 0x9E3779B97F4A7C15;
-        let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
         for _ in 0..40 {
             let n = 4 + (next() % 20) as usize;
             let mut edges = Vec::new();
@@ -735,7 +989,9 @@ mod tests {
             for _ in 0..m {
                 let a = (next() % n as u64) as u32;
                 let b = (next() % n as u64) as u32;
-                if a == b { continue; }
+                if a == b {
+                    continue;
+                }
                 let w = 1.0 + (next() % 1000) as f64 / 10.0;
                 edges.push((a, b, w));
             }
@@ -746,8 +1002,10 @@ mod tests {
                 let t = (next() % n as u64) as usize;
                 let dij = g.dijkstra(s)[t];
                 let q = ch.query(s, t);
-                assert!((dij - q).abs() < 1e-9 || (dij.is_infinite() && q.is_infinite()),
-                        "n={n} s={s} t={t}: CH={q} Dijkstra={dij}");
+                assert!(
+                    (dij - q).abs() < 1e-9 || (dij.is_infinite() && q.is_infinite()),
+                    "n={n} s={s} t={t}: CH={q} Dijkstra={dij}"
+                );
             }
         }
     }

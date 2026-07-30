@@ -99,7 +99,16 @@ const GRID_DEG: f64 = 0.2; // gazetteer grid-index cell size
 // The hazard families the 20-year history can speak to, in table order.
 // (Bundle families with no event basis — environmental, radiation, seismic —
 // are never touched by the merge.)
-const FAMS: [&str; 8] = ["convective", "qpf_flood", "winter", "wind", "heat", "cold", "fire", "air"];
+const FAMS: [&str; 8] = [
+    "convective",
+    "qpf_flood",
+    "winter",
+    "wind",
+    "heat",
+    "cold",
+    "fire",
+    "air",
+];
 const F_CONV: usize = 0;
 const F_QPF: usize = 1;
 const F_WINTER: usize = 2;
@@ -253,7 +262,11 @@ fn parse_gaz_line(line: &str, i_geoid: usize, i_lat: usize, i_lon: usize) -> Opt
     }
     let lat: f64 = cols.get(i_lat)?.trim().parse().ok()?;
     let lon: f64 = cols.get(i_lon)?.trim().parse().ok()?;
-    Some(Zcta { zip: geoid.to_string(), lat, lon })
+    Some(Zcta {
+        zip: geoid.to_string(),
+        lat,
+        lon,
+    })
 }
 
 fn read_gazetteer(path: &Path) -> Result<Vec<Zcta>, String> {
@@ -263,10 +276,14 @@ fn read_gazetteer(path: &Path) -> Result<Vec<Zcta>, String> {
     let header = lines.next().ok_or("gazetteer is empty")?;
     let cols: Vec<&str> = header.split('\t').map(str::trim).collect();
     let idx = |name: &str| {
-        cols.iter().position(|c| *c == name).ok_or_else(|| format!("gazetteer header missing {name}"))
+        cols.iter()
+            .position(|c| *c == name)
+            .ok_or_else(|| format!("gazetteer header missing {name}"))
     };
     let (i_geoid, i_lat, i_lon) = (idx("GEOID")?, idx("INTPTLAT")?, idx("INTPTLONG")?);
-    let mut z: Vec<Zcta> = lines.filter_map(|l| parse_gaz_line(l, i_geoid, i_lat, i_lon)).collect();
+    let mut z: Vec<Zcta> = lines
+        .filter_map(|l| parse_gaz_line(l, i_geoid, i_lat, i_lon))
+        .collect();
     z.sort_by(|a, b| a.zip.cmp(&b.zip));
     z.dedup_by(|a, b| a.zip == b.zip);
     Ok(z)
@@ -281,13 +298,19 @@ impl ZipGrid {
     fn build(zctas: &[Zcta]) -> ZipGrid {
         let mut cells: HashMap<(i32, i32), Vec<u32>> = HashMap::new();
         for (i, z) in zctas.iter().enumerate() {
-            cells.entry(Self::cell(z.lat, z.lon)).or_default().push(i as u32);
+            cells
+                .entry(Self::cell(z.lat, z.lon))
+                .or_default()
+                .push(i as u32);
         }
         ZipGrid { cells }
     }
 
     fn cell(lat: f64, lon: f64) -> (i32, i32) {
-        ((lat / GRID_DEG).floor() as i32, (lon / GRID_DEG).floor() as i32)
+        (
+            (lat / GRID_DEG).floor() as i32,
+            (lon / GRID_DEG).floor() as i32,
+        )
     }
 
     /// Nearest ZCTA centroid by equirectangular distance, searching outward
@@ -349,9 +372,15 @@ struct Counties {
 /// be compared against NWS zone names.
 fn normalize_county_name(name: &str) -> String {
     let n = name.trim().to_ascii_uppercase();
-    for suf in
-        [" CITY AND BOROUGH", " CENSUS AREA", " MUNICIPALITY", " COUNTY", " PARISH", " BOROUGH", " CITY"]
-    {
+    for suf in [
+        " CITY AND BOROUGH",
+        " CENSUS AREA",
+        " MUNICIPALITY",
+        " COUNTY",
+        " PARISH",
+        " BOROUGH",
+        " CITY",
+    ] {
         if let Some(stripped) = n.strip_suffix(suf) {
             return stripped.to_string();
         }
@@ -360,23 +389,32 @@ fn normalize_county_name(name: &str) -> String {
 }
 
 fn read_county_rel(path: &Path, zip_idx: &HashMap<String, u32>) -> Result<Counties, String> {
-    let text =
-        fs::read_to_string(path).map_err(|e| format!("cannot read rel file {}: {e}", path.display()))?;
+    let text = fs::read_to_string(path)
+        .map_err(|e| format!("cannot read rel file {}: {e}", path.display()))?;
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
     let mut lines = text.lines();
     let header = lines.next().ok_or("rel file is empty")?;
     let cols: Vec<&str> = header.split('|').map(str::trim).collect();
     let idx = |name: &str| {
-        cols.iter().position(|c| *c == name).ok_or_else(|| format!("rel header missing {name}"))
+        cols.iter()
+            .position(|c| *c == name)
+            .ok_or_else(|| format!("rel header missing {name}"))
     };
-    let (i_zcta, i_cty, i_name) =
-        (idx("GEOID_ZCTA5_20")?, idx("GEOID_COUNTY_20")?, idx("NAMELSAD_COUNTY_20")?);
-    let mut out =
-        Counties { zips: HashMap::new(), names_by_state: HashMap::new() };
+    let (i_zcta, i_cty, i_name) = (
+        idx("GEOID_ZCTA5_20")?,
+        idx("GEOID_COUNTY_20")?,
+        idx("NAMELSAD_COUNTY_20")?,
+    );
+    let mut out = Counties {
+        zips: HashMap::new(),
+        names_by_state: HashMap::new(),
+    };
     for line in lines {
         let cols: Vec<&str> = line.split('|').collect();
-        let (Some(z), Some(c)) = (cols.get(i_zcta).map(|s| s.trim()), cols.get(i_cty).map(|s| s.trim()))
-        else {
+        let (Some(z), Some(c)) = (
+            cols.get(i_zcta).map(|s| s.trim()),
+            cols.get(i_cty).map(|s| s.trim()),
+        ) else {
             continue;
         };
         if c.len() == 5 {
@@ -406,20 +444,70 @@ fn read_county_rel(path: &Path, zip_idx: &HashMap<String, u32>) -> Result<Counti
 /// State FIPS -> USPS abbreviation (static data, not a dependency), needed to
 /// join Storm Events' numeric STATE_FIPS against the NWS correlation file.
 const STATE_FIPS_ABBR: [(u32, &str); 57] = [
-    (1, "AL"), (2, "AK"), (4, "AZ"), (5, "AR"), (6, "CA"), (8, "CO"), (9, "CT"),
-    (10, "DE"), (11, "DC"), (12, "FL"), (13, "GA"), (15, "HI"), (16, "ID"),
-    (17, "IL"), (18, "IN"), (19, "IA"), (20, "KS"), (21, "KY"), (22, "LA"),
-    (23, "ME"), (24, "MD"), (25, "MA"), (26, "MI"), (27, "MN"), (28, "MS"),
-    (29, "MO"), (30, "MT"), (31, "NE"), (32, "NV"), (33, "NH"), (34, "NJ"),
-    (35, "NM"), (36, "NY"), (37, "NC"), (38, "ND"), (39, "OH"), (40, "OK"),
-    (41, "OR"), (42, "PA"), (44, "RI"), (45, "SC"), (46, "SD"), (47, "TN"),
-    (48, "TX"), (49, "UT"), (50, "VT"), (51, "VA"), (53, "WA"), (54, "WV"),
-    (55, "WI"), (56, "WY"), (60, "AS"), (66, "GU"), (69, "MP"), (72, "PR"),
-    (74, "UM"), (78, "VI"),
+    (1, "AL"),
+    (2, "AK"),
+    (4, "AZ"),
+    (5, "AR"),
+    (6, "CA"),
+    (8, "CO"),
+    (9, "CT"),
+    (10, "DE"),
+    (11, "DC"),
+    (12, "FL"),
+    (13, "GA"),
+    (15, "HI"),
+    (16, "ID"),
+    (17, "IL"),
+    (18, "IN"),
+    (19, "IA"),
+    (20, "KS"),
+    (21, "KY"),
+    (22, "LA"),
+    (23, "ME"),
+    (24, "MD"),
+    (25, "MA"),
+    (26, "MI"),
+    (27, "MN"),
+    (28, "MS"),
+    (29, "MO"),
+    (30, "MT"),
+    (31, "NE"),
+    (32, "NV"),
+    (33, "NH"),
+    (34, "NJ"),
+    (35, "NM"),
+    (36, "NY"),
+    (37, "NC"),
+    (38, "ND"),
+    (39, "OH"),
+    (40, "OK"),
+    (41, "OR"),
+    (42, "PA"),
+    (44, "RI"),
+    (45, "SC"),
+    (46, "SD"),
+    (47, "TN"),
+    (48, "TX"),
+    (49, "UT"),
+    (50, "VT"),
+    (51, "VA"),
+    (53, "WA"),
+    (54, "WV"),
+    (55, "WI"),
+    (56, "WY"),
+    (60, "AS"),
+    (66, "GU"),
+    (69, "MP"),
+    (72, "PR"),
+    (74, "UM"),
+    (78, "VI"),
 ];
 
 fn state_abbr(fips: u32) -> Option<&'static str> {
-    STATE_FIPS_ABBR.iter().find(|(f, _)| *f == fips).map(|(_, a)| *a)
+    STATE_FIPS_ABBR
+        .iter()
+        .find(|(f, _)| *f == fips)
+        .map(|(_, a)| *a)
 }
 
 /// NWS zone<->county correlation file (pipe-delimited "bp" file):
@@ -481,11 +569,7 @@ fn contains_word(hay: &str, needle: &str) -> bool {
 
 /// Fallback zone resolution by name: exact county-name match first, else the
 /// union of every county whose name appears whole-word in the zone name.
-fn zones_by_name(
-    state_fips2: &str,
-    zone_name_upper: &str,
-    counties: &Counties,
-) -> Vec<u32> {
+fn zones_by_name(state_fips2: &str, zone_name_upper: &str, counties: &Counties) -> Vec<u32> {
     let Some(names) = counties.names_by_state.get(state_fips2) else {
         return Vec::new();
     };
@@ -516,7 +600,12 @@ fn zones_by_name(
 fn families_for(event_type: &str) -> Vec<usize> {
     let t = event_type.to_ascii_lowercase();
     let has = |s: &str| t.contains(s);
-    if has("tornado") || has("thunderstorm wind") || has("hail") || has("lightning") || has("waterspout") {
+    if has("tornado")
+        || has("thunderstorm wind")
+        || has("hail")
+        || has("lightning")
+        || has("waterspout")
+    {
         vec![F_CONV]
     } else if has("flood") || has("tsunami") || has("seiche") || has("heavy rain") {
         // flash flood / coastal flood / lakeshore flood all contain "flood";
@@ -534,7 +623,11 @@ fn families_for(event_type: &str) -> Vec<usize> {
         || has("avalanche")
     {
         vec![F_WINTER]
-    } else if has("hurricane") || has("tropical storm") || has("tropical depression") || has("storm surge") {
+    } else if has("hurricane")
+        || has("tropical storm")
+        || has("tropical depression")
+        || has("storm surge")
+    {
         vec![F_WIND, F_QPF]
     } else if has("excessive heat") || has("heat") {
         vec![F_HEAT]
@@ -572,7 +665,10 @@ struct History {
 
 impl History {
     fn new(n_zips: usize) -> History {
-        History { counts: vec![0.0; n_zips * N_WEEKS * NF], n_zips }
+        History {
+            counts: vec![0.0; n_zips * N_WEEKS * NF],
+            n_zips,
+        }
     }
 
     #[inline]
@@ -733,7 +829,10 @@ fn split_bundle(text: &str) -> Result<(&str, Vec<&str>, &str), String> {
             break;
         }
         if bytes[j] != b'{' {
-            return Err(format!("unexpected byte {:?} in zips array", bytes[j] as char));
+            return Err(format!(
+                "unexpected byte {:?} in zips array",
+                bytes[j] as char
+            ));
         }
         let start = j;
         let mut d = 0i32;
@@ -887,7 +986,10 @@ fn parse_families(text: &str) -> Result<Vec<String>, String> {
     let kpos = text.find(key).ok_or("bundle has no families key")?;
     let rest = &text[kpos + key.len()..];
     let open = rest.find('[').ok_or("families is not an array")?;
-    let close = rest[open..].find(']').ok_or("unterminated families array")? + open;
+    let close = rest[open..]
+        .find(']')
+        .ok_or("unterminated families array")?
+        + open;
     let inner = &rest[open + 1..close];
     let fams: Vec<String> = inner
         .split(',')
@@ -920,8 +1022,10 @@ fn rebuild_bundle(
     let (prefix, entries, suffix) = split_bundle(original)?;
     let families = parse_families(prefix)?;
     // bundle family position -> FAMS table index (None: no history basis)
-    let fam_map: Vec<Option<usize>> =
-        families.iter().map(|f| FAMS.iter().position(|g| g == f)).collect();
+    let fam_map: Vec<Option<usize>> = families
+        .iter()
+        .map(|f| FAMS.iter().position(|g| g == f))
+        .collect();
 
     // idempotent metadata: drop any previous history_* keys from the prefix
     let mut clean_prefix = prefix.to_string();
@@ -937,7 +1041,11 @@ fn rebuild_bundle(
         }
     }
 
-    let mut stats = MergeStats { rescored: 0, unchanged: 0, bytes: 0 };
+    let mut stats = MergeStats {
+        rescored: 0,
+        unchanged: 0,
+        bytes: 0,
+    };
     let mut out = String::with_capacity(original.len() + 64);
     out.push_str(&clean_prefix);
     out.push_str("\"history_baseline\":true,\"history_week\":");
@@ -955,8 +1063,16 @@ fn rebuild_bundle(
             .find(|(k, _)| *k == "z")
             .map(|(_, v)| v.trim_matches('"'))
             .ok_or("national entry missing \"z\"")?;
-        let c_raw = pairs.iter().find(|(k, _)| *k == "c").map(|(_, v)| *v).unwrap_or("[0,0]");
-        let s_raw = pairs.iter().find(|(k, _)| *k == "s").map(|(_, v)| *v).unwrap_or("[]");
+        let c_raw = pairs
+            .iter()
+            .find(|(k, _)| *k == "c")
+            .map(|(_, v)| *v)
+            .unwrap_or("[0,0]");
+        let s_raw = pairs
+            .iter()
+            .find(|(k, _)| *k == "s")
+            .map(|(_, v)| *v)
+            .unwrap_or("[]");
         // Every token must parse: silently dropping one (a null, a damaged
         // literal) would shift every later score one family left — risk
         // values relabeled across families with no diagnostic.
@@ -988,7 +1104,12 @@ fn rebuild_bundle(
         }
         let rebuilt = {
             let s_json: Vec<String> = s.iter().map(|&v| fmt_num(v, 3)).collect();
-            let mut ent = format!("{{\"z\":\"{}\",\"c\":{},\"s\":[{}]", z, c_raw, s_json.join(","));
+            let mut ent = format!(
+                "{{\"z\":\"{}\",\"c\":{},\"s\":[{}]",
+                z,
+                c_raw,
+                s_json.join(",")
+            );
             let mut top = 0usize;
             for (i, &v) in s.iter().enumerate() {
                 if v > s[top] {
@@ -1039,7 +1160,13 @@ fn write_atomic(path: &Path, bytes: &[u8], what: &str) -> Result<(), String> {
     fs::rename(&tmp, path).map_err(|e| format!("rename {what}: {e}"))
 }
 
-fn header_common(magic: &[u8; 4], n_zips: u32, third: u32, fams: &[&str], zips: &[&str]) -> Vec<u8> {
+fn header_common(
+    magic: &[u8; 4],
+    n_zips: u32,
+    third: u32,
+    fams: &[&str],
+    zips: &[&str],
+) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(magic);
     push_u32(&mut out, 1); // version
@@ -1072,7 +1199,9 @@ fn find_repo_root() -> Result<PathBuf, String> {
             None => break,
         }
     }
-    Err(format!("could not locate {BUNDLE_REL} walking up from the current directory"))
+    Err(format!(
+        "could not locate {BUNDLE_REL} walking up from the current directory"
+    ))
 }
 
 #[derive(Default)]
@@ -1106,9 +1235,15 @@ fn ingest_file(
     if !rd.next_record(&mut spans) {
         return Err("empty storm events file".into());
     }
-    let headers: Vec<String> = spans.iter().map(|&s| field(text, s).trim().to_string()).collect();
+    let headers: Vec<String> = spans
+        .iter()
+        .map(|&s| field(text, s).trim().to_string())
+        .collect();
     let col = |name: &str| -> Result<usize, String> {
-        headers.iter().position(|h| h == name).ok_or_else(|| format!("missing column {name}"))
+        headers
+            .iter()
+            .position(|h| h == name)
+            .ok_or_else(|| format!("missing column {name}"))
     };
     let i_ym = col("BEGIN_YEARMONTH")?;
     let i_day = col("BEGIN_DAY")?;
@@ -1143,7 +1278,10 @@ fn ingest_file(
         let etype = get(i_type);
         let fams = families_for(&etype);
         if fams.is_empty() {
-            *stats.unmapped_types.entry(etype.trim().to_string()).or_insert(0) += 1;
+            *stats
+                .unmapped_types
+                .entry(etype.trim().to_string())
+                .or_insert(0) += 1;
             continue;
         }
         let mag: Option<f64> = get(i_mag).trim().parse().ok();
@@ -1232,8 +1370,11 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
 
     // ---- inputs
     let zctas = read_gazetteer(&root.join(GAZ_REL))?;
-    let zip_idx: HashMap<String, u32> =
-        zctas.iter().enumerate().map(|(i, z)| (z.zip.clone(), i as u32)).collect();
+    let zip_idx: HashMap<String, u32> = zctas
+        .iter()
+        .enumerate()
+        .map(|(i, z)| (z.zip.clone(), i as u32))
+        .collect();
     let grid = ZipGrid::build(&zctas);
     let counties = read_county_rel(&root.join(REL_REL), &zip_idx)?;
     let zone_map = read_zone_county(&root.join(ZONE_REL), &counties.zips);
@@ -1288,7 +1429,11 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     let mut unmapped: Vec<(&String, &u64)> = stats.unmapped_types.iter().collect();
     unmapped.sort_by(|a, b| b.1.cmp(a.1));
     let unmapped_total: u64 = unmapped.iter().map(|(_, &n)| n).sum();
-    println!("unmapped event types: {} distinct, {} events", unmapped.len(), unmapped_total);
+    println!(
+        "unmapped event types: {} distinct, {} events",
+        unmapped.len(),
+        unmapped_total
+    );
     for (t, n) in &unmapped {
         println!("  UNMAPPED {n:>7}  {t}");
     }
@@ -1325,15 +1470,24 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
 
     // ---- OUTPUT B1: dense u8
     let zip_strs: Vec<&str> = active.iter().map(|&zi| zctas[zi].zip.as_str()).collect();
-    let mut dense_bin =
-        header_common(b"FLHD", active.len() as u32, N_WEEKS as u32, &FAMS, &zip_strs);
+    let mut dense_bin = header_common(
+        b"FLHD",
+        active.len() as u32,
+        N_WEEKS as u32,
+        &FAMS,
+        &zip_strs,
+    );
     dense_bin.reserve(dense.len());
     for &s in &dense {
         dense_bin.push((s * 255.0).round() as u8);
     }
     let dense_path = root.join(DENSE_REL);
     write_atomic(&dense_path, &dense_bin, "dense")?;
-    println!("dense:    {} bytes -> {}", dense_bin.len(), dense_path.display());
+    println!(
+        "dense:    {} bytes -> {}",
+        dense_bin.len(),
+        dense_path.display()
+    );
 
     // ---- OUTPUT B2: harmonic 5xf32 + max reconstruction error
     let mut harm_bin = header_common(b"FLHH", active.len() as u32, NF as u32, &FAMS, &zip_strs);
@@ -1363,7 +1517,11 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     }
     let harm_path = root.join(HARM_REL);
     write_atomic(&harm_path, &harm_bin, "harmonic")?;
-    println!("harmonic: {} bytes -> {}", harm_bin.len(), harm_path.display());
+    println!(
+        "harmonic: {} bytes -> {}",
+        harm_bin.len(),
+        harm_path.display()
+    );
     println!(
         "harmonic reconstruction vs dense: max_abs_err {:.4}  mean_abs_err {:.5}  cells {}",
         max_err,
@@ -1374,13 +1532,15 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     // ---- OUTPUT A: rebuilt bundle (backup first, once)
     let bundle_path = root.join(BUNDLE_REL);
     let backup_path = root.join(BACKUP_REL);
-    let original =
-        fs::read_to_string(&bundle_path).map_err(|e| format!("read bundle: {e}"))?;
+    let original = fs::read_to_string(&bundle_path).map_err(|e| format!("read bundle: {e}"))?;
     if !backup_path.exists() {
         write_atomic(&backup_path, original.as_bytes(), "backup")?;
         println!("backup -> {}", backup_path.display());
     } else {
-        println!("backup already exists, left untouched: {}", backup_path.display());
+        println!(
+            "backup already exists, left untouched: {}",
+            backup_path.display()
+        );
     }
     let active_pos: HashMap<&str, usize> =
         zip_strs.iter().enumerate().map(|(i, z)| (*z, i)).collect();
@@ -1429,7 +1589,12 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     }
     let rows_path = root.join(ROWS_REL);
     write_atomic(&rows_path, csv.as_bytes(), "training rows")?;
-    println!("training rows: {} -> {} ({} bytes)", n_rows, rows_path.display(), csv.len());
+    println!(
+        "training rows: {} -> {} ({} bytes)",
+        n_rows,
+        rows_path.display(),
+        csv.len()
+    );
 
     println!("done in {:.1}s", t0.elapsed().as_secs_f64());
     Ok(())
@@ -1575,7 +1740,10 @@ mod tests {
         }
         let total: f64 = (0..5).map(|z| hist.count(z, 10, F_CONV)).sum();
         // counts accumulate in f32 -> allow f32-level slack
-        assert!((total - 1.0).abs() < 1e-6, "spread weights must sum to the event weight");
+        assert!(
+            (total - 1.0).abs() < 1e-6,
+            "spread weights must sum to the event weight"
+        );
         assert!((hist.count(0, 10, F_CONV) - 1.0 / 3.0).abs() < 1e-6);
         assert_eq!(hist.count(1, 10, F_CONV), 0.0);
     }
@@ -1685,13 +1853,14 @@ mod tests {
             "{\"z\":\"33101\",\"c\":[-80.1937,25.7743],\"s\":[0.35,0.31],",
             "\"t\":\"Seasonal baseline: elevated wind risk (climatology)\"}"
         );
-        let src = format!(
-            "{{\"families\":[\"wind\",\"qpf_flood\"],\"zips\":[{nat},{nat_t}]}}"
-        );
+        let src = format!("{{\"families\":[\"wind\",\"qpf_flood\"],\"zips\":[{nat},{nat_t}]}}");
         let lookup = |_z: &str, _w: u32, _f: usize| 0.0;
         let (out, stats) = rebuild_bundle(&src, 27, &lookup).expect("merge");
         assert!(out.contains(nat));
-        assert!(out.contains(nat_t), "summary text must be reproduced exactly: {out}");
+        assert!(
+            out.contains(nat_t),
+            "summary text must be reproduced exactly: {out}"
+        );
         assert_eq!(stats.unchanged, 2);
         assert_eq!(stats.rescored, 0);
     }
@@ -1699,7 +1868,8 @@ mod tests {
     // ---- raw object pair scanner
     #[test]
     fn top_level_pairs_scans_nested_values() {
-        let obj = "{\"z\":\"1\",\"c\":[-1,2],\"s\":[0,0.3],\"t\":\"a \\\"q\\\", b\",\"p\":[[1,2],[3,4]]}";
+        let obj =
+            "{\"z\":\"1\",\"c\":[-1,2],\"s\":[0,0.3],\"t\":\"a \\\"q\\\", b\",\"p\":[[1,2],[3,4]]}";
         let pairs = top_level_pairs(obj);
         let get = |k: &str| pairs.iter().find(|(a, _)| *a == k).map(|(_, v)| *v);
         assert_eq!(get("z"), Some("\"1\""));
@@ -1732,13 +1902,18 @@ mod tests {
 
     #[test]
     fn zone_fallback_unions_matched_counties() {
-        let mut counties =
-            Counties { zips: HashMap::new(), names_by_state: HashMap::new() };
+        let mut counties = Counties {
+            zips: HashMap::new(),
+            names_by_state: HashMap::new(),
+        };
         counties.zips.insert("04013".into(), vec![1, 2]);
         counties.zips.insert("04012".into(), vec![3]);
         counties.names_by_state.insert(
             "04".into(),
-            vec![("MARICOPA".into(), "04013".into()), ("LA PAZ".into(), "04012".into())],
+            vec![
+                ("MARICOPA".into(), "04013".into()),
+                ("LA PAZ".into(), "04012".into()),
+            ],
         );
         // exact name
         assert_eq!(zones_by_name("04", "MARICOPA", &counties), vec![1, 2]);
@@ -1768,9 +1943,21 @@ mod tests {
     #[test]
     fn grid_nearest_snaps_to_closest_centroid() {
         let zctas = vec![
-            Zcta { zip: "10001".into(), lat: 40.75, lon: -73.99 },
-            Zcta { zip: "07030".into(), lat: 40.74, lon: -74.03 },
-            Zcta { zip: "90210".into(), lat: 34.10, lon: -118.41 },
+            Zcta {
+                zip: "10001".into(),
+                lat: 40.75,
+                lon: -73.99,
+            },
+            Zcta {
+                zip: "07030".into(),
+                lat: 40.74,
+                lon: -74.03,
+            },
+            Zcta {
+                zip: "90210".into(),
+                lat: 34.10,
+                lon: -118.41,
+            },
         ];
         let grid = ZipGrid::build(&zctas);
         let i = grid.nearest(&zctas, 40.751, -73.991, 10).expect("hit");
@@ -1788,8 +1975,16 @@ mod tests {
         // rings north at only ~0.20 deg. A first-hit-plus-one-ring cutoff
         // would return A; the true nearest is B.
         let zctas = vec![
-            Zcta { zip: "00001".into(), lat: 0.001, lon: 0.001 },
-            Zcta { zip: "00002".into(), lat: 0.401, lon: 0.199 },
+            Zcta {
+                zip: "00001".into(),
+                lat: 0.001,
+                lon: 0.001,
+            },
+            Zcta {
+                zip: "00002".into(),
+                lat: 0.401,
+                lon: 0.199,
+            },
         ];
         let grid = ZipGrid::build(&zctas);
         let i = grid.nearest(&zctas, 0.199, 0.199, 10).expect("hit");

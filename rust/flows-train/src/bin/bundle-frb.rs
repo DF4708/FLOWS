@@ -93,7 +93,11 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(text: &'a str) -> Self {
-        Parser { b: text.as_bytes(), i: 0, depth: 0 }
+        Parser {
+            b: text.as_bytes(),
+            i: 0,
+            depth: 0,
+        }
     }
 
     fn err(&self, msg: &str) -> String {
@@ -200,9 +204,7 @@ impl<'a> Parser<'a> {
                             } else {
                                 hi
                             };
-                            out.push(
-                                char::from_u32(cp).ok_or_else(|| self.err("bad codepoint"))?,
-                            );
+                            out.push(char::from_u32(cp).ok_or_else(|| self.err("bad codepoint"))?);
                         }
                         _ => return Err(self.err("unknown escape")),
                     }
@@ -210,8 +212,8 @@ impl<'a> Parser<'a> {
                 _ => {
                     // Raw UTF-8 byte run: back up and take the whole char.
                     self.i -= 1;
-                    let rest = std::str::from_utf8(&self.b[self.i..])
-                        .map_err(|_| self.err("utf8"))?;
+                    let rest =
+                        std::str::from_utf8(&self.b[self.i..]).map_err(|_| self.err("utf8"))?;
                     let ch = rest.chars().next().ok_or_else(|| self.err("eof"))?;
                     out.push(ch);
                     self.i += ch.len_utf8();
@@ -329,7 +331,10 @@ fn encode_frb1(root: &Json) -> Result<Vec<u8>, String> {
         .iter()
         .map(|f| f.as_str().ok_or("family not a string"))
         .collect::<Result<_, _>>()?;
-    let zips = root.get("zips").and_then(Json::as_arr).ok_or("missing zips")?;
+    let zips = root
+        .get("zips")
+        .and_then(Json::as_arr)
+        .ok_or("missing zips")?;
     let n_fams = families.len();
 
     // Payload = everything after the 28-byte header.
@@ -451,7 +456,11 @@ fn main() {
         eprintln!("write {}: {e}", args[2]);
         process::exit(1);
     }
-    let n_zips = root.get("zips").and_then(Json::as_arr).map(|z| z.len()).unwrap_or(0);
+    let n_zips = root
+        .get("zips")
+        .and_then(Json::as_arr)
+        .map(|z| z.len())
+        .unwrap_or(0);
     println!("zips: {n_zips}");
     println!("bytes: {}", bytes.len());
 }
@@ -474,7 +483,10 @@ mod tests {
     #[test]
     fn json_parser_handles_bundle_shapes() {
         let v = parse_json(SAMPLE).unwrap();
-        assert_eq!(v.get("generated_utc").unwrap().as_str().unwrap(), "2026-07-04T11:39:45Z");
+        assert_eq!(
+            v.get("generated_utc").unwrap().as_str().unwrap(),
+            "2026-07-04T11:39:45Z"
+        );
         let zips = v.get("zips").unwrap().as_arr().unwrap();
         assert_eq!(zips.len(), 2);
         assert_eq!(zips[0].get("t").unwrap().as_str().unwrap(), "windy");
@@ -497,7 +509,7 @@ mod tests {
         let gen_len = u32at(16) as usize;
         assert_eq!(gen_len, "2026-07-04T11:39:45Z".len());
         assert_eq!(u64at(20), fnv1a64(&b[28..])); // stored hash matches payload
-        // generated_utc then families
+                                                  // generated_utc then families
         let mut o = 28;
         assert_eq!(&b[o..o + gen_len], b"2026-07-04T11:39:45Z");
         o += gen_len;

@@ -360,11 +360,8 @@ fn run(tsv: &Path, out_dir: &Path) -> io::Result<()> {
             skipped += 1;
             continue;
         }
-        let (group, lat, lon) = match (
-            f[0].parse::<u8>(),
-            f[1].parse::<f32>(),
-            f[2].parse::<f32>(),
-        ) {
+        let (group, lat, lon) = match (f[0].parse::<u8>(), f[1].parse::<f32>(), f[2].parse::<f32>())
+        {
             (Ok(g), Ok(la), Ok(lo)) if g < 8 && la.is_finite() && lo.is_finite() => (g, la, lo),
             _ => {
                 skipped += 1;
@@ -431,10 +428,21 @@ fn run(tsv: &Path, out_dir: &Path) -> io::Result<()> {
     );
     fs::write(out_dir.join("index.json"), index)?;
 
-    println!("wrote {} state shards -> {}", by_state.len(), out_dir.display());
+    println!(
+        "wrote {} state shards -> {}",
+        by_state.len(),
+        out_dir.display()
+    );
     println!("  records: {total_records}   bytes: {total_bytes}   skipped lines: {skipped}");
     const GROUPS: [&str; 8] = [
-        "fuel", "food", "stores", "hotel", "medical", "tourist", "transit", "rest/truckstop",
+        "fuel",
+        "food",
+        "stores",
+        "hotel",
+        "medical",
+        "tourist",
+        "transit",
+        "rest/truckstop",
     ];
     for (g, name) in GROUPS.iter().enumerate() {
         println!("  group {g} ({name}): {}", group_counts[g]);
@@ -470,7 +478,10 @@ mod tests {
     struct Lcg(u64);
     impl Lcg {
         fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             self.0 >> 33
         }
         fn f32_in(&mut self, lo: f32, hi: f32) -> f32 {
@@ -489,9 +500,17 @@ mod tests {
                 name: format!("Place {i} \u{00e9}\u{6771}"),
                 street: format!("{i} Main St"),
                 city: "Madison".to_string(),
-                website: if i % 3 == 0 { String::new() } else { format!("https://x{i}.example") },
+                website: if i % 3 == 0 {
+                    String::new()
+                } else {
+                    format!("https://x{i}.example")
+                },
                 tel: format!("(608) 555-{i:04}"),
-                postcode: if i % 5 == 0 { 0 } else { 53000 + (i as u32 % 999) },
+                postcode: if i % 5 == 0 {
+                    0
+                } else {
+                    53000 + (i as u32 % 999)
+                },
             })
             .collect()
     }
@@ -512,7 +531,11 @@ mod tests {
         });
         assert_eq!(shard.places, a);
         // Records must arrive cell-sorted so grid runs are contiguous.
-        let keys: Vec<i64> = shard.places.iter().map(|p| cell_key(p.lat, p.lon)).collect();
+        let keys: Vec<i64> = shard
+            .places
+            .iter()
+            .map(|p| cell_key(p.lat, p.lon))
+            .collect();
         assert!(keys.windows(2).all(|w| w[0] <= w[1]));
     }
 

@@ -47,7 +47,6 @@ impl CsrGraph {
         self.offsets.len().saturating_sub(1)
     }
 
-
     /// Single-source shortest paths from `source`. Returns the length-n distance
     /// vector (f64::INFINITY for unreachable nodes). O((n + m) log n).
     pub fn dijkstra(&self, source: usize) -> Vec<f64> {
@@ -58,7 +57,10 @@ impl CsrGraph {
         }
         dist[source] = 0.0;
         let mut heap = BinaryHeap::new();
-        heap.push(HeapItem { dist: 0.0, node: source as u32 });
+        heap.push(HeapItem {
+            dist: 0.0,
+            node: source as u32,
+        });
         while let Some(HeapItem { dist: d, node }) = heap.pop() {
             let u = node as usize;
             // Stale entry (a shorter path was already finalised) — skip.
@@ -71,7 +73,10 @@ impl CsrGraph {
                 let nd = d + self.weights[k];
                 if nd < dist[v] {
                     dist[v] = nd;
-                    heap.push(HeapItem { dist: nd, node: v as u32 });
+                    heap.push(HeapItem {
+                        dist: nd,
+                        node: v as u32,
+                    });
                 }
             }
         }
@@ -91,7 +96,10 @@ impl CsrGraph {
         let mut dist = vec![f64::INFINITY; n];
         dist[source] = 0.0;
         let mut heap = BinaryHeap::new();
-        heap.push(HeapItem { dist: 0.0, node: source as u32 });
+        heap.push(HeapItem {
+            dist: 0.0,
+            node: source as u32,
+        });
         while let Some(HeapItem { dist: d, node }) = heap.pop() {
             let u = node as usize;
             if u == target {
@@ -106,7 +114,10 @@ impl CsrGraph {
                 let nd = d + self.weights[k];
                 if nd < dist[v] {
                     dist[v] = nd;
-                    heap.push(HeapItem { dist: nd, node: v as u32 });
+                    heap.push(HeapItem {
+                        dist: nd,
+                        node: v as u32,
+                    });
                 }
             }
         }
@@ -173,7 +184,11 @@ mod tests {
             }
             offsets.push(targets.len() as u32);
         }
-        CsrGraph { offsets, targets, weights }
+        CsrGraph {
+            offsets,
+            targets,
+            weights,
+        }
     }
 
     #[test]
@@ -192,7 +207,11 @@ mod tests {
     #[test]
     fn unreachable_is_infinity() {
         // Two isolated nodes, no edges.
-        let g = CsrGraph { offsets: vec![0, 0, 0], targets: vec![], weights: vec![] };
+        let g = CsrGraph {
+            offsets: vec![0, 0, 0],
+            targets: vec![],
+            weights: vec![],
+        };
         let d = g.dijkstra(0);
         assert_eq!(d[0], 0.0);
         assert!(d[1].is_infinite());

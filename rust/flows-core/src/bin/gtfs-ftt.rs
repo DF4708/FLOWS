@@ -140,7 +140,11 @@ fn run() -> Result<(), String> {
         "wrote {} ({:.2} MB, {} B/stop-event incl. header) | {:.3}s",
         args.out.display(),
         size as f64 / 1e6,
-        if load.n_events > 0 { size as usize / load.n_events } else { 0 },
+        if load.n_events > 0 {
+            size as usize / load.n_events
+        } else {
+            0
+        },
         t_write.as_secs_f64()
     );
 
@@ -214,7 +218,10 @@ fn run() -> Result<(), String> {
                 LegKind::Ride => println!(
                     "    {} ride  [{}] {} -> {} (arr {})",
                     fmt_time(leg.dep),
-                    load.route_names.get(leg.route as usize).map(String::as_str).unwrap_or("?"),
+                    load.route_names
+                        .get(leg.route as usize)
+                        .map(String::as_str)
+                        .unwrap_or("?"),
                     load.stop_names[from],
                     load.stop_names[to],
                     fmt_time(leg.arr)

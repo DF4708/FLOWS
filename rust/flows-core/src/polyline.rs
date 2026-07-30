@@ -144,7 +144,11 @@ mod tests {
 
     /// Reference encoder (Google spec) for round-trip tests.
     fn encode_value(v: i64, out: &mut String) {
-        let mut zig: u64 = if v < 0 { (-2 * v - 1) as u64 } else { (2 * v) as u64 };
+        let mut zig: u64 = if v < 0 {
+            (-2 * v - 1) as u64
+        } else {
+            (2 * v) as u64
+        };
         loop {
             let mut chunk = (zig & 0x1f) as u32;
             zig >>= 5;
@@ -175,7 +179,10 @@ mod tests {
     struct Lcg(u64);
     impl Lcg {
         fn next_f64(&mut self) -> f64 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             (self.0 >> 11) as f64 / (1u64 << 53) as f64
         }
     }
@@ -227,7 +234,14 @@ mod tests {
         let overlong = format!("{}{}^", encode_polyline(&[(43.07, -89.40)]), "~".repeat(15));
         let full = encode_polyline(&[(43.07, -89.40), (43.10, -89.35)]);
         let truncated = &full[..full.len() - 1];
-        for input in [overflow.as_str(), overlong.as_str(), truncated, "", "~", "^"] {
+        for input in [
+            overflow.as_str(),
+            overlong.as_str(),
+            truncated,
+            "",
+            "~",
+            "^",
+        ] {
             let mut a: Vec<i64> = Vec::new();
             let mut b: Vec<i64> = Vec::new();
             decode_deltas_rust(input.as_bytes(), &mut a);

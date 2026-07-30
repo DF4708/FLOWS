@@ -66,7 +66,11 @@ fn parse_gaz_line(line: &str, i_geoid: usize, i_lat: usize, i_lon: usize) -> Opt
     }
     let lat: f64 = cols.get(i_lat)?.trim().parse().ok()?;
     let lon: f64 = cols.get(i_lon)?.trim().parse().ok()?;
-    Some(Zcta { zip: geoid.to_string(), lat, lon })
+    Some(Zcta {
+        zip: geoid.to_string(),
+        lat,
+        lon,
+    })
 }
 
 fn read_gazetteer(path: &Path) -> Result<Vec<Zcta>, String> {
@@ -81,7 +85,9 @@ fn read_gazetteer(path: &Path) -> Result<Vec<Zcta>, String> {
             .ok_or_else(|| format!("gazetteer header missing {name}"))
     };
     let (i_geoid, i_lat, i_lon) = (idx("GEOID")?, idx("INTPTLAT")?, idx("INTPTLONG")?);
-    Ok(lines.filter_map(|l| parse_gaz_line(l, i_geoid, i_lat, i_lon)).collect())
+    Ok(lines
+        .filter_map(|l| parse_gaz_line(l, i_geoid, i_lat, i_lon))
+        .collect())
 }
 
 fn in_conus(lat: f64, lon: f64) -> bool {
@@ -165,7 +171,7 @@ fn family_score(family: &str, lat: f64, lon: f64, week: u32) -> f64 {
         // climatology basis in this baseline -> 0.
         _ => 0.0,
     };
-    let s = raw.clamp(0.0, SCORE_MAX);   // == min(MAX).max(0) for these bounds
+    let s = raw.clamp(0.0, SCORE_MAX); // == min(MAX).max(0) for these bounds
     if s < SCORE_FLOOR {
         0.0
     } else {
@@ -257,7 +263,10 @@ fn split_bundle(text: &str) -> Result<(&str, Vec<&str>, &str), String> {
             break;
         }
         if bytes[j] != b'{' {
-            return Err(format!("unexpected byte {:?} in zips array", bytes[j] as char));
+            return Err(format!(
+                "unexpected byte {:?} in zips array",
+                bytes[j] as char
+            ));
         }
         let start = j;
         let mut d = 0i32;
@@ -383,8 +392,10 @@ fn summary_family_label(family: &str) -> &str {
 /// Build one national entry's raw JSON: {"z":..,"c":[lon,lat],"s":[..],"t":..}
 /// No "p" ring — the app fetches ZCTA rings on demand.
 fn national_entry(z: &Zcta, families: &[String], week: u32) -> String {
-    let scores: Vec<f64> =
-        families.iter().map(|f| family_score(f, z.lat, z.lon, week)).collect();
+    let scores: Vec<f64> = families
+        .iter()
+        .map(|f| family_score(f, z.lat, z.lon, week))
+        .collect();
     let s_json: Vec<String> = scores.iter().map(|&v| fmt_num(v, 3)).collect();
     let mut out = format!(
         "{{\"z\":\"{}\",\"c\":[{},{}],\"s\":[{}]",
@@ -435,7 +446,10 @@ fn parse_families(text: &str) -> Result<Vec<String>, String> {
     let kpos = text.find(key).ok_or("bundle has no families key")?;
     let rest = &text[kpos + key.len()..];
     let open = rest.find('[').ok_or("families is not an array")?;
-    let close = rest[open..].find(']').ok_or("unterminated families array")? + open;
+    let close = rest[open..]
+        .find(']')
+        .ok_or("unterminated families array")?
+        + open;
     let inner = &rest[open + 1..close];
     let fams: Vec<String> = inner
         .split(',')
@@ -461,7 +475,9 @@ fn find_repo_root() -> Result<PathBuf, String> {
             None => break,
         }
     }
-    Err(format!("could not locate {BUNDLE_REL} walking up from the current directory"))
+    Err(format!(
+        "could not locate {BUNDLE_REL} walking up from the current directory"
+    ))
 }
 
 fn run(week: u32) -> Result<(), String> {
@@ -478,16 +494,17 @@ fn run(week: u32) -> Result<(), String> {
     for e in &kept_raw {
         covered.push(raw_zip_code(e).ok_or("existing entry missing \"z\"")?);
     }
-    let covered_set: std::collections::HashSet<&str> =
-        covered.iter().map(String::as_str).collect();
+    let covered_set: std::collections::HashSet<&str> = covered.iter().map(String::as_str).collect();
 
     let mut zctas = read_gazetteer(&gaz_path)?;
     zctas.retain(|z| in_conus(z.lat, z.lon) && !covered_set.contains(z.zip.as_str()));
     zctas.sort_by(|a, b| a.zip.cmp(&b.zip));
     zctas.dedup_by(|a, b| a.zip == b.zip);
 
-    let national: Vec<String> =
-        zctas.iter().map(|z| national_entry(z, &families, week)).collect();
+    let national: Vec<String> = zctas
+        .iter()
+        .map(|z| national_entry(z, &families, week))
+        .collect();
 
     // prefix ends just before the `"zips"` key (so its trailing ',' is intact);
     // strip any previous run's metadata, inject this run's, then the existing
@@ -499,7 +516,11 @@ fn run(week: u32) -> Result<(), String> {
     out.push_str(&week.to_string());
     out.push_str(",\"zips\":[");
     let mut first = true;
-    for e in kept_raw.iter().copied().chain(national.iter().map(String::as_str)) {
+    for e in kept_raw
+        .iter()
+        .copied()
+        .chain(national.iter().map(String::as_str))
+    {
         if !first {
             out.push(',');
         }
@@ -544,13 +565,23 @@ mod tests {
     use super::*;
 
     const FAMS: [&str; 11] = [
-        "environmental", "wind", "qpf_flood", "winter", "fire", "convective",
-        "heat", "cold", "air", "radiation", "seismic",
+        "environmental",
+        "wind",
+        "qpf_flood",
+        "winter",
+        "fire",
+        "convective",
+        "heat",
+        "cold",
+        "air",
+        "radiation",
+        "seismic",
     ];
 
     #[test]
     fn gazetteer_line_parses_with_trailing_padding() {
-        let line = "53703\t166836392\t798613\t64.416\t0.308\t43.073051\t-89.385100                \t";
+        let line =
+            "53703\t166836392\t798613\t64.416\t0.308\t43.073051\t-89.385100                \t";
         let z = parse_gaz_line(line, 0, 5, 6).expect("line should parse");
         assert_eq!(z.zip, "53703");
         assert!((z.lat - 43.073051).abs() < 1e-9);
@@ -579,10 +610,14 @@ mod tests {
                 for week in 0..52 {
                     for f in FAMS {
                         let s = family_score(f, lat, lon, week);
-                        assert!((0.0..=SCORE_MAX).contains(&s) && s < 0.699,
-                            "{f} out of bounds at ({lat},{lon}) wk{week}: {s}");
-                        assert!(s == 0.0 || s >= SCORE_FLOOR,
-                            "{f} nonzero but under floor at ({lat},{lon}) wk{week}: {s}");
+                        assert!(
+                            (0.0..=SCORE_MAX).contains(&s) && s < 0.699,
+                            "{f} out of bounds at ({lat},{lon}) wk{week}: {s}"
+                        );
+                        assert!(
+                            s == 0.0 || s >= SCORE_FLOOR,
+                            "{f} nonzero but under floor at ({lat},{lon}) wk{week}: {s}"
+                        );
                     }
                 }
                 lon += 1.0;
@@ -671,13 +706,21 @@ mod tests {
     fn national_entry_shape() {
         let fams: Vec<String> = FAMS.iter().map(|s| s.to_string()).collect();
         // Miami in tropical season -> summary names flood, no "p" ring.
-        let z = Zcta { zip: "33101".into(), lat: 25.7743, lon: -80.1937 };
+        let z = Zcta {
+            zip: "33101".into(),
+            lat: 25.7743,
+            lon: -80.1937,
+        };
         let e = national_entry(&z, &fams, 36);
         assert!(e.starts_with("{\"z\":\"33101\",\"c\":[-80.1937,25.7743],\"s\":["));
         assert!(e.contains("Seasonal baseline: elevated flood risk (climatology)"));
         assert!(!e.contains("\"p\":"));
         // Quiet zip/week -> no summary key at all.
-        let q = Zcta { zip: "97201".into(), lat: 45.5, lon: -122.69 };
+        let q = Zcta {
+            zip: "97201".into(),
+            lat: 45.5,
+            lon: -122.69,
+        };
         let eq = national_entry(&q, &fams, 27);
         assert!(!eq.contains("\"t\":"));
     }
