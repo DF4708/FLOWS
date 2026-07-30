@@ -290,6 +290,30 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
         });
     }
 
+    // Non-overtaking invariant: `earliest_trip` binary-searches departures at
+    // every pattern position, which requires dep (and arr) non-decreasing in
+    // the trip index, and arr <= dep within each event (the converter's
+    // chain-split guarantees all three). A shard violating this decodes
+    // cleanly but yields silently wrong itineraries — refuse it here.
+    for r in &routes {
+        let base = r.event_start as usize;
+        let np = r.n_stops as usize;
+        for t in 0..r.n_trips as usize {
+            for j in 0..np {
+                let e = stop_events[base + t * np + j];
+                if e.arr > e.dep {
+                    return Err(bad("ftt: event arrives after it departs"));
+                }
+                if t > 0 {
+                    let p = stop_events[base + (t - 1) * np + j];
+                    if e.dep < p.dep || e.arr < p.arr {
+                        return Err(bad("ftt: trips overtake within a route"));
+                    }
+                }
+            }
+        }
+    }
+
     let mut stop_route_off = Vec::with_capacity(n_stops + 1);
     for _ in 0..=n_stops {
         stop_route_off.push(c.u32()?);
@@ -475,6 +499,37 @@ mod tests {
         // Empty and garbage inputs.
         assert!(from_bytes(&[]).is_err());
         assert!(from_bytes(&[0u8; 64]).is_err());
+    }
+
+    #[test]
+    fn out_of_order_or_negative_dwell_trips_are_refused() {
+        let tt = rich_timetable();
+        let good = to_bytes(&tt);
+        let ev_at = FTT_HEADER_LEN + tt.n_stops() * 8 + tt.n_routes() * 20
+            + tt.route_stops.len() * 4;
+        let rehash = |b: &mut [u8]| {
+            let h = fnv1a64(&b[FTT_HEADER_LEN..]);
+            b[40..48].copy_from_slice(&h.to_le_bytes());
+        };
+
+        // Swap route0's two trips (3 stops x 8 bytes each): departures at
+        // every position now DECREASE across the trip index, which would
+        // break earliest_trip's binary search.
+        let mut swapped = good.clone();
+        let first = swapped[ev_at..ev_at + 24].to_vec();
+        swapped.copy_within(ev_at + 24..ev_at + 48, ev_at);
+        swapped[ev_at + 24..ev_at + 48].copy_from_slice(&first);
+        rehash(&mut swapped);
+        assert!(from_bytes(&swapped).is_err(), "overtaking trip order must be refused");
+
+        // An event that departs before it arrives is equally invalid.
+        let mut neg_dwell = good.clone();
+        neg_dwell[ev_at..ev_at + 4].copy_from_slice(&999u32.to_le_bytes()); // arr > dep(=0)
+        rehash(&mut neg_dwell);
+        assert!(from_bytes(&neg_dwell).is_err(), "arr > dep must be refused");
+
+        // The untouched bytes still decode (the sweep has no false positives).
+        assert!(from_bytes(&good).is_ok());
     }
 
     #[test]

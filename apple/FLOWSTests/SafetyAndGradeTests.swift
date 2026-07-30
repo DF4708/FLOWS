@@ -727,7 +727,7 @@ final class AdaptiveTuningTests: XCTestCase {
         await withTaskGroup(of: Void.self) { g in
             for _ in 0..<50 {
                 g.addTask {
-                    await RequestGate.shared.withPermit {
+                    try? await RequestGate.shared.withPermit {
                         await peak.enter()
                         try? await Task.sleep(for: .milliseconds(3))
                         await peak.leave()

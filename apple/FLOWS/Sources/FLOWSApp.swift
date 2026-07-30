@@ -865,7 +865,10 @@ final class AppModel: ObservableObject {
         // Populate the price column with state-average ESTIMATES (labeled
         // "est."); a licensed station feed replaces this same hook.
         poi.priceProvider = { item, fuel in
-            FuelPrices.estimate(fuel: fuel, state: item.placemark.administrativeArea)
+            if item.placemark.isoCountryCode == "MX" {
+                return FuelPrices.mexicoEstimate(fuel: fuel)
+            }
+            return FuelPrices.estimate(fuel: fuel, state: item.placemark.administrativeArea)
         }
         // Live station prices layer on top when a TomTom key is set
         // (async — rows update as prices land).
@@ -876,7 +879,9 @@ final class AppModel: ObservableObject {
             if RatingsAndCost.Country.forCoordinate(
                 latitude: coord.latitude, longitude: coord.longitude) == .mexico,
                let mx = await MexicoFuelPrices.shared.price(near: coord, fuel: fuel) {
-                return mx
+                // CRE is MXN/L — convert to the model's USD/gal so ranking
+                // and the price column compare like with like.
+                return FuelPrices.usdPerGallon(mxnPerLiter: mx)
             }
             return await TomTomFuel.shared.price(near: coord, fuel: fuel)
         }

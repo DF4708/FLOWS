@@ -354,6 +354,12 @@ pub fn plan(
     depart: Time,
     max_rounds: u32,
 ) -> Vec<Journey> {
+    // An id the timetable cannot contain behaves like an unreachable pair,
+    // never an index panic — in-process callers (manifest builder, multi-
+    // shard stitching) may hold stale or cross-shard stop ids.
+    if source as usize >= tt.n_stops() || target as usize >= tt.n_stops() {
+        return Vec::new();
+    }
     if source == target {
         return Vec::new();
     }
@@ -408,6 +414,10 @@ pub fn earliest_arrival(
     depart: Time,
     max_rounds: u32,
 ) -> Time {
+    // Out-of-range ids are unreachable, not a panic (see plan()).
+    if source as usize >= tt.n_stops() || target as usize >= tt.n_stops() {
+        return INF_TIME;
+    }
     if source == target {
         return depart;
     }
@@ -543,6 +553,19 @@ mod tests {
         assert_eq!(js.len(), 1);
         assert_eq!(js[0].arrival, 1600, "catches the later trip, not the missed one");
         assert_eq!(js[0].legs[0].dep, 1000);
+    }
+
+    #[test]
+    fn out_of_range_stop_ids_return_empty_not_panic() {
+        let mut b = TimetableBuilder::new();
+        let a = b.add_stop(0, 0);
+        let c = b.add_stop(0, 1_000_000);
+        b.add_route(&[a, c], vec![vec![ev(0, 0), ev(600, 600)]], Mode::Rail);
+        let tt = b.build();
+        assert!(plan(&tt, 99, c, 0, K).is_empty());
+        assert!(plan(&tt, a, 99, 0, K).is_empty());
+        assert_eq!(earliest_arrival(&tt, 99, c, 0, K), INF);
+        assert_eq!(earliest_arrival(&tt, a, 99, 0, K), INF);
     }
 
     #[test]

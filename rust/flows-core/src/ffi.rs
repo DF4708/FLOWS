@@ -380,13 +380,16 @@ pub unsafe extern "C" fn flows_ch_path_c(
     let d = *dst;
     let off_raw = std::slice::from_raw_parts(offsets, nn + 1);
     let tgt_raw = std::slice::from_raw_parts(targets, me);
-    // Same up-front validation as flows_ch_query_c: bad ids fill the NaN
-    // sentinel rather than clamping to node 0 (silent wrong answers) or
-    // panicking on out-of-range ids (aborts the R process).
+    let wts_raw = std::slice::from_raw_parts(weights, me);
+    // Same up-front validation as flows_ch_query_c: bad ids or bad weights
+    // (NaN/negative — silent cost corruption) fill the NaN sentinel rather
+    // than clamping to node 0 (silent wrong answers) or panicking on
+    // out-of-range ids (aborts the R process).
     let valid = off_raw.first().is_some_and(|&o| o == 0)
         && off_raw.last().is_some_and(|&o| o >= 0 && o as usize == me)
         && off_raw.windows(2).all(|w| w[0] >= 0 && w[1] >= w[0])
         && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn)
+        && wts_raw.iter().all(|&w| w.is_finite() && w >= 0.0)
         && s >= 0 && (s as usize) < nn
         && d >= 0 && (d as usize) < nn;
     if !valid {
@@ -397,7 +400,7 @@ pub unsafe extern "C" fn flows_ch_path_c(
     let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
         let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
-        let wts: Vec<f64> = std::slice::from_raw_parts(weights, me).to_vec();
+        let wts: Vec<f64> = wts_raw.to_vec();
         let g = crate::routing::CsrGraph { offsets: off, targets: tgt, weights: wts };
         let ch = crate::ch::ContractionHierarchy::preprocess(&g);
         ch.query_path(s as usize, d as usize)
@@ -441,26 +444,36 @@ pub unsafe extern "C" fn flows_polyline_decode(
     if bytes.is_null() && len != 0 {
         return -1;
     }
-    let encoded = if len == 0 {
-        &[][..]
-    } else {
-        std::slice::from_raw_parts(bytes, len)
-    };
-    let mut deltas: Vec<i64> = Vec::new();
-    crate::polyline::decode_deltas(encoded, &mut deltas);
-    let n_pairs = deltas.len() / 2;
-    if !out.is_null() && cap_pairs > 0 {
-        let os = std::slice::from_raw_parts_mut(out, 2 * cap_pairs.min(n_pairs));
-        let mut lat: i64 = 0;
-        let mut lon: i64 = 0;
-        for (i, pair) in deltas.chunks_exact(2).take(cap_pairs).enumerate() {
-            lat += pair[0];
-            lon += pair[1];
-            os[2 * i] = lon as f64 / 1e5;
-            os[2 * i + 1] = lat as f64 / 1e5;
+    // Same catch_unwind discipline as every other computing entry point: a
+    // panic must never unwind across extern "C" (that aborts the host
+    // process) — the caller sees -1 instead.
+    let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let encoded = if len == 0 {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(bytes, len)
+        };
+        let mut deltas: Vec<i64> = Vec::new();
+        crate::polyline::decode_deltas(encoded, &mut deltas);
+        let n_pairs = deltas.len() / 2;
+        if !out.is_null() && cap_pairs > 0 {
+            let os = std::slice::from_raw_parts_mut(out, 2 * cap_pairs.min(n_pairs));
+            let mut lat: i64 = 0;
+            let mut lon: i64 = 0;
+            for (i, pair) in deltas.chunks_exact(2).take(cap_pairs).enumerate() {
+                // Wrapping adds: every VALID polyline keeps the cumulative
+                // sums within ±2*180e5, where wrapping_add is bit-identical
+                // to +. Only a hostile stream of near-2^49 deltas can wrap,
+                // and it must not trap an overflow-checked build mid-decode.
+                lat = lat.wrapping_add(pair[0]);
+                lon = lon.wrapping_add(pair[1]);
+                os[2 * i] = lon as f64 / 1e5;
+                os[2 * i + 1] = lat as f64 / 1e5;
+            }
         }
-    }
-    n_pairs as i64
+        n_pairs as i64
+    }));
+    computed.unwrap_or(-1)
 }
 
 // -----------------------------------------------------------------------------
@@ -609,10 +622,18 @@ unsafe fn build_timetable_ffi(
     Some(b.build())
 }
 
+/// Ceiling on `max_rounds` accepted across the FFI. RAPTOR allocates
+/// `(max_rounds + 1) * n_stops` labels per state array, so a runaway value
+/// dies in the allocator — an abort `catch_unwind` cannot intercept. Real
+/// journeys need single-digit rounds; 32 is far beyond any Pareto frontier.
+const FFI_MAX_ROUNDS: u32 = 32;
+
 /// Plan Pareto-optimal transit journeys over a flat-array timetable. Two-pass:
 /// call with `out_journeys`/`out_legs` NULL to get the required sizes in
 /// `out_counts` (`[n_journeys, n_legs]`), then again with buffers of at least
-/// that size to fill them. Returns 0 on success, -1 on null/invalid input.
+/// that size to fill them. Returns 0 on success, -1 on null/invalid input
+/// (out-of-range `source`/`target`, `max_rounds` above [`FFI_MAX_ROUNDS`], or
+/// fill-pass buffers smaller than the pass-1 counts).
 ///
 /// # Safety
 /// Pointers must satisfy the lengths in [`build_timetable_ffi`]; `out_counts` must
@@ -649,6 +670,9 @@ pub unsafe extern "C" fn flows_transit_plan(
     if out_counts.is_null() {
         return -1;
     }
+    if max_rounds > FFI_MAX_ROUNDS || source >= n_stops || target >= n_stops {
+        return -1;
+    }
     let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let tt = match build_timetable_ffi(
             n_stops, stop_lat_e6, stop_lon_e6, n_routes, route_pat_off, route_pat_stops,
@@ -666,6 +690,13 @@ pub unsafe extern "C" fn flows_transit_plan(
         // Sizing pass: report counts only.
         if out_journeys.is_null() || out_legs.is_null() {
             return 0;
+        }
+        // Fill pass: undersized buffers are a contract violation. Succeeding
+        // anyway would emit journey records whose leg ranges point past
+        // cap_legs — out-of-bounds indices under a success status. The
+        // required counts are already in out_counts for the caller to resize.
+        if (cap_journeys as usize) < journeys.len() || (cap_legs as usize) < n_l {
+            return -1;
         }
         let jbuf = std::slice::from_raw_parts_mut(out_journeys, cap_journeys as usize);
         let lbuf = std::slice::from_raw_parts_mut(out_legs, cap_legs as usize);
@@ -809,6 +840,45 @@ mod tests {
     }
 
     #[test]
+    fn ffi_graph_shims_reject_nan_and_negative_weights() {
+        // A NaN weight (an R NA marshalled through .C) or a negative weight
+        // must fill the NaN sentinel like any other invalid input — never a
+        // silently wrong finite cost.
+        let offsets = [0i32, 1, 2];
+        let targets = [1i32, 0];
+        let (nn, me, src) = (2i32, 2i32, 0i32);
+        let nan_w = [f64::NAN, 1.0];
+        let neg_w = [-1.0f64, 1.0];
+        let mut out = [0.0f64; 2];
+        unsafe {
+            flows_dijkstra_c(offsets.as_ptr(), &nn, targets.as_ptr(), nan_w.as_ptr(), &me, &src, out.as_mut_ptr());
+        }
+        assert!(out.iter().all(|v| v.is_nan()), "NaN weight must fill the sentinel");
+        let mut out2 = [0.0f64; 2];
+        unsafe {
+            flows_dijkstra_c(offsets.as_ptr(), &nn, targets.as_ptr(), neg_w.as_ptr(), &me, &src, out2.as_mut_ptr());
+        }
+        assert!(out2.iter().all(|v| v.is_nan()), "negative weight must fill the sentinel");
+        let (nq, srcs, dsts) = (1i32, [0i32], [1i32]);
+        let mut out3 = [0.0f64; 1];
+        unsafe {
+            flows_ch_query_c(offsets.as_ptr(), &nn, targets.as_ptr(), nan_w.as_ptr(), &me,
+                             srcs.as_ptr(), dsts.as_ptr(), &nq, out3.as_mut_ptr());
+        }
+        assert!(out3[0].is_nan());
+        let (s, d, cap) = (0i32, 1i32, 2i32);
+        let mut cost = 0.0f64;
+        let mut nodes = [0i32; 2];
+        let mut len = 0i32;
+        unsafe {
+            flows_ch_path_c(offsets.as_ptr(), &nn, targets.as_ptr(), neg_w.as_ptr(), &me,
+                            &s, &d, &cap, &mut cost, nodes.as_mut_ptr(), &mut len);
+        }
+        assert!(cost.is_nan());
+        assert_eq!(len, 0);
+    }
+
+    #[test]
     fn ffi_polyline_decode_two_pass() {
         let enc = "_p~iF~ps|U_ulLnnqC_mqNvxq`@";
         // pass 1: size query
@@ -902,6 +972,59 @@ mod tests {
         assert_eq!(legs[0].kind, 0);        // ride A->B
         assert_eq!(legs[0].from_stop, 0);
         assert_eq!(legs[1].to_stop, 2);     // ride B->C
+    }
+
+    #[test]
+    fn ffi_transit_plan_bounds_rounds_ids_and_fill_buffers() {
+        // Same timetable as the two-pass test: route0 A->B, route1 B->C.
+        let lat = [0i32, 0, 0];
+        let lon = [0i32, 1_000_000, 2_000_000];
+        let pat_off = [0u32, 2, 4];
+        let pat_stops = [0u32, 1, 1, 2];
+        let ntrips = [1u32, 1];
+        let ev_off = [0u32, 2, 4];
+        let ev_arr = [0u32, 600, 900, 1500];
+        let ev_dep = [0u32, 600, 900, 1500];
+        let modes = [0u8, 0];
+        let mut counts = [0u32; 2];
+        let sizing = |source: u32, target: u32, rounds: u32, counts: &mut [u32; 2]| unsafe {
+            flows_transit_plan(
+                3, lat.as_ptr(), lon.as_ptr(),
+                2, pat_off.as_ptr(), pat_stops.as_ptr(), ntrips.as_ptr(),
+                ev_off.as_ptr(), ev_arr.as_ptr(), ev_dep.as_ptr(), modes.as_ptr(),
+                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
+                source, target, 0, rounds,
+                std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, counts.as_mut_ptr(),
+            )
+        };
+        // A runaway max_rounds must hit the -1 contract, never the allocator.
+        assert_eq!(sizing(0, 2, 100_000, &mut counts), -1);
+        // Out-of-range stop ids: -1, matching the rest of the validation.
+        assert_eq!(sizing(99, 2, 8, &mut counts), -1);
+        assert_eq!(sizing(0, 99, 8, &mut counts), -1);
+        // Valid sizing pass, then a fill pass with an undersized legs buffer:
+        // -1 rather than journey ranges pointing past cap_legs.
+        assert_eq!(sizing(0, 2, 8, &mut counts), 0);
+        assert_eq!((counts[0], counts[1]), (1, 2));
+        let mut journeys: Vec<FfiJourney> = (0..counts[0]).map(|_| FfiJourney {
+            first_leg: 0, n_legs: 0, arrival: 0, n_transfers: 0, walk_secs: 0,
+        }).collect();
+        let mut legs = [FfiLeg {
+            kind: 0, mode: 0, _pad: 0, from_stop: 0, to_stop: 0, dep: 0, arr: 0,
+            route: u32::MAX, trip: u32::MAX,
+        }];
+        let rc = unsafe {
+            flows_transit_plan(
+                3, lat.as_ptr(), lon.as_ptr(),
+                2, pat_off.as_ptr(), pat_stops.as_ptr(), ntrips.as_ptr(),
+                ev_off.as_ptr(), ev_arr.as_ptr(), ev_dep.as_ptr(), modes.as_ptr(),
+                0, std::ptr::null(), std::ptr::null(), std::ptr::null(),
+                0, 2, 0, 8,
+                journeys.as_mut_ptr(), counts[0], legs.as_mut_ptr(), 1,
+                counts.as_mut_ptr(),
+            )
+        };
+        assert_eq!(rc, -1, "undersized legs buffer must not report success");
     }
 
     #[test]

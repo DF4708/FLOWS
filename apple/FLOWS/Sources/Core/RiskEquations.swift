@@ -281,7 +281,11 @@ enum RiskEquations {
         if e.contains("tsunami warning") { return "tsunami" }
         if e.contains("hurricane warning") || e.contains("storm surge warning")
             || e.contains("extreme wind") || e.contains("tropical storm warning") { return "tropical" }
-        if e.contains("ashfall") || e.contains("volcano") { return "volcanic" }
+        // Only the realized forms are primary — an Ashfall ADVISORY (trace
+        // ash) is a condition advisory and must stay Red-incapable (air).
+        if e.contains("ashfall") || e.contains("volcano") {
+            return e.contains("advisory") ? "air" : "volcanic"
+        }
         // --- predictors (watch / advisory / condition warning) → SECONDARY ---
         if e.contains("winter") || e.contains("ice storm") || e.contains("blizzard")
             || e.contains("snow") || e.contains("freezing rain") { return "winter" }

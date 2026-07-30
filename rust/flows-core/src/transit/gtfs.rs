@@ -64,10 +64,17 @@ fn err(msg: impl Into<String>) -> GtfsError {
 // CSV — owned RFC-4180 reader (streaming, record-at-a-time).
 // -----------------------------------------------------------------------------
 
+/// Hard per-field ceiling. No real GTFS field approaches 1 MiB; a field that
+/// does means a stray quote is swallowing the rest of the file, and the parse
+/// must fail loudly instead of buffering without bound (the reader's contract
+/// is streaming, record-at-a-time memory).
+const MAX_FIELD_BYTES: usize = 1 << 20;
+
 /// Streaming RFC-4180 CSV record reader over any [`BufRead`]. Handles quoted
 /// fields containing commas, `""`-escaped quotes, and embedded newlines; CRLF
 /// and LF line endings; a UTF-8 BOM on the first record; and skips blank
-/// lines. Never loads the whole file (NYC-scale `stop_times.txt` is ~2 GB).
+/// lines. Never loads the whole file (NYC-scale `stop_times.txt` is ~2 GB);
+/// a field past [`MAX_FIELD_BYTES`] is an error, not an allocation.
 pub(crate) struct CsvReader<R: BufRead> {
     r: R,
     first: bool,
@@ -152,6 +159,12 @@ impl<R: BufRead> CsvReader<R> {
                     }
                 }
                 i += 1;
+            }
+            if field.len() > MAX_FIELD_BYTES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "csv: field exceeds the 1 MiB cap (unbalanced quote?)",
+                ));
             }
             // Line ended while inside quotes: the '\n' read_until consumed is
             // already in `line` and was pushed as field content above; the
@@ -612,6 +625,13 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     }
 
     // --- frequencies.txt (optional): trip -> (start, end, headway) windows. ---
+    // Expansion bounds: a headway under 10 s or over a day is not real
+    // service, and a single window may not expand into more concrete trips
+    // than any real route runs — one malformed row must not balloon the
+    // converter's memory (each expanded trip clones the pattern + events).
+    const MIN_HEADWAY_SECS: Time = 10;
+    const MAX_HEADWAY_SECS: Time = 86_400;
+    const MAX_TRIPS_PER_WINDOW: Time = 5_000;
     let mut freq: HashMap<String, Vec<(Time, Time, Time)>> = HashMap::new();
     if let Some((h, mut r)) = open_csv(dir, "frequencies.txt")? {
         let c_trip = h.req("trip_id", "frequencies.txt")?;
@@ -630,8 +650,11 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
             let Ok(head) = f(&row, c_head).trim().parse::<Time>() else {
                 continue;
             };
-            if head == 0 || end <= start {
-                continue; // malformed window; skipping beats an infinite loop
+            if !(MIN_HEADWAY_SECS..=MAX_HEADWAY_SECS).contains(&head)
+                || end <= start
+                || (end - start).div_ceil(head) > MAX_TRIPS_PER_WINDOW
+            {
+                continue; // malformed window; skipping beats a loop or a blowup
             }
             freq.entry(trip).or_default().push((start, end, head));
         }
@@ -702,14 +725,12 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
             events.push(StopEvent { arr: a, dep: d });
         }
         let pattern: Vec<u32> = rows.iter().map(|r| r.1).collect();
-        for &s in &pattern {
-            stop_visits[s as usize] += 1;
-        }
 
         if let Some(windows) = freq.get(trip_id.as_str()) {
             // frequencies.txt: the scheduled trip is a TEMPLATE; emit one
             // concrete trip per headway departure in [start, end).
             let first_dep = events[0].dep;
+            let mut emitted = 0u32;
             for &(start, end, headway) in windows {
                 let mut t = start;
                 while t < end {
@@ -728,11 +749,20 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
                         .collect();
                     if let Some(evs) = shifted {
                         raw.push(RawTrip { route, pattern: pattern.clone(), events: evs });
+                        emitted += 1;
                     }
                     t = t.saturating_add(headway);
                 }
             }
+            // Busyness counts CONCRETE trips: a headway shuttle serving a
+            // stop 200x/day must weigh 200, same as 200 scheduled trips.
+            for &s in &pattern {
+                stop_visits[s as usize] += emitted;
+            }
         } else {
+            for &s in &pattern {
+                stop_visits[s as usize] += 1;
+            }
             raw.push(RawTrip { route, pattern, events });
         }
     }
@@ -890,6 +920,21 @@ mod tests {
         assert_eq!(rows[1], vec!["1", "Main St"]);
         assert_eq!(rows[2], vec!["2", "Second"]); // record at EOF without \n
         assert_eq!(rows.len(), 3); // blank lines skipped
+    }
+
+    #[test]
+    fn csv_stray_quote_cannot_buffer_unbounded() {
+        // EOF while still inside quotes: the collected bytes become the last
+        // field instead of an error (a truncated download stays readable).
+        let rows = records("a,b\n\"no close,x\n");
+        assert_eq!(rows[1], vec!["no close,x"]);
+        // A runaway field (stray quote swallowing megabytes) fails loudly
+        // instead of accumulating the rest of the stream in memory.
+        let mut big = String::from("h1,h2\n\"");
+        big.push_str(&"y".repeat(MAX_FIELD_BYTES + 64));
+        let mut r = CsvReader::new(Cursor::new(big.into_bytes()));
+        assert!(r.next_record().unwrap().is_some(), "header record");
+        assert!(r.next_record().is_err(), "oversized field must be an error");
     }
 
     #[test]
@@ -1177,6 +1222,40 @@ mod tests {
         );
         // The 06:00 template itself must NOT run as a scheduled trip.
         assert_eq!(earliest_arrival(&load.timetable, 0, 1, 0, 8), 8 * 3600 + 15 * 60);
+        // Busyness counts the CONCRETE departures, not the template.
+        assert_eq!(load.stop_visits, vec![3, 3, 0]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn malformed_frequency_windows_are_skipped() {
+        // Sub-10s headway and an expansion past the per-window trip cap are
+        // both rejected; the template then runs as an ordinary scheduled trip
+        // (the same degradation as the existing head==0 guard).
+        let dir = write_feed(
+            "freqbad",
+            &[
+                ("stops.txt", STOPS),
+                ("routes.txt", ROUTES),
+                ("calendar.txt", CALENDAR),
+                ("trips.txt", "route_id,service_id,trip_id\nR1,WK,shuttle\n"),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     shuttle,06:00:00,06:00:00,A,1\n\
+                     shuttle,06:15:00,06:15:00,B,2\n",
+                ),
+                (
+                    "frequencies.txt",
+                    "trip_id,start_time,end_time,headway_secs\n\
+                     shuttle,08:00:00,09:00:00,1\n\
+                     shuttle,00:00:00,48:00:00,10\n", // 17280 trips > cap
+                ),
+            ],
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        assert_eq!(load.n_trips, 1, "both windows rejected, template kept");
+        assert_eq!(earliest_arrival(&load.timetable, 0, 1, 0, 8), 6 * 3600 + 15 * 60);
         let _ = fs::remove_dir_all(&dir);
     }
 

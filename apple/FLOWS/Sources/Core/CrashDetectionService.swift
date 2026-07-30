@@ -54,6 +54,7 @@ final class CrashDetectionService: ObservableObject {
     private var recognizer: SFSpeechRecognizer? = SFSpeechRecognizer()
     private var audioEngine: AVAudioEngine?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private static let accelWindowSize = 25
     /// Bumped every begin(); an impact hop carries the generation it was
     /// enqueued under and drops itself if end() (or a new begin()) has since
@@ -115,6 +116,7 @@ final class CrashDetectionService: ObservableObject {
         monitorGeneration += 1   // invalidate any impact hop still in flight
         stopCheckIn()
         state = .idle
+        releaseAudioSessionWhenQuiet()
     }
 
     private func impactDetected() {
@@ -151,6 +153,22 @@ final class CrashDetectionService: ObservableObject {
         state = .idle
         impactTime = nil
         speak("Okay. Glad you're safe.")
+        releaseAudioSessionWhenQuiet()
+    }
+
+    /// After the last utterance, hand the audio session back — the check-in
+    /// activates it with .duckOthers, and without an explicit deactivation
+    /// the driver's music stays ducked for the rest of the drive.
+    private func releaseAudioSessionWhenQuiet() {
+        Task { @MainActor [weak self] in
+            var waited = 0
+            while self?.synthesizer.isSpeaking == true, waited < 100 {
+                try? await Task.sleep(for: .milliseconds(100)); waited += 1
+            }
+            guard let self, self.state == .idle, self.audioEngine == nil else { return }
+            try? AVAudioSession.sharedInstance().setActive(
+                false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     /// The templated report (also prefilled into the contact text).
@@ -257,6 +275,7 @@ final class CrashDetectionService: ObservableObject {
         engine.prepare()
         try? engine.start()
         audioEngine = engine
+        recognitionRequest = request
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, _ in
             guard let self, let result else { return }
             let transcript = result.bestTranscription.formattedString
@@ -276,6 +295,23 @@ final class CrashDetectionService: ObservableObject {
         }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
+            await MainActor.run { self?.finishListenWindow() }
+        }
+    }
+
+    /// Close the listen window in a way that lets a stand-down land: stop
+    /// feeding audio and call endAudio() so the recognizer delivers its FINAL
+    /// transcript — a live buffer request never finalizes on its own, so
+    /// without this "I'm okay" (final-only, see above) could NEVER stand the
+    /// check-in down by voice. A short grace period lets that result arrive
+    /// before the task is torn down.
+    private func finishListenWindow() {
+        audioEngine?.stop()
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine = nil
+        recognitionRequest?.endAudio()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
             await MainActor.run { self?.stopRecognition() }
         }
     }
@@ -283,6 +319,7 @@ final class CrashDetectionService: ObservableObject {
     private func stopRecognition() {
         recognitionTask?.cancel()
         recognitionTask = nil
+        recognitionRequest = nil
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil

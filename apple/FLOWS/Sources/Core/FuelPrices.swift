@@ -55,16 +55,26 @@ final class AAAFuelPrices: @unchecked Sendable {
     }
 
     /// Pure parse (testable offline): the four $-prices after "Current Avg."
-    /// are Regular / Mid / Premium / Diesel, in column order.
+    /// are Regular / Mid / Premium / Diesel, in column order. Positional, so
+    /// a value is NEVER skipped — dropping one (e.g. a $9+ diesel print, or a
+    /// template change) would silently shift the next row's Regular into the
+    /// Diesel column, a wrong-but-plausible number. Any out-of-band value
+    /// fails the whole parse and the static state-factor estimate serves
+    /// instead. The scan is bounded to the row (600 chars past the anchor) so
+    /// it can't wander into "Yesterday Avg.".
     static func parseCurrentAvg(_ html: String) -> (gas: Double, diesel: Double)? {
         guard let anchor = html.range(of: "Current Avg.") else { return nil }
+        let windowEnd = html.index(anchor.upperBound, offsetBy: 600,
+                                   limitedBy: html.endIndex) ?? html.endIndex
         var prices: [Double] = []
         var search = anchor.upperBound
         while prices.count < 4,
-              let d = html.range(of: "$", range: search..<html.endIndex) {
+              let d = html.range(of: "$", range: search..<windowEnd) {
             let tail = String(html[d.upperBound...].prefix(8))
             let num = String(tail.prefix(while: { $0.isNumber || $0 == "." }))
-            if let v = Double(num), v > 1, v < 9 { prices.append(v) }
+            guard let v = Double(num) else { search = d.upperBound; continue }
+            guard v > 1, v < 12 else { return nil }   // sanity band, no silent skip
+            prices.append(v)
             search = d.upperBound
         }
         guard prices.count == 4 else { return nil }
@@ -77,6 +87,27 @@ enum FuelPrices {
     static let nationalGas = 3.10
     static let nationalDiesel = 3.80
     static let nationalKWh = 0.36
+
+    /// CRE publishes MXN per LITER; the whole cost model runs in USD per
+    /// GALLON. Approximate FX, release-updated — ranking needs the right
+    /// ORDER OF MAGNITUDE, not the daily rate: unconverted, a real 23 MXN/L
+    /// posted price scored as $23/gal and ranked BELOW every unpriced
+    /// station's $3.20 default (stations with real data always lost).
+    static let mxnPerUSD = 17.0
+    static let litersPerGallon = 3.78541
+    static func usdPerGallon(mxnPerLiter: Double) -> Double {
+        mxnPerLiter / mxnPerUSD * litersPerGallon
+    }
+
+    /// Mexico state-average baseline (typical posted MXN/L, converted) — the
+    /// US national figure is wrong there in both level and meaning.
+    static func mexicoEstimate(fuel: FuelType) -> Double {
+        switch fuel {
+        case .gas: return (usdPerGallon(mxnPerLiter: 23.7) * 100).rounded() / 100
+        case .diesel: return (usdPerGallon(mxnPerLiter: 25.4) * 100).rounded() / 100
+        case .electric: return nationalKWh   // CFE public charging is comparable
+        }
+    }
 
     /// State multipliers vs national (gas & diesel move together closely).
     static let stateFactor: [String: Double] = [

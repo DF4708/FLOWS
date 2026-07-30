@@ -24,6 +24,8 @@ final class WatchLink: NSObject, ObservableObject {
     static let isAvailable = true
     private var lastSent = Date.distantPast
     private var hapticFiredForManeuver = false
+    private var lastManeuverInstruction = ""
+    private var lastManeuverDistance = Double.greatestFiniteMagnitude
 
     override init() {
         super.init()
@@ -61,6 +63,16 @@ final class WatchLink: NSObject, ObservableObject {
             payload["lat"] = c.latitude
             payload["lon"] = c.longitude
         }
+        // Re-arm on maneuver CHANGE, not only when the countdown rises above
+        // 400 m — downtown turns 200-300 m apart never exceed 400 m, so every
+        // turn after the first lost its wrist tap. A new instruction, or the
+        // countdown jumping back up (same text, next block), is a new turn.
+        if instruction != lastManeuverInstruction
+            || distanceToManeuver > lastManeuverDistance + 80 {
+            lastManeuverInstruction = instruction
+            hapticFiredForManeuver = false
+        }
+        lastManeuverDistance = distanceToManeuver
         if distanceToManeuver < 250, !hapticFiredForManeuver {
             payload["nearTurn"] = true          // the wrist tap
             hapticFiredForManeuver = true

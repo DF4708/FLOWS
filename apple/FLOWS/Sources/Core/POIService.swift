@@ -231,6 +231,10 @@ final class POIService: ObservableObject {
     func request(_ kind: Kind, aheadOf position: CLLocationCoordinate2D?) async {
         // BUTTON ISOLATION: pressing any button clears every other kind's
         // submenu, category state, and title — nothing bleeds across.
+        // Bump the generation FIRST: an in-flight search from the previous
+        // tap must not repopulate results (and re-zoom the map) behind the
+        // freshly opened category picker.
+        searchGeneration += 1
         pendingFoodChoice = false
         pendingFuelChoice = false
         pendingStoreChoice = false

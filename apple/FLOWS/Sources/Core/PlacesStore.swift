@@ -59,12 +59,19 @@ struct PlacesShard {
         }
         guard data.prefix(4) == Data("FPS1".utf8), u32(4) == 1 else { return nil }
         let nRecords = u32(8)
-        let gridOffset = Int(u64(12))
+        // Validate BEFORE converting: Int(UInt64) traps on > Int64.max, which
+        // would crash on a corrupt header instead of returning nil.
+        let gridOffsetRaw = u64(12)
+        guard gridOffsetRaw <= UInt64(UInt32.max) else { return nil }   // u32 offset tables below
+        let gridOffset = Int(gridOffsetRaw)
         let storedHash = u64(20)
         let nCells = u32(28)
         guard nRecords >= 0, nCells >= 0, gridOffset >= 32,
-              gridOffset <= Int(UInt32.max),   // u32 offset tables below
-              gridOffset + nCells * 16 == data.count else { return nil }
+              gridOffset + nCells * 16 == data.count,
+              // Minimum record is 24 bytes (10 fixed + five u16 lengths + u32
+              // postcode) — bounding nRecords by the record region keeps a
+              // 40-byte file from requesting a multi-GB reserveCapacity.
+              nRecords <= (gridOffset - 32) / 24 else { return nil }
         // fnv1a-64 over records + grid index — reject corruption.
         var hash: UInt64 = 0xcbf2_9ce4_8422_2325
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
@@ -109,6 +116,12 @@ struct PlacesShard {
                 counts.append(raw.loadUnaligned(fromByteOffset: off + 12, as: UInt32.self))
                 off += 16
             }
+        }
+        // Grid entries are covered by the fnv1a hash but that is integrity,
+        // not intent — a crafted shard can hash correctly and still point
+        // past the record table, trapping the lazy peek in places(near:).
+        for i in 0..<nCells where Int(starts[i]) + Int(counts[i]) > nRecords {
+            return nil
         }
         self.data = data
         recordOffsets = offsets

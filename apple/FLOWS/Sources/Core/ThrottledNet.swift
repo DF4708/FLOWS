@@ -234,9 +234,16 @@ actor RequestGate {
 
     /// Run `op` while holding one permit. Reentrant-safe: the actor is only
     /// held across the cheap counter bookkeeping, not the awaited work.
-    func withPermit<T: Sendable>(_ op: @Sendable () async throws -> T) async rethrows -> T {
+    /// `throws` (not rethrows): cancellation below throws its own error.
+    func withPermit<T: Sendable>(_ op: @Sendable () async throws -> T) async throws -> T {
         await acquire()
         defer { release() }
+        // A cancelled caller must not spend its permit on transport work: a
+        // panned-away viewport sweep can park ~40 dead waiters, and on a
+        // thermally-throttled 2-permit pool the user's route-scoring fetches
+        // would serialize behind every one of them entering URLSession just
+        // to throw. Fail fast here — the permit recycles immediately.
+        if Task.isCancelled { throw CancellationError() }
         return try await op()
     }
 }

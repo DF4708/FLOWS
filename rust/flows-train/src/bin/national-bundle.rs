@@ -409,6 +409,26 @@ fn national_entry(z: &Zcta, families: &[String], week: u32) -> String {
     out
 }
 
+/// Idempotent metadata: drop any previous national_* key pair from the prefix
+/// (the same cleanup loop history-baseline runs for its history_* keys), so a
+/// re-run replaces the pair instead of stacking duplicate JSON keys with
+/// conflicting week values.
+fn strip_national_keys(prefix: &str) -> String {
+    let mut clean = prefix.to_string();
+    while let Some(p) = clean.find("\"national_baseline\":") {
+        let rest = &clean[p..];
+        let end = rest.find("\"national_week\":").and_then(|q| {
+            let after = &rest[q..];
+            after.find(',').map(|c| p + q + c + 1)
+        });
+        match end {
+            Some(e) => clean.replace_range(p..e, ""),
+            None => break,
+        }
+    }
+    clean
+}
+
 /// Extract the families array (of plain strings) from the bundle prefix text.
 fn parse_families(text: &str) -> Result<Vec<String>, String> {
     let key = "\"families\":";
@@ -470,9 +490,11 @@ fn run(week: u32) -> Result<(), String> {
         zctas.iter().map(|z| national_entry(z, &families, week)).collect();
 
     // prefix ends just before the `"zips"` key (so its trailing ',' is intact);
-    // inject metadata, then the existing raw entries first, then national by zip.
+    // strip any previous run's metadata, inject this run's, then the existing
+    // raw entries first, then national by zip.
+    let clean_prefix = strip_national_keys(prefix);
     let mut out = String::with_capacity(original.len() + national.len() * 96);
-    out.push_str(prefix);
+    out.push_str(&clean_prefix);
     out.push_str("\"national_baseline\":true,\"national_week\":");
     out.push_str(&week.to_string());
     out.push_str(",\"zips\":[");
@@ -619,6 +641,24 @@ mod tests {
         );
         assert_eq!(raw_zip_code(entries[0]).as_deref(), Some("53703"));
         assert_eq!(raw_zip_code(entries[1]).as_deref(), Some("53511"));
+    }
+
+    #[test]
+    fn rerun_metadata_is_stripped_not_duplicated() {
+        let prefix = concat!(
+            "{\"generated_utc\":\"x\",\"families\":[\"wind\"],",
+            "\"national_baseline\":true,\"national_week\":27,"
+        );
+        let clean = strip_national_keys(prefix);
+        assert_eq!(clean, "{\"generated_utc\":\"x\",\"families\":[\"wind\"],");
+        // a prefix without the keys passes through untouched
+        assert_eq!(strip_national_keys(&clean), clean);
+        // even stacked duplicates from older builds collapse to none
+        let stacked = concat!(
+            "{\"a\":1,\"national_baseline\":true,\"national_week\":27,",
+            "\"national_baseline\":true,\"national_week\":30,"
+        );
+        assert_eq!(strip_national_keys(stacked), "{\"a\":1,");
     }
 
     #[test]

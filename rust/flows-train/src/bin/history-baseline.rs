@@ -159,26 +159,43 @@ impl<'a> CsvRecords<'a> {
                 }
                 spans.push((start, i, false));
             }
-            match b.get(i) {
-                Some(&b',') => i += 1,
-                Some(&b'\r') => {
-                    i += 1;
-                    if b.get(i) == Some(&b'\n') {
+            // Delimiter after the field. Stray bytes after a closing quote
+            // (e.g. `"abc"x,3`) are dropped and the real delimiter handled
+            // right here — re-entering the field loop at a delimiter would
+            // emit a phantom empty field and shift every later column.
+            let mut record_done = false;
+            loop {
+                match b.get(i) {
+                    Some(&b',') => {
                         i += 1;
+                        break;
                     }
-                    break;
-                }
-                Some(&b'\n') => {
-                    i += 1;
-                    break;
-                }
-                None => break,
-                Some(_) => {
-                    // stray bytes after a closing quote: skip to next delimiter
-                    while i < n && b[i] != b',' && b[i] != b'\n' && b[i] != b'\r' {
+                    Some(&b'\r') => {
                         i += 1;
+                        if b.get(i) == Some(&b'\n') {
+                            i += 1;
+                        }
+                        record_done = true;
+                        break;
+                    }
+                    Some(&b'\n') => {
+                        i += 1;
+                        record_done = true;
+                        break;
+                    }
+                    None => {
+                        record_done = true;
+                        break;
+                    }
+                    Some(_) => {
+                        while i < n && b[i] != b',' && b[i] != b'\n' && b[i] != b'\r' {
+                            i += 1;
+                        }
                     }
                 }
+            }
+            if record_done {
+                break;
             }
         }
         self.pos = i;
@@ -274,17 +291,23 @@ impl ZipGrid {
     }
 
     /// Nearest ZCTA centroid by equirectangular distance, searching outward
-    /// ring by ring (plus one guard ring past the first hit). None only if
-    /// nothing lives within `max_ring` cells (~ max_ring * 0.2 degrees).
+    /// ring by ring until no closer centroid is geometrically possible. None
+    /// only if nothing lives within `max_ring` cells (~ max_ring * 0.2 deg).
     fn nearest(&self, zctas: &[Zcta], lat: f64, lon: f64, max_ring: i32) -> Option<u32> {
         let (cr, cc) = Self::cell(lat, lon);
         let coslat = lat.to_radians().cos().max(0.05);
         let mut best: Option<(f64, u32)> = None;
-        let mut found_ring: Option<i32> = None;
         for r in 0..=max_ring {
-            if let Some(fr) = found_ring {
-                if r > fr + 1 {
-                    break; // one guard ring past the first hit is enough
+            // A hit does not bound the winner to the next ring: a same-cell
+            // centroid can sit corner-to-corner (~sqrt(2)*GRID_DEG) while a
+            // nearer one lies two rings out. Expand until the ring's minimum
+            // possible scaled distance exceeds the best hit — every point of
+            // a ring-r cell is at least (r-1)*GRID_DEG raw degrees away, and
+            // the lon axis shrinks by at most coslat.
+            if let Some((best_d2, _)) = best {
+                let ring_min = (r - 1).max(0) as f64 * GRID_DEG * coslat;
+                if ring_min * ring_min > best_d2 {
+                    break;
                 }
             }
             for dr in -r..=r {
@@ -301,9 +324,6 @@ impl ZipGrid {
                             if best.is_none_or(|(b, _)| d2 < b) {
                                 best = Some((d2, i));
                             }
-                        }
-                        if found_ring.is_none() {
-                            found_ring = Some(r);
                         }
                     }
                 }
@@ -937,12 +957,22 @@ fn rebuild_bundle(
             .ok_or("national entry missing \"z\"")?;
         let c_raw = pairs.iter().find(|(k, _)| *k == "c").map(|(_, v)| *v).unwrap_or("[0,0]");
         let s_raw = pairs.iter().find(|(k, _)| *k == "s").map(|(_, v)| *v).unwrap_or("[]");
-        let mut s: Vec<f64> = s_raw
-            .trim_start_matches('[')
-            .trim_end_matches(']')
-            .split(',')
-            .filter_map(|v| v.trim().parse().ok())
-            .collect();
+        // Every token must parse: silently dropping one (a null, a damaged
+        // literal) would shift every later score one family left — risk
+        // values relabeled across families with no diagnostic.
+        let inner = s_raw.trim_start_matches('[').trim_end_matches(']').trim();
+        let mut s: Vec<f64> = if inner.is_empty() {
+            Vec::new()
+        } else {
+            inner
+                .split(',')
+                .map(|v| {
+                    v.trim().parse::<f64>().map_err(|_| {
+                        format!("entry {z}: unparseable score token {:?} in \"s\"", v.trim())
+                    })
+                })
+                .collect::<Result<_, _>>()?
+        };
         s.resize(families.len(), 0.0);
         let mut hist_won = vec![false; families.len()];
         for (i, fam) in fam_map.iter().enumerate() {
@@ -997,6 +1027,16 @@ fn rebuild_bundle(
 
 fn push_u32(out: &mut Vec<u8>, v: u32) {
     out.extend_from_slice(&v.to_le_bytes());
+}
+
+/// Crash-safe write: temp file in the same directory, then rename — the same
+/// discipline as the bundle rewrite. The FLHD/FLHH layouts carry no body
+/// hash, so a torn half-file at a runtime_cache path would be trusted by its
+/// header counts; the rename makes the final path all-or-nothing.
+fn write_atomic(path: &Path, bytes: &[u8], what: &str) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, bytes).map_err(|e| format!("write {what}: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("rename {what}: {e}"))
 }
 
 fn header_common(magic: &[u8; 4], n_zips: u32, third: u32, fams: &[&str], zips: &[&str]) -> Vec<u8> {
@@ -1292,7 +1332,7 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
         dense_bin.push((s * 255.0).round() as u8);
     }
     let dense_path = root.join(DENSE_REL);
-    fs::write(&dense_path, &dense_bin).map_err(|e| format!("write dense: {e}"))?;
+    write_atomic(&dense_path, &dense_bin, "dense")?;
     println!("dense:    {} bytes -> {}", dense_bin.len(), dense_path.display());
 
     // ---- OUTPUT B2: harmonic 5xf32 + max reconstruction error
@@ -1322,7 +1362,7 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
         }
     }
     let harm_path = root.join(HARM_REL);
-    fs::write(&harm_path, &harm_bin).map_err(|e| format!("write harmonic: {e}"))?;
+    write_atomic(&harm_path, &harm_bin, "harmonic")?;
     println!("harmonic: {} bytes -> {}", harm_bin.len(), harm_path.display());
     println!(
         "harmonic reconstruction vs dense: max_abs_err {:.4}  mean_abs_err {:.5}  cells {}",
@@ -1337,7 +1377,7 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
     let original =
         fs::read_to_string(&bundle_path).map_err(|e| format!("read bundle: {e}"))?;
     if !backup_path.exists() {
-        fs::write(&backup_path, &original).map_err(|e| format!("write backup: {e}"))?;
+        write_atomic(&backup_path, original.as_bytes(), "backup")?;
         println!("backup -> {}", backup_path.display());
     } else {
         println!("backup already exists, left untouched: {}", backup_path.display());
@@ -1388,7 +1428,7 @@ fn run(storm_dir: &Path, week: u32) -> Result<(), String> {
         }
     }
     let rows_path = root.join(ROWS_REL);
-    fs::write(&rows_path, &csv).map_err(|e| format!("write training rows: {e}"))?;
+    write_atomic(&rows_path, csv.as_bytes(), "training rows")?;
     println!("training rows: {} -> {} ({} bytes)", n_rows, rows_path.display(), csv.len());
 
     println!("done in {:.1}s", t0.elapsed().as_secs_f64());
@@ -1431,6 +1471,35 @@ mod tests {
         assert_eq!(field(text, s[1]), "line one\nline two");
         assert!(rd.next_record(&mut s));
         assert_eq!(field(text, s[1]), "he said \"hi\"");
+        assert!(!rd.next_record(&mut s));
+    }
+
+    #[test]
+    fn csv_stray_bytes_after_closing_quote_add_no_phantom_field() {
+        // Bytes between a closing quote and the delimiter are dropped; the
+        // record must keep its column count so later spans stay aligned.
+        let text = "A,B,C\n\"abc\"x,3,z\n\"q\"junk\n1,2,3\n";
+        let mut rd = CsvRecords::new(text);
+        let mut s = Vec::new();
+        assert!(rd.next_record(&mut s));
+        assert_eq!(s.len(), 3);
+        assert!(rd.next_record(&mut s));
+        assert_eq!(s.len(), 3, "no phantom field after the stray byte");
+        assert_eq!(field(text, s[0]), "abc");
+        assert_eq!(field(text, s[1]), "3");
+        assert_eq!(field(text, s[2]), "z");
+        assert!(rd.next_record(&mut s));
+        assert_eq!(s.len(), 1, "stray bytes before EOL are dropped");
+        assert_eq!(field(text, s[0]), "q");
+        assert!(rd.next_record(&mut s));
+        assert_eq!(field(text, s[2]), "3");
+        assert!(!rd.next_record(&mut s));
+        // Stray bytes at EOF terminate the record cleanly too.
+        let eof = "\"abc\"x";
+        let mut rd = CsvRecords::new(eof);
+        assert!(rd.next_record(&mut s));
+        assert_eq!(s.len(), 1);
+        assert_eq!(field(eof, s[0]), "abc");
         assert!(!rd.next_record(&mut s));
     }
 
