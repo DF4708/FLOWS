@@ -89,6 +89,10 @@ actor TomTomFuel {
     private let ttl: TimeInterval = 21_600
 
     func price(near point: CLLocationCoordinate2D, fuel: FuelType) async -> Double? {
+        // No liquid-fuel price for an EV — TomTom's Petrol/Diesel fuelSet would
+        // otherwise return a gasoline price for an electric vehicle, shown as a
+        // live "EV price" and inverting the charger ranking.
+        guard fuel != .electric else { return nil }
         guard !apiKey.isEmpty else { return nil }
         let key = "\(Int(point.latitude * 500))|\(Int(point.longitude * 500))|\(fuel.rawValue)"
         if let hit = cache[key], Date().timeIntervalSince(hit.fetched) < ttl {

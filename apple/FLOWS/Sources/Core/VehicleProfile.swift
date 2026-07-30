@@ -192,9 +192,16 @@ final class VehicleStore: ObservableObject {
         filledUp()
     }
 
-    /// Feed one GPS fix: accumulate tank odometer and update habit averages.
+    /// Feed one GPS fix: accumulate tank consumption and update habit averages.
     func recordFix(speedMps: Double, deltaMeters: Double) {
-        milesSinceFill += max(deltaMeters, 0) / 1609.344
+        // `milesSinceFill` tracks tank ENERGY consumed, in normal-mile
+        // equivalents — a mile driven while towing burns 1/towingEconomyFactor
+        // (≈1.33) normal-miles of range, so it must be charged at the economy
+        // in force WHEN it was driven. The old code added raw miles and applied
+        // the towing factor to the whole remaining range, which re-discounted
+        // already-consumed miles and OVER-estimated remaining range while towing.
+        let miles = max(deltaMeters, 0) / 1609.344
+        milesSinceFill += towingActive ? miles / TowingLimits.towingEconomyFactor : miles
         let mph = max(speedMps, 0) * 2.236936
         // Time constant = 1/alpha samples: 0.0003 at 1 Hz ≈ 55 min — the
         // documented "last hour". The old 0.02 was a ~50 SECOND window, so a

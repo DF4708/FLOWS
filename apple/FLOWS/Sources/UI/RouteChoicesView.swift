@@ -44,11 +44,16 @@ struct RouteChoicesView: View {
     @State private var activeTransitModes: Set<Bool> = []
     /// The in-flight transit computation, so a fresh mode tap cancels the last
     /// one — otherwise a slower stale result could overwrite the newer itinerary.
-    @State private var transitTask: Task<Void, Never>?
+    // Per-mode (rail=true / bus=false) so cancelling one never orphans the
+    // other, and so the cancel actually targets a live task (the single var
+    // was never assigned — every Task.isCancelled guard was dead, letting a
+    // stale itinerary overwrite fresh state).
+    @State private var transitTasks: [Bool: Task<Void, Never>] = [:]
 
     private func replanForMode() async {
         guard let ep = model.lastPlanEndpointsPublic else { return }
-        transitTask?.cancel()   // a drive replan supersedes any in-flight transit calc
+        transitTasks.values.forEach { $0.cancel() }   // a drive replan supersedes any in-flight transit calc
+        transitTasks = [:]
         if let planned = try? await model.plan(from: ep.from, fromName: ep.fromName,
                                                to: ep.to, toName: ep.toName) {
             model.present(routes: planned)   // clears model.transitItinerary
@@ -277,6 +282,9 @@ struct RouteChoicesView: View {
             ticketLabel = t.label
             ticketURL = t.url
         }
+        // Final guard: a mode re-tap / drive replan may have superseded this
+        // computation during the last awaits — don't commit a stale itinerary.
+        if Task.isCancelled { return }
         let accessVerb = accessLeg.kind == .drive ? "Drive" : "Walk"
         transitOptions[rail] = TransitOption(
             title: "\(kind) via \(boardName)",
@@ -295,6 +303,7 @@ struct RouteChoicesView: View {
         return Button {
             if isOn {
                 // Toggle THIS mode off; other selections stay.
+                transitTasks[rail]?.cancel(); transitTasks[rail] = nil
                 activeTransitModes.remove(rail)
                 transitOptions[rail] = nil
                 if activeTransitModes.isEmpty { model.transitItinerary = nil }
@@ -303,7 +312,8 @@ struct RouteChoicesView: View {
                 }
             } else {
                 activeTransitModes.insert(rail)
-                Task { await computeTransit(rail: rail) }
+                transitTasks[rail]?.cancel()
+                transitTasks[rail] = Task { await computeTransit(rail: rail) }
             }
         } label: {
             Image(systemName: symbol).font(.system(size: 12, weight: .bold))
@@ -348,6 +358,7 @@ struct RouteChoicesView: View {
                         .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 }
                 Button {
+                    transitTasks[rail]?.cancel(); transitTasks[rail] = nil
                     activeTransitModes.remove(rail)
                     transitOptions[rail] = nil
                     if activeTransitModes.isEmpty { model.transitItinerary = nil }

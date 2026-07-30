@@ -66,6 +66,10 @@ enum ThrottledNet {
                 if !(error is CancellationError),
                    (error as? URLError)?.code != .cancelled {
                     await HostBreaker.shared.recordFailure(host)
+                } else {
+                    // Cancelled: not a failure, but must release a half-open
+                    // probe slot or the host stays blacklisted for the session.
+                    await HostBreaker.shared.probeAborted(host)
                 }
                 throw error
             }
@@ -189,6 +193,14 @@ actor HostBreaker {
         let n = (failures[host] ?? 0) + 1
         failures[host] = n
         if n >= trip { openedAt[host] = Date() }   // (re)open, restart cooldown
+    }
+
+    /// A half-open probe was CANCELLED (not a real success or failure) — clear
+    /// the probing flag so the next request can probe again. Without this a
+    /// cancelled probe (e.g. a panned-away viewport sweep) left the host
+    /// permanently in `probing`, so admits() blacklisted it for the session.
+    func probeAborted(_ host: String) {
+        probing.remove(host)
     }
 }
 
