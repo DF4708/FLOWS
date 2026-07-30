@@ -133,7 +133,11 @@ final class RiskRealizationTests: XCTestCase {
                           ("Flash Flood Warning", "qpf_flood"),
                           ("Flood Warning", "qpf_flood"),
                           ("Tsunami Warning", "tsunami"),
-                          ("Hurricane Warning", "tropical")] {
+                          ("Hurricane Warning", "tropical"),
+                          // realized short-fused warnings that embed a generic word:
+                          ("Snow Squall Warning", "storm"),
+                          ("Dust Storm Warning", "storm"),
+                          ("Fire Warning", "fire")] {
             XCTAssertEqual(RiskEquations.alertFamily(ev), fam, "\(ev)")
             XCTAssertTrue(RiskEquations.primaryFamilies.contains(fam))
             XCTAssertGreaterThanOrEqual(RiskEquations.realizedRisk([fam: 0.9]), RED,
@@ -143,7 +147,10 @@ final class RiskRealizationTests: XCTestCase {
         for ev in ["Winter Storm Warning", "Blizzard Warning", "Ice Storm Warning",
                    "High Wind Warning", "Red Flag Warning", "Excessive Heat Warning",
                    "Wind Chill Warning", "Flood Watch", "Severe Thunderstorm Watch",
-                   "Tornado Watch", "Air Quality Alert"] {
+                   "Tornado Watch", "Air Quality Alert",
+                   // Fire WEATHER stays a predictor (only Fire WARNING is primary);
+                   // a hurricane WATCH must contribute as a wind predictor.
+                   "Fire Weather Warning", "Hurricane Watch"] {
             guard let fam = RiskEquations.alertFamily(ev) else {
                 XCTFail("\(ev) should classify"); continue
             }
@@ -264,5 +271,27 @@ final class RiskRealizationTests: XCTestCase {
                 XCTAssertLessThanOrEqual(r, 1)
             }
         }
+    }
+
+    // The official-warning link must go to the ISSUING agency: US points
+    // (including Alaska and the southern US) to NWS, not a foreign agency.
+    func testOfficialURLCountryRouting() {
+        func host(_ lat: Double, _ lon: Double) -> String {
+            RiskAdvice.officialURL(latitude: lat, longitude: lon)?.host ?? "?"
+        }
+        // US — must be NWS (the bug sent these abroad):
+        XCTAssertEqual(host(61.22, -149.90), "forecast.weather.gov")  // Anchorage
+        XCTAssertEqual(host(64.84, -147.72), "forecast.weather.gov")  // Fairbanks
+        XCTAssertEqual(host(58.30, -134.42), "forecast.weather.gov")  // Juneau
+        XCTAssertEqual(host(29.76, -95.37), "forecast.weather.gov")   // Houston
+        XCTAssertEqual(host(25.76, -80.19), "forecast.weather.gov")   // Miami
+        XCTAssertEqual(host(31.76, -106.49), "forecast.weather.gov")  // El Paso
+        XCTAssertEqual(host(43.07, -89.40), "forecast.weather.gov")   // Madison
+        // Canada:
+        XCTAssertEqual(host(45.42, -75.70), "weather.gc.ca")          // Ottawa
+        XCTAssertEqual(host(49.28, -123.12), "weather.gc.ca")         // Vancouver
+        // Mexico (south of the border diagonal):
+        XCTAssertEqual(host(19.43, -99.13), "smn.conagua.gob.mx")     // Mexico City
+        XCTAssertEqual(host(25.67, -100.31), "smn.conagua.gob.mx")    // Monterrey
     }
 }

@@ -265,6 +265,17 @@ enum RiskEquations {
         let e = event.lowercased()
         // --- realized, in-progress danger → PRIMARY family ---
         if e.contains("tornado warning") || e.contains("severe thunderstorm warning") { return "storm" }
+        // Short-fused realized WARNINGS whose name embeds a generic season/
+        // condition word — test them BEFORE the predictor substrings below, or
+        // they silently downgrade to a capped secondary and can never reach Red.
+        // Snow Squall Warning = radar-confirmed whiteout / flash-freeze occurring;
+        // Dust/Blowing Dust Storm Warning = observed zero-visibility (I-10 pileups).
+        if e.contains("snow squall warning") { return "storm" }
+        if e.contains("dust storm warning") || e.contains("blowing dust warning") { return "storm" }
+        // Fire WARNING (NWS FRW: an active wildfire threatening a populated area)
+        // is realized → primary. But "fire weather warning" / "red flag" is a
+        // hot-dry PREDICTOR — exclude it here (handled below).
+        if e.contains("fire warning"), !e.contains("fire weather") { return "fire" }
         if e.contains("flash flood warning") || e.contains("flash flood emergency")
             || e.contains("flood warning") { return "qpf_flood" }
         if e.contains("tsunami warning") { return "tsunami" }
@@ -278,6 +289,10 @@ enum RiskEquations {
         if e.contains("chill") || e.contains("freeze") || e.contains("frost")
             || e.contains("cold") { return "cold" }
         if e.contains("red flag") || e.contains("fire weather") { return "heat" }  // hot/dry fire-weather
+        // Tropical/typhoon WATCH (non-warning; the warning is primary above):
+        // high winds possible → wind predictor, so a hurricane watch over the
+        // corridor contributes instead of scoring zero.
+        if e.contains("hurricane") || e.contains("typhoon") || e.contains("tropical storm") { return "wind" }
         if e.contains("wind") { return "wind" }
         if e.contains("air quality") || e.contains("smoke") || e.contains("dust")
             || e.contains("fog") { return "air" }
@@ -285,6 +300,9 @@ enum RiskEquations {
         if e.contains("tornado") || e.contains("thunderstorm") || e.contains("storm") {
             return "convective"                            // watch / general storm → predictor
         }
+        // Tsunami Watch/Advisory (strong-current coastal hazard, marginal road
+        // relevance; the tsunami WARNING is scored primary above) is left
+        // unscored rather than forced into an ill-fitting predictor family.
         return nil
     }
 }

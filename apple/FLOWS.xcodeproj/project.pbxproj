@@ -143,6 +143,7 @@
 		B4F2D68B4AA9EA32E39BC498 /* SeasonalRiskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03CAD2963165FE9441694108 /* SeasonalRiskModel.swift */; };
 		B7BE2CE331F05F11F6FE96EE /* POIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F96A5B64C54FCF03FA44A6A /* POIService.swift */; };
 		B7C8FA99AE047DE30F6C94D6 /* NavigationHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAC3EA401E6BE217380A0C4F /* NavigationHUD.swift */; };
+		BA7BE6AEFA69E8EE8EE94B3D /* RiskAdvice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C8D352D8475825EDF70ED41 /* RiskAdvice.swift */; };
 		BBE74598D75C120739804AA2 /* PursuitReach.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B77720FE9E56F92FFA4A3CB /* PursuitReach.swift */; };
 		BBFB4503921B6CDE7C898574 /* truckstop_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = AB05FCE6C6411AC6C6E9D236 /* truckstop_showers.json */; };
 		BC99BD4AF7EDCA3E623A7673 /* ta_petro_city_showers.json in Resources */ = {isa = PBXBuildFile; fileRef = 632AB1C1790765011C5EABEE /* ta_petro_city_showers.json */; };
@@ -725,6 +726,7 @@
 				46AC7FC072E5F0CC473D3C22 /* PursuitReach.swift in Sources */,
 				2A85E17486B536522BBD643C /* RatingsAndCost.swift in Sources */,
 				A66F1D80DB49213AF776EE08 /* RefuelLearning.swift in Sources */,
+				BA7BE6AEFA69E8EE8EE94B3D /* RiskAdvice.swift in Sources */,
 				8D9EC270F22C1471CC017D40 /* RiskEquationVectors.swift in Sources */,
 				061E5380FCEDC52E29B02651 /* RiskEquations.swift in Sources */,
 				B0CFCF912028157796B4A7B9 /* RiskEquationsTests.swift in Sources */,

@@ -222,18 +222,52 @@ enum RiskAdvice {
 
     /// The official page for a location's active hazards: the NWS point
     /// page (US), ECCC (Canada), SMN (Mexico) — always resolvable, always
-    /// the issuing agency.
+    /// the issuing agency. US is the default; a location routes to a foreign
+    /// agency only when it is unambiguously across the border.
     static func officialURL(latitude: Double, longitude: Double) -> URL? {
-        if latitude > 49 || (latitude > 44.8 && longitude > -83.6 && longitude < -52)
+        // Alaska is US (NWS) despite its high latitude — resolve it BEFORE the
+        // Canada box, which would otherwise send Anchorage/Fairbanks/Juneau to
+        // Environment Canada. West of the panhandle border (~-130.5) at high
+        // latitude is Alaska; a sliver of far-NW BC is the only trade-off.
+        let isAlaska = latitude > 51 && longitude < -130.5
+        // Canada: high-latitude mainland EAST of Alaska, plus the two Great
+        // Lakes strips where the border dips below 49°N.
+        if !isAlaska, latitude > 49
+            || (latitude > 44.8 && longitude > -83.6 && longitude < -52)
             || (latitude > 43.4 && longitude > -81.8 && longitude < -76.3) {
             return URL(string: "https://weather.gc.ca/en/location/index.html"
                        + String(format: "?coords=%.3f,%.3f", latitude, longitude))
         }
-        if latitude < 32.72 && longitude > -118 && longitude < -86 {
+        // Mexico, in two segments because the border is diagonal and the Gulf
+        // separates Mexico's east coast from Florida (a flat latitude box sent
+        // Houston, Miami, and the whole Gulf Coast to SMN):
+        //   WEST/border — Pacific coast through the Rio Grande, south of the
+        //   piecewise border latitude for this longitude.
+        if longitude >= -117.2, longitude <= -97.4, latitude > 14,
+           latitude < usSouthernBorderLat(longitude: longitude) {
+            return URL(string: "https://smn.conagua.gob.mx/es/pronosticos/avisos")
+        }
+        //   GULF/Yucatán — Mexican east coast, west of the -86.5 line so the
+        //   Florida peninsula (US, but below 26°N) is excluded.
+        if longitude >= -98.0, longitude <= -86.5, latitude > 14, latitude < 25.5 {
             return URL(string: "https://smn.conagua.gob.mx/es/pronosticos/avisos")
         }
         return URL(string: String(format:
             "https://forecast.weather.gov/MapClick.php?lat=%.4f&lon=%.4f",
             latitude, longitude))
+    }
+
+    /// The latitude of the US–Mexico border for the WESTERN segment
+    /// (longitude in [-117.2, -97.4]): the Californias line, the Sonora/AZ and
+    /// NM lines, then the Rio Grande's diagonal from El Paso to Brownsville. A
+    /// point south of this (within the longitude band) is Mexico. Border towns
+    /// within ~0.1° are inherently ambiguous at this resolution.
+    static func usSouthernBorderLat(longitude lon: Double) -> Double {
+        if lon <= -114.7 { return 32.5 }    // CA / Baja
+        if lon <= -108.2 { return 31.33 }   // AZ / Sonora
+        // NM + El Paso corner down to Brownsville, kept just south of El Paso
+        // city (31.76) so the US side of the Rio Grande routes to NWS.
+        let t = (lon + 106.5) / (-97.4 + 106.5)   // 0 at El Paso, 1 at Brownsville
+        return 31.74 + max(0, t) * (25.9 - 31.74)
     }
 }
