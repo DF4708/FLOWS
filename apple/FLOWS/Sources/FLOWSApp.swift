@@ -1133,12 +1133,19 @@ final class AppModel: ObservableObject {
     /// cross-country); the corridor risk scores land a few seconds later and
     /// re-rank the list (a red corridor never outranks a clear one at ~equal
     /// ETA — same philosophy as the web app).
+    private var riskHydrationTask: Task<Void, Never>?
+
     func present(routes: [PlannedRoute]) {
         routeChoices = routes
         transitItinerary = nil   // drive routes replace any transit overlay
         highlightedRouteID = routes.first?.id
         mode = .choosing
-        Task { await hydrateRouteRisk() }
+        // Supersede any prior hydration: its retry loop reads the LIVE
+        // routeChoices, so a replan while still .choosing would otherwise
+        // stack a second (then third…) loop re-scoring the same routes —
+        // multiplied NWS rounds against the polite-API doctrine.
+        riskHydrationTask?.cancel()
+        riskHydrationTask = Task { await hydrateRouteRisk() }
     }
 
     private func hydrateRouteRisk() async {
@@ -1168,8 +1175,9 @@ final class AppModel: ObservableObject {
             // forever; this outlives one full breaker window.
             for delay in [6.0, 15, 15, 30, 30, 60] {
                 let incomplete = routeChoices.filter { !$0.weatherScored }
-                guard !incomplete.isEmpty, mode == .choosing else { break }
+                guard !incomplete.isEmpty, mode == .choosing, !Task.isCancelled else { break }
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled else { break }
                 for r in incomplete where mode == .choosing {
                     let redone = await scored(r)
                     if let i = routeChoices.firstIndex(where: { $0.id == redone.id }) {
@@ -1689,6 +1697,19 @@ final class AppModel: ObservableObject {
         pendingStopName = nil
         pendingStopKind = nil
         upcomingLeg = nil
+        // Drive-time advisories are only recomputed inside the navigating GPS
+        // sink — clear them here or they freeze on screen into planning mode
+        // and the start of the next trip (a stale refuel prompt answered
+        // post-trip would even feed vehicle.filledUp()).
+        towingWarning = nil
+        fuelRecommendation = nil
+        refuelPrompt = false
+        refuelPromptShownAt = nil
+        upcomingSteepGrade = nil
+        workZonesAhead = 0
+        workZoneRoad = nil
+        stoppedSince = nil
+        lastClockFix = nil
         mode = .planning
         watch.sendEnded()
     }
@@ -1758,6 +1779,10 @@ final class AppModel: ObservableObject {
             if score.complete { escalationBaseline = risk }
             return
         }
+        // Incomplete score (a cell fetch failed): the zeroed samples make the
+        // mean meaningless — don't evaluate escalation against it; the next
+        // complete cycle catches up. (Banners were preserved above.)
+        guard score.complete else { return }
         // Two triggers: sustained worsening (mean up 0.12+ into yellow) OR a
         // realized RED anywhere in the window — a tornado warning on one
         // stretch must escalate even when the rest of the window is quiet.
@@ -1796,8 +1821,10 @@ final class AppModel: ObservableObject {
         guard let hit = ImminentAlerts.firstImminent(candidates, speedMps: speed),
               let alert = score.alertsByID[hit.alertID] else {
             // Nothing imminent anymore — clear a stale banner, EXCEPT red
-            // alerts: those stay until the driver physically presses them.
-            if imminentWarning?.action != .shelter { imminentWarning = nil }
+            // alerts (those stay until the driver physically presses them)
+            // and EXCEPT incomplete scores: a transient NWS failure zeroes
+            // the samples, and "no data" must never read as "all clear".
+            if score.complete, imminentWarning?.action != .shelter { imminentWarning = nil }
             return
         }
         let action = ImminentAlerts.classify(
@@ -1899,14 +1926,15 @@ final class AppModel: ObservableObject {
     /// the two had drifted into near-identical copies.)
     private func startLeg(_ leg: PlannedRoute) {
         lastRouteRect = leg.route.polyline.boundingMapRect
-        // Rebaseline escalation to THIS leg's risk on every swap (traffic
-        // reroute, escalation reroute, added-stop legs, arrival continuation).
-        // Previously only select()/approveEscalationReroute did it, so after a
-        // traffic reroute or a leg chain the escalation compared new-leg risk
-        // against the OLD leg's baseline and under-warned when weather worsened.
-        // Sentinel -1 defers the capture to the first corridor score for an
-        // unscored leg (same rule select() uses).
-        escalationBaseline = leg.weatherScored ? leg.weatherRisk : -1
+        // Rebaseline escalation on every leg swap — and ALWAYS defer to the
+        // first complete corridor score (sentinel -1) rather than seeding from
+        // leg.weatherRisk: the plan-time number blends forecast predictors,
+        // the flood elevation multiplier, and closure scores that the live
+        // watch mean (sampleRealizedRisk with live-only inputs) never sees, so
+        // a plan-time baseline sits systematically HIGH and suppressed real
+        // escalations. Deferring makes baseline and live means like-for-like
+        // by construction.
+        escalationBaseline = -1
         dismissedEscalationRisk = 0
         navigation.start(route: leg, onArrival: { [weak self] in self?.handleArrival() })
         // Legs swapped in mid-drive (reroute, added stop, arrival chaining)
@@ -1943,12 +1971,17 @@ final class AppModel: ObservableObject {
                 let lon = await MainActor.run { self?.location.coordinate?.longitude }
                 try? await Task.sleep(for: .seconds(
                     TrafficCadence.intervalSeconds(now: Date(), longitude: lon ?? -90)))
+                // Task.sleep swallows the CancellationError under try? — a
+                // leg swap that cancelled this task mid-sleep must not run one
+                // more stale iteration (duplicate ETA probe, spurious chip).
+                if Task.isCancelled { return }
                 // Review finding: this compared an ETA to the FINAL
                 // destination against the remaining time of the CURRENT leg —
                 // with an added stop those differ by the whole second leg, so
                 // the "delay" chip fired spuriously. Both sides now measure
                 // the current leg.
-                guard let self, self.mode == .navigating,
+                guard let self else { return }   // model gone — stop, don't spin
+                guard self.mode == .navigating,
                       let fix = self.location.coordinate,
                       let leg = self.navigation.route,
                       let baseline = self.navigation.guidance?.remainingTime,
@@ -2080,8 +2113,10 @@ final class AppModel: ObservableObject {
                     let scored = await self.scored(leg)
                     guard self.mode == .navigating else { return }
                     self.startLeg(scored)
-                } else {
+                } else if self.mode == .navigating {
                     // Honest state: at the stop, continuation unavailable.
+                    // (Mode guard: if the driver ended navigation during the
+                    // replan, don't post an arrival banner over planning.)
                     self.arrivedAt = "\(stopName) — couldn't plan the leg to "
                         + "\(dest.name); plan again from here"
                 }

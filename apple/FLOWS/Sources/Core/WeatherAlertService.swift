@@ -254,7 +254,10 @@ final class WeatherAlertService: ObservableObject {
                 // anyway — without this guard the OLD corridor's score lands
                 // on the NEW leg (stale headlines, wrong escalation baseline).
                 guard !Task.isCancelled else { return }
-                self.activeHeadlines = score.headlines
+                // Incomplete score (a cell fetch failed): keep the previous
+                // headlines — "couldn't check" must never blank a live HUD
+                // alert banner as if the corridor cleared.
+                if score.complete { self.activeHeadlines = score.headlines }
                 onUpdate?(score)
                 try? await Task.sleep(for: .seconds(max(w.cadence, 60) * AdaptiveTuning.shared.settings.ttlMultiplier))
             }

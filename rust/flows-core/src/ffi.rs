@@ -242,11 +242,18 @@ pub unsafe extern "C" fn flows_dijkstra_c(
     let src_raw = *source;
     let off_raw = std::slice::from_raw_parts(offsets, nn + 1);
     let tgt_raw = std::slice::from_raw_parts(targets, me);
+    let wts_raw = std::slice::from_raw_parts(weights, me);
     let valid = src_raw >= 0 && (src_raw as usize) < nn
         && off_raw.first().is_some_and(|&o| o == 0)
         && off_raw.last().is_some_and(|&o| o >= 0 && o as usize == me)
         && off_raw.windows(2).all(|w| w[0] >= 0 && w[1] >= w[0])
-        && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn);
+        && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn)
+        // Weights need the same scrutiny as ids: an R NA marshals to NaN
+        // through .C(), and HeapItem::cmp treats NaN as Equal, so the edge
+        // would be silently ignored — a finite-but-wrong cost the caller's
+        // NaN-sentinel fallback could never detect. Negative weights break
+        // Dijkstra's invariant outright.
+        && wts_raw.iter().all(|&w| w.is_finite() && w >= 0.0);
     if !valid {
         out.fill(f64::NAN);
         return;
@@ -254,7 +261,7 @@ pub unsafe extern "C" fn flows_dijkstra_c(
     let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
         let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
-        let wts: Vec<f64> = std::slice::from_raw_parts(weights, me).to_vec();
+        let wts: Vec<f64> = wts_raw.to_vec();
         let g = crate::routing::CsrGraph { offsets: off, targets: tgt, weights: wts };
         g.dijkstra(src_raw as usize)
     }));
@@ -296,16 +303,19 @@ pub unsafe extern "C" fn flows_ch_query_c(
     let os = std::slice::from_raw_parts_mut(out, nq);
     let off_raw = std::slice::from_raw_parts(offsets, nn + 1);
     let tgt_raw = std::slice::from_raw_parts(targets, me);
+    let wts_raw = std::slice::from_raw_parts(weights, me);
     let ss = std::slice::from_raw_parts(srcs, nq);
     let ds = std::slice::from_raw_parts(dsts, nq);
     // Validate ids/offsets up front; on failure fill the NaN error sentinel
     // rather than clamping negatives to node 0 (silently wrong answers) or
     // panicking on out-of-range ids (aborts the whole R process — a panic
-    // cannot unwind across extern "C").
+    // cannot unwind across extern "C"). Weights get the same treatment: a
+    // NaN or negative weight corrupts costs silently (see flows_dijkstra_c).
     let valid = off_raw.first().is_some_and(|&o| o == 0)
         && off_raw.last().is_some_and(|&o| o >= 0 && o as usize == me)
         && off_raw.windows(2).all(|w| w[0] >= 0 && w[1] >= w[0])
         && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn)
+        && wts_raw.iter().all(|&w| w.is_finite() && w >= 0.0)
         && ss.iter().all(|&s| s >= 0 && (s as usize) < nn)
         && ds.iter().all(|&d| d >= 0 && (d as usize) < nn);
     if !valid {
@@ -315,7 +325,7 @@ pub unsafe extern "C" fn flows_ch_query_c(
     let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
         let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
-        let wts: Vec<f64> = std::slice::from_raw_parts(weights, me).to_vec();
+        let wts: Vec<f64> = wts_raw.to_vec();
         let g = crate::routing::CsrGraph { offsets: off, targets: tgt, weights: wts };
         let ch = crate::ch::ContractionHierarchy::preprocess(&g);
         (0..nq).map(|i| ch.query(ss[i] as usize, ds[i] as usize)).collect::<Vec<f64>>()
