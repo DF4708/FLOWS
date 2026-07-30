@@ -6,6 +6,9 @@
 name = "flows-train"
 version = "0.1.0"
 edition = "2021"
+description = "FLOWS trainers + data tooling (ranking head, climatology bundles, POI shards) — pure std by rule"
+# Proprietary — never publishable to a registry.
+publish = false
 
 # The on-device route-risk head trainer (phase 2a). Pure std, ZERO external
 # crates — same discipline as flows-core. Produces the weights that Swift

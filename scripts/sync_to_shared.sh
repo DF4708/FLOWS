@@ -61,8 +61,9 @@ if [ -f "$FLOWS/data/runtime_cache/startup_live_environmental.rds" ]; then
   # (the common case — every sync was paying a full copy for nothing).
   rsync -a "$FLOWS/data/runtime_cache/startup_live_environmental.rds" "$SHARED/repo/data/runtime_cache/" 2>/dev/null || true
 fi
-# App risk bundle (scripts/export_app_risk_bundle.R) — the native app's ZIP
-# risk field; same carve-out from the runtime_cache exclusion as the snapshot.
+# App risk bundle (scripts/generate_national_bundle.sh) — the native app's
+# ZIP risk field; same carve-out from the runtime_cache exclusion as the
+# snapshot.
 if [ -f "$FLOWS/data/runtime_cache/app_risk_bundle.json" ]; then
   mkdir -p "$SHARED/repo/data/runtime_cache"
   rsync -a "$FLOWS/data/runtime_cache/app_risk_bundle.json" "$SHARED/repo/data/runtime_cache/" 2>/dev/null || true

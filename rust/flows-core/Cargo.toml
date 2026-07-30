@@ -6,7 +6,9 @@
 name = "flows-core"
 version = "0.1.0"
 edition = "2021"
-description = "FLOWS compute core — Phase R0 PoC (risk bands, distance kernel, C-ABI FFI)"
+description = "FLOWS compute core — risk bands, scoring, polyline, CH routing, RAPTOR transit, C-ABI FFI"
+# Proprietary — never publishable to a registry.
+publish = false
 
 [lib]
 # staticlib: links directly into the Swift binary (libflows_core.a).
