@@ -142,8 +142,11 @@ final class NavigationEngine: ObservableObject {
             }
             return (bestI, bestD)
         }
-        let lo = max(lastNearestIndex - 12, 0)
+        // Clamp lo so lo <= hi always holds — defense in depth against a
+        // stale index outliving a route swap (forming lo..<hi with lo > hi
+        // traps). The reroute path resets the index, this guards the rest.
         let hi = min(lastNearestIndex + 80, points.count)
+        let lo = min(max(lastNearestIndex - 12, 0), hi)
         var (nearest, nearestDist) = scan(lo..<hi)
         if nearestDist > 250 {   // window lost the vehicle → one full rescan
             (nearest, nearestDist) = scan(0..<points.count)
@@ -253,6 +256,11 @@ final class NavigationEngine: ObservableObject {
             self.route = replanned
             self.flatten(route: newRoute)
             self.currentStep = self.firstRealStep()
+            // The new route is shorter; a stale lastNearestIndex (e.g. ~30k
+            // from 60% into the old trip) would form an invalid lo..<hi window
+            // on the next fix and TRAP. Reset it, as start() does.
+            self.lastNearestIndex = 0
+            self.offRouteFixes = 0
         }
     }
 

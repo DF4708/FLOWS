@@ -1679,6 +1679,7 @@ final class AppModel: ObservableObject {
         tripNeedSchedule = []
         finalDestination = nil
         pendingStopName = nil
+        pendingStopKind = nil
         upcomingLeg = nil
         mode = .planning
         watch.sendEnded()
@@ -1875,9 +1876,13 @@ final class AppModel: ObservableObject {
         // — don't resurrect a dead trip by restarting nav + corridor/traffic
         // watches over a route they no longer want.
         guard mode == .navigating else { return }
-        escalationBaseline = best.weatherRisk
-        dismissedEscalationRisk = 0
-        upcomingLeg = nil   // reroute goes direct; a pending stop is dropped
+        // Reroute goes DIRECT to the final destination — drop the pending stop
+        // entirely (name AND kind), or a later final arrival would be mishandled
+        // as a stop arrival: a phantom vehicle.filledUp() corrupting the range
+        // model and the trip record silently skipped. (startLeg rebaselines.)
+        upcomingLeg = nil
+        pendingStopName = nil
+        pendingStopKind = nil
         startLeg(best)
     }
 
@@ -1886,6 +1891,15 @@ final class AppModel: ObservableObject {
     /// the two had drifted into near-identical copies.)
     private func startLeg(_ leg: PlannedRoute) {
         lastRouteRect = leg.route.polyline.boundingMapRect
+        // Rebaseline escalation to THIS leg's risk on every swap (traffic
+        // reroute, escalation reroute, added-stop legs, arrival continuation).
+        // Previously only select()/approveEscalationReroute did it, so after a
+        // traffic reroute or a leg chain the escalation compared new-leg risk
+        // against the OLD leg's baseline and under-warned when weather worsened.
+        // Sentinel -1 defers the capture to the first corridor score for an
+        // unscored leg (same rule select() uses).
+        escalationBaseline = leg.weatherScored ? leg.weatherRisk : -1
+        dismissedEscalationRisk = 0
         navigation.start(route: leg, onArrival: { [weak self] in self?.handleArrival() })
         // Legs swapped in mid-drive (reroute, added stop, arrival chaining)
         // arrive weather-scored but attribute-pending — hydrate grades /
@@ -1964,7 +1978,11 @@ final class AppModel: ObservableObject {
         let route = await scored(fastest)
         // Don't restart a trip the driver ended/finished during the awaits above.
         guard mode == .navigating else { return }
+        // Direct reroute: drop any pending stop (name + kind), same as the
+        // escalation reroute, so the final arrival isn't taken for a stop.
         upcomingLeg = nil
+        pendingStopName = nil
+        pendingStopKind = nil
         startLeg(route)
     }
 
