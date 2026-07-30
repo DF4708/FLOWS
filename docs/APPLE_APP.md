@@ -528,7 +528,7 @@ risk" above. Everything else that landed with it:
   per-sweep overlay caches on the map.
 - **Tests**: 162 Swift test functions (`apple/FLOWSTests/`) + 90 Rust
   (flows-core 55, flows-train 35), zero warnings, `cargo clippy -D warnings`
-  clean in CI.
+  clean locally and enforced by CI on a pinned toolchain.
 
 ## North America routing status
 
