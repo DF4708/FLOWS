@@ -157,8 +157,8 @@ final class CrashDetectionService: ObservableObject {
     func emergencyReport() -> String {
         let ctx = context()
         return CrashLogic.emergencyMessage(
-            latitude: ctx.coordinate?.latitude ?? 0,
-            longitude: ctx.coordinate?.longitude ?? 0,
+            latitude: ctx.coordinate?.latitude,
+            longitude: ctx.coordinate?.longitude,
             address: reverseGeocodedAddress,
             time: impactTime ?? Date(),
             vehicle: ctx.vehicle,
@@ -206,8 +206,15 @@ final class CrashDetectionService: ObservableObject {
     }
 
     private func speak(_ text: String) {
+        // .playAndRecord (NOT .playback): the check-in immediately opens the
+        // mic to listen for the reply, and an input tap under a record-
+        // incapable .playback session gets a 0 Hz format and raises an
+        // UNCATCHABLE NSException — the app would crash seconds after a real
+        // impact. .duckOthers keeps music down; .defaultToSpeaker + Bluetooth
+        // route the prompt out loud in the car.
         try? AVAudioSession.sharedInstance().setCategory(
-            .playback, options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers])
+            .playAndRecord, mode: .voiceChat,
+            options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
         try? AVAudioSession.sharedInstance().setActive(true)
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = 0.5
@@ -216,10 +223,20 @@ final class CrashDetectionService: ObservableObject {
 
     /// Listen for a spoken reply for a few seconds (best-effort: requires
     /// mic + speech permissions; without them the on-screen buttons remain).
+    /// Starts ONLY after the prompt finishes speaking — otherwise the mic
+    /// records the phone's own "…say yes to get help…" and could self-trigger.
     private func listenForReply(seconds: Double) {
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
             guard auth == .authorized else { return }
-            Task { @MainActor in self?.startRecognition(seconds: seconds) }
+            Task { @MainActor in
+                guard let self else { return }
+                // Wait out the utterance (bounded) so we don't transcribe it.
+                var waited = 0
+                while self.synthesizer.isSpeaking, waited < 60 {
+                    try? await Task.sleep(for: .milliseconds(100)); waited += 1
+                }
+                self.startRecognition(seconds: seconds)
+            }
         }
     }
 
@@ -231,6 +248,9 @@ final class CrashDetectionService: ObservableObject {
         request.shouldReportPartialResults = true
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        // Defensive: if the session still isn't record-capable (0 Hz), do NOT
+        // installTap — it would NSException. Degrade to the on-screen buttons.
+        guard format.sampleRate > 0, format.channelCount > 0 else { return }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             request.append(buffer)
         }

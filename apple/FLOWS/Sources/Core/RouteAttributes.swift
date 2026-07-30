@@ -197,9 +197,14 @@ actor RouteAttributeFetcher {
         // used to leave the route card in "Bridges: checking…" forever.
         // Verified 2026-07-05: primary healthy (69 elements on the Madison
         // box); kumi mirror was down — a third instance keeps the ladder up.
+        // Overpass mirrors, all EU-hosted and reputable: the main German
+        // instance, Kumi Systems (Austria), and OpenStreetMap France. Route
+        // corridor coordinates are POSTed here, so the endpoint set is
+        // deliberately limited to trusted operators — no mirrors hosted in
+        // or operated from sanctioned/adversarial jurisdictions.
         for endpoint in ["https://overpass-api.de/api/interpreter",
                          "https://overpass.kumi.systems/api/interpreter",
-                         "https://maps.mail.ru/osm/tools/overpass/api/interpreter"] {
+                         "https://overpass.openstreetmap.fr/api/interpreter"] {
             guard let url = URL(string: endpoint) else { continue }
             var request = URLRequest(url: url)
             request.httpMethod = "POST"

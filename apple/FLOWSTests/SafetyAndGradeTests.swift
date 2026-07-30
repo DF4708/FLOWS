@@ -106,6 +106,13 @@ final class SafetyAndGradeTests: XCTestCase {
         XCTAssertTrue(msg.contains("Ford Transit"))
         XCTAssertTrue(msg.contains("Type 1 diabetic"))
         XCTAssertTrue(msg.contains("CRASH REPORT"))
+        // No GPS fix must NOT fabricate 0,0 (a real point in the Atlantic).
+        let noFix = CrashLogic.emergencyMessage(
+            latitude: nil, longitude: nil, address: nil,
+            time: Date(timeIntervalSince1970: 1_750_000_000),
+            vehicle: nil, medicalNotes: nil)
+        XCTAssertFalse(noFix.contains("0.00000"))
+        XCTAssertTrue(noFix.contains("GPS: unavailable"))
     }
 
     // MARK: FMCSA hours of service

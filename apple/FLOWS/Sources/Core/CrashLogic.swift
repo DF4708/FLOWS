@@ -109,7 +109,7 @@ enum CrashLogic {
     /// medical notes — sent as a prefilled text to the emergency contact and
     /// spoken aloud for relaying to 911.
     static func emergencyMessage(
-        latitude: Double, longitude: Double, address: String?,
+        latitude: Double?, longitude: Double?, address: String?,
         time: Date, vehicle: VehicleProfile?, medicalNotes: String?
     ) -> String {
         let formatter = DateFormatter()
@@ -121,8 +121,15 @@ enum CrashLogic {
         var lines = [
             "AUTOMATED CRASH REPORT (FLOWS)",
             "Possible vehicle crash at \(formatter.string(from: time)).",
-            String(format: "GPS: %.5f, %.5f", latitude, longitude),
         ]
+        // Only state a location we actually have. A missing fix must NOT
+        // become "GPS: 0.00000, 0.00000" — that is a real point in the
+        // Atlantic Ocean off Africa and would misdirect responders.
+        if let latitude, let longitude {
+            lines.append(String(format: "GPS: %.5f, %.5f", latitude, longitude))
+        } else {
+            lines.append("GPS: unavailable at time of report.")
+        }
         if let address { lines.append("Near: \(address)") }
         if let vehicle {
             lines.append("Vehicle: \(vehicle.displayName) (\(vehicle.fuelType.rawValue))")
