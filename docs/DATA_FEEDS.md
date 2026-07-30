@@ -36,7 +36,8 @@ diagnosed, never assumed broken.
 | UV index | Open-Meteo | `api.open-meteo.com` | — | `LiveHazardFeeds.swift` |
 | **Space weather** | NOAA SWPC | `services.swpc.noaa.gov` | — | `LiveHazardFeeds.swift` |
 | **River flood gauges** | NWS/NWPS | `api.water.noaa.gov` | — | `LiveHazardFeeds.swift` |
-| Speed limits / bridges | OpenStreetMap | `overpass-api.de` (+2 mirrors) | — | `LiveHazardFeeds.swift`, `RouteAttributes.swift` |
+| Speed limits / bridges | OpenStreetMap | `overpass-api.de` (+2 mirrors) | — | `LiveHazardFeeds.swift`, `RouteAttributes.swift`, `RiskAdvice.swift` |
+| River / lake proximity | USGS NHD | `hydro.nationalmap.gov` | — | `LiveHazardFeeds.swift` |
 | Elevation / grade | USGS EPQS | `epqs.nationalmap.gov` | — | `RouteAttributes.swift` |
 | Flood zones (regulatory) | FEMA NFHL | `hazards.fema.gov` | — | `RouteAttributes.swift` |
 | ZIP boundaries | US Census | `tigerweb.geo.census.gov` | — | `ZipBordersAndTransit.swift` |

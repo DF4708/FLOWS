@@ -17,7 +17,8 @@ from Wisconsin to CONUS. Every change to the routing / map pipeline
 during that expansion runs through the harness described here.
 
 > **Scope update (2026-07).** The product is now the native app
-> (Rust + AArch64 assembly + Swift only — Python is allowed as repo
+> (Rust + Swift only — the AArch64 asm tier was retired 2026-07-19 when
+> a measured bake-off showed rustc faster; Python is allowed as repo
 > tooling/verification, never in the product). The R/Shiny engine
 > described in §§2–9 was **RETIRED** (commit `c8a903e`, 2026-07-11; the
 > `R/` directory is gone and `global.R`/`server.R`/`ui.R` were deleted
@@ -39,11 +40,11 @@ during that expansion runs through the harness described here.
 
 | Suite | Where | Count | Run with |
 |---|---|---|---|
-| Swift XCTest | `apple/FLOWSTests/` (17 files) | **162** `func test…` | `xcodebuild test -scheme FLOWSTests` |
+| Swift XCTest | `apple/FLOWSTests/` (17 files) | **163** `func test…` | `xcodebuild test -scheme FLOWSTests` |
 | Rust `flows-core` | `rust/flows-core/src/*.rs` + `src/transit/` | **55** `#[test]` | `cargo test --release -p flows-core` |
 | Rust `flows-train` | `src/main.rs` + `src/bin/*.rs` (history-baseline, national-bundle, places-shard, bundle-frb) | **35** `#[test]` | `cargo test --release -p flows-train` |
 
-That is **162 Swift + 90 Rust** tests, zero compiler warnings, and
+That is **163 Swift + 101 Rust** tests, zero compiler warnings, and
 `cargo clippy -D warnings` clean.
 
 Swift coverage concentrates where the money is: `SafetyAndGradeTests`
@@ -225,7 +226,7 @@ the harness clears it first (documented per-experiment).
 
 ### Document every result
 
-Never overwritten. `tests/experiments.jsonl` is append-only. A
+Never overwritten. `data/results/experiments.jsonl` is append-only. A
 regression that's rolled back is still a data point about what doesn't
 work; that data survives.
 
@@ -238,7 +239,7 @@ work; that data survives.
 > no `R/`, no `Rscript`, no `tests/` harness). They are preserved here
 > as the historical record of how that engine was gated, and as the
 > definition of the behavior later frozen into the §0 fixtures. Landing
-> today means passing the §0 suites (162 Swift + 90 Rust tests) and CI,
+> today means passing the §0 suites (163 Swift + 101 Rust tests) and CI,
 > not these.
 
 Every experiment's post-measurement must pass these gates before the
@@ -288,7 +289,7 @@ row abort the experiment.
 > the whole point of "cross-country loads as fast as local" is to hold
 > the p95 flat as the graph grows, and the honest local baseline is
 > ~3.7 s p95, not < 1 s. Recorded as experiment `route-latency-baseline`
-> in `tests/experiments.jsonl`. The continuous runner
+> in `data/results/experiments.jsonl`. The continuous runner
 > (`scripts/autonomous_test_runner.sh`) re-samples this distribution on
 > every pass so the baseline is a distribution, not a point estimate.
 
@@ -424,7 +425,7 @@ experiment_infrastructure(
 If any post-measurement fails a regression gate OR a budget:
 
 1. Harness writes `next_action = ROLL_BACK` in
-   `tests/experiments.jsonl`.
+   `data/results/experiments.jsonl`.
 2. Working-tree changes attributed to the intervention are reverted:
    - If the intervention was a checkpoint swap (`R/checkpoints/*` file
      copied over `R/`), the previous checkpoint is restored.
@@ -460,7 +461,7 @@ data update doesn't silently confound results.
 
 ## 8. Reporting
 
-`tests/experiments.jsonl` is the authoritative record. `tests/report.R`
+`data/results/experiments.jsonl` is the authoritative record. `tests/report.R`
 prints a human-readable summary:
 
 ```

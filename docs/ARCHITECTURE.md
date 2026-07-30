@@ -95,7 +95,7 @@ FLOWS/
 │   │   │                             baseline_route_head.json,
 │   │   │                             per-brand shower city tables
 │   │   └── Generated/              ← xcodegen output
-│   ├── FLOWSTests/                 ← 162 Swift tests
+│   ├── FLOWSTests/                 ← 163 Swift tests
 │   ├── FLOWSWatch/                 ← watchOS companion
 │   ├── tools/                      ← app-side build tooling
 │   └── project.yml                 ← xcodegen project spec
@@ -252,11 +252,11 @@ For the full endpoint-by-endpoint list see
 
 ## 6. Test harness & CI
 
-- **Swift**: **162 tests** in `apple/FLOWSTests/` (risk equations and
+- **Swift**: **163 tests** in `apple/FLOWSTests/` (risk equations and
   realization, climate profiles, harmonic climatology, badge clustering,
   towing/vehicle limits, transit/route attributes, seasonal model, places
   store, latitude-band parity, driver features, crash logic, …).
-- **Rust**: **90 `#[test]`s** across `flows-core` (scoring / risk R-parity
+- **Rust**: **101 `#[test]`s** across `flows-core` (scoring / risk R-parity
   oracles, distance, polyline equivalence, CH, transit RAPTOR) and
   `flows-train` (trainer, `national-bundle`, `history-baseline`,
   `bundle-frb`). The polyline suite pins the shipped kernel and the safe

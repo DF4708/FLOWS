@@ -817,36 +817,6 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.8)) { camera = position }
     }
 
-    private var recenterButton: some View {
-        VStack {
-            Spacer()
-            HStack {
-                Spacer()
-                Button {
-                    cameraFollows = true
-                    if let coord = model.location.coordinate {
-                        moveCamera(.camera(MapCamera(
-                            centerCoordinate: coord,
-                            distance: model.navigation.guidance?.cameraAltitude ?? 900,
-                            heading: model.location.course >= 0 ? model.location.course : 0,
-                            pitch: model.show3DMap ? 66 : 55)))
-                    }
-                } label: {
-                    Label("Re-center", systemImage: "location.fill")
-                        .font(.system(size: 14, weight: .bold))
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: Theme.tapMinimum)
-                        .background(Theme.cardBackground)
-                        .clipShape(Capsule())
-                        .shadow(color: Theme.cardShadow, radius: 10, y: 4)
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 16)
-                .padding(.bottom, 88)   // clear of the POI bar
-            }
-        }
-    }
-
     private var mapLayer: some View {
         mapContent
             // The red-alert reach-circle tick only exists while a red alert
@@ -2216,47 +2186,6 @@ private struct LegendCard: View {
     }
 }
 
-/// The web app's Map Filter, as a compact pill menu: pick which hazard
-/// family the ZIP choropleth shows (the 11 primary maps from global.R), or
-/// hide the field entirely.
-private struct MapFilterBar: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        if model.riskField.loaded {
-            Menu {
-                Picker("Primary map", selection: $model.overlayFamily) {
-                    ForEach(model.riskField.families, id: \.self) { fam in
-                        Text(RiskFieldService.familyDisplayNames[fam] ?? fam).tag(fam)
-                    }
-                }
-                Toggle("Show risk overlay", isOn: $model.showRiskField)
-                Toggle("Weather layer (snow · rain · storm)", isOn: $model.showWeatherLayer)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "slider.horizontal.3")
-                    Text(model.showRiskField
-                         ? (RiskFieldService.familyDisplayNames[model.overlayFamily] ?? "Map Filter")
-                         : "Overlay off")
-                        .lineLimit(1)
-                }
-                .font(.system(size: 13, weight: .semibold))
-                .padding(.horizontal, 14)
-                .frame(minHeight: 36)
-                .background(Theme.cardBackground)
-                .clipShape(Capsule())
-                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-        }
-    }
-}
-
-/// Vehicle editor. Pick make → model and the spec TABLE fills economy
-/// (EPA-style 55/45 city/highway blend), tank size, AND vehicle height —
-/// which feeds the low-bridge route filter automatically. Everything stays
-/// adjustable (trims vary), and "Custom" allows fully manual entry.
 struct VehicleEditorSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss

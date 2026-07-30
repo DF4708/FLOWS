@@ -137,7 +137,7 @@ Per-WFO is the pragmatic starting point.
 ## 2. Phased rollout
 
 Each phase is a distinct set of experiments in
-`tests/experiments.jsonl`. A phase does not begin until the previous
+`data/results/experiments.jsonl`. A phase does not begin until the previous
 phase's acceptance gate is met.
 
 ### Phase 0 — Baselines & guardrails (this session)
@@ -150,7 +150,7 @@ phase's acceptance gate is met.
 - Capture Wisconsin baselines for every metric the CONUS work will be
   compared against.
 
-**Acceptance**: baseline row present in `tests/experiments.jsonl`;
+**Acceptance**: baseline row present in `data/results/experiments.jsonl`;
 all gates green.
 
 ### Phase 1 — Midwest (WI + 5 border states)

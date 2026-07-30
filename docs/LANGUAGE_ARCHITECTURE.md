@@ -8,11 +8,12 @@
 
 # FLOWS — language architecture: Rust compute, Swift UI
 
-The rule: **Rust owns the compute, Assembly owns the innermost hot loops, Swift
-owns the UI, C is the thin ABI between them.** A thing is written in the highest
-tier only when a lower tier genuinely can't do the job. Everything portable is
-Rust so it's tested once and reused (app, R server, CLI); the platform edge is
-Swift because Apple's frameworks have no other binding.
+The rule: **Rust owns the compute — including the innermost hot loops, since
+the measured 2026-07-19 bake-off retired the asm tier — Swift owns the UI, C is
+the thin ABI between them.** A thing is written in the higher tier only when the
+lower tier genuinely can't do the job. Everything portable is Rust so it's
+tested once and reused everywhere; the platform edge is Swift because Apple's
+frameworks have no other binding.
 
 ## The tiers and when each is *required*
 
@@ -34,8 +35,8 @@ Use Swift only where there is no portable alternative:
 
 ### Rust — the default for all portable compute
 Everything that is pure computation with no Apple dependency lives in
-`rust/flows-core` and is shared by the app (FFI), the R server (`dyn.load`), and
-the test suite:
+`rust/flows-core` and is shared by the app (FFI), the workspace bins, and the
+test suite (the retired R server was a third consumer via `dyn.load`):
 - **polyline decode** (varint/zig-zag — a real hot loop, batch per route),
 - **distance matrix** (batch, scalar — `distance.rs`; R-bridge only),
 - **contraction-hierarchy routing** (`ch.rs`) and Dijkstra,
@@ -53,9 +54,10 @@ makes the FFI worth it — one call amortized over many values.
   portable raw-pointer body, still pinned against the safe oracle
   (`decode_deltas_rust`) by the same equivalence tests that once held the
   asm byte-identical.
-- `distance.rs` is scalar-only — reached only through the R `.C()` bridge, not
-  the app, so it stays the plain reference; the SIMD seam waits behind its
-  signature until a profile mandates it (see docs/CODING_STANDARDS.md).
+- `distance.rs` is scalar-only — no product hot path reaches it (its former
+  consumer was the retired R `.C()` bridge), so it stays the plain reference;
+  the SIMD seam waits behind its signature until a profile mandates it (see
+  docs/CODING_STANDARDS.md).
 - Assembly is never written speculatively — a kernel earns its place only when
   a benchmark shows the compiler's auto-vectorization leaves real time on the
   table, and it always ships behind a byte-identical scalar twin so correctness
@@ -73,7 +75,7 @@ Swift and R both speak. No business logic lives in C; it's the boundary layer.
 | GPS, BLE, speech, motion, CarPlay, Watch | Swift | Apple framework APIs |
 | Traffic-aware turn-by-turn routing | Swift (`MKDirections`) | Apple's live-traffic router; no portable equal |
 | Portable algorithms / hot loops | Rust | one tested implementation, all platforms |
-| Swift ⇄ Rust ⇄ R calling convention | C ABI | the shared, stable interface |
+| Swift ⇄ Rust calling convention | C ABI | the shared, stable interface |
 | Per-scalar helper inside a tight loop | Swift inline | FFI overhead > the compute (documented exception) |
 
 ## Linkage — the fix this pass
@@ -106,7 +108,8 @@ the Swift fallback (`bitPattern` equality on every coordinate).
   risk helpers mirror Rust, but both are pinned to the same R oracle, so they're
   one source of truth expressed twice for a measured performance reason — not a
   drift risk. The heavy/batch compute has exactly one implementation (Rust).
-- **Byte-identical is enforced, not asserted:** the Rust suite holds asm≡scalar
-  and fast≡reference; the Swift suite holds the ports to the R vectors and now
-  holds Rust≡Swift for the decoder. Any optimization must keep all of them
+- **Byte-identical is enforced, not asserted:** the Rust suite holds
+  fast≡reference (and once held asm≡scalar, until the asm retired); the Swift
+  suite holds the ports to the frozen R-era vectors and now holds Rust≡Swift
+  for the decoder. Any optimization must keep all of them
   green with no tolerance loosening.

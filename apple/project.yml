@@ -268,7 +268,7 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         GENERATE_INFOPLIST_FILE: YES   # test bundles get a stub plist
         # Link the Rust core so the suite can assert it's LIVE and prove the
-        # Rust/asm decoder is byte-identical to the Swift fallback.
+        # Rust decoder is byte-identical to the Swift fallback.
         OTHER_LDFLAGS: $(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
 
 schemes:

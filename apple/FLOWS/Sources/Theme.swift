@@ -8,8 +8,8 @@
 
 import SwiftUI
 
-/// Shared design language across macOS / iOS / iPadOS — the same tokens as the
-/// web app's styles.css so both frontends read as one product:
+/// Shared design language across macOS / iOS / iPadOS — tokens carried over
+/// from the retired web app's styles.css (this file is now their sole home):
 /// pill controls (border-radius 999px), near-black CTA (#111), floating white
 /// cards at 95% opacity, and the FLOWS risk palette.
 enum Theme {
@@ -26,7 +26,6 @@ enum Theme {
     static let chrome = Color(red: 0x0b / 255.0, green: 0x0e / 255.0, blue: 0x12 / 255.0)
 
     static let cardRadius: CGFloat = 16
-    static let pillRadius: CGFloat = 999
     static let tapMinimum: CGFloat = 44   // Apple HIG minimum hit target
 }
 

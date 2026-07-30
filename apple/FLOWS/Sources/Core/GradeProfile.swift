@@ -19,7 +19,6 @@ struct GradeSegment: Equatable {
     /// Signed percent (positive = climb in travel direction).
     let gradePercent: Double
 
-    var lengthMiles: Double { endMile - startMile }
     var gradeDegrees: Double { atan(gradePercent / 100) * 180 / .pi }
 }
 

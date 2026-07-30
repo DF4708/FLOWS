@@ -42,12 +42,9 @@ final class VehicleLink: NSObject, ObservableObject {
         didSet { scanning ? start() : stop() }
     }
 
-    /// Threshold for the low-tire chip.
-    static let lowPressurePsi = 28.0
 
-    var lowTires: [String] {
-        tirePressuresPsi.filter { $0.value < Self.lowPressurePsi }.map(\.key).sorted()
-    }
+    /// Threshold for the low-tire chip (AppModel.lowTireWarning).
+    static let lowPressurePsi = 28.0
 
     private var central: CBCentralManager?
     private var obdPeripheral: CBPeripheral?

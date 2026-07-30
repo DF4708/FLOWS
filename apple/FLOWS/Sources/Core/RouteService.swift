@@ -220,7 +220,6 @@ enum RouteFilter: String, CaseIterable, Identifiable {
 @MainActor
 final class RouteService: ObservableObject {
     @Published private(set) var isPlanning = false
-    @Published private(set) var lastError: String?
 
     private let geocoder = CLGeocoder()
 

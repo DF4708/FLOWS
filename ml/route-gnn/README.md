@@ -14,8 +14,9 @@ nothing in the app depends on it running (the app falls back to its statistical
 seasonal prior when no trained model is present).
 
 The trainer is **pure Rust, zero external crates** (`rust/flows-train`) — same
-discipline as `flows-core`. The whole program stays **Rust + Assembly + Swift**;
-there is no Python in the pipeline.
+discipline as `flows-core`. The whole program stays **Rust + Swift**
+(the asm tier was retired 2026-07-19 by bench bake-off); there is no Python
+in the pipeline.
 
 ## What it does
 

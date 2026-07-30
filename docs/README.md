@@ -54,11 +54,11 @@ the Rust core bridge. Build, architecture, and roadmap.
 
 ## Companion directories
 
-- `../R/checkpoints/` — immutable snapshots of routing at known-good
-  milestones. Rollback anchor for any CONUS experiment that
-  regresses. See `../R/checkpoints/README.md`.
-- `../tests/` — regression suite (`sqa_runner.R`, `mutation_test.R`,
-  `test_modeled_road_risk.R`, `static_analysis.R`, `score_matrix.R`)
-  plus the CONUS experiment harness
-  (`conus_experiment_harness.R`) and the append-only log
-  (`experiments.jsonl`).
+- `../apple/FLOWSTests/` — the Swift regression suite (163 tests); the
+  Rust suites live beside their crates under `../rust/` (101 tests).
+- `../data/results/experiments.jsonl` — the append-only experiment log
+  (carried forward from the retired R harness; new entries come from the
+  autonomous test runner).
+- The former `R/checkpoints/` and `tests/` R-harness directories were
+  retired with the R engine — their scoring survives as pinned fixtures
+  inside the Rust and Swift suites.

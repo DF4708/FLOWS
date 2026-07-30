@@ -378,18 +378,6 @@ final class SeasonalRiskModel: ObservableObject {
         return (head.predict(x), stat.confidence)
     }
 
-    /// The home coordinate to anchor the always-cached climate/data radius on:
-    /// the saved "Home" favorite, unless the frequency-inferred home is both FAR
-    /// (>40 km) and well-established (≥25 trips) — meaning the driver moved and
-    /// never updated settings, so the trip history is the truer signal.
-    func homeAnchor(favorite: CLLocationCoordinate2D?) -> CLLocationCoordinate2D? {
-        guard let learned = store.learnedHome() else { return favorite }
-        let learnedC = CLLocationCoordinate2D(latitude: learned.lat, longitude: learned.lon)
-        guard let favorite else { return learnedC }
-        let movedKm = haversineKm(favorite.latitude, favorite.longitude,
-                                  learnedC.latitude, learnedC.longitude)
-        return (movedKm > 40 && learned.trips >= 25) ? learnedC : favorite
-    }
 
     /// Record a completed trip's prediction vs. what was encountered, plus the
     /// per-edge history, then persist.

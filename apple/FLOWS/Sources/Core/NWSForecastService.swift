@@ -73,7 +73,6 @@ struct ForecastConditions: Sendable {
         return out
     }
 
-    var windRiskScore: Double { windMph.map(RiskEquations.windRisk(mph:)) ?? 0 }
 }
 
 actor NWSForecastFetcher {
