@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
+  Copyright (c) 2026 David B. Foster. All rights reserved.
+  Contact: wizeman555@gmail.com
+  Unauthorized copying, distribution, modification, or use of this file, in
+  whole or in part, is strictly prohibited without the express written
+  permission of the copyright holder.
+-->
+<!--
   launchd agent to run the FLOWS route-risk trainer weekly in the background.
 
   Install:
