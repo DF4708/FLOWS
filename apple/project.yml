@@ -245,6 +245,7 @@ targets:
       - path: FLOWS/Sources/Core/VehicleSpecs.swift
       - path: FLOWS/Sources/Core/FuelPrices.swift
       - path: FLOWS/Sources/Core/TripCosts.swift
+      - path: FLOWS/Sources/Core/TripShare.swift
       - path: FLOWS/Sources/Core/AlertEntityParser.swift
       - path: FLOWS/Sources/Core/CrashLogic.swift
       - path: FLOWS/Sources/Core/GradeProfile.swift

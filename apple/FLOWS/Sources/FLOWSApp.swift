@@ -77,6 +77,8 @@ final class AppModel: ObservableObject {
     let vehicle = VehicleStore()
     let radio = TruckerRadio()
     let crash = CrashDetectionService()
+    /// Prior long-trip share recipients (on-device only) — suggestion ranking.
+    let shareHistory = ShareHistoryStore()
     let vehicleLink = VehicleLink()
     let smartcar = SmartcarLink()
     let watch = WatchLink()
@@ -903,6 +905,8 @@ final class AppModel: ObservableObject {
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),
                                        deltaMeters: min(delta, 500))   // GPS jump guard
+                self.recordDailyDriving(deltaMeters: min(delta, 500))
+                self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
                 self.updateFuelRecommendation()
                 self.updateDrivingClocks(fix: fix)
                 self.updateSteepGrade()
@@ -1056,6 +1060,95 @@ final class AppModel: ObservableObject {
             }
         }
         refuelPrompt = false
+    }
+
+    // MARK: long-trip share — "tell someone where you're going"
+
+    /// Banner up? One nudge per trip (see maybeOfferTripShare); any button
+    /// press clears it and the latch keeps it from returning this trip.
+    @Published var tripSharePrompt = false
+    private var tripShareOffered = false
+
+    /// Meters driven today (while navigating), persisted so an app relaunch
+    /// mid-day keeps the total. Feeds the 200-mile daily trigger.
+    private var dailyDrive: DailyDriveLog = {
+        if let data = UserDefaults.standard.data(forKey: "flows.dailyDrive"),
+           let saved = try? JSONDecoder().decode(DailyDriveLog.self, from: data) {
+            return saved
+        }
+        return DailyDriveLog.empty()
+    }()
+    private var dailyDrivePersistedMeters = 0.0
+
+    private func recordDailyDriving(deltaMeters: Double) {
+        dailyDrive.add(meters: deltaMeters)
+        // Persist every ~500 m, not every 1 Hz fix — losing half a kilometer
+        // of day-total to a crash is harmless; the trigger tolerance is miles.
+        if abs(dailyDrive.meters - dailyDrivePersistedMeters) >= 500 {
+            dailyDrivePersistedMeters = dailyDrive.meters
+            if let data = try? JSONEncoder().encode(dailyDrive) {
+                UserDefaults.standard.set(data, forKey: "flows.dailyDrive")
+            }
+        }
+    }
+
+    /// One banner per trip, the moment either trigger is true: at GO for a
+    /// long plotted route, or mid-drive when the day's total crosses the
+    /// line. The latch (not the banner flag) is what makes it once-per-trip —
+    /// dismissing the banner must not re-arm it.
+    private func maybeOfferTripShare() {
+        guard mode == .navigating, !tripShareOffered,
+              let route = navigation.route else { return }
+        // The trip's full plotted length: the leg being driven plus the
+        // continuation leg behind an added stop (both are on the map).
+        let routeMeters = route.distanceMeters + (upcomingLeg?.distanceMeters ?? 0)
+        guard TripShareLogic.shouldOffer(routeMeters: routeMeters,
+                                         drivenTodayMeters: dailyDrive.meters) else { return }
+        tripShareOffered = true
+        tripSharePrompt = true
+    }
+
+    /// The prefilled text for the CURRENT trip: true endpoint (not an added
+    /// stop), live arrival estimate (shelter delay included), map link.
+    func tripShareBody() -> String {
+        let destination = finalDestination?.name
+            ?? navigation.route?.destinationName ?? "my stop"
+        let coordinate = finalDestination?.coordinate
+            ?? navigation.route.flatMap { Self.lastCoordinate(of: $0) }
+        let remaining = navigation.guidance?.remainingTime
+            ?? navigation.route?.eta ?? 0
+        return TripShareLogic.shareMessage(
+            destination: destination,
+            arrival: Date().addingTimeInterval(adjustedRemainingTime(remaining)),
+            latitude: coordinate?.latitude, longitude: coordinate?.longitude)
+    }
+
+    /// Messages URL for this trip to `phone` — the view opens it (openURL
+    /// works on both platforms; the model stays UIKit-free). nil when the
+    /// number has no digits.
+    func tripShareURL(phone: String) -> URL? {
+        TripShareLogic.smsURLString(number: phone, body: tripShareBody())
+            .flatMap { URL(string: $0) }
+    }
+
+    /// Who to offer, best first: the emergency contact when set (the
+    /// default), then prior recipients by frequency + recency, deduped.
+    func tripShareCandidates() -> [(name: String, phone: String)] {
+        var out: [(name: String, phone: String)] = []
+        var seen: Set<String> = []
+        if !emergencyContactPhone.isEmpty {
+            out.append((emergencyContactName.isEmpty ? "Emergency contact"
+                            : emergencyContactName,
+                        emergencyContactPhone))
+            seen.insert(ShareHistoryStore.normalized(emergencyContactPhone))
+        }
+        for r in shareHistory.suggestions() {
+            let key = ShareHistoryStore.normalized(r.phone)
+            guard !key.isEmpty, !seen.contains(key) else { continue }
+            seen.insert(key)
+            out.append((r.name.isEmpty ? r.phone : r.name, r.phone))
+        }
+        return out
     }
 
     // MARK: steep-grade lookahead (the localized grade table, applied)
@@ -1672,8 +1765,11 @@ final class AppModel: ObservableObject {
         dismissedImminentIDs = []
         shelteredImminentIDs = []
         stopDelaySeconds = 0
+        tripShareOffered = false   // new trip → the share banner may show once
+        tripSharePrompt = false
         mode = .navigating
         startLeg(route)
+        maybeOfferTripShare()   // a 200+ mile route triggers right at GO
         checkTowingSignal()   // trailer signal checked at trip start, not per tick
         if crashDetectionEnabled, CrashDetectionService.isAvailable {
             crash.begin()
@@ -1715,6 +1811,8 @@ final class AppModel: ObservableObject {
         workZoneRoad = nil
         stoppedSince = nil
         lastClockFix = nil
+        tripSharePrompt = false
+        tripShareOffered = false
         mode = .planning
         watch.sendEnded()
     }
