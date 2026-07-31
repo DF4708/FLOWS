@@ -71,7 +71,7 @@ scripts/                 bundle export, GTFS fetch/build, sync
 docs/                    ARCHITECTURE · APPLE_APP · TRANSIT_ROUTING · DATA_FEEDS · TESTING_STRATEGY · LEARNINGS
 ```
 
-**Tested:** 163 Swift XCTest + 101 Rust tests, zero compiler warnings; `cargo fmt --check` and `cargo clippy -D warnings` run clean locally and are enforced by CI (`.github/workflows/ci.yml`, toolchain pinned in the workflow). The risk/scoring paths are pinned byte-identical to their original reference oracle's frozen fixtures; the RAPTOR engine is gated against a Dijkstra reference.
+**Tested:** 180 Swift XCTest + 101 Rust tests, zero compiler warnings; `cargo fmt --check` and `cargo clippy -D warnings` run clean locally and are enforced by CI (`.github/workflows/ci.yml`, toolchain pinned in the workflow). The risk/scoring paths are pinned byte-identical to their original reference oracle's frozen fixtures; the RAPTOR engine is gated against a Dijkstra reference.
 
 ---
 

@@ -46,6 +46,7 @@ diagnosed, never assumed broken.
 | Vehicle economy DB | EPA | `fueleconomy.gov` | — | `EPAVehicleDatabase.swift` |
 | NOAA weather radio | WeatherUSA relays | `weatherusa.net` | — | `TruckerRadio.swift` |
 | POI discovery | Apple MapKit | (entitlement) | — | `POIService.swift` |
+| Amtrak stations (bundled) | Amtrak GTFS stops.txt, rail-served only | `content.amtrak.com` (fetched at build time, ships as `amtrak_stations.json`) | — | `AmtrakStations.swift` |
 | Fuel prices (US) | TomTom | `api.tomtom.com` | TomTom | `ZipBordersAndTransit.swift` |
 | Ratings / hours / $ | Yelp Fusion | `api.yelp.com` | Yelp | `RatingsAndCost.swift` |
 | Vehicle telemetry | Smartcar | `api.smartcar.com` | Smartcar OAuth | `SmartcarLink.swift` |

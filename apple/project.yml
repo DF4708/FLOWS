@@ -259,6 +259,13 @@ targets:
       - path: FLOWS/Sources/Core/PrimarySources.swift
       - path: FLOWS/Sources/Core/WMOAlerts.swift
       - path: FLOWS/Sources/Core/TransitItinerary.swift
+      - path: FLOWS/Sources/Core/AmtrakStations.swift
+      - path: FLOWS/Sources/Core/AirTravel.swift
+      - path: FLOWS/Sources/Core/HybridWalk.swift
+      # The bundled station list rides along so the suite can pin that the
+      # shipping resource parses and covers the network.
+      - path: FLOWS/Resources/amtrak_stations.json
+        buildPhase: resources
       - path: FLOWS/Sources/Core/AdaptiveTuning.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
       - path: FLOWSTests

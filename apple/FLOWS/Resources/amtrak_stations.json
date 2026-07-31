@@ -1,0 +1,3222 @@
+{
+ "source": "Amtrak public GTFS feed (content.amtrak.com/content/gtfs/GTFS.zip), stops.txt filtered to rail-served stations",
+ "retrieved": "2026-07-30",
+ "stations": [
+  {
+   "code": "ABE",
+   "name": "Aberdeen Amtrak Station",
+   "lat": 39.50845,
+   "lon": -76.16326
+  },
+  {
+   "code": "ABQ",
+   "name": "Albuquerque Alvarado Transportation Center",
+   "lat": 35.08206,
+   "lon": -106.64798
+  },
+  {
+   "code": "ACD",
+   "name": "Arcadia Valley Station",
+   "lat": 37.59216,
+   "lon": -90.6244
+  },
+  {
+   "code": "ADM",
+   "name": "Ardmore Amtrak Station",
+   "lat": 34.17247,
+   "lon": -97.12551
+  },
+  {
+   "code": "AKY",
+   "name": "Ashland Amtrak Station",
+   "lat": 38.48087,
+   "lon": -82.6396
+  },
+  {
+   "code": "ALB",
+   "name": "Albany-Rensselaer Amtrak Station",
+   "lat": 42.64103,
+   "lon": -73.74115
+  },
+  {
+   "code": "ALC",
+   "name": "Alliance Amtrak",
+   "lat": 40.92128,
+   "lon": -81.0929
+  },
+  {
+   "code": "ALD",
+   "name": "Alderson Amtrak",
+   "lat": 37.72428,
+   "lon": -80.64486
+  },
+  {
+   "code": "ALI",
+   "name": "Albion",
+   "lat": 42.2472,
+   "lon": -84.75581
+  },
+  {
+   "code": "ALN",
+   "name": "Alton Amtrak Station",
+   "lat": 38.92101,
+   "lon": -90.1573
+  },
+  {
+   "code": "ALP",
+   "name": "Alpine Amtrak Station",
+   "lat": 30.3573,
+   "lon": -103.66151
+  },
+  {
+   "code": "ALT",
+   "name": "Altoona Amtrak Station",
+   "lat": 40.51447,
+   "lon": -78.40162
+  },
+  {
+   "code": "ALX",
+   "name": "Alexandria",
+   "lat": 38.8065,
+   "lon": -77.06233
+  },
+  {
+   "code": "ALY",
+   "name": "Albany Amtrak Station",
+   "lat": 44.63046,
+   "lon": -123.10277
+  },
+  {
+   "code": "AMS",
+   "name": "Amsterdam Amtrak Station",
+   "lat": 42.95372,
+   "lon": -74.2195
+  },
+  {
+   "code": "ANA",
+   "name": "Anaheim",
+   "lat": 33.8038,
+   "lon": -117.87731
+  },
+  {
+   "code": "ARB",
+   "name": "Ann Arbor Amtrak Station",
+   "lat": 42.28769,
+   "lon": -83.74315
+  },
+  {
+   "code": "ARD",
+   "name": "Ardmore Amtrak Station",
+   "lat": 40.00828,
+   "lon": -75.2904
+  },
+  {
+   "code": "ARK",
+   "name": "Arkadelphia Amtrak Station",
+   "lat": 34.11392,
+   "lon": -93.05328
+  },
+  {
+   "code": "ARN",
+   "name": "Auburn Amtrak",
+   "lat": 38.90364,
+   "lon": -121.08319
+  },
+  {
+   "code": "ASD",
+   "name": "Ashland Amtrak",
+   "lat": 37.7596,
+   "lon": -77.4813
+  },
+  {
+   "code": "AST",
+   "name": "Aldershot",
+   "lat": 43.31341,
+   "lon": -79.85571
+  },
+  {
+   "code": "ATL",
+   "name": "Atlanta",
+   "lat": 33.79944,
+   "lon": -84.39248
+  },
+  {
+   "code": "ATN",
+   "name": "Anniston Amtrak Station",
+   "lat": 33.64911,
+   "lon": -85.83214
+  },
+  {
+   "code": "AUS",
+   "name": "Austin",
+   "lat": 30.26945,
+   "lon": -97.75694
+  },
+  {
+   "code": "BAL",
+   "name": "Baltimore Penn Station",
+   "lat": 39.3073,
+   "lon": -76.61569
+  },
+  {
+   "code": "BAM",
+   "name": "Bangor Amtrak Station",
+   "lat": 42.31452,
+   "lon": -86.11165
+  },
+  {
+   "code": "BAR",
+   "name": "Barstow",
+   "lat": 34.90482,
+   "lon": -117.02544
+  },
+  {
+   "code": "BAS",
+   "name": "Bay St Louis",
+   "lat": 30.30873,
+   "lon": -89.334
+  },
+  {
+   "code": "BBK",
+   "name": "Burbank",
+   "lat": 34.17892,
+   "lon": -118.31183
+  },
+  {
+   "code": "BBY",
+   "name": "Boston",
+   "lat": 42.34732,
+   "lon": -71.07583
+  },
+  {
+   "code": "BCV",
+   "name": "Burke Centre Amtrak",
+   "lat": 38.79727,
+   "lon": -77.29879
+  },
+  {
+   "code": "BEL",
+   "name": "Bellingham Amtrak Station",
+   "lat": 48.72026,
+   "lon": -122.51126
+  },
+  {
+   "code": "BEN",
+   "name": "Benson Amtrak",
+   "lat": 31.96876,
+   "lon": -110.2969
+  },
+  {
+   "code": "BER",
+   "name": "Berlin Amtrak",
+   "lat": 41.6356,
+   "lon": -72.76527
+  },
+  {
+   "code": "BFX",
+   "name": "Buffalo",
+   "lat": 42.87845,
+   "lon": -78.87375
+  },
+  {
+   "code": "BHM",
+   "name": "Birmingham",
+   "lat": 33.51294,
+   "lon": -86.80702
+  },
+  {
+   "code": "BIX",
+   "name": "Biloxi Amtrak Sta",
+   "lat": 30.39906,
+   "lon": -88.89164
+  },
+  {
+   "code": "BKY",
+   "name": "Berkeley Amtrak",
+   "lat": 37.86725,
+   "lon": -122.30071
+  },
+  {
+   "code": "BLF",
+   "name": "Bellows Falls Amtrak Station",
+   "lat": 43.13654,
+   "lon": -72.4446
+  },
+  {
+   "code": "BMT",
+   "name": "Beaumont Amtrak",
+   "lat": 30.07646,
+   "lon": -94.12737
+  },
+  {
+   "code": "BNC",
+   "name": "Burlington Amtrak Station",
+   "lat": 36.09423,
+   "lon": -79.43453
+  },
+  {
+   "code": "BNF",
+   "name": "Branford",
+   "lat": 41.27455,
+   "lon": -72.81722
+  },
+  {
+   "code": "BNG",
+   "name": "Bingen-White Salmon Amtrak",
+   "lat": 45.71502,
+   "lon": -121.46873
+  },
+  {
+   "code": "BNL",
+   "name": "Bloomington-Normal",
+   "lat": 40.50901,
+   "lon": -88.98431
+  },
+  {
+   "code": "BON",
+   "name": "Boston",
+   "lat": 42.36624,
+   "lon": -71.06112
+  },
+  {
+   "code": "BOS",
+   "name": "Boston",
+   "lat": 42.35231,
+   "lon": -71.0553
+  },
+  {
+   "code": "BRA",
+   "name": "Brattleboro Amtrak Station",
+   "lat": 42.85085,
+   "lon": -72.5565
+  },
+  {
+   "code": "BRH",
+   "name": "Brookhaven Amtrak Station",
+   "lat": 31.58296,
+   "lon": -90.44107
+  },
+  {
+   "code": "BRK",
+   "name": "Brunswick Amtrak Station",
+   "lat": 43.91139,
+   "lon": -69.96554
+  },
+  {
+   "code": "BRL",
+   "name": "Burlington Amtrak Station",
+   "lat": 40.80579,
+   "lon": -91.10195
+  },
+  {
+   "code": "BRO",
+   "name": "Browning Amtrak",
+   "lat": 48.53407,
+   "lon": -113.01315
+  },
+  {
+   "code": "BRP",
+   "name": "Bridgeport Amtrak Station",
+   "lat": 41.17801,
+   "lon": -73.18754
+  },
+  {
+   "code": "BTL",
+   "name": "Battle Creek",
+   "lat": 42.31845,
+   "lon": -85.18783
+  },
+  {
+   "code": "BTN",
+   "name": "Burlington",
+   "lat": 44.4757,
+   "lon": -73.21927
+  },
+  {
+   "code": "BUF",
+   "name": "Buffalo Depew Station",
+   "lat": 42.90702,
+   "lon": -78.72658
+  },
+  {
+   "code": "BUR",
+   "name": "Burbank Amtrak",
+   "lat": 34.19307,
+   "lon": -118.35377
+  },
+  {
+   "code": "BWE",
+   "name": "Bowie State",
+   "lat": 39.01783,
+   "lon": -76.76499
+  },
+  {
+   "code": "BWI",
+   "name": "Bwi Thurgood Marshall Airport Station",
+   "lat": 39.19236,
+   "lon": -76.6943
+  },
+  {
+   "code": "BYN",
+   "name": "Bryan Amtrak Station",
+   "lat": 41.48032,
+   "lon": -84.5518
+  },
+  {
+   "code": "CAM",
+   "name": "Camden Amtrak Station",
+   "lat": 34.24816,
+   "lon": -80.62519
+  },
+  {
+   "code": "CBN",
+   "name": "Canadian Border",
+   "lat": 43.10923,
+   "lon": -79.05836
+  },
+  {
+   "code": "CBR",
+   "name": "Cleburne Amtrak Station",
+   "lat": 32.34974,
+   "lon": -97.38233
+  },
+  {
+   "code": "CBS",
+   "name": "Columbus Amtrak Station",
+   "lat": 43.34061,
+   "lon": -89.01261
+  },
+  {
+   "code": "CDL",
+   "name": "Carbondale",
+   "lat": 37.72424,
+   "lon": -89.21663
+  },
+  {
+   "code": "CEN",
+   "name": "Centralia Amtrak Station",
+   "lat": 38.52753,
+   "lon": -89.13612
+  },
+  {
+   "code": "CHI",
+   "name": "Chicago Union Station",
+   "lat": 41.87868,
+   "lon": -87.63944
+  },
+  {
+   "code": "CHM",
+   "name": "Champaign-Urbana",
+   "lat": 40.11584,
+   "lon": -88.24137
+  },
+  {
+   "code": "CHS",
+   "name": "Charleston Amtrak Station",
+   "lat": 32.87547,
+   "lon": -79.99805
+  },
+  {
+   "code": "CHW",
+   "name": "Charleston",
+   "lat": 38.34637,
+   "lon": -81.63849
+  },
+  {
+   "code": "CIC",
+   "name": "Chico Amtrak",
+   "lat": 39.72326,
+   "lon": -121.84586
+  },
+  {
+   "code": "CIN",
+   "name": "Cincinnati Union Terminal",
+   "lat": 39.10993,
+   "lon": -84.53706
+  },
+  {
+   "code": "CLA",
+   "name": "Claremont Amtrak",
+   "lat": 43.36833,
+   "lon": -72.37764
+  },
+  {
+   "code": "CLB",
+   "name": "Columbia Amtrak Station",
+   "lat": 33.9943,
+   "lon": -81.04049
+  },
+  {
+   "code": "CLE",
+   "name": "Cleveland",
+   "lat": 41.50579,
+   "lon": -81.69617
+  },
+  {
+   "code": "CLF",
+   "name": "Clifton Forge Amtrak Station",
+   "lat": 37.81452,
+   "lon": -79.82736
+  },
+  {
+   "code": "CLN",
+   "name": "Clinton",
+   "lat": 41.27946,
+   "lon": -72.52831
+  },
+  {
+   "code": "CLP",
+   "name": "Culpeper Amtrak Station",
+   "lat": 38.47236,
+   "lon": -77.99342
+  },
+  {
+   "code": "CLT",
+   "name": "Charlotte Amtrak Station",
+   "lat": 35.2414,
+   "lon": -80.82281
+  },
+  {
+   "code": "CML",
+   "name": "Camarillo Amtrak",
+   "lat": 34.21593,
+   "lon": -119.03411
+  },
+  {
+   "code": "CMO",
+   "name": "Chemult",
+   "lat": 43.21678,
+   "lon": -121.78159
+  },
+  {
+   "code": "CNV",
+   "name": "Castleton Amtrak Station",
+   "lat": 43.61338,
+   "lon": -73.17134
+  },
+  {
+   "code": "COI",
+   "name": "Connersville Amtrak",
+   "lat": 39.64597,
+   "lon": -85.13338
+  },
+  {
+   "code": "COT",
+   "name": "Coatesville Amtrak",
+   "lat": 39.98569,
+   "lon": -75.82093
+  },
+  {
+   "code": "COV",
+   "name": "Connellsville Amtrak",
+   "lat": 40.02028,
+   "lon": -79.59281
+  },
+  {
+   "code": "COX",
+   "name": "Colfax Amtrak Station",
+   "lat": 39.09917,
+   "lon": -120.95307
+  },
+  {
+   "code": "CPN",
+   "name": "Carpinteria Amtrak",
+   "lat": 34.39678,
+   "lon": -119.52298
+  },
+  {
+   "code": "CRF",
+   "name": "Crawfordsville Amtrak",
+   "lat": 40.04471,
+   "lon": -86.89919
+  },
+  {
+   "code": "CRN",
+   "name": "Creston Amtrak",
+   "lat": 41.05692,
+   "lon": -94.36162
+  },
+  {
+   "code": "CRT",
+   "name": "Croton-Harmon Amtrak Station",
+   "lat": 41.1899,
+   "lon": -73.88239
+  },
+  {
+   "code": "CRV",
+   "name": "Carlinville Amtrak Station",
+   "lat": 39.27929,
+   "lon": -89.88928
+  },
+  {
+   "code": "CSN",
+   "name": "Clemson Amtrak Station",
+   "lat": 34.69112,
+   "lon": -82.8325
+  },
+  {
+   "code": "CTL",
+   "name": "Centralia Amtrak Station",
+   "lat": 46.71747,
+   "lon": -122.95306
+  },
+  {
+   "code": "CUM",
+   "name": "Cumberland Amtrak Station",
+   "lat": 39.65063,
+   "lon": -78.758
+  },
+  {
+   "code": "CUT",
+   "name": "Cut Bank Amtrak Station",
+   "lat": 48.63836,
+   "lon": -112.33158
+  },
+  {
+   "code": "CVS",
+   "name": "Charlottesville",
+   "lat": 38.03148,
+   "lon": -78.49168
+  },
+  {
+   "code": "CWH",
+   "name": "Cornwells Heights Amtrak",
+   "lat": 40.07166,
+   "lon": -74.95219
+  },
+  {
+   "code": "CWT",
+   "name": "Chatsworth",
+   "lat": 34.25321,
+   "lon": -118.59942
+  },
+  {
+   "code": "CYN",
+   "name": "Cary",
+   "lat": 35.78829,
+   "lon": -78.78225
+  },
+  {
+   "code": "DAL",
+   "name": "Dallas",
+   "lat": 32.77609,
+   "lon": -96.80724
+  },
+  {
+   "code": "DAN",
+   "name": "Danville Amtrak Station",
+   "lat": 36.58409,
+   "lon": -79.38397
+  },
+  {
+   "code": "DAV",
+   "name": "Davis",
+   "lat": 38.54356,
+   "lon": -121.73771
+  },
+  {
+   "code": "DDG",
+   "name": "Dodge City Amtrak Station",
+   "lat": 37.75231,
+   "lon": -100.01696
+  },
+  {
+   "code": "DEM",
+   "name": "Deming Amtrak",
+   "lat": 32.27177,
+   "lon": -107.75435
+  },
+  {
+   "code": "DEN",
+   "name": "Denver",
+   "lat": 39.75296,
+   "lon": -104.99993
+  },
+  {
+   "code": "DER",
+   "name": "Dearborn",
+   "lat": 42.30717,
+   "lon": -83.23531
+  },
+  {
+   "code": "DET",
+   "name": "Detroit",
+   "lat": 42.3681,
+   "lon": -83.0724
+  },
+  {
+   "code": "DFB",
+   "name": "Deerfield Beach Amtrak Station",
+   "lat": 26.31707,
+   "lon": -80.12215
+  },
+  {
+   "code": "DHM",
+   "name": "Durham",
+   "lat": 43.13933,
+   "lon": -70.93601
+  },
+  {
+   "code": "DIL",
+   "name": "Dillon Amtrak Station",
+   "lat": 34.41765,
+   "lon": -79.3723
+  },
+  {
+   "code": "DLB",
+   "name": "Delray Beach Amtrak",
+   "lat": 26.45402,
+   "lon": -80.09115
+  },
+  {
+   "code": "DLD",
+   "name": "Deland",
+   "lat": 29.01785,
+   "lon": -81.35248
+  },
+  {
+   "code": "DLK",
+   "name": "Detroit Lakes Amtrak Station",
+   "lat": 46.81969,
+   "lon": -95.846
+  },
+  {
+   "code": "DNC",
+   "name": "Durham Amtrak Station",
+   "lat": 35.99735,
+   "lon": -78.9063
+  },
+  {
+   "code": "DNK",
+   "name": "Denmark Amtrak Station",
+   "lat": 33.32618,
+   "lon": -81.14364
+  },
+  {
+   "code": "DOA",
+   "name": "Dowagiac Amtrak Station",
+   "lat": 41.98094,
+   "lon": -86.10904
+  },
+  {
+   "code": "DOV",
+   "name": "Dover",
+   "lat": 43.19797,
+   "lon": -70.87836
+  },
+  {
+   "code": "DOW",
+   "name": "Downingtown Amtrak",
+   "lat": 40.00219,
+   "lon": -75.71077
+  },
+  {
+   "code": "DQN",
+   "name": "Du Quoin Amtrak Station",
+   "lat": 38.01233,
+   "lon": -89.24025
+  },
+  {
+   "code": "DRD",
+   "name": "Durand Amtrak Station",
+   "lat": 42.90949,
+   "lon": -83.98232
+  },
+  {
+   "code": "DRT",
+   "name": "Del Rio Amtrak Station",
+   "lat": 29.3622,
+   "lon": -100.90266
+  },
+  {
+   "code": "DUN",
+   "name": "Dunsmuir Amtrak Station",
+   "lat": 41.21113,
+   "lon": -122.27059
+  },
+  {
+   "code": "DVL",
+   "name": "Devils Lake Amtrak Station",
+   "lat": 48.11047,
+   "lon": -98.86137
+  },
+  {
+   "code": "DWT",
+   "name": "Dwight Amtrak Station",
+   "lat": 41.08985,
+   "lon": -88.43071
+  },
+  {
+   "code": "DYE",
+   "name": "Dyer Amtrak",
+   "lat": 41.51541,
+   "lon": -87.51808
+  },
+  {
+   "code": "EDG",
+   "name": "Edgewood",
+   "lat": 39.41625,
+   "lon": -76.29281
+  },
+  {
+   "code": "EDM",
+   "name": "Edmonds",
+   "lat": 47.81108,
+   "lon": -122.38414
+  },
+  {
+   "code": "EFG",
+   "name": "Effingham Amtrak Station",
+   "lat": 39.11706,
+   "lon": -88.54711
+  },
+  {
+   "code": "EKH",
+   "name": "Elkhart Amtrak Station",
+   "lat": 41.68075,
+   "lon": -85.97185
+  },
+  {
+   "code": "ELK",
+   "name": "Elko Amtrak",
+   "lat": 40.83648,
+   "lon": -115.75053
+  },
+  {
+   "code": "ELP",
+   "name": "El Paso",
+   "lat": 31.75735,
+   "lon": -106.49564
+  },
+  {
+   "code": "ELT",
+   "name": "Elizabethtown Amtrak Station",
+   "lat": 40.14703,
+   "lon": -76.61223
+  },
+  {
+   "code": "ELY",
+   "name": "Elyria Amtrak",
+   "lat": 41.37003,
+   "lon": -82.09668
+  },
+  {
+   "code": "EMY",
+   "name": "Emeryville",
+   "lat": 37.84047,
+   "lon": -122.29161
+  },
+  {
+   "code": "EPH",
+   "name": "Ephrata Amtrak",
+   "lat": 47.32095,
+   "lon": -119.54927
+  },
+  {
+   "code": "ERI",
+   "name": "Erie Amtrak Station",
+   "lat": 42.12085,
+   "lon": -80.08244
+  },
+  {
+   "code": "ESM",
+   "name": "Essex Amtrak",
+   "lat": 48.27554,
+   "lon": -113.61094
+  },
+  {
+   "code": "ESX",
+   "name": "Essex Junction-Burlington Amtrak Station",
+   "lat": 44.49247,
+   "lon": -73.11028
+  },
+  {
+   "code": "EUG",
+   "name": "Eugene",
+   "lat": 44.05504,
+   "lon": -123.09236
+  },
+  {
+   "code": "EVR",
+   "name": "Everett Amtrak Station",
+   "lat": 47.9754,
+   "lon": -122.19786
+  },
+  {
+   "code": "EWR",
+   "name": "Newark Liberty International Airport",
+   "lat": 40.69662,
+   "lon": -74.18229
+  },
+  {
+   "code": "EXR",
+   "name": "Exeter",
+   "lat": 42.98102,
+   "lon": -70.9587
+  },
+  {
+   "code": "EXT",
+   "name": "Exton Amtrak",
+   "lat": 40.01929,
+   "lon": -75.62171
+  },
+  {
+   "code": "FAR",
+   "name": "Fargo Amtrak Station",
+   "lat": 46.88098,
+   "lon": -96.78537
+  },
+  {
+   "code": "FAY",
+   "name": "Fayetteville Amtrak Station",
+   "lat": 35.05499,
+   "lon": -78.88479
+  },
+  {
+   "code": "FBG",
+   "name": "Fredericksburg Amtrak",
+   "lat": 38.29841,
+   "lon": -77.4572
+  },
+  {
+   "code": "FED",
+   "name": "Fort Edward Amtrak",
+   "lat": 43.2696,
+   "lon": -73.58055
+  },
+  {
+   "code": "FFV",
+   "name": "Fairfield-Vacaville Amtrak Station",
+   "lat": 38.28563,
+   "lon": -121.96793
+  },
+  {
+   "code": "FLG",
+   "name": "Flagstaff",
+   "lat": 35.19737,
+   "lon": -111.64887
+  },
+  {
+   "code": "FLN",
+   "name": "Flint Amtrak Station",
+   "lat": 43.01543,
+   "lon": -83.65173
+  },
+  {
+   "code": "FLO",
+   "name": "Florence Amtrak Station",
+   "lat": 34.19916,
+   "lon": -79.75706
+  },
+  {
+   "code": "FMD",
+   "name": "Fort Madison",
+   "lat": 40.62956,
+   "lon": -91.31353
+  },
+  {
+   "code": "FMG",
+   "name": "Fort Morgan Amtrak Station",
+   "lat": 40.24717,
+   "lon": -103.80282
+  },
+  {
+   "code": "FMT",
+   "name": "Fremont",
+   "lat": 37.55909,
+   "lon": -122.0075
+  },
+  {
+   "code": "FRA",
+   "name": "Framingham Amtrak",
+   "lat": 42.27599,
+   "lon": -71.42003
+  },
+  {
+   "code": "FRE",
+   "name": "Freeport Amtrak Station",
+   "lat": 43.85504,
+   "lon": -70.10236
+  },
+  {
+   "code": "FTC",
+   "name": "Ticonderoga Amtrak",
+   "lat": 43.85379,
+   "lon": -73.38968
+  },
+  {
+   "code": "FTL",
+   "name": "Fort Lauderdale Amtrak Station",
+   "lat": 26.11926,
+   "lon": -80.17
+  },
+  {
+   "code": "FTN",
+   "name": "Fulton Amtrak Station",
+   "lat": 36.5257,
+   "lon": -88.88877
+  },
+  {
+   "code": "FTW",
+   "name": "Fort Worth",
+   "lat": 32.75153,
+   "lon": -97.32579
+  },
+  {
+   "code": "FUL",
+   "name": "Fullerton Amtrak Station",
+   "lat": 33.86897,
+   "lon": -117.92285
+  },
+  {
+   "code": "GAC",
+   "name": "Santa Clara Great America Amtrak",
+   "lat": 37.40678,
+   "lon": -121.967
+  },
+  {
+   "code": "GAS",
+   "name": "Gastonia Amtrak Station",
+   "lat": 35.26919,
+   "lon": -81.16237
+  },
+  {
+   "code": "GBB",
+   "name": "Galesburg Amtrak Station",
+   "lat": 40.94468,
+   "lon": -90.36411
+  },
+  {
+   "code": "GCK",
+   "name": "Garden City Amtrak Station",
+   "lat": 37.96437,
+   "lon": -100.87326
+  },
+  {
+   "code": "GDL",
+   "name": "Glendale Amtrak",
+   "lat": 34.12371,
+   "lon": -118.25887
+  },
+  {
+   "code": "GFD",
+   "name": "Greenfield Amtrak Station",
+   "lat": 42.58546,
+   "lon": -72.60076
+  },
+  {
+   "code": "GFK",
+   "name": "Grand Forks Amtrak Station",
+   "lat": 47.91752,
+   "lon": -97.11083
+  },
+  {
+   "code": "GGW",
+   "name": "Glasgow Amtrak Station",
+   "lat": 48.19485,
+   "lon": -106.63619
+  },
+  {
+   "code": "GJT",
+   "name": "Grand Junction Amtrak Station",
+   "lat": 39.06437,
+   "lon": -108.56993
+  },
+  {
+   "code": "GLE",
+   "name": "Gainesville Amtrak Station",
+   "lat": 33.62516,
+   "lon": -97.1409
+  },
+  {
+   "code": "GLM",
+   "name": "Gilman Amtrak",
+   "lat": 40.75255,
+   "lon": -87.99805
+  },
+  {
+   "code": "GLN",
+   "name": "Glenview Amtrak Station",
+   "lat": 42.07504,
+   "lon": -87.80556
+  },
+  {
+   "code": "GLP",
+   "name": "Gallup Amtrak Station",
+   "lat": 35.52918,
+   "lon": -108.74055
+  },
+  {
+   "code": "GMS",
+   "name": "Grimsby",
+   "lat": 43.19595,
+   "lon": -79.55795
+  },
+  {
+   "code": "GNB",
+   "name": "Greensburg Amtrak",
+   "lat": 40.30499,
+   "lon": -79.54689
+  },
+  {
+   "code": "GNS",
+   "name": "Gainesville Amtrak Station",
+   "lat": 34.2889,
+   "lon": -83.81969
+  },
+  {
+   "code": "GPK",
+   "name": "East Glacier Park Amtrak Station",
+   "lat": 48.44233,
+   "lon": -113.21952
+  },
+  {
+   "code": "GRA",
+   "name": "Granby Amtrak Station",
+   "lat": 40.08419,
+   "lon": -105.9355
+  },
+  {
+   "code": "GRI",
+   "name": "Green River Amtrak",
+   "lat": 38.99204,
+   "lon": -110.16523
+  },
+  {
+   "code": "GRO",
+   "name": "Greensboro",
+   "lat": 36.0698,
+   "lon": -79.78708
+  },
+  {
+   "code": "GRR",
+   "name": "Grand Rapids Vernon J. Ehlers Station",
+   "lat": 42.95579,
+   "lon": -85.67245
+  },
+  {
+   "code": "GRV",
+   "name": "Greenville Amtrak Station",
+   "lat": 34.85826,
+   "lon": -82.41349
+  },
+  {
+   "code": "GSC",
+   "name": "Glenwood Springs",
+   "lat": 39.5479,
+   "lon": -107.32322
+  },
+  {
+   "code": "GTA",
+   "name": "Goleta Amtrak",
+   "lat": 34.43773,
+   "lon": -119.84309
+  },
+  {
+   "code": "GUA",
+   "name": "Guadalupe Amtrak Station",
+   "lat": 34.96293,
+   "lon": -120.57341
+  },
+  {
+   "code": "GUF",
+   "name": "Gulfport Amtrak Sta",
+   "lat": 30.36904,
+   "lon": -89.09478
+  },
+  {
+   "code": "GUI",
+   "name": "Guilford",
+   "lat": 41.2756,
+   "lon": -72.67351
+  },
+  {
+   "code": "GVB",
+   "name": "Grover Beach Amtrak",
+   "lat": 35.12126,
+   "lon": -120.62927
+  },
+  {
+   "code": "GWD",
+   "name": "Greenwood Amtrak Station",
+   "lat": 33.51716,
+   "lon": -90.17645
+  },
+  {
+   "code": "HAE",
+   "name": "Halethorpe",
+   "lat": 39.23719,
+   "lon": -76.69148
+  },
+  {
+   "code": "HAM",
+   "name": "Hamlet Amtrak Station",
+   "lat": 34.88366,
+   "lon": -79.69922
+  },
+  {
+   "code": "HAR",
+   "name": "Harrisburg",
+   "lat": 40.26205,
+   "lon": -76.87826
+  },
+  {
+   "code": "HAS",
+   "name": "Hastings Amtrak Station",
+   "lat": 40.58428,
+   "lon": -98.38753
+  },
+  {
+   "code": "HAV",
+   "name": "Havre Amtrak Station",
+   "lat": 48.55447,
+   "lon": -109.67835
+  },
+  {
+   "code": "HAY",
+   "name": "Hayward Amtrak",
+   "lat": 37.666,
+   "lon": -122.09928
+  },
+  {
+   "code": "HAZ",
+   "name": "Hazlehurst Amtrak",
+   "lat": 31.86132,
+   "lon": -90.39435
+  },
+  {
+   "code": "HBG",
+   "name": "Hattiesburg Amtrak Station",
+   "lat": 31.32692,
+   "lon": -89.28646
+  },
+  {
+   "code": "HEM",
+   "name": "Hermann",
+   "lat": 38.70728,
+   "lon": -91.43256
+  },
+  {
+   "code": "HER",
+   "name": "Helper Amtrak Station",
+   "lat": 39.68404,
+   "lon": -110.85389
+  },
+  {
+   "code": "HFD",
+   "name": "Hartford Amtrak Station",
+   "lat": 41.76876,
+   "lon": -72.68131
+  },
+  {
+   "code": "HFY",
+   "name": "Harpers Ferry Amtrak",
+   "lat": 39.32445,
+   "lon": -77.73108
+  },
+  {
+   "code": "HGD",
+   "name": "Huntingdon Amtrak Station",
+   "lat": 40.48367,
+   "lon": -78.01178
+  },
+  {
+   "code": "HHL",
+   "name": "Haverhill Amtrak",
+   "lat": 42.7733,
+   "lon": -71.08638
+  },
+  {
+   "code": "HIN",
+   "name": "Hinton Amtrak Station",
+   "lat": 37.67504,
+   "lon": -80.89223
+  },
+  {
+   "code": "HLD",
+   "name": "Holdrege",
+   "lat": 40.43601,
+   "lon": -99.37008
+  },
+  {
+   "code": "HLK",
+   "name": "Holyoke Amtrak",
+   "lat": 42.20416,
+   "lon": -72.60231
+  },
+  {
+   "code": "HMD",
+   "name": "Hammond Amtrak Station",
+   "lat": 30.50718,
+   "lon": -90.46217
+  },
+  {
+   "code": "HMI",
+   "name": "Hammond-Whiting Amtrak Station",
+   "lat": 41.69116,
+   "lon": -87.50651
+  },
+  {
+   "code": "HMW",
+   "name": "Homewood",
+   "lat": 41.56245,
+   "lon": -87.66868
+  },
+  {
+   "code": "HOL",
+   "name": "Hollywood Amtrak Station",
+   "lat": 26.01164,
+   "lon": -80.16788
+  },
+  {
+   "code": "HOM",
+   "name": "Holland Amtrak Station",
+   "lat": 42.7911,
+   "lon": -86.09655
+  },
+  {
+   "code": "HOP",
+   "name": "Hope Amtrak Station",
+   "lat": 33.66891,
+   "lon": -93.59225
+  },
+  {
+   "code": "HOS",
+   "name": "Houston",
+   "lat": 29.76724,
+   "lon": -95.36753
+  },
+  {
+   "code": "HPT",
+   "name": "High Point",
+   "lat": 35.95713,
+   "lon": -80.0061
+  },
+  {
+   "code": "HUD",
+   "name": "Hudson Amtrak Station",
+   "lat": 42.25389,
+   "lon": -73.79773
+  },
+  {
+   "code": "HUN",
+   "name": "Huntington Amtrak Station",
+   "lat": 38.41582,
+   "lon": -82.43973
+  },
+  {
+   "code": "HUT",
+   "name": "Hutchinson Amtrak Station",
+   "lat": 38.05571,
+   "lon": -97.93152
+  },
+  {
+   "code": "IDP",
+   "name": "Independence Amtrak Station",
+   "lat": 39.08692,
+   "lon": -94.42971
+  },
+  {
+   "code": "IND",
+   "name": "Indianapolis",
+   "lat": 39.76198,
+   "lon": -86.16042
+  },
+  {
+   "code": "IRV",
+   "name": "Irvine",
+   "lat": 33.65677,
+   "lon": -117.73369
+  },
+  {
+   "code": "JAN",
+   "name": "Jackson",
+   "lat": 32.30081,
+   "lon": -90.19094
+  },
+  {
+   "code": "JAX",
+   "name": "Jacksonville",
+   "lat": 30.3656,
+   "lon": -81.72389
+  },
+  {
+   "code": "JEF",
+   "name": "Jefferson City Amtrak Station",
+   "lat": 38.57887,
+   "lon": -92.16991
+  },
+  {
+   "code": "JOL",
+   "name": "Joliet Gateway Center",
+   "lat": 41.52465,
+   "lon": -88.07873
+  },
+  {
+   "code": "JSP",
+   "name": "Jesup Amtrak Station",
+   "lat": 31.60559,
+   "lon": -81.88217
+  },
+  {
+   "code": "JST",
+   "name": "Johnstown Amtrak Station",
+   "lat": 40.32969,
+   "lon": -78.922
+  },
+  {
+   "code": "JXN",
+   "name": "Jackson",
+   "lat": 42.24811,
+   "lon": -84.39967
+  },
+  {
+   "code": "KAL",
+   "name": "Kalamazoo",
+   "lat": 42.29525,
+   "lon": -85.58402
+  },
+  {
+   "code": "KAN",
+   "name": "Kannapolis",
+   "lat": 35.49617,
+   "lon": -80.62493
+  },
+  {
+   "code": "KCY",
+   "name": "Kansas City",
+   "lat": 39.08458,
+   "lon": -94.58513
+  },
+  {
+   "code": "KEE",
+   "name": "Kewanee Amtrak Station",
+   "lat": 41.24576,
+   "lon": -89.92754
+  },
+  {
+   "code": "KEL",
+   "name": "Kelso-Longview",
+   "lat": 46.14226,
+   "lon": -122.91302
+  },
+  {
+   "code": "KFS",
+   "name": "Klamath Falls",
+   "lat": 42.22551,
+   "lon": -121.77195
+  },
+  {
+   "code": "KIN",
+   "name": "Kingston Amtrak Station",
+   "lat": 41.48396,
+   "lon": -71.5606
+  },
+  {
+   "code": "KIS",
+   "name": "Kissimmee Amtrak Station",
+   "lat": 28.29384,
+   "lon": -81.40423
+  },
+  {
+   "code": "KKI",
+   "name": "Kankakee",
+   "lat": 41.11926,
+   "lon": -87.86543
+  },
+  {
+   "code": "KNG",
+   "name": "Kingman",
+   "lat": 35.18828,
+   "lon": -114.05282
+  },
+  {
+   "code": "KTR",
+   "name": "Kingstree Amtrak Station",
+   "lat": 33.66388,
+   "lon": -79.82903
+  },
+  {
+   "code": "KWD",
+   "name": "Kirkwood Amtrak Station",
+   "lat": 38.58107,
+   "lon": -90.40676
+  },
+  {
+   "code": "LAB",
+   "name": "Latrobe Amtrak",
+   "lat": 40.31741,
+   "lon": -79.38508
+  },
+  {
+   "code": "LAF",
+   "name": "Lafayette Amtrak Station",
+   "lat": 40.41935,
+   "lon": -86.8959
+  },
+  {
+   "code": "LAG",
+   "name": "La Grange Amtrak",
+   "lat": 41.81563,
+   "lon": -87.87154
+  },
+  {
+   "code": "LAJ",
+   "name": "La Junta Amtrak Station",
+   "lat": 37.98825,
+   "lon": -103.54358
+  },
+  {
+   "code": "LAK",
+   "name": "Lakeland Amtrak Station",
+   "lat": 28.0456,
+   "lon": -81.95187
+  },
+  {
+   "code": "LAP",
+   "name": "La Plata Amtrak Station",
+   "lat": 40.02922,
+   "lon": -92.49338
+  },
+  {
+   "code": "LAU",
+   "name": "Laurel Amtrak Station",
+   "lat": 31.69217,
+   "lon": -89.12793
+  },
+  {
+   "code": "LAX",
+   "name": "Los Angeles",
+   "lat": 34.05618,
+   "lon": -118.23678
+  },
+  {
+   "code": "LCH",
+   "name": "Lake Charles",
+   "lat": 30.23813,
+   "lon": -93.21704
+  },
+  {
+   "code": "LCN",
+   "name": "Lincoln Amtrak Station",
+   "lat": 40.1482,
+   "lon": -89.36305
+  },
+  {
+   "code": "LDB",
+   "name": "Lordsburg Amtrak",
+   "lat": 32.35007,
+   "lon": -108.70703
+  },
+  {
+   "code": "LEE",
+   "name": "Lee'S Summit Amtrak",
+   "lat": 38.91262,
+   "lon": -94.37797
+  },
+  {
+   "code": "LEW",
+   "name": "Lewistown Amtrak Station",
+   "lat": 40.58831,
+   "lon": -77.58005
+  },
+  {
+   "code": "LFT",
+   "name": "Lafayette Amtrak Station",
+   "lat": 30.22655,
+   "lon": -92.01452
+  },
+  {
+   "code": "LIB",
+   "name": "Libby Amtrak Station",
+   "lat": 48.39484,
+   "lon": -115.54889
+  },
+  {
+   "code": "LKL",
+   "name": "Lakeland",
+   "lat": 28.0456,
+   "lon": -81.95187
+  },
+  {
+   "code": "LMR",
+   "name": "Lamar Amtrak",
+   "lat": 38.08962,
+   "lon": -102.61857
+  },
+  {
+   "code": "LMY",
+   "name": "Lamy",
+   "lat": 35.48097,
+   "lon": -105.87997
+  },
+  {
+   "code": "LNC",
+   "name": "Lancaster",
+   "lat": 40.05418,
+   "lon": -76.30771
+  },
+  {
+   "code": "LNK",
+   "name": "Lincoln Amtrak Station",
+   "lat": 40.81587,
+   "lon": -96.71317
+  },
+  {
+   "code": "LNS",
+   "name": "East Lansing Amtrak Station",
+   "lat": 42.71873,
+   "lon": -84.49596
+  },
+  {
+   "code": "LOR",
+   "name": "Lorton Amtrak Auto Train Station",
+   "lat": 38.70814,
+   "lon": -77.22094
+  },
+  {
+   "code": "LPE",
+   "name": "Lapeer Amtrak Station",
+   "lat": 43.04952,
+   "lon": -83.30615
+  },
+  {
+   "code": "LPS",
+   "name": "Lompoc-Surf Amtrak",
+   "lat": 34.6827,
+   "lon": -120.605
+  },
+  {
+   "code": "LRC",
+   "name": "Lawrence Amtrak Station",
+   "lat": 38.97117,
+   "lon": -95.23054
+  },
+  {
+   "code": "LRK",
+   "name": "Little Rock Union Station",
+   "lat": 34.7503,
+   "lon": -92.28678
+  },
+  {
+   "code": "LSE",
+   "name": "La Crosse",
+   "lat": 43.83315,
+   "lon": -91.2473
+  },
+  {
+   "code": "LSV",
+   "name": "Las Vegas Amtrak Station",
+   "lat": 35.59343,
+   "lon": -105.21278
+  },
+  {
+   "code": "LVW",
+   "name": "Longview",
+   "lat": 32.49403,
+   "lon": -94.72832
+  },
+  {
+   "code": "LWA",
+   "name": "Leavenworth Amtrak",
+   "lat": 47.60649,
+   "lon": -120.64396
+  },
+  {
+   "code": "LYH",
+   "name": "Lynchburg",
+   "lat": 37.40644,
+   "lon": -79.15693
+  },
+  {
+   "code": "MAC",
+   "name": "Macomb Amtrak Station",
+   "lat": 40.46121,
+   "lon": -90.67094
+  },
+  {
+   "code": "MAL",
+   "name": "Malta Amtrak Station",
+   "lat": 48.36048,
+   "lon": -107.87224
+  },
+  {
+   "code": "MAT",
+   "name": "Mattoon Amtrak Station",
+   "lat": 39.48273,
+   "lon": -88.37605
+  },
+  {
+   "code": "MAY",
+   "name": "Maysville Amtrak Station",
+   "lat": 38.65215,
+   "lon": -83.77107
+  },
+  {
+   "code": "MBY",
+   "name": "Middlebury",
+   "lat": 44.01743,
+   "lon": -73.16978
+  },
+  {
+   "code": "MCB",
+   "name": "Mccomb",
+   "lat": 31.24447,
+   "lon": -90.45133
+  },
+  {
+   "code": "MCG",
+   "name": "Mcgregor Amtrak",
+   "lat": 31.44335,
+   "lon": -97.40476
+  },
+  {
+   "code": "MCK",
+   "name": "Mccook Amtrak Station",
+   "lat": 40.19763,
+   "lon": -100.62579
+  },
+  {
+   "code": "MDN",
+   "name": "Meriden",
+   "lat": 41.53939,
+   "lon": -72.80068
+  },
+  {
+   "code": "MDS",
+   "name": "Madison",
+   "lat": 41.28358,
+   "lon": -72.59944
+  },
+  {
+   "code": "MDT",
+   "name": "Mendota Amtrak Station",
+   "lat": 41.54958,
+   "lon": -89.11792
+  },
+  {
+   "code": "MEI",
+   "name": "Meridian Union Station",
+   "lat": 32.36417,
+   "lon": -88.69657
+  },
+  {
+   "code": "MEM",
+   "name": "Memphis",
+   "lat": 35.13246,
+   "lon": -90.05911
+  },
+  {
+   "code": "MET",
+   "name": "Metropark Amtrak Station",
+   "lat": 40.56806,
+   "lon": -74.32958
+  },
+  {
+   "code": "MHL",
+   "name": "Marshall Amtrak Station",
+   "lat": 32.55155,
+   "lon": -94.367
+  },
+  {
+   "code": "MIA",
+   "name": "Miami Amtrak Station",
+   "lat": 25.84955,
+   "lon": -80.25776
+  },
+  {
+   "code": "MID",
+   "name": "Middletown",
+   "lat": 40.19566,
+   "lon": -76.73648
+  },
+  {
+   "code": "MIN",
+   "name": "Mineola",
+   "lat": 32.66205,
+   "lon": -95.4891
+  },
+  {
+   "code": "MJY",
+   "name": "Mount Joy Amtrak",
+   "lat": 40.10916,
+   "lon": -76.50344
+  },
+  {
+   "code": "MKA",
+   "name": "General Mitchell Intl. Airport Amtrak Station",
+   "lat": 42.94058,
+   "lon": -87.92436
+  },
+  {
+   "code": "MKE",
+   "name": "Milwaukee",
+   "lat": 43.03452,
+   "lon": -87.9171
+  },
+  {
+   "code": "MKS",
+   "name": "Marks Amtrak",
+   "lat": 34.25823,
+   "lon": -90.27234
+  },
+  {
+   "code": "MNG",
+   "name": "Montgomery Amtrak",
+   "lat": 38.18074,
+   "lon": -81.32403
+  },
+  {
+   "code": "MOE",
+   "name": "Mobile Amtrak Sta",
+   "lat": 30.69085,
+   "lon": -88.03829
+  },
+  {
+   "code": "MOT",
+   "name": "Minot Amtrak Station",
+   "lat": 48.23608,
+   "lon": -101.29856
+  },
+  {
+   "code": "MPK",
+   "name": "Moorpark Amtrak",
+   "lat": 34.28476,
+   "lon": -118.87806
+  },
+  {
+   "code": "MPR",
+   "name": "Montpelier-Berlin Amtrak Station",
+   "lat": 44.25575,
+   "lon": -72.60639
+  },
+  {
+   "code": "MRB",
+   "name": "Martinsburg Amtrak Station",
+   "lat": 39.45866,
+   "lon": -77.96101
+  },
+  {
+   "code": "MRC",
+   "name": "Maricopa",
+   "lat": 33.05628,
+   "lon": -112.04714
+  },
+  {
+   "code": "MSA",
+   "name": "Martin Airport",
+   "lat": 39.33012,
+   "lon": -76.42143
+  },
+  {
+   "code": "MSP",
+   "name": "St. Paul-Minneapolis",
+   "lat": 44.94766,
+   "lon": -93.08536
+  },
+  {
+   "code": "MSS",
+   "name": "Manassas Amtrak Station",
+   "lat": 38.75028,
+   "lon": -77.47279
+  },
+  {
+   "code": "MTP",
+   "name": "Mt. Pleasant Amtrak Station",
+   "lat": 40.97118,
+   "lon": -91.55077
+  },
+  {
+   "code": "MTR",
+   "name": "Montreal Central Station",
+   "lat": 45.50017,
+   "lon": -73.56577
+  },
+  {
+   "code": "MTZ",
+   "name": "Martinez",
+   "lat": 38.01892,
+   "lon": -122.13878
+  },
+  {
+   "code": "MVN",
+   "name": "Malvern Amtrak",
+   "lat": 34.36548,
+   "lon": -92.81402
+  },
+  {
+   "code": "MVW",
+   "name": "Mount Vernon Amtrak Station",
+   "lat": 48.41847,
+   "lon": -122.33474
+  },
+  {
+   "code": "MYS",
+   "name": "Mystic Amtrak",
+   "lat": 41.35093,
+   "lon": -71.96309
+  },
+  {
+   "code": "NBK",
+   "name": "New Brunswick Amtrak Station",
+   "lat": 40.49652,
+   "lon": -74.44626
+  },
+  {
+   "code": "NBN",
+   "name": "Newbern-Dyersburg Amtrak Station",
+   "lat": 36.11271,
+   "lon": -89.26226
+  },
+  {
+   "code": "NBU",
+   "name": "New Buffalo Amtrak",
+   "lat": 41.79666,
+   "lon": -86.74578
+  },
+  {
+   "code": "NCR",
+   "name": "New Carrollton Amtrak Station",
+   "lat": 38.9481,
+   "lon": -76.87149
+  },
+  {
+   "code": "NDL",
+   "name": "Needles Amtrak",
+   "lat": 34.84062,
+   "lon": -114.60619
+  },
+  {
+   "code": "NEW",
+   "name": "Newton",
+   "lat": 38.04698,
+   "lon": -97.34489
+  },
+  {
+   "code": "NFK",
+   "name": "Norfolk",
+   "lat": 36.84351,
+   "lon": -76.2762
+  },
+  {
+   "code": "NFL",
+   "name": "Niagara Falls Amtrak Station",
+   "lat": 43.10991,
+   "lon": -79.05528
+  },
+  {
+   "code": "NFS",
+   "name": "Niagara Falls",
+   "lat": 43.10874,
+   "lon": -79.06329
+  },
+  {
+   "code": "NHT",
+   "name": "Northampton",
+   "lat": 42.31886,
+   "lon": -72.62638
+  },
+  {
+   "code": "NHV",
+   "name": "New Haven",
+   "lat": 41.29771,
+   "lon": -72.92667
+  },
+  {
+   "code": "NIB",
+   "name": "New Iberia Amtrak",
+   "lat": 30.00841,
+   "lon": -91.82381
+  },
+  {
+   "code": "NLC",
+   "name": "New London",
+   "lat": 41.35427,
+   "lon": -72.09323
+  },
+  {
+   "code": "NLS",
+   "name": "Niles Amtrak Station",
+   "lat": 41.83741,
+   "lon": -86.25237
+  },
+  {
+   "code": "NOL",
+   "name": "New Orleans Union Passenger Terminal",
+   "lat": 29.94609,
+   "lon": -90.07829
+  },
+  {
+   "code": "NOR",
+   "name": "Norman Amtrak Station",
+   "lat": 35.21996,
+   "lon": -97.44301
+  },
+  {
+   "code": "NPN",
+   "name": "Newport News",
+   "lat": 37.12232,
+   "lon": -76.51702
+  },
+  {
+   "code": "NPV",
+   "name": "Naperville Amtrak Station",
+   "lat": 41.77951,
+   "lon": -88.1455
+  },
+  {
+   "code": "NRG",
+   "name": "Northridge",
+   "lat": 34.23066,
+   "lon": -118.54542
+  },
+  {
+   "code": "NRK",
+   "name": "Newark Amtrak",
+   "lat": 39.66969,
+   "lon": -75.75351
+  },
+  {
+   "code": "NRO",
+   "name": "New Rochelle Amtrak Station",
+   "lat": 40.91145,
+   "lon": -73.78433
+  },
+  {
+   "code": "NWK",
+   "name": "Newark",
+   "lat": 40.73471,
+   "lon": -74.16475
+  },
+  {
+   "code": "NYF",
+   "name": "Ny State Fair",
+   "lat": 43.07192,
+   "lon": -76.22947
+  },
+  {
+   "code": "NYP",
+   "name": "Ny Moynihan Train Hall At Penn Station",
+   "lat": 40.75033,
+   "lon": -73.99446
+  },
+  {
+   "code": "OAC",
+   "name": "Oakland Coliseum/Airport Amtrak",
+   "lat": 37.7525,
+   "lon": -122.19815
+  },
+  {
+   "code": "OKC",
+   "name": "Oklahoma City",
+   "lat": 35.46549,
+   "lon": -97.51275
+  },
+  {
+   "code": "OKE",
+   "name": "Okeechobee Amtrak",
+   "lat": 27.25187,
+   "lon": -80.83081
+  },
+  {
+   "code": "OKJ",
+   "name": "Oakland",
+   "lat": 37.79387,
+   "lon": -122.27167
+  },
+  {
+   "code": "OKL",
+   "name": "Oakville",
+   "lat": 43.45539,
+   "lon": -79.68239
+  },
+  {
+   "code": "OLT",
+   "name": "San Diego Old Town Transportation Center",
+   "lat": 32.75527,
+   "lon": -117.20007
+  },
+  {
+   "code": "OLW",
+   "name": "Olympia-Lacey Amtrak Station",
+   "lat": 46.99127,
+   "lon": -122.79406
+  },
+  {
+   "code": "OMA",
+   "name": "Omaha Amtrak Station",
+   "lat": 41.2497,
+   "lon": -95.9272
+  },
+  {
+   "code": "ONA",
+   "name": "Ontario Amtrak",
+   "lat": 34.06167,
+   "lon": -117.64957
+  },
+  {
+   "code": "ORB",
+   "name": "Old Orchard Beach Amtrak",
+   "lat": 43.51433,
+   "lon": -70.37623
+  },
+  {
+   "code": "ORC",
+   "name": "Oregon City Amtrak",
+   "lat": 45.36615,
+   "lon": -122.59592
+  },
+  {
+   "code": "ORL",
+   "name": "Orlando",
+   "lat": 28.52593,
+   "lon": -81.38152
+  },
+  {
+   "code": "OSB",
+   "name": "Old Saybrook Amtrak Station",
+   "lat": 41.30039,
+   "lon": -72.37682
+  },
+  {
+   "code": "OSC",
+   "name": "Osceola Amtrak Station",
+   "lat": 41.03712,
+   "lon": -93.76489
+  },
+  {
+   "code": "OSD",
+   "name": "Oceanside",
+   "lat": 33.19252,
+   "lon": -117.37943
+  },
+  {
+   "code": "OTM",
+   "name": "Ottumwa Amtrak Station",
+   "lat": 41.01881,
+   "lon": -92.41493
+  },
+  {
+   "code": "OTN",
+   "name": "Odenton",
+   "lat": 39.08714,
+   "lon": -76.70641
+  },
+  {
+   "code": "OXN",
+   "name": "Oxnard",
+   "lat": 34.19924,
+   "lon": -119.17598
+  },
+  {
+   "code": "PAG",
+   "name": "Pascagoula",
+   "lat": 30.36785,
+   "lon": -88.55955
+  },
+  {
+   "code": "PAK",
+   "name": "Palatka Amtrak",
+   "lat": 29.64973,
+   "lon": -81.64047
+  },
+  {
+   "code": "PAO",
+   "name": "Paoli Amtrak Station",
+   "lat": 40.04275,
+   "lon": -75.48376
+  },
+  {
+   "code": "PAR",
+   "name": "Parkesburg Amtrak",
+   "lat": 39.95918,
+   "lon": -75.92212
+  },
+  {
+   "code": "PBF",
+   "name": "Poplar Bluff Amtrak Station",
+   "lat": 36.754,
+   "lon": -90.39334
+  },
+  {
+   "code": "PCT",
+   "name": "Princeton Amtrak Station",
+   "lat": 41.38519,
+   "lon": -89.46681
+  },
+  {
+   "code": "PDX",
+   "name": "Portland",
+   "lat": 45.52872,
+   "lon": -122.67681
+  },
+  {
+   "code": "PGH",
+   "name": "Pittsburgh Amtrak Station",
+   "lat": 40.44474,
+   "lon": -79.99231
+  },
+  {
+   "code": "PHL",
+   "name": "Philadelphia",
+   "lat": 39.95562,
+   "lon": -75.18104
+  },
+  {
+   "code": "PHN",
+   "name": "North Philadelphia Amtrak Station",
+   "lat": 39.99678,
+   "lon": -75.15511
+  },
+  {
+   "code": "PIC",
+   "name": "Picayune Amtrak Station",
+   "lat": 30.52461,
+   "lon": -89.68026
+  },
+  {
+   "code": "PIT",
+   "name": "Pittsfield Amtrak Station",
+   "lat": 42.45156,
+   "lon": -73.2538
+  },
+  {
+   "code": "PJC",
+   "name": "Princeton Junction Amtrak Station",
+   "lat": 40.31585,
+   "lon": -74.62398
+  },
+  {
+   "code": "PLB",
+   "name": "Plattsburgh Amtrak Station",
+   "lat": 44.69673,
+   "lon": -73.44628
+  },
+  {
+   "code": "PLO",
+   "name": "Plano Amtrak Station",
+   "lat": 41.66238,
+   "lon": -88.53827
+  },
+  {
+   "code": "PNT",
+   "name": "Pontiac Amtrak Station",
+   "lat": 42.63277,
+   "lon": -83.29233
+  },
+  {
+   "code": "POG",
+   "name": "Portage",
+   "lat": 43.54708,
+   "lon": -89.46763
+  },
+  {
+   "code": "POH",
+   "name": "Port Henry Amtrak Station",
+   "lat": 44.0423,
+   "lon": -73.45875
+  },
+  {
+   "code": "PON",
+   "name": "Pontiac Amtrak Station",
+   "lat": 40.87869,
+   "lon": -88.6372
+  },
+  {
+   "code": "POR",
+   "name": "Portland",
+   "lat": 43.6541,
+   "lon": -70.29126
+  },
+  {
+   "code": "POS",
+   "name": "Pomona Amtrak",
+   "lat": 34.05922,
+   "lon": -117.75062
+  },
+  {
+   "code": "POU",
+   "name": "Poughkeepsie Amtrak Station",
+   "lat": 41.70706,
+   "lon": -73.93749
+  },
+  {
+   "code": "PRB",
+   "name": "Paso Robles Amtrak Station",
+   "lat": 35.62268,
+   "lon": -120.68786
+  },
+  {
+   "code": "PRC",
+   "name": "Prince Amtrak Station",
+   "lat": 37.85659,
+   "lon": -81.06069
+  },
+  {
+   "code": "PRO",
+   "name": "Provo Amtrak",
+   "lat": 40.22596,
+   "lon": -111.664
+  },
+  {
+   "code": "PRV",
+   "name": "Perryville",
+   "lat": 39.55796,
+   "lon": -76.07322
+  },
+  {
+   "code": "PSC",
+   "name": "Pasco Amtrak Station",
+   "lat": 46.23701,
+   "lon": -119.08773
+  },
+  {
+   "code": "PSN",
+   "name": "Palm Springs Amtrak",
+   "lat": 33.89749,
+   "lon": -116.54791
+  },
+  {
+   "code": "PTB",
+   "name": "Petersburg Amtrak Station",
+   "lat": 37.24163,
+   "lon": -77.42879
+  },
+  {
+   "code": "PTH",
+   "name": "Port Huron Amtrak Station",
+   "lat": 42.96042,
+   "lon": -82.4438
+  },
+  {
+   "code": "PUR",
+   "name": "Purcell Amtrak Station",
+   "lat": 35.01203,
+   "lon": -97.35742
+  },
+  {
+   "code": "PVD",
+   "name": "Providence",
+   "lat": 41.82949,
+   "lon": -71.41348
+  },
+  {
+   "code": "PVL",
+   "name": "Pauls Valley Amtrak Station",
+   "lat": 34.74173,
+   "lon": -97.21846
+  },
+  {
+   "code": "QAN",
+   "name": "Quantico Amtrak",
+   "lat": 38.52188,
+   "lon": -77.29303
+  },
+  {
+   "code": "QCY",
+   "name": "Quincy Amtrak Station",
+   "lat": 39.95706,
+   "lon": -91.36853
+  },
+  {
+   "code": "RAT",
+   "name": "Raton",
+   "lat": 36.90107,
+   "lon": -104.43789
+  },
+  {
+   "code": "RDD",
+   "name": "Redding Amtrak",
+   "lat": 40.5836,
+   "lon": -122.39337
+  },
+  {
+   "code": "RDW",
+   "name": "Red Wing Amtrak Station",
+   "lat": 44.56621,
+   "lon": -92.53707
+  },
+  {
+   "code": "REN",
+   "name": "Rensselaer Amtrak",
+   "lat": 40.94328,
+   "lon": -87.15512
+  },
+  {
+   "code": "RGH",
+   "name": "Raleigh Union Station",
+   "lat": 35.77721,
+   "lon": -78.64778
+  },
+  {
+   "code": "RHI",
+   "name": "Rhinecliff Amtrak Station",
+   "lat": 41.92135,
+   "lon": -73.95128
+  },
+  {
+   "code": "RIC",
+   "name": "Richmond",
+   "lat": 37.93675,
+   "lon": -122.35413
+  },
+  {
+   "code": "RIV",
+   "name": "Riverside",
+   "lat": 33.97567,
+   "lon": -117.36999
+  },
+  {
+   "code": "RKV",
+   "name": "Rockville Amtrak",
+   "lat": 39.08455,
+   "lon": -77.14599
+  },
+  {
+   "code": "RLN",
+   "name": "Rocklin Amtrak Station",
+   "lat": 38.79101,
+   "lon": -121.2373
+  },
+  {
+   "code": "RMT",
+   "name": "Rocky Mount",
+   "lat": 35.938,
+   "lon": -77.79785
+  },
+  {
+   "code": "RNK",
+   "name": "Roanoke",
+   "lat": 37.27318,
+   "lon": -79.94179
+  },
+  {
+   "code": "RNO",
+   "name": "Reno",
+   "lat": 39.52852,
+   "lon": -119.81212
+  },
+  {
+   "code": "ROC",
+   "name": "Rochester",
+   "lat": 43.16341,
+   "lon": -77.60806
+  },
+  {
+   "code": "ROM",
+   "name": "Rome Amtrak Station",
+   "lat": 43.19942,
+   "lon": -75.44996
+  },
+  {
+   "code": "ROY",
+   "name": "Royal Oak Amtrak",
+   "lat": 42.48844,
+   "lon": -83.14701
+  },
+  {
+   "code": "RPH",
+   "name": "Randolph Amtrak",
+   "lat": 43.9224,
+   "lon": -72.66546
+  },
+  {
+   "code": "RSP",
+   "name": "Rouses Point Amtrak",
+   "lat": 44.99487,
+   "lon": -73.37109
+  },
+  {
+   "code": "RSV",
+   "name": "Roseville Amtrak",
+   "lat": 38.75002,
+   "lon": -121.28629
+  },
+  {
+   "code": "RTE",
+   "name": "Route 128 Amtrak Station",
+   "lat": 42.21024,
+   "lon": -71.14789
+  },
+  {
+   "code": "RTL",
+   "name": "Rantoul Amtrak",
+   "lat": 40.3109,
+   "lon": -88.15913
+  },
+  {
+   "code": "RUD",
+   "name": "Rutland",
+   "lat": 43.60576,
+   "lon": -72.98154
+  },
+  {
+   "code": "RUG",
+   "name": "Rugby Amtrak Station",
+   "lat": 48.36985,
+   "lon": -99.99756
+  },
+  {
+   "code": "RVM",
+   "name": "Richmond Main Street Amtrak Station",
+   "lat": 37.53421,
+   "lon": -77.42951
+  },
+  {
+   "code": "RVR",
+   "name": "Richmond Staples Mill Road Amtrak Station",
+   "lat": 37.61769,
+   "lon": -77.49694
+  },
+  {
+   "code": "SAB",
+   "name": "St. Albans Amtrak Station",
+   "lat": 44.81236,
+   "lon": -73.08619
+  },
+  {
+   "code": "SAC",
+   "name": "Sacramento",
+   "lat": 38.584,
+   "lon": -121.5007
+  },
+  {
+   "code": "SAL",
+   "name": "Salisbury",
+   "lat": 35.6675,
+   "lon": -80.46632
+  },
+  {
+   "code": "SAN",
+   "name": "San Diego",
+   "lat": 32.71617,
+   "lon": -117.16958
+  },
+  {
+   "code": "SAO",
+   "name": "Saco Amtrak Station",
+   "lat": 43.49619,
+   "lon": -70.44914
+  },
+  {
+   "code": "SAR",
+   "name": "Saratoga Springs Amtrak Station",
+   "lat": 43.08281,
+   "lon": -73.81003
+  },
+  {
+   "code": "SAS",
+   "name": "San Antonio Amtrak Station",
+   "lat": 29.41935,
+   "lon": -98.47814
+  },
+  {
+   "code": "SAV",
+   "name": "Savannah",
+   "lat": 32.08341,
+   "lon": -81.14826
+  },
+  {
+   "code": "SBA",
+   "name": "Santa Barbara",
+   "lat": 34.41372,
+   "lon": -119.69279
+  },
+  {
+   "code": "SBG",
+   "name": "Sebring Amtrak Station",
+   "lat": 27.49663,
+   "lon": -81.4342
+  },
+  {
+   "code": "SBY",
+   "name": "Shelby Amtrak Station",
+   "lat": 48.50675,
+   "lon": -111.85665
+  },
+  {
+   "code": "SCA",
+   "name": "St. Catherines",
+   "lat": 43.14783,
+   "lon": -79.25602
+  },
+  {
+   "code": "SCC",
+   "name": "Santa Clara Amtrak",
+   "lat": 37.35322,
+   "lon": -121.93658
+  },
+  {
+   "code": "SCD",
+   "name": "St. Cloud Amtrak Station",
+   "lat": 45.56775,
+   "lon": -94.14909
+  },
+  {
+   "code": "SCH",
+   "name": "Schriever Amtrak",
+   "lat": 29.74668,
+   "lon": -90.81525
+  },
+  {
+   "code": "SDL",
+   "name": "Slidell Amtrak Station",
+   "lat": 30.27837,
+   "lon": -89.78257
+  },
+  {
+   "code": "SDY",
+   "name": "Schenectady",
+   "lat": 42.81472,
+   "lon": -73.94289
+  },
+  {
+   "code": "SEA",
+   "name": "Seattle",
+   "lat": 47.59844,
+   "lon": -122.33016
+  },
+  {
+   "code": "SEB",
+   "name": "Seabrook",
+   "lat": 38.97273,
+   "lon": -76.84357
+  },
+  {
+   "code": "SED",
+   "name": "Sedalia Amtrak Station",
+   "lat": 38.7116,
+   "lon": -93.22871
+  },
+  {
+   "code": "SFA",
+   "name": "Sanford Amtrak Auto Train Station",
+   "lat": 28.80854,
+   "lon": -81.29127
+  },
+  {
+   "code": "SIM",
+   "name": "Simi Valley Amtrak",
+   "lat": 34.2702,
+   "lon": -118.69516
+  },
+  {
+   "code": "SJC",
+   "name": "San Jose",
+   "lat": 37.32993,
+   "lon": -121.90239
+  },
+  {
+   "code": "SJM",
+   "name": "St. Joseph-Benton Harbor Amtrak Station",
+   "lat": 42.10908,
+   "lon": -86.48448
+  },
+  {
+   "code": "SKY",
+   "name": "Sandusky Amtrak Station",
+   "lat": 41.44067,
+   "lon": -82.71787
+  },
+  {
+   "code": "SLC",
+   "name": "Salt Lake City",
+   "lat": 40.76166,
+   "lon": -111.90835
+  },
+  {
+   "code": "SLM",
+   "name": "Salem",
+   "lat": 44.93233,
+   "lon": -123.02833
+  },
+  {
+   "code": "SLO",
+   "name": "San Luis Obispo",
+   "lat": 35.27643,
+   "lon": -120.6547
+  },
+  {
+   "code": "SLQ",
+   "name": "St-Lambert Amtrak Station",
+   "lat": 45.4989,
+   "lon": -73.50729
+  },
+  {
+   "code": "SMC",
+   "name": "San Marcos Amtrak",
+   "lat": 29.87657,
+   "lon": -97.94105
+  },
+  {
+   "code": "SMT",
+   "name": "Summit Amtrak",
+   "lat": 41.79491,
+   "lon": -87.80974
+  },
+  {
+   "code": "SNA",
+   "name": "Santa Ana",
+   "lat": 33.75163,
+   "lon": -117.85661
+  },
+  {
+   "code": "SNB",
+   "name": "San Bernardino",
+   "lat": 34.10411,
+   "lon": -117.31066
+  },
+  {
+   "code": "SNC",
+   "name": "San Juan Capistrano Amtrak Station",
+   "lat": 33.50132,
+   "lon": -117.66381
+  },
+  {
+   "code": "SND",
+   "name": "Sanderson Amtrak",
+   "lat": 30.13995,
+   "lon": -102.39875
+  },
+  {
+   "code": "SNP",
+   "name": "San Clemente Pier Amtrak",
+   "lat": 33.41965,
+   "lon": -117.61973
+  },
+  {
+   "code": "SNS",
+   "name": "Salinas",
+   "lat": 36.67914,
+   "lon": -121.65675
+  },
+  {
+   "code": "SOB",
+   "name": "South Bend Amtrak Station",
+   "lat": 41.67836,
+   "lon": -86.28735
+  },
+  {
+   "code": "SOL",
+   "name": "Solana Beach Amtrak Station",
+   "lat": 32.99294,
+   "lon": -117.27114
+  },
+  {
+   "code": "SOP",
+   "name": "Southern Pines Amtrak Station",
+   "lat": 35.17507,
+   "lon": -79.3903
+  },
+  {
+   "code": "SPB",
+   "name": "Spartanburg Amtrak Station",
+   "lat": 34.95374,
+   "lon": -81.93692
+  },
+  {
+   "code": "SPG",
+   "name": "Springfield",
+   "lat": 42.10599,
+   "lon": -72.59291
+  },
+  {
+   "code": "SPI",
+   "name": "Springfield",
+   "lat": 39.80232,
+   "lon": -89.65138
+  },
+  {
+   "code": "SPK",
+   "name": "Spokane",
+   "lat": 47.65672,
+   "lon": -117.41545
+  },
+  {
+   "code": "SPL",
+   "name": "Staples Amtrak Station",
+   "lat": 46.3546,
+   "lon": -94.79533
+  },
+  {
+   "code": "SPM",
+   "name": "South Portsmouth Amtrak",
+   "lat": 38.72128,
+   "lon": -82.96375
+  },
+  {
+   "code": "SPT",
+   "name": "Sandpoint Amtrak",
+   "lat": 48.27623,
+   "lon": -116.54558
+  },
+  {
+   "code": "SSM",
+   "name": "Selma",
+   "lat": 35.53279,
+   "lon": -78.2801
+  },
+  {
+   "code": "STA",
+   "name": "Staunton Amtrak Station",
+   "lat": 38.14764,
+   "lon": -79.07178
+  },
+  {
+   "code": "STL",
+   "name": "St. Louis",
+   "lat": 38.6242,
+   "lon": -90.20397
+  },
+  {
+   "code": "STM",
+   "name": "Stamford Amtrak Station",
+   "lat": 41.04713,
+   "lon": -73.54216
+  },
+  {
+   "code": "STN",
+   "name": "Stanley Amtrak Station",
+   "lat": 48.31981,
+   "lon": -102.38938
+  },
+  {
+   "code": "STS",
+   "name": "New Haven",
+   "lat": 41.30525,
+   "lon": -72.92209
+  },
+  {
+   "code": "STW",
+   "name": "Stanwood Amtrak",
+   "lat": 48.24264,
+   "lon": -122.34994
+  },
+  {
+   "code": "SUI",
+   "name": "Suisun-Fairfield",
+   "lat": 38.2434,
+   "lon": -122.0411
+  },
+  {
+   "code": "SVT",
+   "name": "Sturtevant Amtrak Station",
+   "lat": 42.71829,
+   "lon": -87.9063
+  },
+  {
+   "code": "SYR",
+   "name": "Syracuse Regional Transportation Center",
+   "lat": 43.07655,
+   "lon": -76.16924
+  },
+  {
+   "code": "TAC",
+   "name": "Tacoma",
+   "lat": 47.2398,
+   "lon": -122.4281
+  },
+  {
+   "code": "TAY",
+   "name": "Taylor Amtrak",
+   "lat": 30.56767,
+   "lon": -97.40776
+  },
+  {
+   "code": "TCA",
+   "name": "Toccoa Amtrak Station",
+   "lat": 34.57846,
+   "lon": -83.33154
+  },
+  {
+   "code": "TCL",
+   "name": "Tuscaloosa Amtrak Station",
+   "lat": 33.19317,
+   "lon": -87.56023
+  },
+  {
+   "code": "THN",
+   "name": "Thurmond Amtrak",
+   "lat": 37.95699,
+   "lon": -81.07875
+  },
+  {
+   "code": "TOH",
+   "name": "Tomah Amtrak Station",
+   "lat": 43.98601,
+   "lon": -90.50533
+  },
+  {
+   "code": "TOL",
+   "name": "Toledo",
+   "lat": 41.63835,
+   "lon": -83.54172
+  },
+  {
+   "code": "TOP",
+   "name": "Topeka Amtrak Station",
+   "lat": 39.05141,
+   "lon": -95.66492
+  },
+  {
+   "code": "TPA",
+   "name": "Tampa",
+   "lat": 27.95249,
+   "lon": -82.45078
+  },
+  {
+   "code": "TPL",
+   "name": "Temple",
+   "lat": 31.09588,
+   "lon": -97.34579
+  },
+  {
+   "code": "TRE",
+   "name": "Trenton",
+   "lat": 40.21901,
+   "lon": -74.75444
+  },
+  {
+   "code": "TRI",
+   "name": "Trinidad Amtrak",
+   "lat": 37.17269,
+   "lon": -104.50798
+  },
+  {
+   "code": "TRM",
+   "name": "Troy Amtrak Station",
+   "lat": 42.54256,
+   "lon": -83.19103
+  },
+  {
+   "code": "TRU",
+   "name": "Truckee Amtrak Station",
+   "lat": 39.32762,
+   "lon": -120.18539
+  },
+  {
+   "code": "TUK",
+   "name": "Tukwila Amtrak",
+   "lat": 47.46108,
+   "lon": -122.24025
+  },
+  {
+   "code": "TUS",
+   "name": "Tucson Amtrak Station",
+   "lat": 32.22298,
+   "lon": -110.96677
+  },
+  {
+   "code": "TWO",
+   "name": "Toronto",
+   "lat": 43.64543,
+   "lon": -79.38076
+  },
+  {
+   "code": "TXA",
+   "name": "Texarkana Amtrak Station",
+   "lat": 33.42007,
+   "lon": -94.04308
+  },
+  {
+   "code": "TYR",
+   "name": "Tyrone Amtrak",
+   "lat": 40.6677,
+   "lon": -78.24047
+  },
+  {
+   "code": "UCA",
+   "name": "Utica Amtrak Station",
+   "lat": 43.10389,
+   "lon": -75.22343
+  },
+  {
+   "code": "VAC",
+   "name": "Vancouver",
+   "lat": 49.27376,
+   "lon": -123.09834
+  },
+  {
+   "code": "VAN",
+   "name": "Vancouver",
+   "lat": 45.6289,
+   "lon": -122.68654
+  },
+  {
+   "code": "VEC",
+   "name": "Ventura Amtrak",
+   "lat": 34.27693,
+   "lon": -119.29992
+  },
+  {
+   "code": "VNC",
+   "name": "Van Nuys",
+   "lat": 34.21129,
+   "lon": -118.44821
+  },
+  {
+   "code": "VRN",
+   "name": "Ferrisburgh",
+   "lat": 44.18092,
+   "lon": -73.24882
+  },
+  {
+   "code": "VRV",
+   "name": "Victorville Amtrak",
+   "lat": 34.5372,
+   "lon": -117.29296
+  },
+  {
+   "code": "WAB",
+   "name": "Waterbury-Stowe Amtrak Station",
+   "lat": 44.33501,
+   "lon": -72.75181
+  },
+  {
+   "code": "WAH",
+   "name": "Washington Amtrak Station",
+   "lat": 38.56147,
+   "lon": -91.01272
+  },
+  {
+   "code": "WAR",
+   "name": "Warrensburg Amtrak Station",
+   "lat": 38.76275,
+   "lon": -93.7409
+  },
+  {
+   "code": "WAS",
+   "name": "Washington Union Station",
+   "lat": 38.89699,
+   "lon": -77.00642
+  },
+  {
+   "code": "WBG",
+   "name": "Williamsburg Amtrak Station",
+   "lat": 37.27641,
+   "lon": -76.70856
+  },
+  {
+   "code": "WBL",
+   "name": "West Baltimore",
+   "lat": 39.29345,
+   "lon": -76.65331
+  },
+  {
+   "code": "WDB",
+   "name": "Woodbridge Amtrak",
+   "lat": 38.65892,
+   "lon": -77.24785
+  },
+  {
+   "code": "WDL",
+   "name": "Wisconsin Dells Amtrak Station",
+   "lat": 43.62651,
+   "lon": -89.77745
+  },
+  {
+   "code": "WEM",
+   "name": "Wells",
+   "lat": 43.32084,
+   "lon": -70.61219
+  },
+  {
+   "code": "WEN",
+   "name": "Wenatchee Amtrak",
+   "lat": 47.42156,
+   "lon": -120.30655
+  },
+  {
+   "code": "WFD",
+   "name": "Wallingford Amtrak",
+   "lat": 41.45697,
+   "lon": -72.82522
+  },
+  {
+   "code": "WFH",
+   "name": "Whitefish Amtrak Station",
+   "lat": 48.41347,
+   "lon": -114.33558
+  },
+  {
+   "code": "WGL",
+   "name": "West Glacier Amtrak",
+   "lat": 48.49622,
+   "lon": -113.97916
+  },
+  {
+   "code": "WHL",
+   "name": "Whitehall Amtrak",
+   "lat": 43.55469,
+   "lon": -73.40321
+  },
+  {
+   "code": "WIH",
+   "name": "Wishram Amtrak",
+   "lat": 45.65767,
+   "lon": -120.96614
+  },
+  {
+   "code": "WIL",
+   "name": "Wilmington",
+   "lat": 39.73726,
+   "lon": -75.5511
+  },
+  {
+   "code": "WIN",
+   "name": "Winona",
+   "lat": 44.0444,
+   "lon": -91.64007
+  },
+  {
+   "code": "WIP",
+   "name": "Winter Park/Fraser",
+   "lat": 39.94757,
+   "lon": -105.81739
+  },
+  {
+   "code": "WLN",
+   "name": "Wilson",
+   "lat": 35.72313,
+   "lon": -77.90803
+  },
+  {
+   "code": "WLO",
+   "name": "Winslow Amtrak",
+   "lat": 35.02167,
+   "lon": -110.69498
+  },
+  {
+   "code": "WLY",
+   "name": "Westerly Amtrak Station",
+   "lat": 41.38108,
+   "lon": -71.82978
+  },
+  {
+   "code": "WND",
+   "name": "Windsor",
+   "lat": 41.85201,
+   "lon": -72.64225
+  },
+  {
+   "code": "WNL",
+   "name": "Windsor Locks",
+   "lat": 41.91396,
+   "lon": -72.6261
+  },
+  {
+   "code": "WNM",
+   "name": "Windsor-Mt. Ascutney Amtrak",
+   "lat": 43.47991,
+   "lon": -72.38499
+  },
+  {
+   "code": "WNN",
+   "name": "Winnemucca Amtrak",
+   "lat": 40.96904,
+   "lon": -117.73221
+  },
+  {
+   "code": "WNR",
+   "name": "Walnut Ridge Amtrak Station",
+   "lat": 36.06766,
+   "lon": -90.95677
+  },
+  {
+   "code": "WOB",
+   "name": "Woburn Amtrak Station",
+   "lat": 42.51736,
+   "lon": -71.14382
+  },
+  {
+   "code": "WOR",
+   "name": "Worcester Union Station",
+   "lat": 42.26148,
+   "lon": -71.79481
+  },
+  {
+   "code": "WPB",
+   "name": "West Palm Beach Amtrak Station",
+   "lat": 26.71255,
+   "lon": -80.06218
+  },
+  {
+   "code": "WPK",
+   "name": "Winter Park Amtrak Station",
+   "lat": 28.5971,
+   "lon": -81.35199
+  },
+  {
+   "code": "WPT",
+   "name": "Wolf Point Amtrak Station",
+   "lat": 48.09167,
+   "lon": -105.64274
+  },
+  {
+   "code": "WRJ",
+   "name": "White River Junction Amtrak Station",
+   "lat": 43.64778,
+   "lon": -72.31727
+  },
+  {
+   "code": "WSB",
+   "name": "Westbrook",
+   "lat": 41.28879,
+   "lon": -72.448
+  },
+  {
+   "code": "WSP",
+   "name": "Westport",
+   "lat": 44.18729,
+   "lon": -73.45177
+  },
+  {
+   "code": "WSS",
+   "name": "White Sulphur Springs Amtrak",
+   "lat": 37.78644,
+   "lon": -80.304
+  },
+  {
+   "code": "WTH",
+   "name": "Winter Haven",
+   "lat": 28.00215,
+   "lon": -81.73488
+  },
+  {
+   "code": "WTI",
+   "name": "Waterloo Amtrak Station",
+   "lat": 41.43182,
+   "lon": -85.0243
+  },
+  {
+   "code": "WTN",
+   "name": "Williston Amtrak Station",
+   "lat": 48.143,
+   "lon": -103.62093
+  },
+  {
+   "code": "YAZ",
+   "name": "Yazoo City Amtrak",
+   "lat": 32.84848,
+   "lon": -90.41523
+  },
+  {
+   "code": "YEM",
+   "name": "Yemassee Amtrak",
+   "lat": 32.68829,
+   "lon": -80.8469
+  },
+  {
+   "code": "YNY",
+   "name": "Yonkers Amtrak Station",
+   "lat": 40.93559,
+   "lon": -73.90226
+  },
+  {
+   "code": "YUM",
+   "name": "Yuma Amtrak",
+   "lat": 32.72314,
+   "lon": -114.61557
+  }
+ ]
+}

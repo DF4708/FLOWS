@@ -95,7 +95,7 @@ FLOWS/
 │   │   │                             baseline_route_head.json,
 │   │   │                             per-brand shower city tables
 │   │   └── Generated/              ← xcodegen output
-│   ├── FLOWSTests/                 ← 163 Swift tests
+│   ├── FLOWSTests/                 ← 180 Swift tests
 │   ├── FLOWSWatch/                 ← watchOS companion
 │   ├── tools/                      ← app-side build tooling
 │   └── project.yml                 ← xcodegen project spec
@@ -252,7 +252,7 @@ For the full endpoint-by-endpoint list see
 
 ## 6. Test harness & CI
 
-- **Swift**: **163 tests** in `apple/FLOWSTests/` (risk equations and
+- **Swift**: **180 tests** in `apple/FLOWSTests/` (risk equations and
   realization, climate profiles, harmonic climatology, badge clustering,
   towing/vehicle limits, transit/route attributes, seasonal model, places
   store, latitude-band parity, driver features, crash logic, …).
