@@ -266,6 +266,13 @@ struct ContentView: View {
             if let info = hazardInfo {
                 hazardSummaryCard(info)
             }
+            #if os(macOS)
+            // Settings floats as a panel instead of a modal sheet, so a
+            // click on the map (or Done) closes it — click-off behavior.
+            if model.showSettings {
+                settingsPanel
+            }
+            #endif
             if model.crash.state != .idle {
                 CrashCheckInCard()
             }
@@ -310,10 +317,14 @@ struct ContentView: View {
             moveCamera(.rect(rect.insetBy(dx: -rect.width * 0.4 - 3000,
                                           dy: -rect.height * 0.4 - 3000)))
         }
+        #if os(iOS)
+        // iOS keeps the system sheet (it owns swipe-down dismissal); the
+        // macOS panel presentation lives in the ZStack above.
         .sheet(isPresented: $model.showSettings) {
             SettingsSheet()
                 .environmentObject(model)
         }
+        #endif
         .onChange(of: model.mode) { previous, mode in
             switch mode {
             case .navigating:
@@ -1123,6 +1134,15 @@ struct ContentView: View {
         .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in
             if model.mode == .navigating, cameraFollows { cameraFollows = false }
         })
+        // Click-off dismiss: a click/tap on the MAP closes any open floating
+        // panel or menu (settings, fuel/food/store menus, stop list, slider
+        // card, towing card). Annotation buttons (risk symbols, gas-price
+        // pins) and the chrome cards sit deeper in the hierarchy, so their
+        // own taps win and this never fires for them — selections still work.
+        .onTapGesture {
+            hazardInfo = nil
+            model.dismissFloatingPanels()
+        }
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
             cameraHeading = context.camera.heading
@@ -1341,6 +1361,28 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
     }
+
+    #if os(macOS)
+    /// Settings as a floating top-right panel (under the gear). The map's
+    /// click-off tap closes it; panel clicks land on the panel itself.
+    private var settingsPanel: some View {
+        VStack {
+            HStack {
+                Spacer()
+                SettingsSheet()
+                    .frame(width: 460)
+                    .frame(maxHeight: 620)
+                    .background(Theme.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius,
+                                                style: .continuous))
+                    .shadow(color: Theme.cardShadow, radius: 18, y: 6)
+            }
+            Spacer()
+        }
+        .padding(.top, 52)   // clear of the gear button
+        .padding(.trailing, 12)
+    }
+    #endif
 
     /// Corridor hazard areas as REAL ZIP boundaries: risky corridor samples
     /// resolve to their containing ZCTA rings (fetched once per highlighted
@@ -1616,7 +1658,10 @@ struct FilterSlidersCard: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        if model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades) {
+        // A map click hides the card (click-off dismiss); touching any
+        // filter brings it back.
+        if !model.filterCardsHidden,
+           model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades) {
             VStack(alignment: .leading, spacing: 8) {
                 if model.routeFilters.contains(.lowBridges) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -1764,6 +1809,25 @@ struct SettingsSheet: View {
                 .foregroundStyle(.secondary)
 
             Divider()
+            Text("Music")
+                .font(.system(size: 14, weight: .semibold))
+            Picker("Music app", selection: $model.musicProvider) {
+                ForEach(MusicProvider.allCases) { provider in
+                    Label(provider.displayName, systemImage: provider.symbol)
+                        .tag(provider)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(Theme.riskGreen)
+            Text("The little player in the drive bar uses this app. Play, "
+                 + "pause, and skip work right in FLOWS with Apple Music. "
+                 + "Other apps open in their own app — controlling them from "
+                 + "FLOWS needs each app's own kit.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
             Text("Vehicle limits")
                 .font(.system(size: 14, weight: .semibold))
             HStack {
@@ -1779,6 +1843,20 @@ struct SettingsSheet: View {
                     .font(.caption)
                     .frame(width: 90, alignment: .leading)
                 Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
+            }
+            HStack(spacing: 8) {
+                Text("Preset from your vehicle — the slope where you'd really "
+                     + "want the parking brake. Towing or a heavy rig lowers it. "
+                     + "Move the slider to pick your own.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Button("Use my vehicle's number") {
+                    model.applyVehicleMaxGradeDefault(force: true)
+                }
+                .buttonStyle(.plain)
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.blue)
+                .fixedSize()
             }
 
             Divider()

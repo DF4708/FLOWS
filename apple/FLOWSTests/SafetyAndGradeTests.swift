@@ -949,6 +949,75 @@ final class TransitItineraryTests: XCTestCase {
     }
 }
 
+/// Grade-slider default from the vehicle — "the grade where a parking brake
+/// is highly encouraged" (FilterLimits.vehicleDefaultMaxGradeDegrees).
+final class GradeDefaultTests: XCTestCase {
+
+    func testGradeDefaultByWeightClass() {
+        // Sedan (GVWR under 6,000): 18% ≈ 10.2° → rounds to the 0.5° step.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 3_910, towCapacityLbs: 1_500,
+            heightFeet: 4.8, towing: false, trailerWeightLbs: 0), 10.0)
+        // Half-ton pickup (7,050): 15% ≈ 8.5°.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+            heightFeet: 6.4, towing: false, trailerWeightLbs: 0), 8.5)
+        // HD pickup (10,800): 12% ≈ 6.8° → 7.0°.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 10_800, towCapacityLbs: 20_000,
+            heightFeet: 6.8, towing: false, trailerWeightLbs: 0), 7.0)
+        // Box truck (14,500): 9% ≈ 5.1° → 5.0°.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 14_500, towCapacityLbs: 6_000,
+            heightFeet: 12.0, towing: false, trailerWeightLbs: 0), 5.0)
+    }
+
+    func testGradeDefaultPublishedGuidanceWins() {
+        // Semi: the maker's 6% steep-grade guidance beats the weight ladder.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: 6, gvwrLbs: 35_000, towCapacityLbs: 45_000,
+            heightFeet: 13.5, towing: false, trailerWeightLbs: 0), 3.5)
+        // And the curated table actually carries it for the semis.
+        XCTAssertEqual(VehicleSpecs.spec(make: "Freightliner",
+                                         model: "Cascadia (semi)")?.publishedMaxGradePercent, 6)
+    }
+
+    func testGradeDefaultLowersWhenTowing() {
+        // F-150 towing at all: 15% base capped to 10% ≈ 5.7° → 5.5°.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+            heightFeet: 6.4, towing: true, trailerWeightLbs: 2_000), 5.5)
+        // Trailer at 60%+ of capacity: capped to 8% ≈ 4.6° → 4.5°.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+            heightFeet: 6.4, towing: true, trailerWeightLbs: 8_000), 4.5)
+        // At/over capacity: capped to 6% ≈ 3.4° → 3.5°.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: 11_200,
+            heightFeet: 6.4, towing: true, trailerWeightLbs: 11_200), 3.5)
+        // Unknown capacity: a 5,000+ lb trailer counts as heavy.
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: 7_050, towCapacityLbs: nil,
+            heightFeet: 6.4, towing: true, trailerWeightLbs: 6_000), 4.5)
+    }
+
+    func testGradeDefaultHeightFallbackAndClamp() {
+        // No ratings at all → the height ladder (13'6" default = semi-ish).
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: nil, towCapacityLbs: nil,
+            heightFeet: 13.5, towing: false, trailerWeightLbs: 0), 5.0)
+        XCTAssertEqual(FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: nil, gvwrLbs: nil, towCapacityLbs: nil,
+            heightFeet: 4.8, towing: false, trailerWeightLbs: 0), 10.0)
+        // The result always lands inside the slider's 2°–15° range.
+        let extreme = FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: 1, gvwrLbs: 99_000, towCapacityLbs: 0,
+            heightFeet: 20, towing: true, trailerWeightLbs: 99_000)
+        XCTAssertGreaterThanOrEqual(extreme, 2)
+        XCTAssertLessThanOrEqual(extreme, 15)
+    }
+}
+
 /// The O(1) grid indexes (RoutePath.nearest, LocationTable.entry) must return
 /// results IDENTICAL to the O(N) brute-force scans they replaced.
 final class SpatialIndexTests: XCTestCase {
