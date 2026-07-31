@@ -266,6 +266,17 @@ struct ContentView: View {
             if let info = hazardInfo {
                 hazardSummaryCard(info)
             }
+            // Tapped tourist star → its stop card (same slot as the hazard
+            // card: bottom-center, clear of the bars).
+            if let stop = model.poi.touristDetail {
+                VStack {
+                    Spacer()
+                    TouristStopCard(stop: stop) { model.poi.touristDetail = nil }
+                        .frame(maxWidth: isCompact ? .infinity : 480)
+                        .padding(.bottom, 96)
+                }
+                .padding(.horizontal, 12)
+            }
             if model.crash.state != .idle {
                 CrashCheckInCard()
             }
@@ -1052,10 +1063,12 @@ struct ContentView: View {
                             .onTapGesture { model.poi.selected = ranked }
                     }
                 } else {
-                    Marker(ranked.item.name ?? "Stop",
-                           systemImage: model.poi.activeKind?.symbol ?? "mappin",
-                           coordinate: ranked.item.placemark.coordinate)
-                        .tint(ranked.id == model.poi.selected?.id ? Theme.cta : .gray)
+                    // Annotation, not Marker: Marker swallows taps, which left
+                    // tourist stars (and every other stop pin) dead to clicks.
+                    Annotation(ranked.item.name ?? "Stop",
+                               coordinate: ranked.item.placemark.coordinate) {
+                        poiPin(ranked)
+                    }
                 }
             }
         }
@@ -1136,6 +1149,27 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    /// One tappable stop pin. Tapping mirrors tapping the stop's list row —
+    /// it becomes the selection (row highlights + scrolls into view, map
+    /// zooms), and a tourist star also opens its detail card.
+    private func poiPin(_ ranked: POIService.RankedPOI) -> some View {
+        let isSelected = ranked.id == model.poi.selected?.id
+        return Button {
+            model.poi.selected = ranked
+            if model.poi.activeKind == .tourist { model.poi.touristDetail = ranked }
+        } label: {
+            Image(systemName: model.poi.activeKind?.symbol ?? "mappin")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(isSelected ? Theme.cta : Color.gray)
+                .clipShape(Circle())
+                .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                .shadow(radius: 2)
+        }
+        .buttonStyle(.plain)
     }
 
     /// NWS alert polygons intersecting a route's corridor — striped in the

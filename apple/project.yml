@@ -253,6 +253,7 @@ targets:
       - path: FLOWS/Sources/Core/PursuitReach.swift
       - path: FLOWS/Sources/Core/LiveHazardFeeds.swift
       - path: FLOWS/Sources/Core/RatingsAndCost.swift
+      - path: FLOWS/Sources/Core/TouristInfo.swift
       - path: FLOWS/Sources/Core/RiskFieldService.swift
       - path: FLOWS/Sources/Core/VehicleLink.swift
       - path: FLOWS/Sources/Core/EPAVehicleDatabase.swift

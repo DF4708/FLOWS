@@ -139,6 +139,10 @@ final class POIService: ObservableObject {
     @Published private(set) var emptyResultMessage: String?
     /// Row the driver tapped — map zooms to it; Add Stop targets it.
     @Published var selected: RankedPOI?
+    /// Tourist star the driver tapped — opens the stop's detail card
+    /// (kept separate from `selected`, which auto-picks the first result
+    /// after every search; the card must only appear on a real tap).
+    @Published var touristDetail: RankedPOI?
 
     /// Food flow: category picker shown before searching.
     @Published var pendingFoodChoice = false
@@ -242,6 +246,7 @@ final class POIService: ObservableObject {
         activeStoreCategory = nil
         results = []
         selected = nil
+        touristDetail = nil
         emptyResultMessage = nil
         switch kind {
         case .food:
@@ -341,6 +346,7 @@ final class POIService: ObservableObject {
         isSearching = true
         emptyResultMessage = nil
         selected = nil
+        touristDetail = nil
         defer { if gen == searchGeneration { isSearching = false } }
 
         var found: [MKMapItem] = []
@@ -615,6 +621,7 @@ final class POIService: ObservableObject {
         activeFoodCategory = nil
         activeStoreCategory = nil
         selected = nil
+        touristDetail = nil
         emptyResultMessage = nil
         pendingFoodChoice = false
         pendingFuelChoice = false
