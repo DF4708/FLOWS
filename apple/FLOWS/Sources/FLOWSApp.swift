@@ -201,14 +201,16 @@ final class AppModel: ObservableObject {
 
     // MARK: towing mode
 
-    /// Towing ON auto-applies the safety filters (grades, low bridges, high
-    /// winds) and switches fuel prediction to the towing pattern.
+    /// Towing ON auto-applies the safety filters (grades, low bridges,
+    /// bridge weight, high winds) and switches fuel prediction to the
+    /// towing pattern.
     @Published var towingActive: Bool =
         UserDefaults.standard.bool(forKey: "flows.towingActive") {
         didSet {
             UserDefaults.standard.set(towingActive, forKey: "flows.towingActive")
             vehicle.towingActive = towingActive
-            let safety: Set<RouteFilter> = [.mountainGrades, .lowBridges, .noHighWinds]
+            let safety: Set<RouteFilter> = [.mountainGrades, .lowBridges,
+                                            .bridgeWeight, .noHighWinds]
             if towingActive {
                 routeFilters.formUnion(safety)
             } else {
@@ -339,8 +341,13 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(maxGradeDegrees, forKey: "flows.maxGradeDegrees") }
     }
     var filterLimits: FilterLimits {
-        FilterLimits(vehicleHeightMeters: vehicleHeightFeet * 0.3048,
-                     maxGradePercent: FilterLimits.degreesToPercent(maxGradeDegrees))
+        // Bridge-weight check compares posted limits against the whole rig:
+        // the towing card's vehicle weight + towed weight. 0 = not entered
+        // → nil, and the filter never excludes on a weight nobody gave it.
+        let rig = towVehicleWeightLbs + towTrailerWeightLbs
+        return FilterLimits(vehicleHeightMeters: vehicleHeightFeet * 0.3048,
+                            maxGradePercent: FilterLimits.degreesToPercent(maxGradeDegrees),
+                            rigWeightLbs: rig > 0 ? rig : nil)
     }
     /// Independent weather layer: snow/rain/storm blotches by type.
     @Published var showWeatherLayer = true
@@ -596,9 +603,6 @@ final class AppModel: ObservableObject {
     private var pendingStopKind: POIService.Kind?
 
     /// Choices surviving the active filters (cards render from this).
-    /// "Low weather risk" is RELATIVE — there is always a lowest-risk route,
-    /// so it keeps the best-scoring route plus near-ties instead of applying
-    /// an absolute threshold that can empty the list on a stormy corridor.
     var filteredChoices: [PlannedRoute] {
         let limits = filterLimits
         var out = routeChoices.filter { r in
@@ -612,20 +616,6 @@ final class AppModel: ObservableObject {
                 let (a, b) = (touristCount(for: $0), touristCount(for: $1))
                 if a != b { return a > b }
                 return $0.eta < $1.eta
-            }
-        }
-        if routeFilters.contains(.lowWeatherRisk) {
-            let scored = out.filter(\.weatherScored)
-            // Rank by the balanced two-truths score (realized band + identified
-            // ZIP exposure), not the band alone.
-            if let bestRoute = scored.min(by: { $0.rankingRisk < $1.rankingRisk }) {
-                // Ties must stay within epsilon AND in the same display band — a
-                // Red route 0.03 above a Yellow best is not a tie.
-                out = out.filter {
-                    !$0.weatherScored
-                        || ($0.rankingRisk <= bestRoute.rankingRisk + 0.05
-                            && $0.riskBand == bestRoute.riskBand)
-                }
             }
         }
         return out
@@ -1507,7 +1497,7 @@ final class AppModel: ObservableObject {
             for await v in group { out.append(v) }
             return out
         }
-        async let clearanceList = RouteAttributeFetcher.shared.clearances(inBoxes: boxes)
+        async let restrictionList = RouteAttributeFetcher.shared.postedRestrictions(inBoxes: boxes)
 
         // COARSE grade first (10 km spacing) — that alone smooths mountain
         // switchbacks into near-zero ("Appalachian routes showed null
@@ -1532,19 +1522,23 @@ final class AppModel: ObservableObject {
         let fema = (await femaHits).compactMap { $0 }
         r.femaFloodFraction = fema.isEmpty ? nil
             : Double(fema.filter { $0 }.count) / Double(fema.count)
-        if let found = await clearanceList {
-            // ON-ROUTE only: a low post must sit within ~60 m of the route
-            // geometry to restrict it (garages/side streets don't count —
-            // the old any-post-in-the-box rule read a 6 ft garage bar as
-            // I-65's clearance).
+        if let found = await restrictionList {
+            // ON-ROUTE only: a posted limit must sit within ~60 m of the
+            // route geometry to restrict it (garages/side streets don't
+            // count — the old any-post-in-the-box rule read a 6 ft garage
+            // bar as I-65's clearance).
             let path = POIRanking.RoutePath(
                 coords: RouteService.samplePoints(of: r.route.polyline, everyMeters: 250))
-            r.clearancesMeters = found.filter { post in
-                let pt = CLLocationCoordinate2D(latitude: post.lat, longitude: post.lon)
+            func onRoute(_ lat: Double, _ lon: Double) -> Bool {
+                let pt = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 return (path.nearest(to: pt)?.offRoute ?? .infinity) < 60
-            }.map(\.meters)
+            }
+            r.clearancesMeters = found.clearances
+                .filter { onRoute($0.lat, $0.lon) }.map(\.meters)
+            r.weightLimitsLbs = found.weights
+                .filter { onRoute($0.lat, $0.lon) }.map(\.lbs)
         } else {
-            r.clearanceDataUnavailable = true   // both endpoints failed
+            r.clearanceDataUnavailable = true   // every endpoint failed
         }
         // EV VIABILITY: before offering an electric driver this route as
         // drivable, verify chargers exist within range along it. Sample at

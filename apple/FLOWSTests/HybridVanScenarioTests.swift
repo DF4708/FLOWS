@@ -35,6 +35,36 @@ final class HybridVanScenarioTests: XCTestCase {
         XCTAssertTrue(van.passesClearances(nil))
     }
 
+    // MARK: bridge weight — the rig (vehicle + trailer) vs posted limits
+
+    func testRigWeightAgainstPostedLimits() {
+        // 9,000 lb van towing 6,000 lb → a 15,000 lb rig.
+        let rig = FilterLimits(rigWeightLbs: 15_000)
+        // A 20,000 lb posting carries the rig.
+        XCTAssertTrue(rig.passesWeightLimits([20_000]))
+        // AT the posted limit is legal — the sign is the max allowed load.
+        XCTAssertTrue(rig.passesWeightLimits([15_000]))
+        // A posting under the rig's weight is not.
+        XCTAssertFalse(rig.passesWeightLimits([14_999]))
+        // One weak bridge among strong ones still fails the route.
+        XCTAssertFalse(rig.passesWeightLimits([40_000, 12_000]))
+        // No weight signs found on the corridor → nothing restricts.
+        XCTAssertTrue(rig.passesWeightLimits([]))
+        // No weight-limit data yet must never exclude a route.
+        XCTAssertTrue(rig.passesWeightLimits(nil))
+        // No entered weight (nil or 0) → the check never excludes.
+        XCTAssertTrue(FilterLimits().passesWeightLimits([12_000]))
+        XCTAssertTrue(FilterLimits(rigWeightLbs: 0).passesWeightLimits([12_000]))
+    }
+
+    func testWeightSignParsesAndGates() {
+        // A metric "7.5 t" sign (≈16,535 lb) admits the 15,000 lb rig and
+        // rejects a 17,000 lb one — parser and comparison working together.
+        let posted = RouteAttributes.weightLimitLbs(fromOSM: "7.5 t")!
+        XCTAssertTrue(FilterLimits(rigWeightLbs: 15_000).passesWeightLimits([posted]))
+        XCTAssertFalse(FilterLimits(rigWeightLbs: 17_000).passesWeightLimits([posted]))
+    }
+
     // MARK: grades — the driver thinks in DEGREES (14° towing heavy)
 
     func testGradeLimitInDegrees() {

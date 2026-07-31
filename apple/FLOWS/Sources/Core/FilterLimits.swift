@@ -9,9 +9,9 @@
 import Foundation
 
 /// Driver-tunable filter limits (the right-hand sliders). Pure — the
-/// clearance and grade admission rules live here so the canonical scenario
-/// (10 ft van that cannot pass a 12 ft post; 14° grade ceiling towing heavy)
-/// is pinned by FLOWSTests.
+/// clearance, grade, and bridge-weight admission rules live here so the
+/// canonical scenario (10 ft van that cannot pass a 12 ft post; 14° grade
+/// ceiling towing heavy) is pinned by FLOWSTests.
 struct FilterLimits {
     var vehicleHeightMeters: Double = 4.115   // 13'6"
     /// Grade limit as PERCENT (what USGS elevation profiles measure). The UI
@@ -22,6 +22,9 @@ struct FilterLimits {
     /// a 10 ft vehicle cannot take a bridge posted 12 ft or smaller (2 ft
     /// of breathing room for load shift and repaving).
     var clearanceMarginMeters: Double = 0.6096   // 2 ft
+    /// The rig's total weight (vehicle + what it tows, pounds) for the
+    /// bridge-weight check; nil = no weights entered → never excludes.
+    var rigWeightLbs: Double? = nil
 
     static func degreesToPercent(_ degrees: Double) -> Double {
         tan(degrees * .pi / 180) * 100
@@ -40,5 +43,14 @@ struct FilterLimits {
     /// nil (no data yet) never excludes a route.
     func passesGrade(_ routeMaxGradePercent: Double?) -> Bool {
         (routeMaxGradePercent ?? 0) < maxGradePercent
+    }
+
+    /// True when every posted weight limit can take the rig's total weight.
+    /// A posted limit is the legal maximum the bridge or road carries — AT
+    /// the limit is allowed, one pound over is not. nil data (no fetch yet)
+    /// or no entered weight never excludes a route.
+    func passesWeightLimits(_ limitsLbs: [Double]?) -> Bool {
+        guard let limitsLbs, let rig = rigWeightLbs, rig > 0 else { return true }
+        return !limitsLbs.contains { $0 < rig - 1e-9 }
     }
 }
