@@ -39,6 +39,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      # FLOWSTests static-links the Rust core (the suite asserts the Rust
+      # decoder is LIVE, not the Swift fallback) — build the release lib
+      # first or the xcodebuild link step fails on a bare runner.
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - name: rust core (release lib for the test link)
+        run: cargo build --release -p flows-core
+        working-directory: rust
       - name: xcodegen
         run: brew install xcodegen
       - name: generate project
