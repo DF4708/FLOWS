@@ -2141,6 +2141,10 @@ final class AppModel: ObservableObject {
                 origin: origin, dest: dest,
                 predicted: route.rankingRisk, observed: tripObservedPeak,
                 distanceKm: route.distanceMeters / 1000, hubPath: hubs)
+            // The everyday-radius cache learns the same trip (straight-line
+            // start→end miles) — AFTER the seasonal record above, so the home
+            // anchor it refreshes from already includes this trip.
+            EverydayPlaces.shared.recordTrip(origin: origin, dest: dest)
         }
         // Final destination reached: stop the background polling loops (corridor
         // NWS + traffic MKDirections) so a completed trip doesn't keep them

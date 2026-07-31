@@ -1049,7 +1049,7 @@ struct ContentView: View {
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(Theme.cta, lineWidth: 1))
                             .shadow(radius: 2)
-                            .onTapGesture { model.poi.selected = ranked }
+                            .onTapGesture { model.poi.choose(ranked) }
                     }
                 } else {
                     Marker(ranked.item.name ?? "Stop",

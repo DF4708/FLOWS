@@ -27,6 +27,7 @@ final class POIService: ObservableObject {
         case hotel = "Hotels"
         case medical = "Medical"
         case shelter = "Shelter"
+        case gym = "Gyms"
         // Trucker-mode kinds.
         case shower = "Showers"
         case truckParking = "Truck parking"
@@ -44,6 +45,7 @@ final class POIService: ObservableObject {
             case .hotel: return "bed.double.fill"
             case .medical: return "cross.case.fill"
             case .shelter: return "house.lodge.fill"
+            case .gym: return "dumbbell.fill"
             case .shower: return "shower.fill"
             case .truckParking: return "truck.box.fill"
             case .parking: return "parkingsign"
@@ -53,7 +55,7 @@ final class POIService: ObservableObject {
 
         /// The bottom-bar button sets per mode.
         static let standardKinds: [Kind] = [.gas, .food, .stores, .rest, .parking,
-                                            .hotel, .medical, .shelter]
+                                            .hotel, .medical, .shelter, .gym]
         // Stores sits before hotel/food so it never scrolls out of first view
         // on the wider trucker bar (it was technically present but off-screen).
         static let truckerKinds: [Kind] = [.gas, .shower, .truckParking, .weighStation,
@@ -91,6 +93,8 @@ final class POIService: ObservableObject {
             return MKPointOfInterestFilter(including: [.gasStation])
         case .parking:
             return MKPointOfInterestFilter(including: [.parking])
+        case .gym:
+            return MKPointOfInterestFilter(including: [.fitnessCenter])
         case .rest, .shelter, .truckParking, .weighStation:
             // No MK category models rest areas, shelters, truck parking, or
             // weigh stations.
@@ -108,7 +112,23 @@ final class POIService: ObservableObject {
         case .medical: return [4]
         case .tourist: return [5]
         case .rest, .truckParking, .shower: return [7]
-        case .parking, .shelter, .weighStation: return nil   // not in the dataset
+        case .parking, .shelter, .weighStation, .gym: return nil   // not in the dataset
+        }
+    }
+
+    /// Kind → everyday-cache category. nil = not remembered: tourist stops
+    /// and the trucker-specific kinds aren't everyday habits near home.
+    static func everydayCategory(for kind: Kind) -> EverydayCategory? {
+        switch kind {
+        case .gas: return .fuel
+        case .food: return .food
+        case .stores: return .stores
+        case .rest: return .rest
+        case .shelter: return .shelter
+        case .medical: return .medical
+        case .hotel: return .hotels
+        case .gym: return .gyms
+        case .tourist, .shower, .truckParking, .parking, .weighStation: return nil
         }
     }
 
@@ -165,6 +185,10 @@ final class POIService: ObservableObject {
 
     /// Monotonic search id — see the generation guard in `search()`.
     private var searchGeneration = 0
+
+    /// Where the driver was when the last search started — the everyday
+    /// cache's lookup-context (start cell) for habit correlation.
+    private var lastSearchPosition: CLLocationCoordinate2D?
 
     /// Shelter search query — swapped to tornado shelters by AppModel when a
     /// tornado/severe warning is active near the corridor.
@@ -297,6 +321,8 @@ final class POIService: ObservableObject {
         case .weighStation:
             await search(kind, queries: ["weigh station", "truck scales CAT scale"],
                          aheadOf: position)
+        case .gym:
+            await search(kind, queries: ["gym fitness center"], aheadOf: position)
         }
     }
 
@@ -342,6 +368,20 @@ final class POIService: ObservableObject {
         emptyResultMessage = nil
         selected = nil
         defer { if gen == searchGeneration { isSearching = false } }
+
+        // INSTANT-FIRST: inside the learned everyday circle, the stops the
+        // driver already uses appear immediately (most-used first) while the
+        // network searches run; the fresh results merge in below.
+        lastSearchPosition = position
+        let category = Self.everydayCategory(for: kind)
+        let everyday: [RankedPOI] = category.map { cat in
+            EverydayPlaces.shared.instantResults(in: cat, near: position)
+                .prefix(8).map { Self.instantRow(for: $0, from: position) }
+        } ?? []
+        if !everyday.isEmpty {
+            results = everyday
+            selected = everyday.first
+        }
 
         var found: [MKMapItem] = []
         var centers: [CLLocationCoordinate2D] = position.map { [$0] } ?? []
@@ -528,12 +568,86 @@ final class POIService: ObservableObject {
                 finalRanked = [top] + finalRanked.filter { $0.item !== nearest }
             }
         }
-        results = finalRanked
+        // Remember what this search found inside the everyday circle (the
+        // store ignores everything outside it), then merge: remembered stops
+        // stay pinned first, most-used first — except Medical, where the
+        // nearest ER must lead and habit never outranks an emergency.
+        if let category {
+            EverydayPlaces.shared.remember(
+                unique.map {
+                    let c = $0.placemark.coordinate
+                    return (name: $0.name ?? "?", lat: c.latitude, lon: c.longitude,
+                            street: $0.placemark.thoroughfare ?? "",
+                            city: $0.placemark.locality ?? "")
+                },
+                in: category)
+        }
+        // ...and a remembered stop the fresh search says is CLOSED right now
+        // loses its pin (it can still rank normally via the essential-kind
+        // fallback above, flagged as maybe-closed).
+        let closedKeys = Set(ranked.filter { $0.isOpenNow == false }.map(Self.rowKey))
+        let pinned = (kind == .medical ? [] : everyday)
+            .filter { !closedKeys.contains(Self.rowKey($0)) }
+        results = Self.merged(everyday: pinned, network: finalRanked)
         selected = results.first
         if results.isEmpty {
             emptyResultMessage = "No \(kind.rawValue.lowercased()) found ahead on this route."
             activeKind = nil
         }
+    }
+
+    /// A list row for a remembered everyday stop — straight-line distance
+    /// until the ranked network row (with real ahead/detour) replaces it.
+    private static func instantRow(for place: EverydayPlace,
+                                   from position: CLLocationCoordinate2D?) -> RankedPOI {
+        let coordinate = CLLocationCoordinate2D(latitude: place.latitude,
+                                                longitude: place.longitude)
+        let placemark = MKPlacemark(
+            coordinate: coordinate,
+            addressDictionary: ["Street": place.street, "City": place.city])
+        let item = MKMapItem(placemark: placemark)
+        item.name = place.name
+        let ahead = position.map { POIRanking.meters(coordinate, $0) } ?? 0
+        return RankedPOI(item: item, aheadMeters: ahead, detourMeters: 0,
+                         pricePerUnit: nil)
+    }
+
+    /// The everyday cache's stable identity for a result row (name + ~220 m
+    /// cell) — the same attribute id the store keys entries by.
+    private static func rowKey(_ row: RankedPOI) -> String {
+        let c = row.item.placemark.coordinate
+        return EverydayPlace.attributeID(name: row.item.name ?? "?",
+                                         latitude: c.latitude, longitude: c.longitude)
+    }
+
+    /// Everyday-first merge: remembered stops lead in most-used order, but
+    /// each takes the RICHER network row (price/rating/hours) when the fresh
+    /// search found the same place; new finds follow in ranked order.
+    private static func merged(everyday: [RankedPOI],
+                               network: [RankedPOI]) -> [RankedPOI] {
+        guard !everyday.isEmpty else { return network }
+        let networkByKey = Dictionary(network.map { (rowKey($0), $0) },
+                                      uniquingKeysWith: { a, _ in a })
+        var seen = Set<String>()
+        var out: [RankedPOI] = everyday.compactMap { row in
+            guard seen.insert(rowKey(row)).inserted else { return nil }
+            return networkByKey[rowKey(row)] ?? row
+        }
+        out += network.filter { seen.insert(rowKey($0)).inserted }
+        return out
+    }
+
+    /// Row tap: select the stop on the map AND count the lookup — the
+    /// everyday cache ranks by how often each stop is actually used, and the
+    /// context (time of day, weekday, start cell) feeds the habit patterns.
+    func choose(_ ranked: RankedPOI) {
+        selected = ranked
+        guard let kind = activeKind,
+              let category = Self.everydayCategory(for: kind) else { return }
+        let c = ranked.item.placemark.coordinate
+        EverydayPlaces.shared.noteUse(name: ranked.item.name ?? "?",
+                                      lat: c.latitude, lon: c.longitude,
+                                      in: category, from: lastSearchPosition)
     }
 
     /// Route-aware ranking: ahead-only, capped detour, ordered per kind.

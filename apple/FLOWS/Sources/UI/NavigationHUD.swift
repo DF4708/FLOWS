@@ -417,7 +417,7 @@ struct NavigationHUD: View {
         .background(Color.black.opacity(isSelected ? 0.08 : 0.02))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .onTapGesture { model.poi.selected = ranked }
+        .onTapGesture { model.poi.choose(ranked) }
     }
 
     /// Arrival confirmation — navigation doesn't just vanish.
