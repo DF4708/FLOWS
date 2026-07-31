@@ -26,6 +26,7 @@ apple/
       RouteService.swift      # MKDirections alternates + FLOWS weather-risk scoring
       NavigationEngine.swift  # turn-by-turn state machine + dynamic zoom policy
       POIService.swift        # gas/food along the corridor ahead (MKLocalSearch)
+      EverydayRadius.swift    # learned home circle (≤20 mi) + instant most-used POI cache
       WeatherAlertService.swift # NWS corridor alerts, driving-cadence refresh
       RiskEquations.swift     # ported R equations + two-tier realized risk
       ClimateProfiles.swift   # 12 Köppen-style climates, seasonal norms

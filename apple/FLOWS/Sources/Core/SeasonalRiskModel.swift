@@ -379,6 +379,15 @@ final class SeasonalRiskModel: ObservableObject {
     }
 
 
+    /// The learned home anchor (the most-frequent trip-origin cell) — the
+    /// everyday POI cache centers its circle here. `nil` until an origin
+    /// clears `homeMinTrips`.
+    func learnedHomeCoordinate() -> CLLocationCoordinate2D? {
+        store.learnedHome().map {
+            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+        }
+    }
+
     /// Record a completed trip's prediction vs. what was encountered, plus the
     /// per-edge history, then persist.
     func recordTrip(origin: CLLocationCoordinate2D, dest: CLLocationCoordinate2D,

@@ -229,6 +229,7 @@ targets:
       - path: FLOWS/Sources/Core/RiskEquations.swift
       - path: FLOWS/Sources/Core/RiskAdvice.swift
       - path: FLOWS/Sources/Core/SeasonalRiskModel.swift
+      - path: FLOWS/Sources/Core/EverydayRadius.swift
       - path: FLOWS/Sources/Core/HarmonicClimatology.swift
       - path: FLOWS/Sources/Core/PlacesStore.swift
       - path: FLOWS/Sources/Core/LatitudeBands.swift
