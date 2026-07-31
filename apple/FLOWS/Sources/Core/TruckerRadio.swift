@@ -37,7 +37,16 @@ final class TruckerRadio: ObservableObject {
         var longitude: Double?
 
         var id: String { name }
-        var streamURL: URL? { url.isEmpty ? nil : URL(string: url) }
+        /// ATS blocks cleartext, so an http relay URL (user-supplied lists
+        /// sometimes carry them) would fail silently — the relay hosts all
+        /// serve the same stream over TLS, so upgrade the scheme here.
+        var streamURL: URL? {
+            guard !url.isEmpty else { return nil }
+            let secured = url.hasPrefix("http://")
+                ? "https://" + url.dropFirst("http://".count)
+                : url
+            return URL(string: secured)
+        }
     }
 
     /// Reference card: what to tune on the physical radio.
@@ -176,8 +185,9 @@ final class TruckerRadio: ObservableObject {
                 switch item.status {
                 case .readyToPlay: self?.status = "Playing \(channel.name)"
                 case .failed:
-                    self?.status = "\(channel.name): "
-                        + (item.error?.localizedDescription ?? "stream failed")
+                    // Raw AVFoundation error text is jargon — the driver
+                    // only needs to know the station can't be reached.
+                    self?.status = "Station is offline right now."
                     self?.playingChannelID = nil
                 default: break
                 }
@@ -190,7 +200,7 @@ final class TruckerRadio: ObservableObject {
             forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.status = "\(channel.name): stream dropped."
+                self?.status = "Station cut out. Press play to try again."
                 self?.playingChannelID = nil
             }
         }

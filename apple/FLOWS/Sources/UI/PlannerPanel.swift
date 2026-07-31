@@ -19,6 +19,7 @@ struct PlannerPanel: View {
     @Binding var camera: MapCameraPosition
 
     @State private var searchQuery = ""
+    @StateObject private var destSearch = DestinationSearch()
     @State private var overrideSource = false
     @State private var isWorking = false
     @State private var errorMessage: String?
@@ -51,8 +52,11 @@ struct PlannerPanel: View {
             }
             Text("Where to?")
                 .font(.system(size: 15, weight: .bold))
+                .onChange(of: model.plannerDestination) { _, text in
+                    destSearch.update(fragment: text, near: model.location.coordinate)
+                }
             HStack(spacing: 6) {
-                TextField("Destination ZIP, county, or city", text: $model.plannerDestination)
+                TextField("Address, place, city, or ZIP", text: $model.plannerDestination)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
                     .frame(minHeight: Theme.tapMinimum)
@@ -87,16 +91,51 @@ struct PlannerPanel: View {
                     }
                 } label: {
                     Image(systemName: destinationIsFavorite ? "star.fill" : "star")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(destinationIsFavorite ? Color.yellow : Color.secondary)
-                        .frame(width: Theme.tapMinimum, height: Theme.tapMinimum)
+                        .frame(width: 56, height: Theme.tapMinimum)
                         .background(Color.black.opacity(0.04))
-                        .clipShape(Circle())
+                        .clipShape(Capsule())
                 }
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .disabled(model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty)
                 .help("Save this destination as a favorite")
+            }
+            // Live lookup while typing: closest matches first (addresses,
+            // places, partial words like "pharma"). Tapping one plans it.
+            if focusedField == .destination, !destSearch.suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(destSearch.suggestions) { sug in
+                        Button {
+                            destSearch.accept()
+                            model.plannerDestination = sug.searchText
+                            focusedField = nil
+                            Task { await plan() }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(sug.title)
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                if !sug.subtitle.isEmpty {
+                                    Text(sug.subtitle)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if sug.id != destSearch.suggestions.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+                .background(Color.black.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
             // Source row: GPS by default, tap to override. When there's no
@@ -122,7 +161,7 @@ struct PlannerPanel: View {
             if showSourceField {
                 // Same pill styling as the destination — the roundedBorder
                 // style had a near-unclickable hit target on macOS.
-                TextField("Source ZIP, county, or city", text: $model.plannerSource)
+                TextField("Start address, place, city, or ZIP", text: $model.plannerSource)
                     .textFieldStyle(.plain)
                     .font(.system(size: 16))
                     .frame(minHeight: Theme.tapMinimum)
@@ -185,8 +224,35 @@ struct PlannerPanel: View {
                     latitudinalMeters: 60_000, longitudinalMeters: 60_000))
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyError(error)
         }
+    }
+
+    /// Frame a route for the choosing layout: pad, then grow the rect
+    /// LEFTWARD so the route centers in the map area right of the Routes
+    /// panel instead of hiding behind it.
+    static func choicesCameraRect(_ rect: MKMapRect) -> MKMapRect {
+        var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
+        fit.origin.x -= fit.size.width * 0.35
+        fit.size.width *= 1.35
+        return fit
+    }
+
+    /// Plain-words error text — never surface raw framework errors like
+    /// "kCLErrorDomain error 8" (geocoder found nothing) to the driver.
+    private static func friendlyError(_ error: Error) -> String {
+        let ns = error as NSError
+        if ns.domain == kCLErrorDomain {
+            switch ns.code {
+            case 8: return "Couldn't find that place. Check the spelling or add a city or state."
+            case 2: return "No internet right now — try again when you're back in coverage."
+            default: return "Couldn't look that up right now. Try again in a moment."
+            }
+        }
+        if (error as? URLError) != nil {
+            return "No internet right now — try again when you're back in coverage."
+        }
+        return "Couldn't plan that route. Try again in a moment."
     }
 
     // MARK: favorites
@@ -202,9 +268,7 @@ struct PlannerPanel: View {
                 defer { isWorking = false }
                 if let planned = await model.planToFavorite(fav), let first = planned.first {
                     withAnimation {
-                        camera = .rect(first.route.polyline.boundingMapRect.insetBy(
-                            dx: -first.route.polyline.boundingMapRect.width * 0.2,
-                            dy: -first.route.polyline.boundingMapRect.height * 0.2))
+                        camera = .rect(Self.choicesCameraRect(first.route.polyline.boundingMapRect))
                     }
                 } else {
                     errorMessage = "Couldn't plan to \(fav.name) — no GPS fix or no route."
@@ -239,7 +303,7 @@ struct PlannerPanel: View {
                 name: name, symbol: symbol,
                 latitude: coord.latitude, longitude: coord.longitude))
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyError(error)
         }
     }
 
@@ -278,13 +342,11 @@ struct PlannerPanel: View {
             // Frame the full corridor while choosing.
             if let first = planned.first {
                 withAnimation {
-                    camera = .rect(first.route.polyline.boundingMapRect.insetBy(
-                        dx: -first.route.polyline.boundingMapRect.width * 0.2,
-                        dy: -first.route.polyline.boundingMapRect.height * 0.2))
+                    camera = .rect(Self.choicesCameraRect(first.route.polyline.boundingMapRect))
                 }
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyError(error)
         }
     }
 }

@@ -621,7 +621,18 @@ struct ContentView: View {
             // retries instead of showing stale/empty hazards forever.
             if found.isEmpty { viewportHazardKey = ""; return }
             if viewportHazardKey == key {
-                viewportHazards = found
+                // Merge, don't replace: the new sweep's box is offset from
+                // the old one, and wholesale replacement blinked away icons
+                // (rain) that were still inside the visible region.
+                let newKeys = Set(found.map { "\(Int($0.coordinate.latitude * 50))|\(Int($0.coordinate.longitude * 50))" })
+                let kept = viewportHazards.filter { hz in
+                    let key = "\(Int(hz.coordinate.latitude * 50))|\(Int(hz.coordinate.longitude * 50))"
+                    guard !newKeys.contains(key) else { return false }
+                    let r = region
+                    return abs(hz.coordinate.latitude - r.center.latitude) < r.span.latitudeDelta / 2
+                        && abs(hz.coordinate.longitude - r.center.longitude) < r.span.longitudeDelta / 2
+                }
+                viewportHazards = found + kept
                 // Cluster once here, not on every render (O(n²) in the body).
                 // Badge score is the point's REALIZED risk (primary hazards can
                 // reach Red; secondary predictors amplify a realized primary but
@@ -856,6 +867,16 @@ struct ContentView: View {
                 Annotation("", coordinate: here) {
                     travelerMarker
                 }
+                // Fuel-reach ring: ONLY once the tank is 75%+ empty — the
+                // blue circle is how far the remaining fuel can take you,
+                // shrinking toward the car as the tank approaches empty.
+                if model.mode == .navigating, !model.walkingMode,
+                   let frac = model.vehicle.predictedFuelFraction, frac <= 0.25,
+                   let rangeMiles = model.vehicle.expectedRangeMiles, rangeMiles > 0 {
+                    MapCircle(center: here, radius: rangeMiles * 1609.344)
+                        .foregroundStyle(Color.blue.opacity(0.06))
+                        .stroke(Color.blue.opacity(0.55), lineWidth: 2)
+                }
             } else {
                 UserAnnotation()
             }
@@ -911,14 +932,6 @@ struct ContentView: View {
                 // Continuous field everywhere (like WI's choropleth): every
                 // grid point tints faintly by band; ZCTA rings + badges key
                 // off genuinely elevated scores.
-                ForEach(viewportHazards) { hz in
-                    let s = hz.realized
-                    if s >= 0.15, s < model.riskDisplayFloor {
-                        MapCircle(center: hz.coordinate, radius: viewportHazardRadius)
-                            .foregroundStyle(FlowsCore.riskBand(score: s).color
-                                .opacity(0.04 + 0.1 * s))
-                    }
-                }
                 // Risk-area overlays — real ZCTA ZIP rings (US) + hull blobs
                 // (Canada/Mexico + still-loading) — are precomputed once per sweep
                 // in rebuildRiskOverlays(); the map body only DRAWS them, so the
@@ -1083,11 +1096,12 @@ struct ContentView: View {
                                          distance: distance, heading: 0,
                                          pitch: on ? 55 : 0)))
         }
-        // Compass pinned top-right (under the gear).
+        // Compass pinned top-right (under the gear), sized up for glanceability.
         .overlay(alignment: .topTrailing) {
             MapCompass(scope: mapScope)
-                .padding(.top, 56)
-                .padding(.trailing, 14)
+                .scaleEffect(1.35)
+                .padding(.top, 60)
+                .padding(.trailing, 18)
         }
         // No network: routing can't help, but the breadcrumb trail can. The
         // banner names the situation and offers the way back — the recorded
@@ -1172,14 +1186,6 @@ struct ContentView: View {
                 MapPolygon(coordinates: area.ring)
                     .foregroundStyle(area.kind.color.opacity(0.20))
                     .stroke(area.kind.color.opacity(0.75), lineWidth: 2)
-            }
-        }
-        ForEach(Array(risky.enumerated()), id: \.offset) { i, sample in
-            if corridorAreaRouteID != route.id
-                || !corridorCoveredSamples.contains(Self.sampleKey(sample.coordinate)) {
-                MapCircle(center: sample.coordinate, radius: 18_000)
-                    .foregroundStyle(corridorKind(sample).color.opacity(0.18))
-                    .stroke(corridorKind(sample).color.opacity(0.6), lineWidth: 1.5)
             }
         }
         // ONE symbol at the center of each contiguous risk area — clustered
@@ -1970,10 +1976,27 @@ struct SettingsSheet: View {
                       text: $model.googlePlacesAPIKey)
                 .textFieldStyle(.roundedBorder)
                 .font(.caption)
-            TextField("Yelp Fusion API key (paid plans; used as fallback) — stars + $",
-                      text: $model.yelpAPIKey)
-                .textFieldStyle(.roundedBorder)
-                .font(.caption)
+            HStack(spacing: 6) {
+                TextField("Yelp Places API key (30-day free trial, then paid) — stars + $",
+                          text: $model.yelpAPIKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                Menu {
+                    Text("How to get a Yelp key:")
+                    Text("1. Open business.yelp.com/data/products/places-api")
+                    Text("2. Start the free 30-day trial (5,000 calls)")
+                    Text("3. Create an app to get your API key")
+                    Text("4. Paste the key here")
+                    Divider()
+                    Link("Open the Yelp API page",
+                         destination: URL(string: "https://business.yelp.com/data/products/places-api/")!)
+                } label: {
+                    Text("Get one")
+                        .font(.caption.weight(.semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
             TextField("TomTom API key (free tier: developer.tomtom.com) — live gas prices",
                       text: $model.tomtomAPIKey)
                 .textFieldStyle(.roundedBorder)
@@ -2128,7 +2151,8 @@ private struct LegendCard: View {
         VStack {
             Spacer()
             HStack {
-                Spacer()   // bottom-RIGHT: the Routes panel owns the left edge
+                // Bottom-LEFT so the right edge stays clear for the compass
+                // and driving controls.
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Risk")
                         .font(.caption2.weight(.bold))
@@ -2178,8 +2202,9 @@ private struct LegendCard: View {
                 .background(Theme.cardBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                Spacer()
             }
-            .padding(.trailing, 16)
+            .padding(.leading, 16)
             .padding(.bottom, 16)
         }
         .allowsHitTesting(false)
@@ -2266,12 +2291,7 @@ struct VehicleEditorSheet: View {
                     .foregroundStyle(.secondary)
             }
             }
-            HStack(spacing: 8) {
-                TextField("Year (e.g. 2022)", text: $vehicleYear)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 110)
-                Spacer()
-            }
+
             Picker("Fuel", selection: $fuelType) {
                 ForEach(FuelType.allCases) { fuel in
                     Label(fuel.rawValue, systemImage: fuel.symbol).tag(fuel)

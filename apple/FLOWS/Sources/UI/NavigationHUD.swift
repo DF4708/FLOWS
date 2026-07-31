@@ -21,10 +21,19 @@ struct NavigationHUD: View {
 
     @Environment(\.openURL) private var openURL
     @StateObject private var music = MusicController.shared
-    /// Trucker radio card visibility (trucker mode only).
+    /// Radio card visibility (trucker radio in trucker mode, emergency
+    /// radio otherwise — same card, same relays).
     @State private var showRadio = false
     /// Persisted station choice (67 bundled NOAA relays).
     @AppStorage("flows.radioChannel") private var radioChannelID = ""
+    /// Quick music menu (resume / station / genres) visibility.
+    @State private var showMusicMenu = false
+    /// Live-economy inputs, fed by GPS fixes: current speed and a lightly
+    /// smoothed acceleration (single-fix speed noise would flicker the bar).
+    @State private var liveMph: Double = 0
+    @State private var accelMphPerSec: Double = 0
+    @State private var lastFixTime: Date?
+    @State private var lastFixMph: Double = 0
 
 
     var body: some View {
@@ -33,6 +42,15 @@ struct NavigationHUD: View {
                 arrivedBanner(arrived)
             } else {
                 instructionBanner
+            }
+            // Compact layouts flow the fuel cluster under the banner (the
+            // banner spans the full width there, so a corner overlay would
+            // cover its text); regular layouts pin it to the true corner.
+            if isCompact, showsFuelCluster {
+                HStack {
+                    Spacer()
+                    fuelCluster
+                }
             }
             if let warning = model.imminentWarning {
                 imminentBanner(warning)
@@ -161,6 +179,9 @@ struct NavigationHUD: View {
             if showRadio {
                 radioCard
             }
+            if showMusicMenu {
+                musicMenuCard
+            }
             if model.poi.pendingFoodChoice {
                 foodCategoryCard
             } else if model.poi.pendingStoreChoice {
@@ -172,7 +193,100 @@ struct NavigationHUD: View {
             }
             bottomBar
         }
+        .overlay(alignment: .topTrailing) {
+            if !isCompact, showsFuelCluster {
+                fuelCluster
+            }
+        }
         .padding(isCompact ? 8 : 16)
+        .onReceive(model.location.$latest) { fix in
+            guard let fix else { return }
+            let mph = max(fix.speed, 0) * 2.236936
+            if let last = lastFixTime {
+                let dt = fix.timestamp.timeIntervalSince(last)
+                if dt > 0.2 {
+                    accelMphPerSec = accelMphPerSec * 0.7
+                        + ((mph - lastFixMph) / dt) * 0.3
+                }
+            }
+            lastFixTime = fix.timestamp
+            lastFixMph = mph
+            liveMph = mph
+        }
+    }
+
+    // MARK: fuel cluster — gauge + economy readouts while driving
+
+    /// The cluster is a driving instrument: motor routes only (walking has
+    /// no tank), and only once a vehicle profile exists to read from.
+    private var showsFuelCluster: Bool {
+        model.vehicle.profile != nil
+            && model.navigation.route?.isWalkingEstimate != true
+    }
+
+    /// Average economy from the vehicle's habit-learned figures (rolling
+    /// speed + idle history); the plain rated number before any history.
+    private var averageEconomy: Double? {
+        guard let profile = model.vehicle.profile else { return nil }
+        guard profile.tankCapacityUnits > 0 else { return profile.ratedMilesPerUnit }
+        return profile.effectiveRangeMiles(
+            averageSpeedMph: model.vehicle.averageSpeedMph,
+            idleFraction: model.vehicle.idleFraction) / profile.tankCapacityUnits
+    }
+
+    /// Live economy vs the vehicle's baseline, from signals GPS already
+    /// supplies (speed + smoothed acceleration — no new sensors): the
+    /// speed-matched economy curve, divided for throttle (burn rises
+    /// roughly with a·v) and credited a little for coasting. Thirds of the
+    /// plausible band [0.4×, 1.3×] of rated economy: green at or above the
+    /// rated figure, yellow above 0.7×, red below. Under ~2 mph the bar is
+    /// neutral gray — idling always scores worst-third, and a constant red
+    /// at every stoplight is noise, not information.
+    private var liveEconomyColor: Color {
+        guard let profile = model.vehicle.profile, liveMph >= 2 else {
+            return Color.gray.opacity(0.35)
+        }
+        let speedMatched = profile.milesPerUnit(atSpeedMph: liveMph)
+        let accelFactor = accelMphPerSec > 0
+            ? 1 / (1 + accelMphPerSec * 0.35)
+            : min(1 + min(-accelMphPerSec, 2) * 0.1, 1.2)
+        let ratio = speedMatched * accelFactor / max(profile.ratedMilesPerUnit, 0.1)
+        if ratio >= 1.0 { return Theme.riskGreen }
+        if ratio >= 0.7 { return Theme.riskYellow }
+        return Theme.riskRed
+    }
+
+    private var fuelCluster: some View {
+        let vehicle = model.vehicle
+        let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
+        let electric = vehicle.profile?.fuelType == .electric
+        return VStack(spacing: 3) {
+            GaugeDial(fraction: .constant(fraction))
+                .frame(width: 140, height: 84)
+                .allowsHitTesting(false)
+            if let economy = averageEconomy {
+                Text(electric
+                     ? String(format: "%.1f mi/kWh", economy)
+                     : String(format: "%.0f MPG", economy))
+                    .font(.system(size: 12, weight: .bold))
+                    .monospacedDigit()
+            }
+            if let range = vehicle.expectedRangeMiles {
+                Text(String(format: "~%.0f mi left", range))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            Capsule()
+                .fill(liveEconomyColor)
+                .frame(width: 132, height: 4)
+                .padding(.top, 1)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
     // MARK: food category picker — shown when Food is tapped
@@ -357,6 +471,14 @@ struct NavigationHUD: View {
                         Label(ranked.showers.rawValue, systemImage: "shower.fill")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.blue)
+                    }
+                    if let fee = ranked.parkingFee {
+                        Text(fee ? "· Paid" : "· Free")
+                            .fontWeight(.semibold)
+                            .foregroundStyle(fee ? Color.secondary : Theme.riskGreen)
+                    }
+                    if let type = ranked.shelterType {
+                        Text("· \(type)").fontWeight(.semibold)
                     }
                 }
                 .font(.caption)
@@ -683,80 +805,88 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
                 .help("Towing mode: weights vs GVWR/tow capacity/GCWR")
-                if model.truckerUI {
-                    Button {
-                        showRadio.toggle()
-                        if !showRadio { model.radio.stop() }
-                    } label: {
-                        Image(systemName: "radio.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 38, height: 38)
-                            .background(showRadio ? Color.brown : Color.black.opacity(0.06))
-                            .foregroundStyle(showRadio ? .white : .primary)
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Trucker radio")
+                Button {
+                    showRadio.toggle()
+                    if !showRadio { model.radio.stop() }
+                } label: {
+                    Image(systemName: "radio.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                        .background(showRadio ? Color.brown : Color.black.opacity(0.06))
+                        .foregroundStyle(showRadio ? .white : .primary)
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .help(model.truckerUI ? "Trucker radio" : "Emergency radio")
                 SettingsGear()
                 Button("End") { model.endNavigation() }
                     .buttonStyle(PillCTAStyle())
                     .frame(width: 74)
             }
-            // Row 2 — the stop buttons: the bar hugs the CURRENT button
-            // count (trucker vs standard) and only falls back to a scroll
-            // strip when the window genuinely can't fit them.
+            // Row 1 keeps its comfortable cap; row 2 below may run wider.
+            .frame(maxWidth: isCompact ? .infinity : 680)
+            // Row 2 — the stop buttons: the row widens past row 1's cap
+            // (still centered) as long as the buttons fit the window; the
+            // labels drop first, and a scroll strip is the LAST resort,
+            // only when even the icon-only row can't fit.
             ViewThatFits(in: .horizontal) {
-                poiButtonRow
-                ScrollView(.horizontal, showsIndicators: false) { poiButtonRow }
+                poiButtonRow(iconOnly: false)
+                poiButtonRow(iconOnly: true)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    poiButtonRow(iconOnly: false)
+                }
             }
         }
         .floatingCard()
-        // The bar hugs its content up to a comfortable cap instead of
-        // stretching across the whole window bottom; it stays centered and
-        // only goes edge-to-edge on compact (phone-width) layouts.
-        .frame(maxWidth: isCompact ? .infinity : 680)
+        // The bar hugs its content instead of stretching across the whole
+        // window bottom; it stays centered and only goes edge-to-edge on
+        // compact (phone-width) layouts.
+        .frame(maxWidth: isCompact ? .infinity : nil)
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private var poiButtonRow: some View {
-                HStack(spacing: 6) {
-                    ForEach(model.truckerUI ? POIService.Kind.truckerKinds
-                                            : POIService.Kind.standardKinds) { kind in
-                        Button {
-                            Task {
-                                if model.poi.activeKind == kind {
-                                    model.poi.clearResults()
-                                } else {
-                                    await model.poi.request(kind, aheadOf: model.effectivePosition)
-                                }
-                            }
-                        } label: {
-                            // Wording above, icon at the bottom; the label
-                            // drops automatically when the bar gets crowded
-                            // (trucker mode adds buttons) or the window
-                            // shrinks — ViewThatFits picks what's legible.
-                            ViewThatFits(in: .horizontal) {
-                                VStack(spacing: 3) {
-                                    Text(kind.rawValue)
-                                        .font(.system(size: 10, weight: .bold))
-                                        .lineLimit(1)
-                                        .fixedSize()
-                                    icon(for: kind)
-                                }
+    private func poiButtonRow(iconOnly: Bool) -> some View {
+        HStack(spacing: 6) {
+            ForEach(model.truckerUI ? POIService.Kind.truckerKinds
+                                    : POIService.Kind.standardKinds) { kind in
+                let selected = model.poi.activeKind == kind
+                Button {
+                    Task {
+                        if model.poi.activeKind == kind {
+                            model.poi.clearResults()
+                        } else {
+                            await model.poi.request(kind, aheadOf: model.effectivePosition)
+                        }
+                    }
+                } label: {
+                    // Wording above, icon at the bottom; the outer
+                    // ViewThatFits swaps in the icon-only variant when the
+                    // labeled row can't fit the window.
+                    Group {
+                        if iconOnly {
+                            icon(for: kind)
+                        } else {
+                            VStack(spacing: 3) {
+                                Text(kind.rawValue)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .lineLimit(1)
+                                    .fixedSize()
                                 icon(for: kind)
                             }
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 5)
-                            .frame(minHeight: 46)
-                            .background(model.poi.activeKind == kind
-                                        ? Theme.cta : Color.black.opacity(0.06))
-                            .foregroundStyle(model.poi.activeKind == kind ? .white : .primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 5)
+                    .frame(minHeight: 46)
+                    .background(selected ? Theme.cta : Color.black.opacity(0.06))
+                    // The pressed-in state sits on a near-black background —
+                    // its contents must stay light, never black-on-black.
+                    .foregroundStyle(selected ? Color(white: 0.8) : Color.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     /// Range is getting tight — plan a fuel stop now (vehicle range model).
@@ -803,12 +933,14 @@ struct NavigationHUD: View {
         }
     }
 
-    /// Trucker radio: internet relays of highway-relevant broadcasts, plus
-    /// the frequency guide for the cab's real radio.
+    /// Radio: internet relays of highway-relevant broadcasts (trucker radio
+    /// in trucker mode, emergency radio for everyone else — same relays),
+    /// plus the frequency guide for a physical radio.
     private var radioCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Label("Trucker radio", systemImage: "radio.fill")
+                Label(model.truckerUI ? "Trucker radio" : "Emergency radio",
+                      systemImage: "radio.fill")
                     .font(.system(size: 15, weight: .bold))
                 Spacer()
                 Button {
@@ -852,7 +984,7 @@ struct NavigationHUD: View {
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
             Divider()
-            Text("On the cab radio:").font(.caption.weight(.bold))
+            Text("On device radio:").font(.caption.weight(.bold))
             // Each cab channel gets its own row + play button. CB (27 MHz) and
             // Highway Advisory AM are LOCAL two-way/low-power broadcasts with
             // no licensed internet relays — those play buttons stay disabled
@@ -895,7 +1027,9 @@ struct NavigationHUD: View {
     @ViewBuilder
     private func icon(for kind: POIService.Kind) -> some View {
         if model.poi.isSearching && model.poi.activeKind == kind {
-            ProgressView().controlSize(.small)
+            // The spinner only ever appears on the pressed (near-black)
+            // button — untinted it vanishes into the background.
+            ProgressView().controlSize(.small).tint(Color(white: 0.8))
         } else if kind == .rest {
             BenchIcon(size: 16)   // the actual park bench
         } else {
@@ -965,21 +1099,25 @@ struct NavigationHUD: View {
     private var musicControls: some View {
         HStack(spacing: 4) {
             // Album art (real artwork on iOS; placeholder tile on macOS,
-            // track name in the tooltip).
-            Group {
-                if let art = music.artwork {
-                    Image(decorative: art, scale: 1)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Image(systemName: "music.note")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
+            // track name in the tooltip). Tapping opens the quick music
+            // menu — resume, station, genres.
+            Button { showMusicMenu.toggle() } label: {
+                Group {
+                    if let art = music.artwork {
+                        Image(decorative: art, scale: 1)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        Image(systemName: "music.note")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .frame(width: 30, height: 30)
+                .background(Color.black.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            .frame(width: 30, height: 30)
-            .background(Color.black.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .buttonStyle(.plain)
             .help(music.trackName.isEmpty ? "Music" : music.trackName)
             Button { music.back() } label: {
                 Image(systemName: "backward.fill")
@@ -1013,6 +1151,76 @@ struct NavigationHUD: View {
         .padding(.horizontal, 4)
         .background(Color.black.opacity(0.06))
         .clipShape(Capsule())
+    }
+
+    /// Quick music actions — the same floating-card pattern as the fuel
+    /// and radio menus, opened from the album-art tile.
+    private var musicMenuCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Music", systemImage: "music.note")
+                    .font(.system(size: 15, weight: .bold))
+                Spacer()
+                Button { showMusicMenu = false } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            musicMenuRow("Recently played", symbol: "clock.arrow.circlepath",
+                         detail: "Keep playing your last songs") {
+                music.resumeRecent()
+            }
+            musicMenuRow("My station", symbol: "dot.radiowaves.left.and.right",
+                         detail: "Your own song mix") {
+                music.playMyStation()
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Genres").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    ForEach(MusicController.genreRows, id: \.self) { genre in
+                        Button {
+                            music.playGenre(genre)
+                            showMusicMenu = false
+                        } label: {
+                            Text(genre)
+                                .font(.system(size: 12, weight: .semibold))
+                                .padding(.horizontal, 10)
+                                .frame(minHeight: 30)
+                                .background(Color.black.opacity(0.05))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .floatingCard()
+        .frame(maxWidth: isCompact ? .infinity : 380)
+    }
+
+    private func musicMenuRow(_ title: String, symbol: String, detail: String,
+                              action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            showMusicMenu = false
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title).font(.system(size: 13, weight: .semibold))
+                    Text(detail).font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 38)
+            .frame(maxWidth: .infinity)
+            .background(Color.black.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: formatting
