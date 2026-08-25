@@ -227,7 +227,21 @@ struct RouteChoicesView: View {
         var accessLeg = TransitLeg(kind: .walk, fromName: startName, toName: boardName,
                                    seconds: w1sec, miles: w1mi,
                                    polyline: w1poly, steps: w1steps)
-        if (w1sec ?? .infinity) > 2700 {
+        // WALKING MODE: the traveller has NO car — never park-and-ride. A
+        // station beyond a comfortable walk gets a ride-share first leg
+        // instead (Uber/Lyft deep links need no account keys; the links open
+        // their apps/sites with the pickup and drop-in already filled).
+        if model.walkingMode {
+            if (w1sec ?? .infinity) > 2700 {
+                accessLeg = TransitLeg(
+                    kind: .walk, fromName: startName, toName: boardName,
+                    seconds: w1sec, miles: w1mi, polyline: w1poly,
+                    steps: ["The station is a long walk (\(TransitPlanning.fmt(w1sec)))",
+                            "A ride share can cover this first leg:",
+                            "Uber: m.uber.com — set drop-off to \(boardName)",
+                            "Lyft: lyft.com/ride — set drop-off to \(boardName)"])
+            }
+        } else if (w1sec ?? .infinity) > 2700 {
             let (drivePoly, driveMi, driveSecs) = await rideGeometry(ep.from, boardC)
             if let driveSecs {
                 accessLeg = TransitLeg(
@@ -764,7 +778,12 @@ struct RouteChoicesView: View {
         model.highlightedRouteID = route.id
         let rect = route.route.polyline.boundingMapRect
         withAnimation {
-            camera = .rect(rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2))
+            var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
+            // The Routes panel covers the map's left edge — grow the rect
+            // leftward so the route itself centers in the VISIBLE map area.
+            fit.origin.x -= fit.size.width * 0.35
+            fit.size.width *= 1.35
+            camera = .rect(fit)
         }
     }
 }

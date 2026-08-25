@@ -250,17 +250,30 @@ struct GaugeDial: View {
                         p.addLine(to: outer)
                     }
                     .stroke(Color.secondary, lineWidth: 2)
+                    // Quartile ticks carry small percent labels (E and F
+                    // name the two ends themselves).
+                    if i > 0, i < 4 {
+                        Text("\(i * 25)%")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .position(point(center, radius + 14, angle))
+                    }
                 }
                 Text("E").font(.caption.weight(.heavy)).foregroundStyle(Theme.riskRed)
                     .position(point(center, radius + 16, Angle(degrees: 180)))
                 Text("F").font(.caption.weight(.heavy)).foregroundStyle(Theme.riskGreen)
                     .position(point(center, radius + 16, Angle(degrees: 360)))
-                // The centrally rotating red needle.
+                // The centrally rotating red needle. The offset puts the
+                // needle's base at the bounds center (= the hub), so the
+                // rotation must anchor at .center to pivot ON the hub —
+                // fraction 0 lies exactly on E, 1 exactly on F. A .bottom
+                // anchor pivots half a needle-length below the hub and
+                // slides the needle off the dial toward the ends.
                 Capsule()
                     .fill(Color.red)
                     .frame(width: 4, height: radius - 6)
                     .offset(y: -(radius - 6) / 2)
-                    .rotationEffect(Angle(degrees: -90 + fraction * 180), anchor: .bottom)
+                    .rotationEffect(Angle(degrees: -90 + fraction * 180), anchor: .center)
                     .position(center)
                 Circle().fill(Color.red).frame(width: 12, height: 12).position(center)
             }

@@ -257,7 +257,7 @@ enum RatingsProvider {
 /// Name-matched per result; "assume yes at Love's unless disproven" is
 /// exactly the .standard tier. Pure table, pinned by FLOWSTests.
 enum ShowerAvailability: String {
-    case standard = "Showers (brand standard)"
+    case standard = "Showers"
     case likely = "Showers likely"
     case none = "No showers"
     case disproven = "No showers (reported)"

@@ -27,6 +27,7 @@ final class POIService: ObservableObject {
         case hotel = "Hotels"
         case medical = "Medical"
         case shelter = "Shelter"
+        case gyms = "Gyms"
         // Trucker-mode kinds.
         case shower = "Showers"
         case truckParking = "Truck parking"
@@ -44,6 +45,7 @@ final class POIService: ObservableObject {
             case .hotel: return "bed.double.fill"
             case .medical: return "cross.case.fill"
             case .shelter: return "house.lodge.fill"
+            case .gyms: return "dumbbell.fill"
             case .shower: return "shower.fill"
             case .truckParking: return "truck.box.fill"
             case .parking: return "parkingsign"
@@ -53,7 +55,7 @@ final class POIService: ObservableObject {
 
         /// The bottom-bar button sets per mode.
         static let standardKinds: [Kind] = [.gas, .food, .stores, .rest, .parking,
-                                            .hotel, .medical, .shelter]
+                                            .gyms, .hotel, .medical, .shelter]
         // Stores sits before hotel/food so it never scrolls out of first view
         // on the wider trucker bar (it was technically present but off-screen).
         static let truckerKinds: [Kind] = [.gas, .shower, .truckParking, .weighStation,
@@ -91,6 +93,8 @@ final class POIService: ObservableObject {
             return MKPointOfInterestFilter(including: [.gasStation])
         case .parking:
             return MKPointOfInterestFilter(including: [.parking])
+        case .gyms:
+            return MKPointOfInterestFilter(including: [.fitnessCenter])
         case .rest, .shelter, .truckParking, .weighStation:
             // No MK category models rest areas, shelters, truck parking, or
             // weigh stations.
@@ -108,7 +112,7 @@ final class POIService: ObservableObject {
         case .medical: return [4]
         case .tourist: return [5]
         case .rest, .truckParking, .shower: return [7]
-        case .parking, .shelter, .weighStation: return nil   // not in the dataset
+        case .parking, .shelter, .weighStation, .gyms: return nil   // not in the dataset
         }
     }
 
@@ -128,6 +132,11 @@ final class POIService: ObservableObject {
         var showers: ShowerAvailability = .unknown
         /// Open right now (Yelp hours, when a key is configured).
         var isOpenNow: Bool? = nil
+        /// Parking only: true = costs money, false = free, nil = unknown.
+        var parkingFee: Bool? = nil
+        /// Shelter only: plain-words type ("Storm shelter", "Flood shelter",
+        /// "Cooling center", "Emergency shelter").
+        var shelterType: String? = nil
         /// True when pricePerUnit is a REAL posted price (CRE/TomTom), not
         /// a state-average estimate — the HUD only headlines real prices.
         var isLivePrice = false
@@ -283,7 +292,17 @@ final class POIService: ObservableObject {
             await search(kind, queries: ["emergency room hospital", "urgent care"],
                          aheadOf: position)
         case .shelter:
-            await search(kind, queries: [shelterQuery()], aheadOf: position)
+            // Government-recognized public refuge only: the alert-specific
+            // query (a tornado warning asks for storm shelters) plus the
+            // community buildings towns designate as official refuge sites.
+            // Private noise (animal shelters, service offices) is
+            // name-filtered after the sweep.
+            await search(kind, queries: [shelterQuery(),
+                                         "community shelter storm shelter",
+                                         "civic center high school gymnasium"],
+                         aheadOf: position)
+        case .gyms:
+            await search(kind, queries: ["gym", "fitness center"], aheadOf: position)
         case .shower:
             await search(kind, queries: ["truck stop showers Loves Pilot Flying J TA"],
                          aheadOf: position)
@@ -328,6 +347,31 @@ final class POIService: ObservableObject {
             : fuel.searchQuery
     }
 
+    /// One MKLocalSearch with the throttle handled: MapKit rejects rapid
+    /// bursts (MKError.loadingThrottled) and the old bare `try?` swallowed
+    /// that into "no results" — a 15-request sweep (5 centers x 3 queries)
+    /// could come back completely empty and the card said "none found ahead"
+    /// with pharmacies in plain sight. Retries once after the throttle
+    /// window and paces successive calls.
+    private static func pacedLocalSearch(_ request: MKLocalSearch.Request) async -> [MKMapItem] {
+        for attempt in 0..<2 {
+            do {
+                let response = try await MKLocalSearch(request: request).start()
+                // Small gap between burst requests keeps MapKit's limiter happy.
+                try? await Task.sleep(for: .milliseconds(120))
+                return response.mapItems
+            } catch {
+                let mk = (error as? MKError)?.code
+                if attempt == 0, mk == .loadingThrottled {
+                    try? await Task.sleep(for: .seconds(2))
+                    continue
+                }
+                return []
+            }
+        }
+        return []
+    }
+
     private func search(
         _ kind: Kind, queries: [String], fuel: FuelType? = nil,
         aheadOf position: CLLocationCoordinate2D?
@@ -368,7 +412,7 @@ final class POIService: ObservableObject {
         case .tourist: 50_000  // parks/monuments sit well off the interstate
         default: 24_000
         }
-        for center in centers.prefix(centerCap) {
+        searchLoop: for center in centers.prefix(centerCap) {
             for query in queries {
                 let request = MKLocalSearch.Request()
                 request.naturalLanguageQuery = query
@@ -377,9 +421,11 @@ final class POIService: ObservableObject {
                 request.region = MKCoordinateRegion(
                     center: center,
                     latitudinalMeters: regionMeters, longitudinalMeters: regionMeters)
-                if let response = try? await MKLocalSearch(request: request).start() {
-                    found.append(contentsOf: response.mapItems)
-                }
+                found.append(contentsOf: await Self.pacedLocalSearch(request))
+                // Multi-center x multi-query can reach 15 requests; enough
+                // raw hits means later centers only add far-away duplicates.
+                if found.count >= 60 { break searchLoop }
+                if gen != searchGeneration { return }   // superseded mid-sweep
             }
         }
         // OFFLINE-FIRST supplement: FLOWS's own FSQ OS Places shards (7.5M US
@@ -403,12 +449,22 @@ final class POIService: ObservableObject {
             }
         }
 
-        // Dedup by name+proximity.
+        // Dedup by name+proximity. Weigh stations dedup by LOCATION alone
+        // (~1 km): the same CAT Scale arrives from both queries under name
+        // variants ("CAT Scale" / "CAT Scale Company") and showed as
+        // duplicate rows.
         var seen = Set<String>()
-        let unique = found.filter { item in
+        var unique = found.filter { item in
             let c = item.placemark.coordinate
-            let key = "\(item.name ?? "?")|\(Int(c.latitude * 500))|\(Int(c.longitude * 500))"
+            let key = kind == .weighStation
+                ? "\(Int(c.latitude * 100))|\(Int(c.longitude * 100))"
+                : "\(item.name ?? "?")|\(Int(c.latitude * 500))|\(Int(c.longitude * 500))"
             return seen.insert(key).inserted
+        }
+        // Public shelters only: the shelter queries also surface animal/pet
+        // shelters and service offices no storm-warned driver can use.
+        if kind == .shelter {
+            unique = unique.filter { !BrandKnowledge.isShelterNoise(name: $0.name ?? "") }
         }
 
         // Prices/ratings come from main-actor state; the O(items × vertices)
@@ -419,9 +475,12 @@ final class POIService: ObservableObject {
         var costTiers: [Int?] = unique.map { _ in nil }
         var liveIDs = Set<ObjectIdentifier>()
         var openFlags: [Bool?] = unique.map { _ in nil }
-        if kind == .hotel || kind == .food || kind == .stores {
+        if kind == .hotel || kind == .food || kind == .stores || kind == .gyms
+            || kind == .shelter {
             // Public reviews + cost: Yelp Fusion when a key is configured
-            // (Settings → Data sources); stars/$ hide otherwise.
+            // (Settings → Data sources); stars/$ hide otherwise. Gyms and
+            // shelters ride along for the open-now hours the same lookup
+            // carries.
             var r: [Double?] = []
             var t: [Int?] = []
             var open: [Bool?] = []
@@ -475,6 +534,30 @@ final class POIService: ObservableObject {
             r.costTier = tierByName[ObjectIdentifier(row.item)] ?? nil
             r.isOpenNow = openByName[ObjectIdentifier(row.item)] ?? nil
             r.isLivePrice = liveIDs.contains(ObjectIdentifier(row.item))
+            let poiName = row.item.name ?? ""
+            // Brand-table prefill: with no ratings key (or no provider
+            // listing), national chains still get their known "$" tier.
+            if r.costTier == nil,
+               kind == .food || kind == .stores || kind == .hotel
+                || kind == .parking || kind == .gyms {
+                r.costTier = BrandKnowledge.costTier(name: poiName)
+            }
+            // Hotel rows get the chain's own site when MapKit gave none.
+            if kind == .hotel, row.item.url == nil {
+                row.item.url = BrandKnowledge.website(name: poiName)
+            }
+            if kind == .parking {
+                r.parkingFee = BrandKnowledge.parkingFee(name: poiName)
+            }
+            if kind == .shelter {
+                r.shelterType = BrandKnowledge.shelterType(
+                    name: poiName, query: queries.joined(separator: " "))
+            }
+            // Gym showers are a brand standard (or a known brand omission);
+            // unknown brands say nothing rather than guess.
+            if kind == .gyms, let has = BrandKnowledge.gymHasShowers(name: poiName) {
+                r.showers = has ? .standard : .none
+            }
             if kind == .gas || kind == .shower || kind == .truckParking {
                 let c = row.item.placemark.coordinate
                 // VERIFIED chain data first (each brand's own store data,
@@ -512,8 +595,21 @@ final class POIService: ObservableObject {
         // hours data is worse than showing a maybe-closed option. Fall back to the
         // full ranked list (closest first) instead of an empty result.
         if finalRanked.isEmpty, !ranked.isEmpty,
-           kind == .gas || kind == .food || kind == .medical || kind == .stores {
+           kind == .gas || kind == .food || kind == .medical || kind == .stores
+            || kind == .shelter {
             finalRanked = ranked
+        }
+        // If the ahead-only/detour ranking dropped EVERY raw hit (vehicle
+        // position quirks, all hits slightly behind, tight detour caps),
+        // showing the nearest raw results beats claiming nothing exists.
+        if finalRanked.isEmpty, !unique.isEmpty, let anchor = position ?? centers.first {
+            finalRanked = unique
+                .sorted { POIRanking.meters($0.placemark.coordinate, anchor)
+                        < POIRanking.meters($1.placemark.coordinate, anchor) }
+                .prefix(12)
+                .map { RankedPOI(item: $0,
+                                 aheadMeters: POIRanking.meters($0.placemark.coordinate, anchor),
+                                 detourMeters: 0, pricePerUnit: nil) }
         }
         // Medical rule: the ABSOLUTE nearest hospital/ER leads, regardless
         // of route direction — straight-line from the vehicle.
