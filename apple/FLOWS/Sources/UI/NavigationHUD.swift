@@ -21,9 +21,14 @@ struct NavigationHUD: View {
 
     @Environment(\.openURL) private var openURL
     @StateObject private var music = MusicController.shared
+    /// Spotify Web API remote (token-gated) — observed here for the plain-
+    /// words status line in the music menu.
+    @StateObject private var spotify = SpotifyRemote.shared
     /// Radio card visibility (trucker radio in trucker mode, emergency
     /// radio otherwise — same card, same relays).
     @State private var showRadio = false
+    /// AM/FM search field text (radio-browser.info directory).
+    @State private var stationSearch = ""
     /// Long-trip share banner: recipient list expanded / contacts sheet up.
     @State private var showShareChooser = false
     @State private var showShareContactPicker = false
@@ -1195,9 +1200,114 @@ struct NavigationHUD: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            Divider()
+            // AM/FM: the community radio-browser.info directory, searched by
+            // the state the vehicle is in (or any word). Streams are https
+            // internet relays and play through the same player as NOAA.
+            Text("AM/FM stations")
+                .font(.caption.weight(.bold))
+                .onAppear {
+                    guard model.radioBrowser.stations.isEmpty else { return }
+                    let code = model.currentStateCode
+                    Task { await model.radioBrowser.searchNearby(stateCode: code) }
+                }
+            HStack(spacing: 6) {
+                TextField("Search by name or genre", text: $stationSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .onSubmit {
+                        let query = stationSearch
+                        Task { await model.radioBrowser.search(text: query) }
+                    }
+                Button("Near me") {
+                    stationSearch = ""
+                    let code = model.currentStateCode
+                    Task { await model.radioBrowser.searchNearby(stateCode: code) }
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.blue)
+            }
+            if let note = model.radioBrowser.status {
+                Text(note).font(.caption2).foregroundStyle(.secondary)
+            }
+            if !model.radioBrowser.stations.isEmpty {
+                // Bounded list: the card floats over the map with no outer
+                // scroll, so the stations scroll INSIDE their own strip.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(model.radioBrowser.stations.prefix(30)) { station in
+                            amfmStationRow(station)
+                        }
+                    }
+                }
+                .frame(maxHeight: isCompact ? 132 : 168)
+                Text("Station list: radio-browser.info, a community "
+                     + "directory. Stations play as internet streams.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+            // Scanner: Broadcastify allows no keyless in-app streams, so
+            // this links OUT to their own web player (feeds near the
+            // driver, located by the browser).
+            HStack(alignment: .center, spacing: 6) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Scanner — police, fire, EMS")
+                        .font(.caption.weight(.bold))
+                    Text("Opens Broadcastify's own web player with feeds near you.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    openURL(ScannerLinks.broadcastifyNearMe)
+                } label: {
+                    Label("Open", systemImage: "arrow.up.forward.app")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
+            Text("Scanner listening rules differ by state — where it isn't "
+                 + "allowed while driving, listen only when parked.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .floatingCard()
         .frame(maxWidth: isCompact ? .infinity : 640)
+    }
+
+    /// One AM/FM search result: name + genre words, and the same brown
+    /// play/stop control as the relay rows.
+    private func amfmStationRow(_ station: RadioBrowser.Station) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(station.name)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                if !station.genre.isEmpty {
+                    Text(station.genre)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Button {
+                if model.radio.playingChannelID == station.channel.id {
+                    model.radio.stop()
+                } else {
+                    model.radio.play(station.channel)
+                }
+            } label: {
+                Image(systemName: model.radio.playingChannelID == station.channel.id
+                      ? "stop.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.brown)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     @ViewBuilder
@@ -1276,10 +1386,17 @@ struct NavigationHUD: View {
         HStack(spacing: 4) {
             // Album art (real artwork on iOS; placeholder tile on macOS,
             // track name in the tooltip). Tapping opens the quick music
-            // menu — resume, station, genres.
-            Button { showMusicMenu.toggle() } label: {
+            // menu when FLOWS can control the service in place — otherwise
+            // it opens the service's app (the menu rows would be lies).
+            Button {
+                if model.musicControllable {
+                    showMusicMenu.toggle()
+                } else {
+                    model.playMusic()
+                }
+            } label: {
                 Group {
-                    if model.musicProvider.controllable, let art = music.artwork {
+                    if model.musicControllable, let art = music.artwork {
                         Image(decorative: art, scale: 1)
                             .resizable()
                             .scaledToFill()
@@ -1292,14 +1409,14 @@ struct NavigationHUD: View {
                     }
                 }
                 .frame(width: 30, height: 30)
-                .background(model.musicProvider.controllable && music.artwork != nil
+                .background(model.musicControllable && music.artwork != nil
                             ? Color.black.opacity(0.08)
                             : model.musicProvider.badgeColor)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
             .help(music.trackName.isEmpty ? model.musicProvider.rawValue : music.trackName)
-            if model.musicProvider.controllable {
+            if model.musicControllable {
             Button { music.back() } label: {
                 Image(systemName: "backward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
@@ -1328,7 +1445,7 @@ struct NavigationHUD: View {
             .buttonStyle(.plain)
             .help("Playback controls live in \(model.musicProvider.rawValue)")
             }
-            if model.musicProvider.controllable {
+            if model.musicControllable {
             Button { music.skip() } label: {
                 Image(systemName: "forward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
@@ -1364,6 +1481,17 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
             }
+            if model.musicProvider == .spotify {
+                // Spotify's remote has no library/genre queries — one
+                // honest resume row, plus its plain-words status line.
+                if let note = spotify.status {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
+                musicMenuRow("Keep playing", symbol: "clock.arrow.circlepath",
+                             detail: "Pick up where Spotify left off") {
+                    music.resumeRecent()
+                }
+            } else {
             musicMenuRow("Recently played", symbol: "clock.arrow.circlepath",
                          detail: "Keep playing your last songs") {
                 music.resumeRecent()
@@ -1390,6 +1518,7 @@ struct NavigationHUD: View {
                         .buttonStyle(.plain)
                     }
                 }
+            }
             }
         }
         .floatingCard()
@@ -1428,8 +1557,10 @@ struct NavigationHUD: View {
                     .buttonStyle(.plain)
                 }
             }
-            Text("Apple Music plays right here in FLOWS. Other apps open in "
-                 + "their own app. Change it anytime under ⚙ Settings.")
+            Text("Apple Music plays right here in FLOWS. Spotify can too — "
+                 + "on iPhone it needs a Spotify token (⚙ Settings → Data "
+                 + "sources). Other apps open in their own app. Change it "
+                 + "anytime under ⚙ Settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -1,0 +1,212 @@
+// -----------------------------------------------------------------------------
+// Copyright (c) 2026 David B. Foster. All rights reserved.
+// Contact: wizeman555@gmail.com
+// Unauthorized copying, distribution, modification, or use of this file, in
+// whole or in part, is strictly prohibited without the express written
+// permission of the copyright holder.
+// -----------------------------------------------------------------------------
+
+import Foundation
+
+/// AM/FM station search over the radio-browser.info COMMUNITY directory
+/// (open, keyless — the same "primary/open source first" doctrine as the
+/// hazard feeds; see docs/DATA_FEEDS.md).
+///
+/// Mirror etiquette per the project's API docs: the mirror list is fetched at
+/// runtime from the all-servers name (`all.api.radio-browser.info`), one
+/// healthy mirror is picked per launch (shuffled, so load spreads across
+/// mirrors), and the all-servers name itself — which round-robins across the
+/// same mirrors in DNS — is the fallback when the list can't be read.
+///
+/// Results are US stations only (`countrycode=US`, so the no-RU/CN/IR/NK
+/// service rule holds structurally) and HTTPS streams only — ATS blocks
+/// cleartext audio, and a directory this size always carries both schemes.
+/// Playback rides the existing TruckerRadio AVPlayer path, including its
+/// plain-words "Station is offline right now." failure text.
+@MainActor
+final class RadioBrowser: ObservableObject {
+    struct Station: Identifiable, Equatable {
+        let name: String
+        /// HTTPS stream URL (the directory's resolved playback URL).
+        let url: String
+        /// First few genre words from the station's tags, for the row detail.
+        let genre: String
+        /// Community votes — the ranking the directory maintains.
+        let votes: Int
+
+        var id: String { url }
+
+        /// Bridge into the trucker-radio player (one shared AVPlayer path —
+        /// tuning an AM/FM stream stops a NOAA relay and vice versa).
+        var channel: TruckerRadio.Channel {
+            TruckerRadio.Channel(name: name,
+                                 detail: genre.isEmpty ? "AM/FM stream" : genre,
+                                 url: url)
+        }
+    }
+
+    @Published private(set) var stations: [Station] = []
+    /// Plain-words progress/failure line under the search field.
+    @Published private(set) var status: String?
+
+    /// The mirror picked for this launch (nil until first use).
+    private var host: String?
+
+    static let allServersURL = "https://all.api.radio-browser.info/json/servers"
+
+    /// Top-voted stations for the state the vehicle is in (nationwide list
+    /// when the state is unknown — no GPS fix yet).
+    func searchNearby(stateCode: String?) async {
+        await run(state: stateCode.flatMap { Self.stateName($0) }, name: nil)
+    }
+
+    /// Free-text search across all US stations (name or genre word).
+    func search(text: String) async {
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return }
+        await run(state: nil, name: query)
+    }
+
+    private func run(state: String?, name: String?) async {
+        status = "Finding stations…"
+        guard let host = await ensureHost(),
+              let url = Self.searchURL(host: host, state: state, name: name),
+              let (data, resp) = try? await ThrottledNet.fetch(url),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else {
+            status = "Station list didn't load. Check the connection and try again."
+            return
+        }
+        stations = Self.parseStations(data)
+        status = stations.isEmpty ? "No stations found. Try another word." : nil
+    }
+
+    /// Pick one healthy mirror per launch: all-servers list → shuffle →
+    /// first mirror whose stats endpoint answers OK. The all-servers name
+    /// (DNS round-robin over the same mirrors) is the fallback.
+    private func ensureHost() async -> String? {
+        if let host { return host }
+        if let listURL = URL(string: Self.allServersURL),
+           let (data, resp) = try? await ThrottledNet.fetch(listURL),
+           (resp as? HTTPURLResponse)?.statusCode == 200 {
+            for candidate in Self.parseServers(data).shuffled() {
+                guard let stats = URL(string: "https://\(candidate)/json/stats"),
+                      let (d, r) = try? await ThrottledNet.fetch(stats),
+                      (r as? HTTPURLResponse)?.statusCode == 200,
+                      Self.serverLooksHealthy(d) else { continue }
+                host = candidate
+                return candidate
+            }
+        }
+        host = "all.api.radio-browser.info"
+        return host
+    }
+
+    // MARK: - Pure logic (pinned by FLOWSTests)
+
+    /// All-servers payload `[{"ip":…,"name":…}]` → unique host names in
+    /// order (the list repeats a name once per IP family).
+    nonisolated static func parseServers(_ data: Data) -> [String] {
+        guard let rows = try? JSONSerialization.jsonObject(with: data)
+                as? [[String: Any]] else { return [] }
+        var seen = Set<String>()
+        return rows.compactMap { row in
+            guard let name = row["name"] as? String, !name.isEmpty,
+                  seen.insert(name).inserted else { return nil }
+            return name
+        }
+    }
+
+    /// Mirror stats payload → is this mirror serving? (`{"status":"OK"}`).
+    nonisolated static func serverLooksHealthy(_ data: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: data)
+                as? [String: Any] else { return false }
+        return json["status"] as? String == "OK"
+    }
+
+    /// Station search on a mirror: US only, working streams only
+    /// (`hidebroken`), HTTPS only (`is_https` — re-checked client-side),
+    /// community-vote order. `state` and `name` are the two search modes.
+    nonisolated static func searchURL(host: String, state: String?,
+                                      name: String?) -> URL? {
+        // .urlQueryAllowed leaves & = + literal (the Yelp lesson) — use a
+        // strict component set for the free-text term.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?")
+        var query = "countrycode=US&hidebroken=true&is_https=true"
+            + "&order=votes&reverse=true&limit=60"
+        if let state, let s = state.addingPercentEncoding(withAllowedCharacters: allowed) {
+            query += "&state=\(s)"
+        }
+        if let name, let n = name.addingPercentEncoding(withAllowedCharacters: allowed) {
+            query += "&name=\(n)"
+        }
+        return URL(string: "https://\(host)/json/stations/search?\(query)")
+    }
+
+    /// Station rows → playable list: HTTPS streams only (belt and braces —
+    /// the server already filtered), de-duplicated by stream URL and by
+    /// name (the directory lists one station once per bitrate), directory
+    /// vote order preserved.
+    nonisolated static func parseStations(_ data: Data) -> [Station] {
+        guard let rows = try? JSONSerialization.jsonObject(with: data)
+                as? [[String: Any]] else { return [] }
+        var seenURL = Set<String>()
+        var seenName = Set<String>()
+        return rows.compactMap { row in
+            guard let name = (row["name"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                  !name.isEmpty,
+                  let url = row["url_resolved"] as? String,
+                  url.hasPrefix("https://"),
+                  seenURL.insert(url).inserted,
+                  seenName.insert(name.lowercased()).inserted else { return nil }
+            return Station(name: name,
+                           url: url,
+                           genre: genreWords(fromTags: row["tags"] as? String ?? ""),
+                           votes: row["votes"] as? Int ?? 0)
+        }
+    }
+
+    /// The directory's comma-run of tags → the first three, as plain row
+    /// detail ("country · news · talk").
+    nonisolated static func genreWords(fromTags tags: String) -> String {
+        tags.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .prefix(3)
+            .joined(separator: " · ")
+    }
+
+    /// Two-letter state code → the full name the directory indexes by.
+    nonisolated static func stateName(_ code: String) -> String? {
+        let names: [String: String] = [
+            "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+            "CA": "California", "CO": "Colorado", "CT": "Connecticut",
+            "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida",
+            "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+            "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky",
+            "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+            "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
+            "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+            "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
+            "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+            "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+            "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+            "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+            "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
+            "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+            "WI": "Wisconsin", "WY": "Wyoming",
+        ]
+        return names[code.uppercased()]
+    }
+}
+
+/// Police/fire/EMS scanner: Broadcastify's terms allow no keyless stream
+/// API, so FLOWS links OUT to their own public web player instead of
+/// playing scanner audio in-app. The "near me" page locates the driver's
+/// county through the browser (verified live: /listen/near/ asks the
+/// browser for location and lists that county's feeds).
+enum ScannerLinks {
+    static let broadcastifyNearMe =
+        URL(string: "https://www.broadcastify.com/listen/near/")!
+}

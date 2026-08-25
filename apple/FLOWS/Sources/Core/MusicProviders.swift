@@ -78,10 +78,12 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// True when FLOWS can play/pause/skip this service in place. Apple
-    /// Music everywhere; Spotify on macOS via Apple Events (its iOS control
-    /// needs Spotify's own SDK + key — deep-link only there). Everything
-    /// else deep-links to the service's own app.
+    /// True when FLOWS can play/pause/skip this service in place with NO
+    /// key: Apple Music everywhere; Spotify on macOS via Apple Events. On
+    /// iOS, Spotify becomes controllable only with a user-supplied Web API
+    /// token — that state lives in AppModel (`musicControllable`), which is
+    /// what the UI checks; this stays the keyless floor. Everything else
+    /// deep-links to the service's own app.
     var controllable: Bool {
         if self == .appleMusic { return true }
         #if os(macOS)

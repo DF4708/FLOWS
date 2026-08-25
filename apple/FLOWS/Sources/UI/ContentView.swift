@@ -1909,9 +1909,9 @@ struct SettingsSheet: View {
             .labelsHidden()
             .tint(Theme.riskGreen)
             Text("The little player in the drive bar uses this app. Play, "
-                 + "pause, and skip work right in FLOWS with Apple Music. "
-                 + "Other apps open in their own app — controlling them from "
-                 + "FLOWS can only control Apple Music directly.")
+                 + "pause, and skip work right in FLOWS with Apple Music — "
+                 + "and with Spotify when a Spotify token is set under Data "
+                 + "sources. Other apps open in their own app.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -2164,6 +2164,33 @@ struct SettingsSheet: View {
             Text("With a key, hotels/food show review stars (yellow→gold) and "
                  + "$ tiers (income-anchored: $ = minimum-wage affordable, "
                  + "$$$$$ = top 1–3%). Without one, stars/$ stay hidden.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                TextField("Spotify token (optional) — play/pause/skip Spotify in FLOWS",
+                          text: $model.spotifyWebToken)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                Menu {
+                    Text("How to get a Spotify token:")
+                    Text("1. Open developer.spotify.com (free account)")
+                    Text("2. Create an app in the developer dashboard")
+                    Text("3. Make an access token with the playback-state permissions")
+                    Text("4. Paste the token here")
+                    Divider()
+                    Link("Open the Spotify developer page",
+                         destination: URL(string: "https://developer.spotify.com/documentation/web-api")!)
+                } label: {
+                    Text("Get one")
+                        .font(.caption.weight(.semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            Text("With a token, Spotify play, pause, and skip work right in "
+                 + "FLOWS (needs Spotify Premium; a token expires after about "
+                 + "an hour). It is kept in the device's locked Keychain. "
+                 + "Without one, FLOWS opens the Spotify app instead.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 

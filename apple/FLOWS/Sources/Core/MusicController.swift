@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import Combine
 import Foundation
 #if os(iOS)
 import MediaPlayer
@@ -20,6 +21,9 @@ import AppKit
 /// macOS drives Music.app via Apple Events (sandbox carries the
 /// com.apple.Music temporary exception + usage description — the OS asks the
 /// user once for Automation consent on first press).
+/// Spotify: scripted over Apple Events on macOS; on iOS the same buttons
+/// drive Spotify's Web API when the user added a token in Settings
+/// (SpotifyRemote — the optional-key pattern), and deep-link otherwise.
 @MainActor
 final class MusicController: ObservableObject {
     static let shared = MusicController()
@@ -48,10 +52,24 @@ final class MusicController: ObservableObject {
 
     static let isAvailable = true
 
+    /// Which service the transport buttons drive (set from the user's
+    /// provider pick). Apple Music rides MPMusicPlayerController; Spotify —
+    /// when the user added a token in Settings — rides SpotifyRemote's
+    /// Web API calls. Everything else deep-links, so never reaches here.
+    var provider: MusicProvider = .appleMusic
+
     /// Now-playing artwork thumbnail. Stored + published: a computed read of
     /// nowPlayingItem never invalidates SwiftUI, so the mini-player would
     /// keep the placeholder forever.
     @Published private(set) var artwork: CGImage?
+
+    private var spotifySync: AnyCancellable?
+
+    /// The transport buttons drive Spotify's Web API instead of the system
+    /// Music player.
+    private var spotifyActive: Bool {
+        provider == .spotify && SpotifyRemote.shared.linked
+    }
 
     init() {
         refresh()
@@ -69,20 +87,42 @@ final class MusicController: ObservableObject {
             Task { @MainActor in self?.updateNowPlaying() }
         }
         player.beginGeneratingPlaybackNotifications()
+        // The HUD watches THIS object — mirror the Spotify remote's state
+        // in so play/pause icons and the track tooltip stay live.
+        // (objectWillChange fires before the value lands; the task hop
+        // reads it after.)
+        spotifySync = SpotifyRemote.shared.objectWillChange
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.syncFromSpotify() }
+            }
+    }
+
+    private func syncFromSpotify() {
+        guard spotifyActive else { return }
+        isPlaying = SpotifyRemote.shared.isPlaying
+        trackName = SpotifyRemote.shared.trackName
+        playOrder = SpotifyRemote.shared.playOrder
+        shuffleOn = playOrder == .shuffle
     }
 
     private func refresh() {
+        guard !spotifyActive else { return }   // Music.app state isn't ours
         isPlaying = player.playbackState == .playing
         shuffleOn = player.shuffleMode != .off
     }
 
     private func updateNowPlaying() {
+        guard !spotifyActive else { return }
         trackName = player.nowPlayingItem?.title ?? ""
         artwork = player.nowPlayingItem?.artwork?
             .image(at: CGSize(width: 64, height: 64))?.cgImage
     }
 
     func playPause() {
+        if spotifyActive {
+            SpotifyRemote.shared.playPause()
+            return
+        }
         if player.playbackState == .playing {
             player.pause()
         } else if player.nowPlayingItem == nil {
@@ -108,8 +148,12 @@ final class MusicController: ObservableObject {
     }
 
     /// Resume the system player's existing queue (it survives app exits);
-    /// shuffled library when there is none.
+    /// shuffled library when there is none. Spotify: resume its last queue.
     func resumeRecent() {
+        if spotifyActive {
+            SpotifyRemote.shared.resume()
+            return
+        }
         if player.nowPlayingItem == nil {
             playLibraryShuffled()
         } else {
@@ -122,12 +166,18 @@ final class MusicController: ObservableObject {
     /// The user's personal Apple Music station needs a MusicKit developer
     /// token to resolve — the shuffled library is the on-device stand-in.
     func playMyStation() {
+        if spotifyActive {
+            SpotifyRemote.shared.resume()   // stations are an Apple Music idea
+            return
+        }
         playLibraryShuffled()
         refresh()
     }
 
     /// One-tap genre play from the library; when the library carries no
     /// matching track, deep-link into Music's search instead of silence.
+    /// (The genre rows are hidden for Spotify — its Web API has no library
+    /// genre query — so this path stays Apple Music's.)
     func playGenre(_ genre: String) {
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(MPMediaPropertyPredicate(
@@ -147,15 +197,35 @@ final class MusicController: ObservableObject {
     }
 
     func skip() {
+        if spotifyActive {
+            SpotifyRemote.shared.skip()
+            return
+        }
         player.skipToNextItem()
     }
 
     func back() {
+        if spotifyActive {
+            SpotifyRemote.shared.back()
+            return
+        }
         player.skipToPreviousItem()
     }
 
     /// shuffle → ordered → loop → shuffle.
     func cyclePlayOrder() {
+        if spotifyActive {
+            let next: PlayOrder
+            switch playOrder {
+            case .ordered: next = .shuffle
+            case .shuffle: next = .loop
+            case .loop: next = .ordered
+            }
+            playOrder = next
+            shuffleOn = next == .shuffle
+            SpotifyRemote.shared.setOrder(next)
+            return
+        }
         switch playOrder {
         case .ordered:
             player.shuffleMode = .songs
@@ -244,7 +314,13 @@ final class MusicController: ObservableObject {
     }
 
     /// Resume whatever Music last had queued; shuffled library when empty.
+    /// Spotify: resume its own queue (same Apple Events path as playPause).
     func resumeRecent() {
+        if provider == .spotify {
+            run("tell application \"Spotify\" to play")
+            refreshSoon()
+            return
+        }
         playWithLibraryFallback("tell application \"Music\" to play")
     }
 
@@ -304,6 +380,7 @@ final class MusicController: ObservableObject {
 
     #else
     static let isAvailable = false
+    var provider: MusicProvider = .appleMusic
     init() {}
     func playPause() {}
     func skip() {}

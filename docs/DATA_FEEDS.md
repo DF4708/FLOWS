@@ -45,6 +45,8 @@ diagnosed, never assumed broken.
 | Work zones | US DOT WZDx | `data.transportation.gov` | — | `PrimarySources.swift` |
 | Vehicle economy DB | EPA | `fueleconomy.gov` | — | `EPAVehicleDatabase.swift` |
 | NOAA weather radio | WeatherUSA relays | `weatherusa.net` | — | `TruckerRadio.swift` |
+| AM/FM stations (US) | radio-browser.info (community) | `all.api.radio-browser.info` → runtime-picked mirror | — | `RadioBrowser.swift` |
+| Spotify remote control | Spotify Web API | `api.spotify.com` | user token (optional) | `SpotifyRemote.swift` |
 | POI discovery | Apple MapKit | (entitlement) | — | `POIService.swift` |
 | Amtrak stations (bundled) | Amtrak GTFS stops.txt, rail-served only | `content.amtrak.com` (bundled snapshot retrieved 2026-07-30, ships as `amtrak_stations.json`; no build-time fetch) | — | `AmtrakStations.swift` |
 | Fuel prices (US) | TomTom | `api.tomtom.com` | TomTom | `ZipBordersAndTransit.swift` |
@@ -514,6 +516,58 @@ The low-bridge clearance query (`clearances(inBoxes:)`) now has a bbox-keyed,
 6-hour TTL cache (device-stretched). Bridges are static infrastructure, so
 re-scoring the same route no longer re-queries the rate-limited Overpass API;
 only successes are cached (a failure stays retryable).
+
+---
+
+## 13. Radio + music expansion (2026-08) — AM/FM, scanner, Spotify remote
+
+### AM/FM stations — radio-browser.info (keyless, wired)
+
+The Emergency/Trucker radio card carried NOAA relays only; it now also
+searches the **radio-browser.info** community directory (`RadioBrowser.swift`).
+All endpoints probed live before wiring:
+
+- **Mirror discovery:** `https://all.api.radio-browser.info/json/servers`
+  returns the mirror list (one row per IP family). Per the project's API
+  etiquette, FLOWS fetches that list at runtime, shuffles it, and picks the
+  first mirror whose `/json/stats` answers `{"status":"OK"}` (verified:
+  `de1.api.radio-browser.info`, 57k stations). The all-servers name itself
+  (DNS round-robin over the same mirrors) is the fallback host — never a
+  hardcoded mirror.
+- **Search:** `/json/stations/search?countrycode=US&hidebroken=true&`
+  `is_https=true&order=votes&reverse=true` + `state=` (vehicle's state) or
+  `name=` (free text). US-only structurally satisfies the no-RU/CN/IR/NK
+  rule; `is_https` is re-checked client-side (probe: ~half of a state's
+  entries are cleartext — ATS would block them, so they're filtered, not
+  scheme-upgraded: unlike the NOAA relay hosts, arbitrary station hosts
+  don't all serve TLS).
+- **Playback** rides the existing TruckerRadio AVPlayer path (same
+  plain-words offline text, same one-stream-at-a-time rule as NOAA).
+
+### Police/fire/EMS scanner — Broadcastify (link-out ONLY, diagnosed)
+
+Broadcastify's terms allow **no keyless stream API** — feeds are their
+product. Diagnosis of the public URL space (all probed live): county pages
+exist only as internal sequential ids (`/listen/ctid/2523` — NOT derivable
+from FIPS; mapping them would mean scraping every state page), state
+directories are `/listen/stid/<state FIPS>` (48 → Texas verified), and
+`/listen/near/` is their own "Feeds Near Me" player page, which locates the
+driver via the browser and lists that county's feeds. FLOWS therefore links
+OUT to `/listen/near/` (`ScannerLinks`) — no in-app scanner audio, and the
+card says so in plain words, including that scanner-listening law varies by
+state and it must not be used while driving where prohibited.
+
+### Spotify remote — optional user token (the Yelp/TomTom pattern)
+
+True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client
+key — a dependency this repo doesn't take. Instead (`SpotifyRemote.swift`):
+a **user-supplied Web API token** (Settings → Data sources, Keychain-stored
+via SecureStore — a bearer token is a credential) lights up play / pause /
+skip / shuffle against `api.spotify.com/v1/me/player/*` on the user's active
+Spotify device. Needs Premium; tokens expire ~hourly — every failure mode
+maps to one plain-words fix (`SpotifyWebAPI.plainWords`). Without a token
+the mini player keeps the honest "Open Spotify" button. macOS is untouched:
+Spotify.app is still scripted directly over Apple Events.
 
 ---
 

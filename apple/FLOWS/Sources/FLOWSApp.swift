@@ -76,6 +76,9 @@ final class AppModel: ObservableObject {
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
     let radio = TruckerRadio()
+    /// AM/FM station search (radio-browser.info community directory) —
+    /// plays through the same TruckerRadio AVPlayer path.
+    let radioBrowser = RadioBrowser()
     let crash = CrashDetectionService()
     /// Prior long-trip share recipients (on-device only) — suggestion ranking.
     let shareHistory = ShareHistoryStore()
@@ -426,9 +429,7 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
             musicProviderChosen = true
-            #if os(macOS)
             MusicController.shared.provider = musicProvider
-            #endif
         }
     }
     /// False until the driver picks a service (Settings picker, or the ask
@@ -438,6 +439,22 @@ final class AppModel: ObservableObject {
     /// First play press: the "what do you play music with?" card.
     @Published var showMusicProviderPrompt = false
 
+    /// OPTIONAL Spotify Web API token (Settings → Data sources) — in-app
+    /// play/pause/skip for Spotify on iOS. A bearer token is a credential,
+    /// so it lives in the Keychain (SecureStore), never UserDefaults.
+    @Published var spotifyWebToken: String =
+        SecureStore.get(SpotifyRemote.keychainKey) ?? "" {
+        didSet { SpotifyRemote.shared.setToken(spotifyWebToken) }
+    }
+
+    /// Can the transport buttons drive the picked service IN PLACE? The
+    /// keyless floor (`MusicProvider.controllable`) plus the one keyed
+    /// upgrade: Spotify on iOS with a user-supplied token.
+    var musicControllable: Bool {
+        musicProvider.controllable
+            || (musicProvider == .spotify && !spotifyWebToken.isEmpty)
+    }
+
     /// Play pressed: gate on the one-time provider ask, then play through
     /// the chosen service (Apple Music in-app; other services open their app).
     func playMusic() {
@@ -445,7 +462,7 @@ final class AppModel: ObservableObject {
             showMusicProviderPrompt = true
             return
         }
-        if musicProvider.controllable {
+        if musicControllable {
             MusicController.shared.playPause()
         } else {
             musicProvider.openApp()
@@ -456,7 +473,7 @@ final class AppModel: ObservableObject {
     func chooseMusicProvider(_ provider: MusicProvider) {
         musicProvider = provider
         showMusicProviderPrompt = false
-        if provider.controllable {
+        if musicControllable {
             MusicController.shared.playPause()
         } else {
             provider.openApp()
@@ -489,9 +506,6 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(truckerUI, forKey: "flows.truckerUI")
             poi.truckerMode = truckerUI
-            #if os(macOS)
-            MusicController.shared.provider = musicProvider   // didSet skips the initial load
-            #endif
         }
     }
 
@@ -971,7 +985,8 @@ final class AppModel: ObservableObject {
         }
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
-            vehicle, radio, vehicleLink, smartcar, crash, breadcrumbs,
+            vehicle, radio, radioBrowser, vehicleLink, smartcar, crash,
+            breadcrumbs,
         ]
         for child in children {
             (child.objectWillChange as? ObservableObjectPublisher)?
@@ -979,6 +994,7 @@ final class AppModel: ObservableObject {
                 .store(in: &serviceSubscriptions)
         }
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
+        MusicController.shared.provider = musicProvider   // same didSet gap
         vehicle.towingActive = towingActive
         checkTowingSignal()   // and at app start
         // Grade slider default follows the vehicle until the driver moves the
