@@ -1701,12 +1701,11 @@ struct FilterSlidersCard: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        if model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades)
-            || model.routeFilters.contains(.bridgeWeight) {
         // A map click hides the card (click-off dismiss); touching any
         // filter brings it back.
         if !model.filterCardsHidden,
-           model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades) {
+           model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades)
+            || model.routeFilters.contains(.bridgeWeight) {
             VStack(alignment: .leading, spacing: 8) {
                 if model.routeFilters.contains(.lowBridges) {
                     VStack(alignment: .leading, spacing: 2) {

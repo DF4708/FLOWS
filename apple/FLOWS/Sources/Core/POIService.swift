@@ -116,6 +116,23 @@ final class POIService: ObservableObject {
         }
     }
 
+
+    /// Kind → everyday-cache category. nil = not remembered: tourist stops
+    /// and the trucker-specific kinds aren't everyday habits near home.
+    static func everydayCategory(for kind: Kind) -> EverydayCategory? {
+        switch kind {
+        case .gas: return .fuel
+        case .food: return .food
+        case .stores: return .stores
+        case .rest: return .rest
+        case .shelter: return .shelter
+        case .medical: return .medical
+        case .hotel: return .hotels
+        case .gyms: return .gyms
+        case .tourist, .shower, .truckParking, .parking, .weighStation: return nil
+        }
+    }
+
     /// A ranked result row for the list card.
     struct RankedPOI: Identifiable {
         let id = UUID()

@@ -187,6 +187,7 @@ struct NavigationHUD: View {
             }
             if showMusicMenu {
                 musicMenuCard
+            }
             if model.showMusicProviderPrompt {
                 musicProviderCard
             }
@@ -1237,37 +1238,7 @@ struct NavigationHUD: View {
 
     /// Hands-free music: play/pause, skip, shuffle — mirrored as Siri App
     /// Intents ("skip track in FLOWS") so nothing needs a tap while driving.
-    /// Apple Music is driven in place; any other chosen service shows one
-    /// button that opens that service's app (in-app control needs its SDK).
-    @ViewBuilder
     private var musicControls: some View {
-        if model.musicProviderChosen && !model.musicProvider.controllable {
-            // Hand-off player: FLOWS can't drive this service in place, so
-            // the whole control IS the hand-off.
-            Button { model.musicProvider.openApp() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: model.musicProvider.symbol)
-                    Text(model.musicProvider.displayName)
-                        .font(.system(size: 12, weight: .bold))
-                        .lineLimit(1)
-                    Image(systemName: "arrow.up.forward.app")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 10)
-                .frame(minHeight: 38)
-            }
-            .buttonStyle(.plain)
-            .background(Color.black.opacity(0.06))
-            .clipShape(Capsule())
-            .help("Opens \(model.musicProvider.displayName). Play buttons "
-                  + "inside FLOWS work with Apple Music; change the app in ⚙ Settings.")
-        } else {
-            appleMusicControls
-        }
-    }
-
-    private var appleMusicControls: some View {
         HStack(spacing: 4) {
             // Album art (real artwork on iOS; placeholder tile on macOS,
             // track name in the tooltip). Tapping opens the quick music
@@ -1297,14 +1268,7 @@ struct NavigationHUD: View {
             .buttonStyle(.plain)
             .help("Previous track")
             // Shows PAUSE while playing (press to stop), PLAY while paused.
-            // The very first play press asks which service to use from then on.
-            Button {
-                if model.musicProviderChosen {
-                    music.playPause()
-                } else {
-                    model.showMusicProviderPrompt = true
-                }
-            } label: {
+            Button { music.playPause() } label: {
                 Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }
@@ -1340,16 +1304,6 @@ struct NavigationHUD: View {
                     .font(.system(size: 15, weight: .bold))
                 Spacer()
                 Button { showMusicMenu = false } label: {
-    /// First play press: ask which service the driver uses, once. The pick
-    /// is stored (changeable in ⚙ Settings) and play continues right away —
-    /// Apple Music plays here; anything else opens its own app.
-    private var musicProviderCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("What do you play music with?")
-                    .font(.system(size: 15, weight: .bold))
-                Spacer()
-                Button { model.showMusicProviderPrompt = false } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1386,29 +1340,20 @@ struct NavigationHUD: View {
         .frame(maxWidth: isCompact ? .infinity : 380)
     }
 
-    private func musicMenuRow(_ title: String, symbol: String, detail: String,
-                              action: @escaping () -> Void) -> some View {
-        Button {
-            action()
-            showMusicMenu = false
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(.system(size: 13, weight: .semibold))
-                    Text(detail).font(.caption2).foregroundStyle(.secondary)
-                }
+    /// First play press: ask which service the driver uses, once. The pick
+    /// is stored (changeable in ⚙ Settings) and play continues right away —
+    /// Apple Music plays here; anything else opens its own app.
+    private var musicProviderCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("What do you play music with?")
+                    .font(.system(size: 15, weight: .bold))
                 Spacer()
+                Button { model.showMusicProviderPrompt = false } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 8)
-            .frame(minHeight: 38)
-            .frame(maxWidth: .infinity)
-            .background(Color.black.opacity(0.05))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        }
-        .buttonStyle(.plain)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 6)],
                       alignment: .leading, spacing: 6) {
                 ForEach(MusicProvider.allCases) { provider in
@@ -1434,6 +1379,31 @@ struct NavigationHUD: View {
         }
         .floatingCard()
         .frame(maxWidth: isCompact ? .infinity : 640)
+    }
+
+    private func musicMenuRow(_ title: String, symbol: String, detail: String,
+                              action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            showMusicMenu = false
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 22)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(title).font(.system(size: 13, weight: .semibold))
+                    Text(detail).font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .frame(minHeight: 38)
+            .frame(maxWidth: .infinity)
+            .background(Color.black.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: formatting

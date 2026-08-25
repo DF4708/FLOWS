@@ -52,6 +52,7 @@ struct FilterLimits {
     func passesWeightLimits(_ limitsLbs: [Double]?) -> Bool {
         guard let limitsLbs, let rig = rigWeightLbs, rig > 0 else { return true }
         return !limitsLbs.contains { $0 < rig - 1e-9 }
+    }
 
     /// The grade slider's DEFAULT, derived from the vehicle — informally,
     /// "the grade where a parking brake is highly encouraged." The driver can
