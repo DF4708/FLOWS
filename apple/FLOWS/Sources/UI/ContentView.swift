@@ -134,8 +134,10 @@ struct ContentView: View {
         zctaOverlays = zctaRings.keys.sorted().compactMap { code in
             guard let ring = zctaRings[code] else { return nil }
             let c = Self.centroid(of: ring)
-            let near = elevated.min(by: {
-                POIRanking.meters($0.coordinate, c) < POIRanking.meters($1.coordinate, c) })
+            // Decorate-then-min: the comparator form computed each distance
+            // twice per comparison across every (ring × hazard) pair.
+            let near = elevated.map { ($0, POIRanking.meters($0.coordinate, c)) }
+                .min(by: { $0.1 < $1.1 })?.0
             let hatch = Self.hatchLines(ring, spacingDeg: 0.012)
             return RiskAreaOverlay(id: code, ring: ring,
                                    score: near?.realized ?? worstAll,
@@ -936,10 +938,12 @@ struct ContentView: View {
             // Filter — drawn first, under everything. Brightened (0.35) with
             // a visible floor at 0.2 so the filterable overlay actually shows.
             if model.showRiskField, model.riskField.loaded, model.mode != .navigating,
-               let region = visibleRegion {
+               let region = visibleRegion,
+               // Family index hoisted above the ForEach — it was re-resolved
+               // once per rendered ZIP (up to 220 per frame).
+               let fi = model.riskField.familyIndex(model.overlayFamily) {
                 ForEach(model.riskField.zips(in: region, family: model.overlayFamily, limit: 220)) { entry in
                     if let ring = entry.ring,
-                       let fi = model.riskField.familyIndex(model.overlayFamily),
                        fi < entry.scores.count, entry.scores[fi] >= 0.2 {
                         MapPolygon(coordinates: ring)
                             .foregroundStyle(FlowsCore.riskBand(score: entry.scores[fi]).color
@@ -1174,6 +1178,11 @@ struct ContentView: View {
             hazardInfo = nil
             model.dismissFloatingPanels()
         }
+        // `.onEnd` is LOAD-BEARING for the ZIP overlay: RiskFieldService's
+        // zips(in:) memo holds only ~8 region keys, so a stable region during
+        // a pan keeps it hitting. `.continuous` would make every frame a memo
+        // miss running a full grid select (at continental zoom, a sort of all
+        // ~33k entries per frame).
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
             cameraHeading = context.camera.heading
@@ -1500,13 +1509,13 @@ struct ContentView: View {
     /// detail. Shown with the steep-grade % markers when 3D terrain is on.
     @MapContentBuilder
     private func gradeRibbon(_ route: PlannedRoute) -> some MapContent {
-        ForEach(Array(route.gradeProfile.enumerated()), id: \.offset) { _, seg in
-            let pts = Self.polylineSlice(of: route, fromMile: seg.startMile, toMile: seg.endMile)
-            if pts.count >= 2 {
-                MapPolyline(coordinates: pts)
-                    .stroke(Self.gradeColor(seg.gradePercent),
-                            style: StrokeStyle(lineWidth: 11, lineCap: .round))
-            }
+        // Slices are precomputed at grade hydration
+        // (RouteService.gradeDisplayGeometry) — slicing the full polyline per
+        // segment HERE ran ~100 whole-polyline walks per frame.
+        ForEach(Array(route.gradeRibbonSlices.enumerated()), id: \.offset) { _, s in
+            MapPolyline(coordinates: s.coords)
+                .stroke(Self.gradeColor(s.gradePercent),
+                        style: StrokeStyle(lineWidth: 11, lineCap: .round))
         }
     }
 
@@ -1522,68 +1531,28 @@ struct ContentView: View {
         }
     }
 
-    /// The route polyline between two mile marks (for a ribbon segment).
-    nonisolated private static func polylineSlice(
-        of route: PlannedRoute, fromMile: Double, toMile: Double) -> [CLLocationCoordinate2D] {
-        let poly = route.route.polyline
-        let n = poly.pointCount
-        guard n > 1 else { return [] }
-        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
-        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
-        let a = fromMile * 1609.344, b = toMile * 1609.344
-        var acc = 0.0
-        var out: [CLLocationCoordinate2D] = []
-        for i in 0..<n {
-            if i > 0 { acc += POIRanking.meters(coords[i - 1], coords[i]) }
-            if acc >= a && acc <= b { out.append(coords[i]) }
-            if acc > b { break }
-        }
-        return out
-    }
-
     /// STEEP-GRADE markers along the active route when 3D terrain is on: our
     /// EPQS grade table knows exact road steepness that MapKit's terrain mesh
     /// only hints at — ≥6% stretches get an angled badge with the real number
     /// at the stretch's midpoint. (MapKit's mesh itself isn't deformable.)
+    /// Midpoints are precomputed at grade hydration — resolving each against
+    /// the full polyline here re-walked it per marker per frame.
     @MapContentBuilder
     private func steepGradeMarkers(_ route: PlannedRoute) -> some MapContent {
-        let steep = route.gradeProfile.filter { abs($0.gradePercent) >= 6 }.prefix(12)
-        ForEach(Array(steep.enumerated()), id: \.offset) { _, seg in
-            let midMile = (seg.startMile + seg.endMile) / 2
-            if let coord = Self.coordinate(atMile: midMile, of: route) {
-                Annotation("", coordinate: coord) {
-                    Label(String(format: "%.0f%%", abs(seg.gradePercent)),
-                          systemImage: seg.gradePercent > 0
-                            ? "arrow.up.right" : "arrow.down.right")
-                        .font(.system(size: 10, weight: .heavy))
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(abs(seg.gradePercent) >= 9
-                                    ? Theme.riskRed : Color.orange)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                        .shadow(radius: 2)
-                }
+        ForEach(Array(route.steepMarkers.enumerated()), id: \.offset) { _, m in
+            Annotation("", coordinate: m.coordinate) {
+                Label(String(format: "%.0f%%", abs(m.gradePercent)),
+                      systemImage: m.gradePercent > 0
+                        ? "arrow.up.right" : "arrow.down.right")
+                    .font(.system(size: 10, weight: .heavy))
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background(abs(m.gradePercent) >= 9
+                                ? Theme.riskRed : Color.orange)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+                    .shadow(radius: 2)
             }
         }
-    }
-
-    /// Coordinate at a mile position along a route's polyline (linear walk —
-    /// called for ≤12 markers on grade-profile hydration, not per frame).
-    nonisolated private static func coordinate(
-        atMile mile: Double, of route: PlannedRoute) -> CLLocationCoordinate2D? {
-        let poly = route.route.polyline
-        let n = poly.pointCount
-        guard n > 1 else { return nil }
-        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
-        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
-        let target = mile * 1609.344
-        var acc = 0.0
-        for i in 1..<n {
-            let d = POIRanking.meters(coords[i - 1], coords[i])
-            if acc + d >= target { return coords[i] }
-            acc += d
-        }
-        return coords.last
     }
 
     /// A route drawn as risk-band-colored corridor segments once its weather

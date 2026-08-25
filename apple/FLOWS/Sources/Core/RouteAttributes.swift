@@ -125,9 +125,11 @@ enum RouteAttributes {
 actor RouteAttributeFetcher {
     static let shared = RouteAttributeFetcher()
 
-    // DELIBERATELY unbounded: terrain elevation and FEMA zone membership are
-    // static facts — refetching them is pure waste, and the ~0.01° key
-    // rounding bounds growth to the corridors actually driven this session.
+    // Elevation and FEMA zone membership are static facts, so entries never
+    // go stale — but "bounded by corridors driven this session" is a weaker
+    // bound than it sounds at a 0.01° key (a heavy replanning session
+    // reaches five figures), so both carry the same overflow cap as
+    // restrictionCache below. Undated caches → dropHalf.
     private var elevationCache: [String: Double?] = [:]
     private var floodZoneCache: [String: Bool?] = [:]   // key -> high-risk?
     private var restrictionCache: [String:
@@ -172,6 +174,7 @@ actor RouteAttributeFetcher {
         elevationInFlight[k] = nil
         guard let value else { return nil }
         elevationCache[k] = value
+        if elevationCache.count > 4000 { CacheEviction.dropHalf(&elevationCache) }
         return value
     }
 
@@ -203,7 +206,10 @@ actor RouteAttributeFetcher {
         floodZoneInFlight[k] = nil
         // Cache real answers (true/false), never failures — a FEMA hiccup
         // must not pin "unknown" on this cell for the app's lifetime.
-        if result != nil { floodZoneCache[k] = result }
+        if result != nil {
+            floodZoneCache[k] = result
+            if floodZoneCache.count > 4000 { CacheEviction.dropHalf(&floodZoneCache) }
+        }
         return result
     }
 

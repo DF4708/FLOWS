@@ -281,10 +281,9 @@ final class NavigationEngine: ObservableObject {
             var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
             poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
             for c in coords {
-                if let p = prev {
-                    running += CLLocation(latitude: p.latitude, longitude: p.longitude)
-                        .distance(from: CLLocation(latitude: c.latitude, longitude: c.longitude))
-                }
+                // Allocation-free hop distance — this walks every vertex of
+                // the whole route at leg start.
+                if let p = prev { running += POIRanking.meters(p, c) }
                 points.append(c)
                 cumulative.append(running)
                 prev = c

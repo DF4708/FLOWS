@@ -277,6 +277,10 @@ enum EverydayFeatures {
 /// here; the pure store stays testable.
 @MainActor
 final class EverydayPlaces: ObservableObject {
+    /// Shared calendar — Calendar(identifier:) re-resolves locale/timezone
+    /// per construction, and lookups record context on every tap.
+    nonisolated private static let gregorian = Calendar(identifier: .gregorian)
+
     static let shared = EverydayPlaces()
 
     private var store = EverydayStore()
@@ -345,7 +349,7 @@ final class EverydayPlaces: ObservableObject {
         let t = now.timeIntervalSince1970
         guard store.remember(name: name, lat: lat, lon: lon, street: "", city: "",
                              in: category) else { return }
-        let cal = Calendar(identifier: .gregorian)
+        let cal = Self.gregorian
         let weekday = cal.component(.weekday, from: now)
         let ctx = EverydayStore.contextID(
             hourBucket: EverydayStore.hourBucket(cal.component(.hour, from: now)),

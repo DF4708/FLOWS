@@ -124,6 +124,9 @@ actor NWSForecastFetcher {
         // retries instead of pinning "no forecast" for the TTL.
         if let out {
             cache[k] = Entry(conditions: out, fetched: Date())
+            // Session-monotonic otherwise: every viewport sweep adds up to 36
+            // cells and stale entries were skipped but never removed.
+            if cache.count > 400 { CacheEviction.dropOldestHalf(&cache) { $0.fetched } }
         }
         return out
     }

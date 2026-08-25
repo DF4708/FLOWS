@@ -102,6 +102,11 @@ struct PlannedRoute: Identifiable {
     /// (coarse pass + fine refinement) — localized steepness, inspectable
     /// on the card and consulted for the steep-hill chip while driving.
     var gradeProfile: [GradeSegment] = []
+    /// Draw geometry for the 3D-terrain grade overlay, resolved ONCE when
+    /// the grade profile hydrates (RouteService.gradeDisplayGeometry) —
+    /// the map body just strokes these.
+    var gradeRibbonSlices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)] = []
+    var steepMarkers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] = []
     /// All posted clearances (meters) found near the corridor below ~5.5 m —
     /// compared against the driver's vehicle-height slider.
     var clearancesMeters: [Double]?
@@ -380,6 +385,56 @@ final class RouteService: ObservableObject {
         "\(Int(route.distance / 400))|\(Int(route.expectedTravelTime / 45))"
     }
 
+    /// Precomputed draw geometry for the 3D-terrain grade overlay: the
+    /// ribbon's per-segment polyline slices and the steep-marker (≥6%, first
+    /// 12) midpoints. One pass extracts the coordinates and their cumulative
+    /// meters; each segment then resolves by binary search. The map body
+    /// used to re-extract and re-walk the WHOLE polyline for every segment
+    /// on every frame — ~100 segments × thousands of vertices at GPS-fix
+    /// cadence whenever 3D terrain was on.
+    nonisolated static func gradeDisplayGeometry(
+        of polyline: MKPolyline, profile: [GradeSegment]
+    ) -> (slices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)],
+          markers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)]) {
+        let n = polyline.pointCount
+        guard n > 1, !profile.isEmpty else { return ([], []) }
+        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
+        polyline.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        var prefix = [Double](repeating: 0, count: n)
+        for i in 1..<n { prefix[i] = prefix[i - 1] + POIRanking.meters(coords[i - 1], coords[i]) }
+
+        // First vertex index whose cumulative distance reaches `target`.
+        func firstIndex(atOrAbove target: Double) -> Int {
+            var lo = 0, hi = n
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if prefix[mid] >= target { hi = mid } else { lo = mid + 1 }
+            }
+            return lo
+        }
+
+        var slices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)] = []
+        slices.reserveCapacity(profile.count)
+        for seg in profile {
+            let a = seg.startMile * 1609.344, b = seg.endMile * 1609.344
+            var i = firstIndex(atOrAbove: a)
+            var pts: [CLLocationCoordinate2D] = []
+            while i < n, prefix[i] <= b {
+                pts.append(coords[i])
+                i += 1
+            }
+            if pts.count >= 2 { slices.append((pts, seg.gradePercent)) }
+        }
+        var markers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] = []
+        for seg in profile where abs(seg.gradePercent) >= 6 {
+            if markers.count >= 12 { break }
+            let target = (seg.startMile + seg.endMile) / 2 * 1609.344
+            let i = min(max(firstIndex(atOrAbove: target), 1), n - 1)
+            markers.append((coords[i], seg.gradePercent))
+        }
+        return (slices, markers)
+    }
+
     /// Sample coordinates along a polyline roughly every `everyMeters`.
     nonisolated static func samplePoints(
         of polyline: MKPolyline, everyMeters: CLLocationDistance
@@ -406,9 +461,13 @@ final class RouteService: ObservableObject {
         var current: [CLLocationCoordinate2D] = [coords[0]]
         var sinceLast: CLLocationDistance = 0
         for i in 1..<n {
-            let a = CLLocation(latitude: coords[i - 1].latitude, longitude: coords[i - 1].longitude)
-            let b = CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude)
-            sinceLast += b.distance(from: a)
+            // POIRanking.meters, not CLLocation.distance: this loop walks
+            // every vertex of the polyline (~30k on a long route) and is run
+            // several times per route — the CLLocation pair here was two heap
+            // objects per vertex. The equirectangular error (<0.1% at vertex
+            // hop lengths) only shifts a sample boundary against the 40 km
+            // threshold by at most one vertex.
+            sinceLast += POIRanking.meters(coords[i - 1], coords[i])
             current.append(coords[i])
             if sinceLast >= everyMeters {
                 samples.append(coords[i])

@@ -308,6 +308,15 @@ final class SeasonalRiskModel: ObservableObject {
     private let persistQueue = DispatchQueue(label: "com.flows.seasonal.persist",
                                              qos: .default)
 
+    /// Completes when the on-disk store and learned heads have loaded. The
+    /// store decode grows with every recorded trip, and `.shared` is first
+    /// touched inside route RANKING — decoding synchronously in this
+    /// @MainActor init made the driver pay for it mid-plan. Reads before the
+    /// load lands degrade to the statistical prior (the documented no-model
+    /// behavior); MUTATIONS await it, so an arrival seconds after the first
+    /// touch can't persist a one-trip store over the undecoded history.
+    private var diskLoad: Task<Void, Never>?
+
     init() {
         let dir = (try? FileManager.default.url(
             for: .applicationSupportDirectory, in: .userDomainMask,
@@ -315,32 +324,36 @@ final class SeasonalRiskModel: ObservableObject {
         url = dir.appendingPathComponent("flows_seasonal_model.json")
         exportURL = dir.appendingPathComponent("flows_training_export.csv")
         headURL = dir.appendingPathComponent("flows_route_head.json")
-        if let data = try? Data(contentsOf: url),
-           let loaded = try? JSONDecoder().decode(SeasonalStore.self, from: data) {
-            store = loaded
+        let storeURL = url
+        let headFileURL = headURL
+        diskLoad = Task.detached(priority: .utility) { [weak self] in
+            let loadedStore = (try? Data(contentsOf: storeURL)).flatMap {
+                try? JSONDecoder().decode(SeasonalStore.self, from: $0)
+            }
+            let local = Self.decodeHead(try? Data(contentsOf: headFileURL))
+            let bundled = Self.decodeHead(Bundle.main.url(
+                forResource: "baseline_route_head", withExtension: "json")
+                .flatMap { try? Data(contentsOf: $0) })
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                if let loadedStore { self.store = loadedStore }
+                self.applyHead(local: local, bundled: bundled)
+            }
         }
-        loadHead()
     }
 
-    /// (Re)load the background worker's trained head from disk. Called at launch;
-    /// the worker rewrites the file, so the app picks up a fresher model next
-    /// launch. Missing/corrupt ⇒ the statistical prior is used.
-    func loadHead() {
-        func decode(_ data: Data?) -> LearnedHead? {
-            guard let data,
-                  let h = try? JSONDecoder().decode(LearnedHead.self, from: data),
-                  h.inputWidth == RouteFeatures.count   // stale contract → unusable
-            else { return nil }
-            return h
-        }
-        let local = decode(try? Data(contentsOf: headURL))
-        // The SHIPPED baseline: trained on 20 years of NOAA Storm Events
-        // (2005–2024) so a fresh install predicts from history, not zero. A
-        // newer locally-trained head (the weekly worker's output, which folds
-        // in the driver's own trips) wins by version.
-        let bundled = decode(Bundle.main.url(
-            forResource: "baseline_route_head", withExtension: "json")
-            .flatMap { try? Data(contentsOf: $0) })
+    nonisolated private static func decodeHead(_ data: Data?) -> LearnedHead? {
+        guard let data,
+              let h = try? JSONDecoder().decode(LearnedHead.self, from: data),
+              h.inputWidth == RouteFeatures.count   // stale contract → unusable
+        else { return nil }
+        return h
+    }
+
+    /// Choose between the worker's local head and the shipped baseline
+    /// (trained on 20 years of NOAA Storm Events, 2005–2024, so a fresh
+    /// install predicts from history, not zero).
+    private func applyHead(local: LearnedHead?, bundled: LearnedHead?) {
         switch (local, bundled) {
         case let (l?, b?):
             // The model trained on MORE data wins: a local head from a few
@@ -354,9 +367,14 @@ final class SeasonalRiskModel: ObservableObject {
         }
     }
 
+    /// Shared calendar: `Calendar(identifier:)` resolves locale/timezone on
+    /// every construction, and week() runs twice per route ranking plus per
+    /// map tick in the seasonal readout.
+    nonisolated private static let gregorian = Calendar(identifier: .gregorian)
+
     /// Week-of-year 0…51 (ISO-ish: day-of-year / 7, clamped).
     nonisolated static func week(_ date: Date = Date()) -> Int {
-        let day = Calendar(identifier: .gregorian).ordinality(of: .day, in: .year, for: date) ?? 1
+        let day = Self.gregorian.ordinality(of: .day, in: .year, for: date) ?? 1
         return min(51, max(0, (day - 1) / 7))
     }
 
@@ -389,19 +407,26 @@ final class SeasonalRiskModel: ObservableObject {
     }
 
     /// Record a completed trip's prediction vs. what was encountered, plus the
-    /// per-edge history, then persist.
+    /// per-edge history, then persist. Awaits the initial disk load first —
+    /// recording into a store whose history hadn't decoded yet would persist
+    /// a one-trip file over everything the driver ever recorded. Timestamps
+    /// are captured NOW (at arrival), not when the task runs.
     func recordTrip(origin: CLLocationCoordinate2D, dest: CLLocationCoordinate2D,
                     predicted: Double, observed: Double, distanceKm: Double,
                     hubPath: [CLLocationCoordinate2D] = []) {
         let now = Date().timeIntervalSince1970
         let wk = Self.week()
-        store.record(TripObservation(
-            key: RouteKey(origin: origin, dest: dest), week: wk,
-            predicted: predicted, observed: observed, distanceKm: distanceKm, t: now))
-        if hubPath.count >= 2 {
-            store.recordEdges(hubPath: hubPath, week: wk, observed: observed, t: now)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.diskLoad?.value
+            self.store.record(TripObservation(
+                key: RouteKey(origin: origin, dest: dest), week: wk,
+                predicted: predicted, observed: observed, distanceKm: distanceKm, t: now))
+            if hubPath.count >= 2 {
+                self.store.recordEdges(hubPath: hubPath, week: wk, observed: observed, t: now)
+            }
+            self.persist()
         }
-        persist()
     }
 
     private func persist() {

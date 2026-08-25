@@ -330,7 +330,11 @@ final class WeatherAlertService: ObservableObject {
         watchTask?.cancel()
         let polyline = route.route.polyline
         let spacing = 40_000.0
-        let allSamples = RouteService.samplePoints(of: polyline, everyMeters: spacing)
+        // A hydrated route's riskSamples sit on the same 40 km boundaries —
+        // reuse them rather than re-walking the whole polyline.
+        let allSamples = route.riskSamples.isEmpty
+            ? RouteService.samplePoints(of: polyline, everyMeters: spacing)
+            : route.riskSamples.map(\.coordinate)
         // Route pace for time-aware scoring while driving: window sample i
         // is ~i*spacing ahead of the vehicle.
         let secondsPerMeter = route.eta / max(route.distanceMeters, 1)
@@ -620,6 +624,13 @@ actor AlertZoneCache {
 
     func put(_ key: String, _ hits: [WeatherAlertService.NWSAlert]) {
         store[key] = Entry(hits: hits, fetched: Date())
+        // Cells only ever accumulated: a cross-country drive with the 4-min
+        // corridor watch plus viewport sweeps touches thousands of cells, and
+        // during active weather each carries full alert geometry (rings up to
+        // 150 points) — tens of MB by the end of a long day on a 2 GB device.
+        // 300 live cells comfortably covers a whole plan's corridor plus the
+        // viewport; beyond that the stalest half goes.
+        if store.count > 300 { CacheEviction.dropOldestHalf(&store) { $0.fetched } }
     }
 
     /// Coalesced fetch-or-join: alternate routes score concurrently and share

@@ -172,11 +172,16 @@ actor WorkZones {
     }
 
     /// Work zones for a state (30-min TTL). `stateName` lowercase full name.
+    /// The cache keeps a handful of states: a driver is only ever near 1-3 at
+    /// once, but a cross-country drive used to RETAIN every state crossed —
+    /// a 20k-zone state is ~2 MB, so 12 states was tens of MB for two display
+    /// integers per corridor update.
     func zones(stateName: String) async -> [Zone] {
         await loadRegistry()
         if let cached = zones[stateName], Date().timeIntervalSince(cached.fetched) < 1800 {
             return cached.zones
         }
+        if zones.count > 4 { CacheEviction.dropOldestHalf(&zones) { $0.fetched } }
         guard let feed = registry[stateName], let url = URL(string: feed),
               let (data, resp) = try? await ThrottledNet.fetch(url),
               (resp as? HTTPURLResponse)?.statusCode == 200,

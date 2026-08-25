@@ -50,18 +50,33 @@ struct HarmonicClimatology {
                   let s = String(data: name, encoding: .utf8) else { return nil }
             fams.append(s)
         }
+        // Zip index and coefficient body decode IN PLACE from the (mapped)
+        // buffer: the per-zip subdata() built ~33k throwaway Data objects,
+        // and the body subdata was a ~5 MB transient copy of data that is
+        // immediately re-copied into `coeffs`.
+        let zipsOff = off
+        guard off + 5 * nZips <= data.count else { return nil }
+        off += 5 * nZips
         var zipList: [String] = []
         zipList.reserveCapacity(nZips)
-        for _ in 0..<nZips {
-            guard let z = read(5), let s = String(data: z, encoding: .utf8) else { return nil }
-            zipList.append(s)
+        let zipsOK = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Bool in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            for i in 0..<nZips {
+                let start = zipsOff + i * 5
+                guard let s = String(bytes: bytes[start..<(start + 5)], encoding: .utf8)
+                else { return false }
+                zipList.append(s)
+            }
+            return true
         }
+        guard zipsOK else { return nil }
         let want = nZips * nFams * 5 * 4
-        guard let body = read(want), off == data.count else { return nil }
+        guard off + want == data.count else { return nil }
+        let bodyOff = off
         var c = [Float](repeating: 0, count: nZips * nFams * 5)
-        body.withUnsafeBytes { raw in
+        data.withUnsafeBytes { raw in
             for i in 0..<c.count {
-                c[i] = raw.loadUnaligned(fromByteOffset: i * 4, as: Float.self)
+                c[i] = raw.loadUnaligned(fromByteOffset: bodyOff + i * 4, as: Float.self)
             }
         }
         families = fams
@@ -130,7 +145,10 @@ struct HarmonicClimatology {
             .compactMap { $0 }
         #endif
         for path in candidates {
-            if let data = FileManager.default.contents(atPath: path),
+            // Mapped, not copied — FileManager.contents pulled the whole
+            // ~5.5 MB table into memory before parsing began.
+            if let data = try? Data(contentsOf: URL(fileURLWithPath: path),
+                                    options: .mappedIfSafe),
                let table = HarmonicClimatology(data: data) {
                 return table
             }

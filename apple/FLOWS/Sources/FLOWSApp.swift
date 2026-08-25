@@ -518,11 +518,17 @@ final class AppModel: ObservableObject {
         }
         // Designate from the FILTERED list so the badge follows the routes
         // the driver can actually see (it used to vanish when a filter
-        // removed the previously-designated route).
-        let pool = filteredChoices.isEmpty ? routeChoices : filteredChoices
+        // removed the previously-designated route). filteredChoices is bound
+        // once (the `.isEmpty ? … : …` form evaluated the whole filter pass
+        // twice), and no sort: designation only needs the single best
+        // (score, eta) — score() scans the route's full clearance list, so
+        // the comparator re-running it 4× per comparison was the cost.
+        let filtered = filteredChoices
+        let pool = filtered.isEmpty ? routeChoices : filtered
         return pool
-            .sorted { score($0) != score($1) ? score($0) > score($1) : $0.eta < $1.eta }
-            .first?.id
+            .map { (id: $0.id, score: score($0), eta: $0.eta) }
+            .min { $0.score != $1.score ? $0.score > $1.score : $0.eta < $1.eta }?
+            .id
     }
 
     /// Planner fields live on the model so editing a trip round-trips
@@ -733,6 +739,9 @@ final class AppModel: ObservableObject {
     private var pendingStopKind: POIService.Kind?
 
     /// Choices surviving the active filters (cards render from this).
+    /// Computed fresh per call — the routes panel reads it ONCE per render
+    /// and passes the array down (reading it per card multiplied the filter
+    /// pass and its ARC traffic ~50× per render).
     var filteredChoices: [PlannedRoute] {
         let limits = filterLimits
         var out = routeChoices.filter { r in
@@ -740,10 +749,14 @@ final class AppModel: ObservableObject {
         }
         // Tourist filter CHANGES the ordering: the route with more attractions
         // within reach leads (ties fall back to ETA) — scenic beats fast while
-        // the driver is explicitly asking for tourist stops.
+        // the driver is explicitly asking for tourist stops. Counts are
+        // decorated ONCE before the sort: touristCount is an O(POIs × samples)
+        // distance scan, and running it inside the comparator repeated it 4×
+        // per comparison.
         if routeFilters.contains(.tourist), !poi.results.isEmpty {
+            let counts = Dictionary(uniqueKeysWithValues: out.map { ($0.id, touristCount(for: $0)) })
             out.sort {
-                let (a, b) = (touristCount(for: $0), touristCount(for: $1))
+                let (a, b) = (counts[$0.id] ?? 0, counts[$1.id] ?? 0)
                 if a != b { return a > b }
                 return $0.eta < $1.eta
             }
@@ -1508,15 +1521,22 @@ final class AppModel: ObservableObject {
         onDevice: [String: Double] = [:], floodMultiplier: Double = 1,
         closureScore: Double = 0
     ) -> Double {
+        // ONE nearest-ZIP resolution for all families at this coordinate —
+        // per-family score() calls redid the same neighborhood scan 8×.
+        let row = riskField.scoreRow(at: c)
+        func field(_ fam: String) -> Double {
+            guard let row, let fi = riskField.familyIndex(fam), fi < row.count else { return 0 }
+            return row[fi]
+        }
         func predictor(_ fam: String, _ deviceKey: String) -> Double {
-            max(riskField.score(family: fam, at: c), onDevice[deviceKey] ?? 0)
+            max(field(fam), onDevice[deviceKey] ?? 0)
         }
         var bandInput: [String: Double] = [
             "wind": predictor("wind", "wind"),
             "heat": predictor("heat", "heat"),
             "cold": predictor("cold", "cold"),
-            "air": riskField.score(family: "air", at: c),
-            "radiation": riskField.score(family: "radiation", at: c),
+            "air": field("air"),
+            "radiation": field("radiation"),
             "winter": predictor("winter", "winter"),
             "convective": predictor("convective", "convective"),
             // modeled flood risk + forecast rain = a flood PREDICTOR, not proof.
@@ -1588,12 +1608,22 @@ final class AppModel: ObservableObject {
         let progressSink: @MainActor (Double, [RiskSample?]) -> Void = { [weak self] fraction, partial in
             guard let self, let i = self.routeChoices.firstIndex(where: { $0.id == routeID })
             else { return }
-            self.routeChoices[i].provisionalSamples = partial.map { s in
-                s.map { RiskSample(
-                    coordinate: $0.coordinate,
+            // Incremental across ticks: cells only ever ADD during one
+            // scoring pass, so samples blended on an earlier tick keep their
+            // value — only the newly landed ones run the realized-risk
+            // equation (each drags a nearest-ZIP field lookup with it). This
+            // sink fires per fetch batch on the main actor; re-blending the
+            // whole corridor every tick was the single hottest main-thread
+            // cost of a plan.
+            let prior = self.routeChoices[i].provisionalSamples
+            self.routeChoices[i].provisionalSamples = partial.enumerated().map { j, s in
+                guard let s else { return nil }
+                if j < prior.count, let done = prior[j] { return done }
+                return RiskSample(
+                    coordinate: s.coordinate,
                     risk: self.sampleRealizedRisk(
-                        at: $0.coordinate, alertEvent: $0.worstEvent, alertSeverity: $0.risk),
-                    worstEvent: $0.worstEvent, alertID: $0.alertID) }
+                        at: s.coordinate, alertEvent: s.worstEvent, alertSeverity: s.risk),
+                    worstEvent: s.worstEvent, alertID: s.alertID)
             }
             self.routeChoices[i].scoringProgress = fraction
         }
@@ -1679,10 +1709,23 @@ final class AppModel: ObservableObject {
             return lo
         }
 
+        // Family indices are loop-invariant — resolve once, not per sample.
+        let envIdx = riskField.familyIndex("environmental")
+        let filterIdx = filterFamilies.map { ($0, riskField.familyIndex($0)) }
+        var identifiedSum = 0.0
         let blended = score.samples.enumerated().map { i, s -> RiskSample in
             let c = s.coordinate
             let dev = onDevicePredictors(near: i)
             let near = nearestOnDevice(i)
+            // One nearest-ZIP row per sample, shared by the filter peaks and
+            // the identified-exposure accumulation below (score(family:at:)
+            // per family redid the same neighborhood scan).
+            let row = riskField.scoreRow(at: c)
+            func rowScore(_ fi: Int?) -> Double {
+                guard let row, let fi, fi < row.count else { return 0 }
+                return row[fi]
+            }
+            identifiedSum += rowScore(envIdx)
             // Evidence gate = noisy-OR of a gauge in flood and mapped water near.
             let gaugeEvid = HazardFeedScores.floodGaugeScore(gauges: corridorGauges, at: c)
             let waterEvid = HazardFeedScores.waterProximityScore(waterPoints: corridorWater, at: c)
@@ -1692,9 +1735,9 @@ final class AppModel: ObservableObject {
                 qpfInches: near?.0.qpfInches, supportingEvidence: floodEvidence)
             // Route filters track per-family peaks (display): worse of the ZIP
             // export and the on-device forecast decomposition.
-            for fam in filterFamilies {
+            for (fam, fi) in filterIdx {
                 let deviceKey = fam == "qpf_flood" ? "precip" : fam
-                let v = max(riskField.score(family: fam, at: c), dev[deviceKey] ?? 0)
+                let v = max(rowScore(fi), dev[deviceKey] ?? 0)
                 if v > (peaks[fam] ?? 0) { peaks[fam] = v }
             }
             // SAME logic as the map: field + forecast are PREDICTORS (never
@@ -1752,8 +1795,8 @@ final class AppModel: ObservableObject {
         // the ZIP's IDENTIFIED risk — the R engine's modeled field, later refined
         // by the on-device seasonal prior. A ZIP can carry known risk before any
         // alert, and an alert can fire without prior ZIP risk; both are evidence.
-        let identified = score.samples.map { riskField.score(family: "environmental", at: $0.coordinate) }
-        r.zipExposure = identified.isEmpty ? 0 : identified.reduce(0, +) / Double(identified.count)
+        // (Accumulated in the blended pass above — same row lookup.)
+        r.zipExposure = score.samples.isEmpty ? 0 : identifiedSum / Double(score.samples.count)
         // On-device seasonal prior for THIS origin→dest at this week-of-year —
         // the learned "third truth" that takes over from the modeled field as it
         // accrues confidence on the driver's frequent routes.
@@ -1790,14 +1833,21 @@ final class AppModel: ObservableObject {
     /// bridge heights.
     private func attributeScored(_ input: PlannedRoute) async -> PlannedRoute {
         var r = input
-        let part = RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000)
+        // The weather pass already partitioned this polyline at the same
+        // 40 km spacing and its riskSamples sit ON those boundaries — reuse
+        // them instead of re-walking every polyline vertex (~30k on a long
+        // route). Unscored input (rare: direct attribute hydration) still
+        // partitions.
+        let corridorSamples = input.riskSamples.isEmpty
+            ? RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000).samples
+            : input.riskSamples.map(\.coordinate)
         let routeLength = r.distanceMeters
         let gradeSpacing = max(10_000.0, routeLength / 60)
         let gradeSamples = RouteService.samplePoints(of: r.route.polyline, everyMeters: gradeSpacing)
-        let femaSamples = part.samples.enumerated()
+        let femaSamples = corridorSamples.enumerated()
             .filter { $0.offset % 2 == 0 }.map(\.element)   // every ~80 km
             .prefix(25)
-        let boxes = Self.corridorBoxes(part.samples)
+        let boxes = Self.corridorBoxes(corridorSamples)
 
         async let elevations: [Double?] = withTaskGroup(of: (Int, Double?).self) { group in
             for (i, pt) in gradeSamples.enumerated() {
@@ -1837,6 +1887,10 @@ final class AppModel: ObservableObject {
             table.sort { $0.startMile < $1.startMile }
         }
         r.gradeProfile = table
+        // Resolve the 3D grade overlay's draw geometry here, once — the map
+        // used to slice the full polyline per segment per frame.
+        (r.gradeRibbonSlices, r.steepMarkers) = RouteService.gradeDisplayGeometry(
+            of: r.route.polyline, profile: table)
         let fema = (await femaHits).compactMap { $0 }
         r.femaFloodFraction = fema.isEmpty ? nil
             : Double(fema.filter { $0 }.count) / Double(fema.count)
@@ -1956,9 +2010,10 @@ final class AppModel: ObservableObject {
     private static func pathLength(_ coords: [CLLocationCoordinate2D]) -> Double {
         guard coords.count > 1 else { return 0 }
         var total = 0.0
+        // Summed across all of a route's segments this re-walks every vertex
+        // of the polyline — allocation-free hops, not CLLocation pairs.
         for i in 1..<coords.count {
-            total += CLLocation(latitude: coords[i - 1].latitude, longitude: coords[i - 1].longitude)
-                .distance(from: CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude))
+            total += POIRanking.meters(coords[i - 1], coords[i])
         }
         return total
     }
@@ -1983,6 +2038,7 @@ final class AppModel: ObservableObject {
         imminentWarning = nil
         dismissedImminentIDs = []
         shelteredImminentIDs = []
+        reachSpeeds = [:]   // per-trip state like its two siblings above
         stopDelaySeconds = 0
         tripShareOffered = false   // new trip → the share banner may show once
         tripSharePrompt = false

@@ -223,6 +223,44 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertEqual(out[0]?.alertID, "severe")
     }
 
+    // MARK: grade display geometry
+
+    /// Precomputed 3D grade-overlay geometry: slices must carry the vertices
+    /// whose cumulative distance falls inside each segment's mile span, and
+    /// steep markers must land at segment midpoints — same semantics as the
+    /// per-frame walk this replaced.
+    func testGradeDisplayGeometry() {
+        // Straight north line: 21 vertices every ~0.01° lat ≈ 1,113 m.
+        let coords = (0..<21).map {
+            CLLocationCoordinate2D(latitude: 43.0 + Double($0) * 0.01, longitude: -89.0)
+        }
+        let poly = MKPolyline(coordinates: coords, count: coords.count)
+        let stepMiles = 1_113.2 / 1609.344   // ≈ 0.692 mi between vertices
+        let profile = [
+            GradeSegment(startMile: 0, endMile: stepMiles * 4, gradePercent: 2),
+            GradeSegment(startMile: stepMiles * 4, endMile: stepMiles * 8, gradePercent: 7),
+            GradeSegment(startMile: stepMiles * 8, endMile: stepMiles * 12, gradePercent: -9),
+        ]
+        let out = RouteService.gradeDisplayGeometry(of: poly, profile: profile)
+
+        XCTAssertEqual(out.slices.count, 3)
+        // First slice spans vertices 0…4 (cumulative 0 through 4 steps).
+        XCTAssertEqual(out.slices[0].coords.count, 5)
+        XCTAssertEqual(out.slices[0].coords.first?.latitude ?? 0, 43.0, accuracy: 1e-9)
+        XCTAssertEqual(out.slices[0].gradePercent, 2)
+        // Steep segments (≥6%) get midpoint markers, sign preserved.
+        XCTAssertEqual(out.markers.count, 2)
+        XCTAssertEqual(out.markers[0].gradePercent, 7)
+        XCTAssertEqual(out.markers[1].gradePercent, -9)
+        // Marker for the 7% segment sits at ~6 steps (midpoint of 4…8).
+        XCTAssertEqual(out.markers[0].coordinate.latitude, 43.06, accuracy: 0.011)
+
+        // Degenerate inputs stay empty, never trap.
+        XCTAssertTrue(RouteService.gradeDisplayGeometry(of: poly, profile: []).slices.isEmpty)
+        let dot = MKPolyline(coordinates: [coords[0]], count: 1)
+        XCTAssertTrue(RouteService.gradeDisplayGeometry(of: dot, profile: profile).markers.isEmpty)
+    }
+
     // MARK: PlannedRoute provisional accessors
 
     private func sample(_ risk: Double) -> RiskSample {

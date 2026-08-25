@@ -129,8 +129,17 @@ enum HazardFeedScores {
     static func distanceToSegmentMeters(
         _ p: CLLocationCoordinate2D, _ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D
     ) -> Double {
+        distanceToSegmentMeters(p, a, b, mPerDegLon: 111_320.0 * cos(p.latitude * .pi / 180))
+    }
+
+    /// Hot-loop overload: `mPerDegLon` depends on `p` ONLY, so a caller
+    /// scanning every edge of a ring computes it once instead of paying a
+    /// libm `cos` per edge (a fire season's viewport sweep is ~10⁵ edges).
+    static func distanceToSegmentMeters(
+        _ p: CLLocationCoordinate2D, _ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D,
+        mPerDegLon: Double
+    ) -> Double {
         let mPerDegLat = 111_320.0
-        let mPerDegLon = 111_320.0 * cos(p.latitude * .pi / 180)
         // p at the origin; a, b in local meters.
         let ax = (a.longitude - p.longitude) * mPerDegLon
         let ay = (a.latitude - p.latitude) * mPerDegLat
@@ -146,26 +155,57 @@ enum HazardFeedScores {
 
     /// Active fire perimeters near a point → 0…1: inside a mapped fire is 1.0;
     /// a 12 km buffer ramps down for the smoke/evacuation fringe.
+    ///
+    /// Ring scan is a single fused pass: crossing parity (inside?) and the
+    /// nearest-EDGE distance accumulate together — the old two-pass form
+    /// walked every ring twice. Distance is to the edge, not the nearest
+    /// vertex: WFIGS perimeters have long segments between sparse vertices,
+    /// so a vertex-only distance left a point beside a long edge reading far
+    /// from the fire and the smoke buffer never fired. A bounding-box reject
+    /// (min/max only, no trig) skips rings whose whole extent is beyond the
+    /// buffer — during fire season the viewport sweep tests dozens of grid
+    /// points against every active perimeter in the country, and almost all
+    /// of them are nowhere near.
     static func firePerimeterScore(
         perimeters: [[CLLocationCoordinate2D]], at point: CLLocationCoordinate2D
     ) -> Double {
         var best = 0.0
+        let mPerDegLat = 111_320.0
+        let mPerDegLon = 111_320.0 * cos(point.latitude * .pi / 180)
         for ring in perimeters {
-            if pointInPolygon(point, ring) { return 1.0 }
-            // Distance to the nearest EDGE, not the nearest vertex — WFIGS
-            // perimeters have long segments between sparse vertices, so a
-            // vertex-only distance left a point beside a long edge reading far
-            // from the fire and the smoke buffer never fired.
-            var minD = Double.infinity
-            if ring.count >= 2 {
-                var prev = ring.count - 1
-                for i in 0..<ring.count {
-                    minD = min(minD, distanceToSegmentMeters(point, ring[prev], ring[i]))
-                    prev = i
+            guard ring.count >= 2 else {
+                if let only = ring.first {
+                    let d = POIRanking.meters(only, point)
+                    if d < 12_000 { best = max(best, (1 - d / 12_000) * 0.7) }
                 }
-            } else if let only = ring.first {
-                minD = POIRanking.meters(only, point)
+                continue
             }
+            var minLat = ring[0].latitude, maxLat = minLat
+            var minLon = ring[0].longitude, maxLon = minLon
+            for c in ring {
+                minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
+                minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+            }
+            let dLat = max(0, max(minLat - point.latitude, point.latitude - maxLat)) * mPerDegLat
+            let dLon = max(0, max(minLon - point.longitude, point.longitude - maxLon)) * mPerDegLon
+            if dLat * dLat + dLon * dLon > 12_000.0 * 12_000.0 { continue }
+
+            var inside = false
+            var minD = Double.infinity
+            var prev = ring.count - 1
+            for i in 0..<ring.count {
+                let a = ring[i], b = ring[prev]
+                if (a.latitude > point.latitude) != (b.latitude > point.latitude) {
+                    let t = (point.latitude - a.latitude) / (b.latitude - a.latitude)
+                    if point.longitude < a.longitude + t * (b.longitude - a.longitude) {
+                        inside.toggle()
+                    }
+                }
+                minD = min(minD, distanceToSegmentMeters(
+                    point, ring[prev], ring[i], mPerDegLon: mPerDegLon))
+                prev = i
+            }
+            if inside { return 1.0 }
             if minD < 12_000 { best = max(best, (1 - minD / 12_000) * 0.7) }
         }
         return best
@@ -1069,6 +1109,13 @@ actor LiveHazardFeedFetcher {
 
     /// Current-hour value from an Open-Meteo hourly series. Static: no instance
     /// state, so concurrent callers need capture nothing.
+    /// UTC calendar, built once — the hourly-series index needs it per fetch.
+    private static let utcGregorian: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }()
+
     private static func fetchFirstHourly(_ url: String, field: String) async -> Double? {
         guard let u = URL(string: url),
               let (data, resp) = try? await ThrottledNet.fetch(u),
@@ -1078,9 +1125,7 @@ actor LiveHazardFeedFetcher {
               let values = hourly[field] as? [Any],
               let times = hourly["time"] as? [String] else { return nil }
         // Pick the entry for the current UTC hour (series starts at 00:00).
-        let hour = Calendar(identifier: .gregorian).with {
-            $0.timeZone = TimeZone(identifier: "UTC")!
-        }.component(.hour, from: Date())
+        let hour = Self.utcGregorian.component(.hour, from: Date())
         let idx = min(hour, values.count - 1, times.count - 1)
         return idx >= 0 ? values[idx] as? Double : nil
     }
@@ -1202,6 +1247,7 @@ actor LiveHazardFeedFetcher {
                 }
             }
             closureCache[cacheKey] = (Date(), points)   // failures cache empty
+            if closureCache.count > 100 { CacheEviction.dropOldestHalf(&closureCache) { $0.0 } }
             out.append(contentsOf: points)
         }
         out = out.filter { seenPts.insert("\($0.lat),\($0.lon)").inserted }

@@ -63,6 +63,14 @@ final class RiskFieldService: ObservableObject {
 
     private var entries: [ZipEntry] = []
     private var grid: [Int: [Int]] = [:]   // 0.2° cell -> entry indices
+    /// families → index, O(1) — familyIndex used to linear-scan ~15 Strings
+    /// and route scoring asks it 13× per corridor sample.
+    private var familyIdx: [String: Int] = [:]
+    /// Structure-of-arrays centroid mirror of `entries`: the nearest-entry
+    /// scan touches ONLY these two flat Double arrays instead of
+    /// materializing a 4-refcount ZipEntry per candidate.
+    private var centroidLats: [Double] = []
+    private var centroidLons: [Double] = []
 
     init() {
         riskLog.info("init — scheduling load")
@@ -72,7 +80,7 @@ final class RiskFieldService: ObservableObject {
     // MARK: lookups (all O(neighborhood), backed by the grid index)
 
     func familyIndex(_ family: String) -> Int? {
-        families.firstIndex(of: family)
+        familyIdx[family]
     }
 
     /// Field score for a family at a coordinate = nearest ZIP centroid within
@@ -80,6 +88,15 @@ final class RiskFieldService: ObservableObject {
     func score(family: String, at coord: CLLocationCoordinate2D) -> Double {
         guard let fi = familyIndex(family), let e = nearestEntry(to: coord) else { return 0 }
         return fi < e.scores.count ? e.scores[fi] : 0
+    }
+
+    /// The WHOLE aligned score row at a coordinate (nil beyond the field) —
+    /// one nearest-entry resolution for callers that need several families at
+    /// the same point. Route scoring reads 13 family scores per corridor
+    /// sample; through `score()` that was 13 identical neighborhood scans.
+    /// Index it with `familyIndex(_:)`.
+    func scoreRow(at coord: CLLocationCoordinate2D) -> [Double]? {
+        nearestEntry(to: coord)?.scores
     }
 
     /// Hazard summary text of the ZIP under a coordinate.
@@ -93,14 +110,30 @@ final class RiskFieldService: ObservableObject {
     /// render (choropleth + weather shapes), and the map re-renders on every
     /// model tick — each miss was a full filter+sort of every entry
     /// (near-miss from review).
-    private var zipsMemo: [String: [ZipEntry]] = [:]
+    private var zipsMemo: [ZipsMemoKey: [ZipEntry]] = [:]
+
+    /// Hashable memo key with the same 3-decimal bucketing the old
+    /// `String(format: "%.3f…")` key had — minus the NSString formatting trip
+    /// this per-render path paid on every probe.
+    private struct ZipsMemoKey: Hashable {
+        let family: String
+        let limit: Int
+        let cLat: Int, cLon: Int, dLat: Int, dLon: Int
+
+        init(family: String, limit: Int, region: MKCoordinateRegion) {
+            self.family = family
+            self.limit = limit
+            func q(_ v: Double) -> Int { Int((v * 1000).rounded()) }
+            cLat = q(region.center.latitude)
+            cLon = q(region.center.longitude)
+            dLat = q(region.span.latitudeDelta)
+            dLon = q(region.span.longitudeDelta)
+        }
+    }
 
     func zips(in region: MKCoordinateRegion, family: String, limit: Int) -> [ZipEntry] {
         guard let fi = familyIndex(family) else { return [] }
-        let key = String(
-            format: "%@|%d|%.3f|%.3f|%.3f|%.3f", family, limit,
-            region.center.latitude, region.center.longitude,
-            region.span.latitudeDelta, region.span.longitudeDelta)
+        let key = ZipsMemoKey(family: family, limit: limit, region: region)
         if let hit = zipsMemo[key] { return hit }
         let out = Self.selectZips(
             entries: entries, grid: grid,
@@ -132,9 +165,11 @@ final class RiskFieldService: ObservableObject {
         for dy in -dyMax...dyMax {
             for dx in -dxMax...dxMax {
                 for idx in grid[Self.cellKey(cy + dy, cx + dx)] ?? [] {
-                    let e = entries[idx]
-                    let dLat = e.centroid.latitude - coord.latitude
-                    let dLon = (e.centroid.longitude - coord.longitude) * cosLat
+                    // SoA centroid arrays: unmanaged Doubles only — reading
+                    // entries[idx] here materialized a ZipEntry (4 refcounted
+                    // fields) per candidate just to compare two numbers.
+                    let dLat = centroidLats[idx] - coord.latitude
+                    let dLon = (centroidLons[idx] - coord.longitude) * cosLat
                     let d2 = dLat * dLat + dLon * dLon
                     if best == nil || d2 < best!.d2 { best = (idx, d2) }
                 }
@@ -371,7 +406,10 @@ final class RiskFieldService: ObservableObject {
             return (final, Self.buildGrid(final))
         }.value
         entries = final
+        centroidLats = final.map(\.centroid.latitude)
+        centroidLons = final.map(\.centroid.longitude)
         families = fams
+        familyIdx = Dictionary(uniqueKeysWithValues: fams.enumerated().map { ($1, $0) })
         generatedUTC = generated
         zipsMemo = [:]
         grid = builtGrid
@@ -438,18 +476,24 @@ final class RiskFieldService: ObservableObject {
         } else {
             idxs = Array(entries.indices)
         }
-        let inBox: [ZipEntry] = idxs.compactMap { i in
-            let e = entries[i]
-            guard e.centroid.latitude >= latMin, e.centroid.latitude <= latMax,
-                  e.centroid.longitude >= lonMin, e.centroid.longitude <= lonMax,
-                  e.ring != nil else { return nil }
-            return e
+        // Sort INDICES, not entries: moving whole ZipEntry values through a
+        // sort meant retain/release on 4 managed fields per swap. Candidate
+        // order (ascending) plus the stable sort preserves the documented
+        // equal-score tie-break; entries materialize only for the ≤limit
+        // survivors.
+        var kept: [Int] = []
+        kept.reserveCapacity(idxs.count)
+        for i in idxs {
+            let c = entries[i].centroid
+            guard c.latitude >= latMin, c.latitude <= latMax,
+                  c.longitude >= lonMin, c.longitude <= lonMax,
+                  entries[i].ring != nil else { continue }
+            kept.append(i)
         }
-        let ranked = inBox.sorted { a, b in
-            let sa = fi < a.scores.count ? a.scores[fi] : 0
-            let sb = fi < b.scores.count ? b.scores[fi] : 0
-            return sa > sb
+        func score(_ i: Int) -> Double {
+            fi < entries[i].scores.count ? entries[i].scores[fi] : 0
         }
-        return Array(ranked.prefix(limit))
+        let ranked = kept.sorted { score($0) > score($1) }
+        return ranked.prefix(limit).map { entries[$0] }
     }
 }
