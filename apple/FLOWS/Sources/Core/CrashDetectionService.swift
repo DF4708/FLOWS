@@ -232,7 +232,7 @@ final class CrashDetectionService: ObservableObject {
         // route the prompt out loud in the car.
         try? AVAudioSession.sharedInstance().setCategory(
             .playAndRecord, mode: .voiceChat,
-            options: [.duckOthers, .defaultToSpeaker, .allowBluetooth])
+            options: [.duckOthers, .defaultToSpeaker, .allowBluetoothHFP])
         try? AVAudioSession.sharedInstance().setActive(true)
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = 0.5
