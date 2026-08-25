@@ -95,12 +95,11 @@ targets:
             CPTemplateApplicationSceneSessionRoleApplication:
               - UISceneConfigurationName: CarPlay
                 UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
-    dependencies:
-      - target: FLOWS-Watch
-        embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app
+        # com.flows.app is registered to another team on Apple's portal —
+        # device provisioning needs an id OUR team can claim.
+        PRODUCT_BUNDLE_IDENTIFIER: com.wizeman555.flows
         PRODUCT_NAME: FLOWS            # menu bar / app name, not the target name
         TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad
         SUPPORTS_MACCATALYST: NO
