@@ -472,7 +472,7 @@ risk" above. Everything else that landed with it:
   `MapPolyline` hatch lines (`ContentView.hatchLines`). Hazard badges snap
   to ZCTA shoelace centroids (blobs remain only as a non-overlapping
   fallback). The traveler marker is **mode-aware** — car / figure.walk /
-  tram / bus, leg-aware on transit itineraries. 3D terrain toggle
+  tram / bus / plane, leg-aware on transit itineraries. 3D terrain toggle
   (`.realistic` map style + pitched camera), finer risk grid at deep zoom,
   and an offline `BreadcrumbTrail` ("Find my way back", `NWPathMonitor`
   banner) for when the network drops mid-route.
@@ -491,10 +491,17 @@ risk" above. Everything else that landed with it:
 - **Tourist is a ROUTE FILTER**: pins attractions along each corridor and
   puts per-route attraction counts on the cards.
 - **Transit cards + tickets** (`Core/TransitItinerary.swift`,
-  `TransitTickets`): rail and bus are **multi-select** cards, each with its
-  own itinerary and an exact ticket link — Amtrak/Greyhound booking pages,
-  the station's own URL for local systems. **No Maps handoff.** When no
-  local rail exists, the card recommends the nearest Amtrak station.
+  `TransitTickets`): rail, bus, and plane are **multi-select** cards, each
+  with its own itinerary and an exact ticket link — Amtrak/Greyhound booking
+  pages, the station's own URL for local systems, the airport's page or a
+  keyless flight search for the plane card. **No Maps handoff.** Long-haul
+  rail boards via the bundled Amtrak station list
+  (`Core/AmtrakStations.swift`, 536 rail-served stations from Amtrak's
+  public GTFS; network search only off-list); when no rail is in range the
+  card recommends the nearest Amtrak station, offline. In walking mode a
+  **walk + paid ride** card (`Core/HybridWalk.swift`) offers a rideshare
+  segment only when it saves ≥40% and ≥15 min for ≤$25 estimated, with
+  keyless Uber/Lyft deep links.
 - **Learned prediction** (`Core/SeasonalRiskModel.swift`): week-of-year
   buckets with a 52-week half-life decay, frequency gating (local ≥ 6
   trips, cross-country ≥ 2), a hub/edge trip graph, and `learnedHome` /
@@ -527,7 +534,7 @@ risk" above. Everything else that landed with it:
   (`rust/flows-core/src/transit/`); spatial grids for `RoutePath.nearest`,
   the shower tables, SMN municipios, and `RiskFieldService.selectZips`;
   per-sweep overlay caches on the map.
-- **Tests**: 163 Swift test functions (`apple/FLOWSTests/`) + 101 Rust
+- **Tests**: 180 Swift test functions (`apple/FLOWSTests/`) + 101 Rust
   (flows-core 55, flows-train 35), zero warnings, `cargo clippy -D warnings`
   clean locally and enforced by CI on a pinned toolchain.
 

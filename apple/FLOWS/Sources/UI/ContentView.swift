@@ -768,14 +768,16 @@ struct ContentView: View {
             if let itin = model.transitItinerary {
                 let rail = itin.mode.lowercased().contains("rail")
                     || itin.mode.lowercased().contains("amtrak")
+                let rideSymbol = itin.mode == "Plane" ? "airplane"
+                    : rail ? "tram.fill" : "bus.fill"
                 guard let here = model.location.coordinate,
                       let leg = Self.nearestLeg(of: itin, to: here) else {
-                    return (rail ? "tram.fill" : "bus.fill", .purple)
+                    return (rideSymbol, .purple)
                 }
                 return switch leg.kind {
                 case .walk: ("figure.walk", .green)
-                case .drive: ("car.fill", .blue)   // park-and-ride access leg
-                case .ride: (rail ? "tram.fill" : "bus.fill", .purple)
+                case .drive: ("car.fill", .blue)   // park-and-ride access or hailed ride
+                case .ride: (rideSymbol, .purple)
                 }
             }
             if model.walkingMode { return ("figure.walk", .green) }

@@ -108,26 +108,54 @@ ships now keeps everything **in FLOWS** — no Apple Maps handoff — while hone
 labelling what it can't know without GTFS:
 
 - **Full multi-leg itineraries** (`apple/FLOWS/Sources/Core/TransitItinerary.swift`,
-  built by `computeTransit(rail:)` in `apple/FLOWS/Sources/UI/RouteChoicesView.swift`):
+  built by `computeGroundTransit(rail:)` in `apple/FLOWS/Sources/UI/RouteChoicesView.swift`):
   walk to the boarding station → intercity/local RIDE → **walk from the arrival
   station** (the traveller doesn't have their car at the far end). WALK legs are
   real MapKit pedestrian routes with step instructions; the RIDE leg is drawn
   along the real ground corridor between stations (MapKit road geometry, straight
   connector only if unroutable — `rideGeometryIsReal` gates the claim) and flagged
   `rideGeometryIsApproximate` until GTFS supplies true rail shapes.
+- **Bundled Amtrak station list** (`AmtrakStations.swift` +
+  `Resources/amtrak_stations.json`): every rail-served Amtrak station
+  (name/code/lat/lon; 536 stations from Amtrak's public GTFS `stops.txt`,
+  Thruway bus-only stops excluded — source + retrieval date documented in the
+  JSON itself). Long-haul rail board/alight is a pure offline nearest-station
+  lookup over this list (radius-capped, tested); MKLocalSearch remains only
+  the off-list fallback and the source for local rail + bus. This fixed rail
+  routing failing for most destinations — the text search missed most
+  stations; the published list can't.
+- **Plane option** (`computeAirTransit` + `AirTravel.swift`): a third toggle
+  that boards at the nearest airport with airline service at each end
+  (MapKit `.airport` POI category filtered by a tested name-based commercial
+  screen — heliports/private strips/military fields rejected, internationals
+  preferred). Timing is honest door-to-door: 90 min early + taxi/climb +
+  cruise + 30 min bags, all inside the leg. Fare is a floor+per-mile estimate
+  labelled "airlines set the real price"; the ticket link is the airport's
+  own page or a keyless neutral flight search. Rentals reuse the transit-card
+  mechanism, centered on the ARRIVAL airport. No CO₂ chip — flying doesn't
+  earn it.
+- **Walk + paid ride** (`computeHybrid` + `HybridWalk.swift`): when walking
+  is the only selected mode, one extra option offers a rideshare segment
+  ONLY when it clears a significance bar — ≥40% AND ≥15 min of the
+  walk-alone time saved for ≤$25 estimated ($3 base + $1.10/mi, labelled a
+  guess; Uber/Lyft price for real). Whole-trip ride when the cap affords it,
+  else ride the first affordable miles and walk the rest (drop-off
+  interpolated along the drive geometry, the walk remainder re-routed for
+  real and the bar re-checked). Hail links are keyless universal links
+  (m.uber.com/ul, lyft.com/ride) carrying pickup + drop-off coordinates.
 - **Honest, mode-differentiated timing:** `TransitPlanning.rideDuration` scales a
   measured MapKit drive time by a per-mode door-to-door overhead
   (`rideMultiplier`: Amtrak 1.45 / Greyhound 1.35 / local rail 1.30 / bus 2.0),
   falling back to conservative effective speeds (`fallbackMPH`, kept monotonic
   with the multipliers so mode ordering never flips) — labelled an estimate until
   GTFS lands.
-- **Rail + bus multi-select cards:** `RouteChoicesView.TransitOption` keyed by
-  rail/bus — both cards coexist, each carries **its own itinerary**; tapping a
-  card draws *its* legs on the map (`activeTransitModes` set, latest-computed
-  wins, stale async results are dropped by generation check).
-- **Nearest-Amtrak recommendation:** when no local rail exists, the card still
-  helps — it finds the closest rail station within intercity range and recommends
-  it by name and distance ("No local rail nearby. Closest train: …, N mi away").
+- **Rail + bus + plane multi-select cards:** `RouteChoicesView.TransitOption`
+  keyed by `TransitMode` — cards coexist, each carries **its own itinerary**;
+  tapping a card draws *its* legs on the map (`activeTransitModes` set,
+  latest-computed wins, stale async results are dropped by generation check).
+- **Nearest-Amtrak recommendation:** when no rail is in range, the card still
+  helps — the bundled station list names the closest Amtrak station within
+  intercity range, offline ("No rail close by. Closest train: …, N mi away").
 - **Exact ticket links, not a Maps handoff:** `TransitTickets.ticket` puts the
   precise ride (board → alight) on the card with the carrier's booking page
   (Amtrak → amtrak.com/tickets, Greyhound → greyhound.com); local transit links
