@@ -34,6 +34,20 @@ final class AppModel: ObservableObject {
     /// The selected public-transit itinerary (walk → ride → walk), drawn on the
     /// map and stepped in-app. Cleared whenever drive routes are (re)presented.
     @Published var transitItinerary: TransitItinerary?
+    /// Transit planning state on the CHOICES screen: which rail/bus/plane
+    /// toggles are on and each mode's computed option card. On the model, not
+    /// view @State — rotating the phone flips the size class, which rebuilds
+    /// the chrome tree and was forgetting the driver's toggles and cards
+    /// right before a journey started. Cleared with each fresh plan.
+    @Published var transitOptions: [TransitMode: TransitOption] = [:]
+    @Published var activeTransitModes: Set<TransitMode> = []
+    /// In-flight per-mode transit computations (cancel targets, not UI state).
+    var transitTasks: [TransitMode: Task<Void, Never>] = [:]
+    /// Walking mode's walk + paid-ride offer, and the plan it was computed
+    /// (or dismissed) for — the key stops a rotation from recomputing an
+    /// offer the walker already closed.
+    @Published var hybridOption: HybridOption?
+    var hybridOptionKey = ""
     /// Route emphasized on the map while choosing (tap a card to change);
     /// alternates draw gray underneath, Apple/Google Maps style.
     @Published var highlightedRouteID: UUID? {
@@ -1364,6 +1378,13 @@ final class AppModel: ObservableObject {
     func present(routes: [PlannedRoute]) {
         routeChoices = routes
         transitItinerary = nil   // drive routes replace any transit overlay
+        // A fresh plan resets the transit pickers: cancel in-flight
+        // computations, drop stale option cards, untoggle rail/bus/plane.
+        transitTasks.values.forEach { $0.cancel() }
+        transitTasks = [:]
+        transitOptions = [:]
+        activeTransitModes = []
+        hybridOption = nil
         highlightedRouteID = routes.first?.id
         mode = .choosing
         filterCardsHidden = false   // fresh choices bring the slider card back

@@ -56,6 +56,20 @@ extension View {
     func floatingCard() -> some View { modifier(FloatingCard()) }
 }
 
+/// Scrolls only when the content is too tall for the space offered — tall
+/// cards keep their natural size when there's room and become scrollable in
+/// short windows (a phone on its side) instead of being clipped.
+struct ScrollWhenTight<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView(showsIndicators: false) { content }
+        }
+    }
+}
+
 /// THE band→color mapping — review finding: three drifting copies existed,
 /// one of which used `== .blue` as a "clear band" sentinel.
 extension RiskBand {

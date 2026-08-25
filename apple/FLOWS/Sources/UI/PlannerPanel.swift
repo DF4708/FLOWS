@@ -31,8 +31,14 @@ struct PlannerPanel: View {
     private var source: String { model.plannerSource }
     private var hasGPS: Bool { model.location.coordinate != nil }
     /// No GPS → the source field is always shown (the primary flow must
-    /// never dead-end on a Mac without location access).
-    private var showSourceField: Bool { overrideSource || !hasGPS }
+    /// never dead-end on a Mac without location access). A TYPED start also
+    /// keeps the field visible: the model holds the text, so a rotation's
+    /// view rebuild (which resets `overrideSource`) must not hide an
+    /// override that is still in effect.
+    private var showSourceField: Bool {
+        overrideSource || !hasGPS
+            || !source.trimmingCharacters(in: .whitespaces).isEmpty
+    }
     private var usingGPSSource: Bool {
         hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty
     }
@@ -104,7 +110,11 @@ struct PlannerPanel: View {
             }
             // Live lookup while typing: closest matches first (addresses,
             // places, partial words like "pharma"). Tapping one plans it.
+            // The list alone scrolls when the window is short (phone on its
+            // side) — the rows are stateless, so the fits/scrolls swap can't
+            // lose anything, and Plan route stays on screen.
             if focusedField == .destination, !destSearch.suggestions.isEmpty {
+                ScrollWhenTight {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(destSearch.suggestions) { sug in
                         Button {
@@ -134,6 +144,7 @@ struct PlannerPanel: View {
                         }
                     }
                 }
+                }
                 .background(Color.black.opacity(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
@@ -149,9 +160,16 @@ struct PlannerPanel: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if hasGPS {
+                    // Keyed off the VISIBLE state, not just `overrideSource`:
+                    // with a typed start the field shows regardless, and
+                    // "Use GPS" must clear it in one press.
                     Button(showSourceField ? "Use GPS" : "Enter your own location") {
-                        overrideSource.toggle()
-                        if !overrideSource { model.plannerSource = "" }
+                        if showSourceField {
+                            overrideSource = false
+                            model.plannerSource = ""
+                        } else {
+                            overrideSource = true
+                        }
                     }
                     .font(.caption2.weight(.semibold))
                     .buttonStyle(.plain)

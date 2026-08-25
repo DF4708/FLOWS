@@ -17,6 +17,14 @@ import SwiftUI
 struct NavigationHUD: View {
     @EnvironmentObject private var model: AppModel
     let isCompact: Bool
+    /// Short window (phone held sideways): the floating cards get the room
+    /// the inline fuel cluster would take.
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    private var isShort: Bool { verticalSizeClass == .compact }
+    #else
+    private let isShort = false
+    #endif
     @State private var escalationPulse = false
 
     @Environment(\.openURL) private var openURL
@@ -49,7 +57,10 @@ struct NavigationHUD: View {
             // Compact layouts flow the fuel cluster under the banner (the
             // banner spans the full width there, so a corner overlay would
             // cover its text); regular layouts pin it to the true corner.
-            if isCompact, showsFuelCluster {
+            // In a SHORT window an open floating card takes the cluster's
+            // room — the driver just asked for that card, and the gauge
+            // returns the moment it closes.
+            if isCompact, showsFuelCluster, !(isShort && floatingCardOpen) {
                 HStack {
                     Spacer()
                     fuelCluster
@@ -182,23 +193,32 @@ struct NavigationHUD: View {
                 .shadow(color: Theme.cardShadow, radius: 8, y: 3)
             }
             Spacer()
-            if showRadio {
-                radioCard
-            }
-            if showMusicMenu {
-                musicMenuCard
-            }
-            if model.showMusicProviderPrompt {
-                musicProviderCard
-            }
-            if model.poi.pendingFoodChoice {
-                foodCategoryCard
-            } else if model.poi.pendingStoreChoice {
-                storeCategoryCard
-            } else if model.poi.pendingFuelChoice {
-                fuelTypeCard
-            } else if !model.poi.results.isEmpty {
-                poiListCard
+            // The floating cards share one scrolls-when-tight region: with
+            // several open in a short (landscape) window they must squeeze
+            // and scroll HERE — never push the maneuver banner or the bottom
+            // bar off the screen. All of these cards keep their state on the
+            // model or the HUD, so the fits/scrolls swap loses nothing.
+            ScrollWhenTight {
+                VStack(spacing: 8) {
+                    if showRadio {
+                        radioCard
+                    }
+                    if showMusicMenu {
+                        musicMenuCard
+                    }
+                    if model.showMusicProviderPrompt {
+                        musicProviderCard
+                    }
+                    if model.poi.pendingFoodChoice {
+                        foodCategoryCard
+                    } else if model.poi.pendingStoreChoice {
+                        storeCategoryCard
+                    } else if model.poi.pendingFuelChoice {
+                        fuelTypeCard
+                    } else if !model.poi.results.isEmpty {
+                        poiListCard
+                    }
+                }
             }
             bottomBar
         }
@@ -231,6 +251,14 @@ struct NavigationHUD: View {
     private var showsFuelCluster: Bool {
         model.vehicle.profile != nil
             && model.navigation.route?.isWalkingEstimate != true
+    }
+
+    /// Any floating card open above the bottom bar (radio, music, pickers,
+    /// the stop list) — these get the fuel cluster's room in short windows.
+    private var floatingCardOpen: Bool {
+        showRadio || showMusicMenu || model.showMusicProviderPrompt
+            || model.poi.pendingFoodChoice || model.poi.pendingStoreChoice
+            || model.poi.pendingFuelChoice || !model.poi.results.isEmpty
     }
 
     /// Average economy from the vehicle's habit-learned figures (rolling
@@ -911,82 +939,64 @@ struct NavigationHUD: View {
 
     private var bottomBar: some View {
         VStack(spacing: 8) {
-            // Row 1 — trip stats + global controls. ETAs fold in unplanned
-            // stopped time (sheltering).
-            HStack(spacing: 10) {
-                if let g = model.navigation.guidance {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(etaText(model.adjustedRemainingTime(g.remainingTime)))
-                            .font(.system(size: 17, weight: .bold))
-                        Text(distanceText(g.remainingDistance))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+            // Trip stats + global controls. ETAs fold in unplanned stopped
+            // time (sheltering). Compact keeps ONE row when the window is
+            // wide enough (phone on its side) and stacks two rows on a
+            // portrait phone — the single row overflowed there and clipped
+            // End off the edge.
+            if isCompact {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        tripStats
+                        rangeChip
+                        Spacer()
+                        recenterButton
+                        Spacer()
+                        if MusicController.isAvailable {
+                            musicControls
+                        }
+                        towingButton
+                        radioButton
+                        SettingsGear()
+                        endButton
                     }
-                } else if let route = model.navigation.route {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(etaText(model.adjustedRemainingTime(route.eta)))
-                            .font(.system(size: 17, weight: .bold))
-                        Text(distanceText(route.distanceMeters))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 8) {
+                        HStack(spacing: 10) {
+                            tripStats
+                            rangeChip
+                            Spacer()
+                            recenterButton
+                            endButton
+                        }
+                        HStack(spacing: 10) {
+                            if MusicController.isAvailable {
+                                musicControls
+                            }
+                            Spacer()
+                            towingButton
+                            radioButton
+                            SettingsGear()
+                        }
                     }
                 }
-                if let range = model.vehicle.expectedRangeMiles, model.vehicle.profile != nil {
-                    Label(String(format: "~%.0f mi", range), systemImage: "fuelpump")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .help("Estimated range left in the tank")
-                }
-                Spacer()
-                if model.mode == .navigating {
-                    Button {
-                        model.recenterRequested = true
-                    } label: {
-                        Image(systemName: "location.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 38, height: 38)
-                            .background(Color.black.opacity(0.06))
-                            .clipShape(Circle())
+            } else {
+                HStack(spacing: 10) {
+                    tripStats
+                    rangeChip
+                    Spacer()
+                    recenterButton
+                    Spacer()
+                    if MusicController.isAvailable {
+                        musicControls
                     }
-                    .buttonStyle(.plain)
-                    .help("Re-center on the vehicle")
+                    towingButton
+                    radioButton
+                    SettingsGear()
+                    endButton
                 }
-                Spacer()
-                if MusicController.isAvailable {
-                    musicControls
-                }
-                Button {
-                    model.showTowingCard.toggle()
-                } label: {
-                    Image(systemName: "link.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 38, height: 38)
-                        .background(model.towingActive ? Color.brown : Color.black.opacity(0.06))
-                        .foregroundStyle(model.towingActive ? .white : .primary)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Towing mode: weights vs GVWR/tow capacity/GCWR")
-                Button {
-                    showRadio.toggle()
-                    if !showRadio { model.radio.stop() }
-                } label: {
-                    Image(systemName: "radio.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 38, height: 38)
-                        .background(showRadio ? Color.brown : Color.black.opacity(0.06))
-                        .foregroundStyle(showRadio ? .white : .primary)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help(model.truckerUI ? "Trucker radio" : "Emergency radio")
-                SettingsGear()
-                Button("End") { model.endNavigation() }
-                    .buttonStyle(PillCTAStyle())
-                    .frame(width: 74)
+                // Row 1 keeps its comfortable cap; row 2 below may run wider.
+                .frame(maxWidth: 680)
             }
-            // Row 1 keeps its comfortable cap; row 2 below may run wider.
-            .frame(maxWidth: isCompact ? .infinity : 680)
             // Row 2 — the stop buttons: the row widens past row 1's cap
             // (still centered) as long as the buttons fit the window; the
             // labels drop first, and a scroll strip is the LAST resort,
@@ -1005,6 +1015,93 @@ struct NavigationHUD: View {
         // compact (phone-width) layouts.
         .frame(maxWidth: isCompact ? .infinity : nil)
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    /// Remaining time + distance for the drive (live guidance, else the
+    /// route preview).
+    @ViewBuilder
+    private var tripStats: some View {
+        if let g = model.navigation.guidance {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(etaText(model.adjustedRemainingTime(g.remainingTime)))
+                    .font(.system(size: 17, weight: .bold))
+                Text(distanceText(g.remainingDistance))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } else if let route = model.navigation.route {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(etaText(model.adjustedRemainingTime(route.eta)))
+                    .font(.system(size: 17, weight: .bold))
+                Text(distanceText(route.distanceMeters))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rangeChip: some View {
+        if let range = model.vehicle.expectedRangeMiles, model.vehicle.profile != nil {
+            Label(String(format: "~%.0f mi", range), systemImage: "fuelpump")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .help("Estimated range left in the tank")
+        }
+    }
+
+    @ViewBuilder
+    private var recenterButton: some View {
+        if model.mode == .navigating {
+            Button {
+                model.recenterRequested = true
+            } label: {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 38, height: 38)
+                    .background(Color.black.opacity(0.06))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Re-center on the vehicle")
+        }
+    }
+
+    private var towingButton: some View {
+        Button {
+            model.showTowingCard.toggle()
+        } label: {
+            Image(systemName: "link.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 38, height: 38)
+                .background(model.towingActive ? Color.brown : Color.black.opacity(0.06))
+                .foregroundStyle(model.towingActive ? .white : .primary)
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Towing mode: weights vs GVWR/tow capacity/GCWR")
+    }
+
+    private var radioButton: some View {
+        Button {
+            showRadio.toggle()
+            if !showRadio { model.radio.stop() }
+        } label: {
+            Image(systemName: "radio.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 38, height: 38)
+                .background(showRadio ? Color.brown : Color.black.opacity(0.06))
+                .foregroundStyle(showRadio ? .white : .primary)
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(model.truckerUI ? "Trucker radio" : "Emergency radio")
+    }
+
+    private var endButton: some View {
+        Button("End") { model.endNavigation() }
+            .buttonStyle(PillCTAStyle())
+            .frame(width: 74)
     }
 
     private func poiButtonRow(iconOnly: Bool) -> some View {
@@ -1097,7 +1194,8 @@ struct NavigationHUD: View {
 
     /// Radio: internet relays of highway-relevant broadcasts (trucker radio
     /// in trucker mode, emergency radio for everyone else — same relays),
-    /// plus the frequency guide for a physical radio.
+    /// plus the frequency guide for a physical radio. (The HUD's shared
+    /// card region scrolls this when the window is short.)
     private var radioCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {

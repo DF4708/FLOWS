@@ -492,7 +492,11 @@ struct DemoAlertsView: View {
             }
         }
         }
+        // macOS panel sizing only — an iPhone sheet is narrower than 460 pt
+        // and the floor pushed the gallery's edge off-screen in portrait.
+        #if os(macOS)
         .frame(minWidth: 460, minHeight: 560)
+        #endif
     }
 }
 

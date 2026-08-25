@@ -1694,6 +1694,12 @@ private struct PlanningChrome: View {
 /// and the weights the bridge-weight check compares against.
 struct FilterSlidersCard: View {
     @EnvironmentObject private var model: AppModel
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var isCompact: Bool { sizeClass == .compact }
+    #else
+    private let isCompact = false
+    #endif
 
     var body: some View {
         // A map click hides the card (click-off dismiss); touching any
@@ -1701,6 +1707,11 @@ struct FilterSlidersCard: View {
         if !model.filterCardsHidden,
            model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades)
             || model.routeFilters.contains(.bridgeWeight) {
+            // Compact layouts span the window width (240 pt reads as a side
+            // panel only next to a desktop map) and scroll when all three
+            // filter sections are open — stacked above the route list they
+            // pushed it off a phone screen.
+            ScrollWhenTight {
             VStack(alignment: .leading, spacing: 8) {
                 if model.routeFilters.contains(.lowBridges) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -1777,7 +1788,8 @@ struct FilterSlidersCard: View {
                 }
             }
             .padding(10)
-            .frame(width: 240)
+            }
+            .frame(maxWidth: isCompact ? .infinity : 240)
             .background(Theme.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .shadow(color: Theme.cardShadow, radius: 8, y: 3)
@@ -2263,7 +2275,12 @@ struct SettingsSheet: View {
         }
         .padding(20)
         }
+        // Panel-sizing floors are for the macOS floating panel — on an
+        // iPhone sheet a 480 pt floor pushed the scroll area past a
+        // landscape window's edge.
+        #if os(macOS)
         .frame(minWidth: 340, minHeight: 480)
+        #endif
         .sheet(isPresented: $showDemoGallery) {
             DemoAlertsView()
                 .environmentObject(model)
@@ -2412,6 +2429,19 @@ struct VehicleEditorSheet: View {
     @State private var pendingEPARatings: (gvwr: Double?, towCap: Double?)?
 
     var body: some View {
+        // iOS sheets can be shorter than the form (landscape), so the form
+        // always rides a ScrollView there — a fits/scrolls swap mid-edit
+        // would rebuild the form and reset its fields. macOS keeps the
+        // fixed panel (its sheet sizes to the content).
+        #if os(iOS)
+        ScrollView { editorForm }
+        #else
+        editorForm
+            .frame(minWidth: 420)
+        #endif
+    }
+
+    private var editorForm: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(model.vehicle.profile == nil ? "Add vehicle" : "Edit vehicle")
@@ -2557,7 +2587,6 @@ struct VehicleEditorSheet: View {
             }
         }
         .padding(20)
-        .frame(minWidth: 420)
         .onAppear {
             if let v = model.vehicle.profile {
                 vehicleYear = v.year ?? ""
