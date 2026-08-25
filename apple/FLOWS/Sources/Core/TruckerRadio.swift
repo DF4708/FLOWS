@@ -10,6 +10,7 @@ import AVFoundation
 import CoreLocation
 import Foundation
 #if os(iOS)
+import MediaPlayer
 import UIKit
 #endif
 
@@ -62,6 +63,12 @@ final class TruckerRadio: ObservableObject {
     @Published private(set) var playingChannelID: String?
     @Published private(set) var status: String?
 
+    /// The last channel play() tuned (any kind — NOAA relay or AM/FM),
+    /// persisted so the lock-screen play button and Siri have a target
+    /// after a stop or relaunch.
+    private(set) var lastPlayed: Channel?
+    private static let lastPlayedKey = "flows.radio.lastPlayed"
+
     private var player: AVPlayer?
 
     /// True when channels came from the user's Application Support
@@ -77,9 +84,64 @@ final class TruckerRadio: ObservableObject {
                 atPath: $0.appendingPathComponent("trucker_radio.json").path)
         } ?? false
         channels = Self.loadChannels()
+        if let data = UserDefaults.standard.data(forKey: Self.lastPlayedKey) {
+            lastPlayed = try? JSONDecoder().decode(Channel.self, from: data)
+        }
+        configureRemoteCommands()
         // Relay hosts rotate stations — refresh the live list once per
         // launch and prune entries that stopped streaming.
         Task { await refreshStations() }
+    }
+
+    /// Lock-screen / steering-wheel transport for the radio (iOS): play
+    /// resumes the last channel, pause and stop end it. Without these the
+    /// background-audio session shows a dead now-playing card.
+    private func configureRemoteCommands() {
+        #if os(iOS)
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                if let self, self.playingChannelID == nil, let last = self.lastPlayed {
+                    self.play(last)
+                }
+            }
+            return .success
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.stop() }
+            return .success
+        }
+        center.stopCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.stop() }
+            return .success
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                if self.playingChannelID != nil {
+                    self.stop()
+                } else if let last = self.lastPlayed {
+                    self.play(last)
+                }
+            }
+            return .success
+        }
+        #endif
+    }
+
+    /// The lock-screen card: station name + live-stream flag (no scrubber).
+    private func updateNowPlaying(_ channel: Channel?) {
+        #if os(iOS)
+        guard let channel else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+            MPMediaItemPropertyTitle: channel.name,
+            MPMediaItemPropertyArtist: channel.detail,
+            MPNowPlayingInfoPropertyIsLiveStream: true,
+        ]
+        #endif
     }
 
     /// Re-scrape the weatherusa relay directory (the bundled list rots —
@@ -167,12 +229,18 @@ final class TruckerRadio: ObservableObject {
         stop()
         #if os(iOS)
         // Without an active playback session iOS keeps AVPlayer SILENT —
-        // the "no stream works" failure mode.
+        // the "no stream works" failure mode. (.playback + the audio
+        // background mode also keep the stream alive at screen lock.)
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
         status = "Tuning \(channel.name)…"
         playingChannelID = channel.id
+        lastPlayed = channel
+        if let data = try? JSONEncoder().encode(channel) {
+            UserDefaults.standard.set(data, forKey: Self.lastPlayedKey)
+        }
+        updateNowPlaying(channel)
         // NO preflight: a ranged GET on an infinite stream never completes,
         // which read as "no station works". Play immediately; the item's
         // status KVO reports dead relays within seconds.
@@ -252,5 +320,6 @@ final class TruckerRadio: ObservableObject {
         failureObserver = nil
         playingChannelID = nil
         status = nil
+        updateNowPlaying(nil)
     }
 }

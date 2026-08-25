@@ -60,24 +60,50 @@ final class RadioBrowser: ObservableObject {
         await run(state: stateCode.flatMap { Self.stateName($0) }, name: nil)
     }
 
-    /// Free-text search across all US stations (name or genre word).
+    /// Free-text search across all US stations. The field promises "name
+    /// or genre", so BOTH are queried — the directory's name search never
+    /// matches tags ("bluegrass" would find only stations NAMED bluegrass)
+    /// — and the merged list keeps name hits first.
     func search(text: String) async {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
-        await run(state: nil, name: query)
+        status = "Finding stations…"
+        guard let host = await ensureHost() else {
+            status = "Station list didn't load. Check the connection and try again."
+            return
+        }
+        let byName = await fetchStations(
+            Self.searchURL(host: host, state: nil, name: query))
+        let byGenre = await fetchStations(
+            Self.searchURL(host: host, state: nil, name: nil,
+                           tag: query.lowercased()))
+        guard let merged = Self.merged(nameHits: byName, tagHits: byGenre) else {
+            status = "Station list didn't load. Check the connection and try again."
+            return
+        }
+        stations = merged
+        status = stations.isEmpty ? "No stations found. Try another word." : nil
     }
 
     private func run(state: String?, name: String?) async {
         status = "Finding stations…"
         guard let host = await ensureHost(),
-              let url = Self.searchURL(host: host, state: state, name: name),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else {
+              let found = await fetchStations(
+                Self.searchURL(host: host, state: state, name: name)) else {
             status = "Station list didn't load. Check the connection and try again."
             return
         }
-        stations = Self.parseStations(data)
+        stations = found
         status = stations.isEmpty ? "No stations found. Try another word." : nil
+    }
+
+    /// One search request → parsed stations; nil = the request itself
+    /// failed (distinct from a clean empty result).
+    private func fetchStations(_ url: URL?) async -> [Station]? {
+        guard let url,
+              let (data, resp) = try? await ThrottledNet.fetch(url),
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return Self.parseStations(data)
     }
 
     /// Pick one healthy mirror per launch: all-servers list → shuffle →
@@ -125,9 +151,10 @@ final class RadioBrowser: ObservableObject {
 
     /// Station search on a mirror: US only, working streams only
     /// (`hidebroken`), HTTPS only (`is_https` — re-checked client-side),
-    /// community-vote order. `state` and `name` are the two search modes.
+    /// community-vote order. `state`, `name`, and `tag` (genre) are the
+    /// three search modes.
     nonisolated static func searchURL(host: String, state: String?,
-                                      name: String?) -> URL? {
+                                      name: String?, tag: String? = nil) -> URL? {
         // .urlQueryAllowed leaves & = + literal (the Yelp lesson) — use a
         // strict component set for the free-text term.
         var allowed = CharacterSet.urlQueryAllowed
@@ -140,7 +167,24 @@ final class RadioBrowser: ObservableObject {
         if let name, let n = name.addingPercentEncoding(withAllowedCharacters: allowed) {
             query += "&name=\(n)"
         }
+        if let tag, let t = tag.addingPercentEncoding(withAllowedCharacters: allowed) {
+            query += "&tag=\(t)"
+        }
         return URL(string: "https://\(host)/json/stations/search?\(query)")
+    }
+
+    /// Merge the two free-text modes: name matches lead, genre (tag)
+    /// matches follow, duplicates drop. nil only when BOTH requests failed
+    /// — one working mode still serves.
+    nonisolated static func merged(nameHits: [Station]?,
+                                   tagHits: [Station]?) -> [Station]? {
+        if nameHits == nil && tagHits == nil { return nil }
+        var seenURL = Set<String>()
+        var seenName = Set<String>()
+        return ((nameHits ?? []) + (tagHits ?? [])).filter {
+            seenURL.insert($0.url).inserted
+                && seenName.insert($0.name.lowercased()).inserted
+        }
     }
 
     /// Station rows → playable list: HTTPS streams only (belt and braces —
@@ -205,8 +249,27 @@ final class RadioBrowser: ObservableObject {
 /// API, so FLOWS links OUT to their own public web player instead of
 /// playing scanner audio in-app. The "near me" page locates the driver's
 /// county through the browser (verified live: /listen/near/ asks the
-/// browser for location and lists that county's feeds).
+/// browser for location and lists that county's feeds); the state
+/// directory is the no-location-prompt alternative — Broadcastify's state
+/// ids are US state FIPS codes (verified live: 48 → Texas, 6 → California).
 enum ScannerLinks {
     static let broadcastifyNearMe =
         URL(string: "https://www.broadcastify.com/listen/near/")!
+
+    /// The state's own feed directory (driver taps their county there).
+    static func stateFeedsURL(stateCode: String) -> URL? {
+        let fips: [String: Int] = [
+            "AL": 1, "AK": 2, "AZ": 4, "AR": 5, "CA": 6, "CO": 8, "CT": 9,
+            "DE": 10, "DC": 11, "FL": 12, "GA": 13, "HI": 15, "ID": 16,
+            "IL": 17, "IN": 18, "IA": 19, "KS": 20, "KY": 21, "LA": 22,
+            "ME": 23, "MD": 24, "MA": 25, "MI": 26, "MN": 27, "MS": 28,
+            "MO": 29, "MT": 30, "NE": 31, "NV": 32, "NH": 33, "NJ": 34,
+            "NM": 35, "NY": 36, "NC": 37, "ND": 38, "OH": 39, "OK": 40,
+            "OR": 41, "PA": 42, "RI": 44, "SC": 45, "SD": 46, "TN": 47,
+            "TX": 48, "UT": 49, "VT": 50, "VA": 51, "WA": 53, "WV": 54,
+            "WI": 55, "WY": 56,
+        ]
+        guard let id = fips[stateCode.uppercased()] else { return nil }
+        return URL(string: "https://www.broadcastify.com/listen/stid/\(id)")
+    }
 }

@@ -45,6 +45,22 @@ enum SiriSummaries {
         return "Added \(name), about \(spokenMiles(meters: meters)) ahead. Directions updated."
     }
 
+    /// Hours-of-service line for the road-ahead reply (trucker mode):
+    /// nil while the clock is fine, one plain sentence once it isn't.
+    static func hosLine(_ status: HOSRules.Status) -> String? {
+        switch status {
+        case .ok:
+            return nil
+        case .breakSoon(let secondsUntilDue):
+            return "Heads up: your 30-minute break is due in "
+                + "\(spokenTime(seconds: secondsUntilDue))."
+        case .breakDue:
+            return "Your 30-minute break is due now."
+        case .limitReached:
+            return "You've hit the 11-hour driving limit — time to stop."
+        }
+    }
+
     /// Reply for "how's the road ahead": distance + time left, then the
     /// weather alerts crossing the route — or an all-clear.
     static func roadAhead(remainingMeters: Double, remainingSeconds: Double,

@@ -87,6 +87,10 @@ targets:
               - flows
         UIBackgroundModes:
           - location
+          # Radio (NOAA relays + AM/FM streams) must keep playing with the
+          # screen locked or the app backgrounded — without this mode iOS
+          # silences AVPlayer the moment the app leaves the foreground.
+          - audio
         # CarPlay map scene — activates only when the CarPlay entitlement
         # (com.apple.developer.carplay-maps) is granted by Apple.
         UIApplicationSceneManifest:

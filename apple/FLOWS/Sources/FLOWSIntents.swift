@@ -282,11 +282,75 @@ struct RouteAheadIntent: AppIntent {
               let guidance = model.navigation.guidance else {
             return .result(dialog: "Start a route first.")
         }
-        let summary = SiriSummaries.roadAhead(
+        var summary = SiriSummaries.roadAhead(
             remainingMeters: guidance.remainingDistance,
             remainingSeconds: guidance.remainingTime,
             alertEvents: model.navigation.route?.alertEvents ?? [])
+        // Trucker mode: the FMCSA break clock rides along once it matters.
+        if model.truckerUI, let hos = SiriSummaries.hosLine(model.hosStatus) {
+            summary += " " + hos
+        }
         return .result(dialog: IntentDialog("\(summary)"))
+    }
+}
+
+// MARK: radio ("play the weather radio")
+
+struct PlayWeatherRadioIntent: AppIntent {
+    static let title: LocalizedStringResource = "Play the weather radio"
+    static let description = IntentDescription(
+        "Tunes the NOAA weather radio station closest to you.")
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let model = AppModel.shared else {
+            return .result(dialog: "Open FLOWS first.")
+        }
+        let channel = model.effectivePosition
+            .flatMap { model.radio.nearestChannel(to: $0)?.channel }
+            ?? model.radio.nearestChannel(stateCode: model.currentStateCode)
+        guard let channel else {
+            return .result(dialog: "No weather stations loaded yet. Try again in a moment.")
+        }
+        model.radio.play(channel)
+        return .result(dialog: IntentDialog("Playing \(channel.name)."))
+    }
+}
+
+struct PlayStationIntent: AppIntent {
+    static let title: LocalizedStringResource = "Play a radio station"
+    static let description = IntentDescription(
+        "Finds an AM/FM internet stream by name or genre and plays it.")
+
+    @Parameter(title: "Station or genre",
+               requestValueDialog: "What station or kind of music?")
+    var station: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let model = AppModel.shared else {
+            return .result(dialog: "Open FLOWS first.")
+        }
+        await model.radioBrowser.search(text: station)
+        guard let top = model.radioBrowser.stations.first else {
+            return .result(dialog: IntentDialog("No station found for \(station)."))
+        }
+        model.radio.play(top.channel)
+        return .result(dialog: IntentDialog("Playing \(top.name)."))
+    }
+}
+
+struct StopRadioIntent: AppIntent {
+    static let title: LocalizedStringResource = "Stop the radio"
+    static let description = IntentDescription("Stops radio playback.")
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let model = AppModel.shared else {
+            return .result(dialog: "Open FLOWS first.")
+        }
+        model.radio.stop()
+        return .result(dialog: "Radio stopped.")
     }
 }
 
@@ -347,5 +411,25 @@ struct FLOWSShortcuts: AppShortcutsProvider {
                       "How much longer in \(.applicationName)"],
             shortTitle: "Road ahead",
             systemImageName: "road.lanes")
+        AppShortcut(
+            intent: PlayWeatherRadioIntent(),
+            phrases: ["Play the weather radio in \(.applicationName)",
+                      "Play weather radio in \(.applicationName)",
+                      "Turn on the weather radio in \(.applicationName)"],
+            shortTitle: "Weather radio",
+            systemImageName: "radio.fill")
+        AppShortcut(
+            intent: PlayStationIntent(),
+            phrases: ["Play a radio station in \(.applicationName)",
+                      "Play some radio in \(.applicationName)",
+                      "Play AM FM radio in \(.applicationName)"],
+            shortTitle: "Play a station",
+            systemImageName: "antenna.radiowaves.left.and.right")
+        AppShortcut(
+            intent: StopRadioIntent(),
+            phrases: ["Stop the radio in \(.applicationName)",
+                      "Turn off the radio in \(.applicationName)"],
+            shortTitle: "Stop radio",
+            systemImageName: "stop.circle")
     }
 }

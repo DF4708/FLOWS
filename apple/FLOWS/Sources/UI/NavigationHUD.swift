@@ -1260,10 +1260,23 @@ struct NavigationHUD: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                // "Near me" asks the browser for location once; the state
+                // list is the no-prompt alternative (tap your county there).
+                if let code = model.currentStateCode,
+                   let stateURL = ScannerLinks.stateFeedsURL(stateCode: code) {
+                    Button {
+                        openURL(stateURL)
+                    } label: {
+                        Text("\(code) list")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                }
                 Button {
                     openURL(ScannerLinks.broadcastifyNearMe)
                 } label: {
-                    Label("Open", systemImage: "arrow.up.forward.app")
+                    Label("Near me", systemImage: "arrow.up.forward.app")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.plain)

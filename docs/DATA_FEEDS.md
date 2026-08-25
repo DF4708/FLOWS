@@ -535,14 +535,20 @@ All endpoints probed live before wiring:
   (DNS round-robin over the same mirrors) is the fallback host — never a
   hardcoded mirror.
 - **Search:** `/json/stations/search?countrycode=US&hidebroken=true&`
-  `is_https=true&order=votes&reverse=true` + `state=` (vehicle's state) or
-  `name=` (free text). US-only structurally satisfies the no-RU/CN/IR/NK
-  rule; `is_https` is re-checked client-side (probe: ~half of a state's
-  entries are cleartext — ATS would block them, so they're filtered, not
-  scheme-upgraded: unlike the NOAA relay hosts, arbitrary station hosts
-  don't all serve TLS).
+  `is_https=true&order=votes&reverse=true` + `state=` (vehicle's state),
+  `name=`, or `tag=` (genre). US-only structurally satisfies the
+  no-RU/CN/IR/NK rule; `is_https` is re-checked client-side (probe: ~half
+  of a state's entries are cleartext — ATS would block them, so they're
+  filtered, not scheme-upgraded: unlike the NOAA relay hosts, arbitrary
+  station hosts don't all serve TLS). Free-text search runs `name` AND
+  `tag` and merges (name hits first) — the directory's name search never
+  matches genre tags, so "bluegrass" needs both.
 - **Playback** rides the existing TruckerRadio AVPlayer path (same
-  plain-words offline text, same one-stream-at-a-time rule as NOAA).
+  plain-words offline text, same one-stream-at-a-time rule as NOAA), now
+  with the iOS `audio` background mode + a lock-screen now-playing card
+  (play/stop remote commands retune the last station) so the stream
+  survives screen lock — radio that dies when the phone sleeps is no
+  radio at all.
 
 ### Police/fire/EMS scanner — Broadcastify (link-out ONLY, diagnosed)
 
@@ -553,9 +559,12 @@ from FIPS; mapping them would mean scraping every state page), state
 directories are `/listen/stid/<state FIPS>` (48 → Texas verified), and
 `/listen/near/` is their own "Feeds Near Me" player page, which locates the
 driver via the browser and lists that county's feeds. FLOWS therefore links
-OUT to `/listen/near/` (`ScannerLinks`) — no in-app scanner audio, and the
-card says so in plain words, including that scanner-listening law varies by
-state and it must not be used while driving where prohibited.
+OUT (`ScannerLinks`) — no in-app scanner audio, and the card says so in
+plain words, including that scanner-listening law varies by state and it
+must not be used while driving where prohibited. Two links are offered:
+"Near me" (`/listen/near/`, county-precise after one browser location
+prompt) and the driver's state directory (`/listen/stid/<FIPS>`, no
+prompt — the county is one tap inside).
 
 ### Spotify remote — optional user token (the Yelp/TomTom pattern)
 

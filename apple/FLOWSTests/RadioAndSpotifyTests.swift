@@ -66,6 +66,26 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertFalse(name.absoluteString.contains("roll&"))
     }
 
+    func testSearchURLGenreModeUsesTheTagParameter() throws {
+        let url = try XCTUnwrap(RadioBrowser.searchURL(
+            host: "h", state: nil, name: nil, tag: "classic country"))
+        XCTAssertTrue(url.absoluteString.contains("tag=classic%20country"))
+        XCTAssertFalse(url.absoluteString.contains("name="))
+    }
+
+    func testMergedSearchKeepsNameHitsFirstAndDropsDuplicates() {
+        let a = RadioBrowser.Station(name: "KAAA", url: "https://a/1", genre: "", votes: 9)
+        let b = RadioBrowser.Station(name: "KBBB", url: "https://b/1", genre: "", votes: 8)
+        let dupB = RadioBrowser.Station(name: "kbbb", url: "https://b/2", genre: "", votes: 7)
+        XCTAssertEqual(RadioBrowser.merged(nameHits: [a], tagHits: [b, dupB]),
+                       [a, b])
+        // One failed mode still serves the other.
+        XCTAssertEqual(RadioBrowser.merged(nameHits: nil, tagHits: [b]), [b])
+        XCTAssertEqual(RadioBrowser.merged(nameHits: [a], tagHits: nil), [a])
+        // Both failed = a real failure, not "no stations found".
+        XCTAssertNil(RadioBrowser.merged(nameHits: nil, tagHits: nil))
+    }
+
     // MARK: radio-browser — station rows
 
     private let stationPayload = """
@@ -120,6 +140,30 @@ final class RadioAndSpotifyTests: XCTestCase {
     func testScannerLinkIsBroadcastifysOwnPlayerOverHTTPS() {
         XCTAssertEqual(ScannerLinks.broadcastifyNearMe.scheme, "https")
         XCTAssertEqual(ScannerLinks.broadcastifyNearMe.host, "www.broadcastify.com")
+    }
+
+    func testStateFeedDirectoryUsesFIPSIds() {
+        // Verified live: Broadcastify's stid values are US state FIPS codes.
+        XCTAssertEqual(ScannerLinks.stateFeedsURL(stateCode: "TX")?.absoluteString,
+                       "https://www.broadcastify.com/listen/stid/48")
+        XCTAssertEqual(ScannerLinks.stateFeedsURL(stateCode: "ca")?.absoluteString,
+                       "https://www.broadcastify.com/listen/stid/6")
+        XCTAssertEqual(ScannerLinks.stateFeedsURL(stateCode: "DC")?.absoluteString,
+                       "https://www.broadcastify.com/listen/stid/11")
+        XCTAssertNil(ScannerLinks.stateFeedsURL(stateCode: "PR"))
+        XCTAssertNil(ScannerLinks.stateFeedsURL(stateCode: ""))
+    }
+
+    // MARK: Siri hours-of-service line
+
+    func testHOSLineSpeaksOnlyWhenTheClockMatters() {
+        XCTAssertNil(SiriSummaries.hosLine(.ok))
+        XCTAssertEqual(SiriSummaries.hosLine(.breakSoon(secondsUntilDue: 22 * 60)),
+                       "Heads up: your 30-minute break is due in 22 minutes.")
+        XCTAssertEqual(SiriSummaries.hosLine(.breakDue),
+                       "Your 30-minute break is due now.")
+        XCTAssertEqual(SiriSummaries.hosLine(.limitReached),
+                       "You've hit the 11-hour driving limit — time to stop.")
     }
 
     // MARK: Siri replies — spoken text is UI, so the wording is pinned
