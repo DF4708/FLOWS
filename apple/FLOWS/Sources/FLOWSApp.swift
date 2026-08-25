@@ -742,7 +742,9 @@ final class AppModel: ObservableObject {
     /// The trip's final destination — survives added stops so leg 2 can
     /// resume automatically after a POI stop.
     private var finalDestination: (coordinate: CLLocationCoordinate2D, name: String)?
-    private var pendingStopName: String?
+    /// Read by the Siri add-a-stop intent to confirm the add actually took
+    /// (leg planning can fail) — write stays private to the chaining logic.
+    private(set) var pendingStopName: String?
     private var pendingStopKind: POIService.Kind?
 
     /// Choices surviving the active filters (cards render from this).

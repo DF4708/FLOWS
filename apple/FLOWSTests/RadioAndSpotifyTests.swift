@@ -122,6 +122,70 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(ScannerLinks.broadcastifyNearMe.host, "www.broadcastify.com")
     }
 
+    // MARK: Siri replies — spoken text is UI, so the wording is pinned
+
+    func testSpokenMilesReadNaturally() {
+        XCTAssertEqual(SiriSummaries.spokenMiles(meters: 1609.344), "1 mile")
+        XCTAssertEqual(SiriSummaries.spokenMiles(meters: 640), "0.4 miles")
+        XCTAssertEqual(SiriSummaries.spokenMiles(meters: 5 * 1609.344), "5 miles")
+        XCTAssertEqual(SiriSummaries.spokenMiles(meters: 3.72 * 1609.344), "3.7 miles")
+        XCTAssertEqual(SiriSummaries.spokenMiles(meters: 212.4 * 1609.344), "212 miles")
+    }
+
+    func testSpokenTimeReadsNaturally() {
+        XCTAssertEqual(SiriSummaries.spokenTime(seconds: 20), "under a minute")
+        XCTAssertEqual(SiriSummaries.spokenTime(seconds: 60), "1 minute")
+        XCTAssertEqual(SiriSummaries.spokenTime(seconds: 45 * 60), "45 minutes")
+        XCTAssertEqual(SiriSummaries.spokenTime(seconds: 2 * 3600), "2 hours")
+        XCTAssertEqual(SiriSummaries.spokenTime(seconds: 3 * 3600 + 61 * 60 + 30),
+                       "4 hours 2 minutes")
+        XCTAssertEqual(SiriSummaries.spokenTime(seconds: 3660), "1 hour 1 minute")
+    }
+
+    func testAddedStopReplyNamesThePlaceAndDistance() {
+        XCTAssertEqual(
+            SiriSummaries.addedStop(name: "Starbucks", meters: 12 * 1609.344),
+            "Added Starbucks, about 12 miles ahead. Directions updated.")
+        XCTAssertEqual(
+            SiriSummaries.addedStop(name: "Starbucks", meters: nil),
+            "Added Starbucks to the route. Directions updated.")
+    }
+
+    func testRoadAheadSummarizesDistanceTimeAndAlerts() {
+        XCTAssertEqual(
+            SiriSummaries.roadAhead(remainingMeters: 212 * 1609.344,
+                                    remainingSeconds: 3 * 3600 + 10 * 60,
+                                    alertEvents: []),
+            "About 212 miles and 3 hours 10 minutes to go. "
+            + "No weather alerts on the route.")
+        XCTAssertEqual(
+            SiriSummaries.roadAhead(remainingMeters: 8 * 1609.344,
+                                    remainingSeconds: 12 * 60,
+                                    alertEvents: ["Severe Thunderstorm Warning",
+                                                  "Severe Thunderstorm Warning"]),
+            "About 8 miles and 12 minutes to go. "
+            + "One weather alert ahead: Severe Thunderstorm Warning.")
+        XCTAssertEqual(
+            SiriSummaries.roadAhead(remainingMeters: 8 * 1609.344,
+                                    remainingSeconds: 12 * 60,
+                                    alertEvents: ["Flood Warning", "High Wind Warning"]),
+            "About 8 miles and 12 minutes to go. "
+            + "2 weather alerts ahead: Flood Warning, High Wind Warning.")
+    }
+
+    // MARK: Siri add-a-stop name matching
+
+    func testAskedNameMatchesStandaloneWordRuns() {
+        XCTAssertTrue(BrandKnowledge.askedName("Starbucks", matches: "Starbucks Coffee"))
+        XCTAssertTrue(BrandKnowledge.askedName("Buc-ee's", matches: "Buc-ee's #34"))
+        XCTAssertTrue(BrandKnowledge.askedName("Yellowstone",
+                                               matches: "Yellowstone National Park"))
+        XCTAssertTrue(BrandKnowledge.askedName("McDonald's", matches: "McDonalds"))
+        // Substring-of-a-word must NOT match — "Star" is not "Starbucks".
+        XCTAssertFalse(BrandKnowledge.askedName("Star", matches: "Starbucks"))
+        XCTAssertFalse(BrandKnowledge.askedName("Starbucks", matches: "Joe's Coffee"))
+    }
+
     // MARK: in-place control — the truth table every surface consults
 
     func testInPlaceControlTruthTableCoversEveryProvider() {

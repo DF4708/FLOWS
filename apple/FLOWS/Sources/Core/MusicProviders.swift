@@ -30,6 +30,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     case spotify
     case youtubeMusic
     case amazonMusic
+    case pandora
+    case siriusXM
     case jioSaavn
     case gaana
     case soundCloud
@@ -48,6 +50,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         case .spotify: return "Spotify"
         case .youtubeMusic: return "YouTube Music"
         case .amazonMusic: return "Amazon Music"
+        case .pandora: return "Pandora"
+        case .siriusXM: return "SiriusXM"
         case .jioSaavn: return "JioSaavn"
         case .gaana: return "Gaana"
         case .soundCloud: return "SoundCloud"
@@ -66,6 +70,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         case .spotify: return "music.note.list"
         case .youtubeMusic: return "play.rectangle.fill"
         case .amazonMusic: return "music.quarternote.3"
+        case .pandora: return "dot.radiowaves.left.and.right"
+        case .siriusXM: return "antenna.radiowaves.left.and.right"
         case .jioSaavn: return "waveform"
         case .gaana: return "waveform.path"
         case .soundCloud: return "cloud.fill"
@@ -110,8 +116,11 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     /// One-letter badge so the mini player shows WHICH service is active
     /// (brand logos need each service's asset license; a colored monogram
-    /// identifies without imitating).
-    var monogram: String { String(rawValue.prefix(1)) }
+    /// identifies without imitating). SiriusXM gets "XM" — a plain "s"
+    /// would collide with Spotify's badge.
+    var monogram: String {
+        self == .siriusXM ? "XM" : String(rawValue.prefix(1))
+    }
 
     /// The service's signature color, approximated for the badge.
     var badgeColor: Color {
@@ -120,6 +129,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         case .spotify: return Color(red: 0.11, green: 0.73, blue: 0.33)
         case .youtubeMusic: return Color(red: 0.93, green: 0.11, blue: 0.14)
         case .amazonMusic: return Color(red: 0.05, green: 0.65, blue: 0.85)
+        case .pandora: return Color(red: 0.21, green: 0.41, blue: 1.00)
+        case .siriusXM: return Color(red: 0.00, green: 0.20, blue: 0.63)
         case .jioSaavn: return Color(red: 0.17, green: 0.62, blue: 0.56)
         case .gaana: return Color(red: 0.91, green: 0.26, blue: 0.21)
         case .soundCloud: return Color(red: 1.00, green: 0.33, blue: 0.00)
@@ -140,6 +151,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         case .spotify: scheme = "spotify://"
         case .youtubeMusic: scheme = "youtubemusic://"
         case .amazonMusic: scheme = "amznmp3://"
+        case .pandora: scheme = "pandora://"
+        case .siriusXM: scheme = "sxm://"
         case .jioSaavn: scheme = "jiosaavn://"
         case .gaana: scheme = "gaana://"
         case .soundCloud: scheme = "soundcloud://"
@@ -161,6 +174,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         case .spotify: address = "https://open.spotify.com"
         case .youtubeMusic: address = "https://music.youtube.com"
         case .amazonMusic: address = "https://music.amazon.com"
+        case .pandora: address = "https://www.pandora.com"
+        case .siriusXM: address = "https://www.siriusxm.com/player"
         case .jioSaavn: address = "https://www.jiosaavn.com"
         case .gaana: address = "https://gaana.com"
         case .soundCloud: address = "https://soundcloud.com"

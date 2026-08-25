@@ -345,6 +345,53 @@ final class POIService: ObservableObject {
         }
     }
 
+    /// Siri's add-a-stop search: the same corridor sweep as the buttons,
+    /// but for ONE named place or chain ("Starbucks", "Buc-ee's",
+    /// "Yellowstone"), returning candidates nearest-first WITHOUT touching
+    /// the results card — Siri adds the best match directly, so no
+    /// published state may change under a live search.
+    func namedStops(_ term: String,
+                    aheadOf position: CLLocationCoordinate2D?) async -> [MKMapItem] {
+        var centers: [CLLocationCoordinate2D] = position.map { [$0] } ?? []
+        let ahead = corridorAhead(of: position)
+        if ahead.count <= 4 {
+            centers.append(contentsOf: ahead)
+        } else {
+            let step = max(ahead.count / 4, 1)
+            centers.append(contentsOf: stride(from: 0, to: ahead.count, by: step)
+                .prefix(4).map { ahead[$0] })
+        }
+        var found: [MKMapItem] = []
+        for center in centers.prefix(5) {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = term
+            request.resultTypes = .pointOfInterest
+            request.region = MKCoordinateRegion(
+                center: center,
+                latitudinalMeters: 30_000, longitudinalMeters: 30_000)
+            found.append(contentsOf: await Self.pacedLocalSearch(request))
+            if found.count >= 30 { break }
+        }
+        // Prefer places whose NAME carries the asked words — MKLocalSearch
+        // fills sparse areas with same-category lookalikes (a Starbucks
+        // query in ranch country returns any cafe). Lookalikes stay as the
+        // fallback: Siri speaks the real name back, so nothing is added
+        // silently under a wrong label.
+        let named = found.filter { BrandKnowledge.askedName(term, matches: $0.name ?? "") }
+        let candidates = named.isEmpty ? found : named
+        var seen = Set<String>()
+        let unique = candidates.filter { item in
+            let c = item.placemark.coordinate
+            let key = "\(item.name ?? "?")|\(Int(c.latitude * 500))|\(Int(c.longitude * 500))"
+            return seen.insert(key).inserted
+        }
+        guard let from = position else { return unique }
+        return unique.sorted {
+            POIRanking.meters(from, $0.placemark.coordinate)
+                < POIRanking.meters(from, $1.placemark.coordinate)
+        }
+    }
+
     /// Food category chosen from the picker.
     func chooseFood(_ category: FoodCategory, aheadOf position: CLLocationCoordinate2D?) async {
         pendingFoodChoice = false

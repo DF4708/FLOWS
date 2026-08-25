@@ -582,13 +582,22 @@ key, exactly what the optional-token pattern exists to avoid).
 |---|---|
 | Apple Music | In place everywhere, keyless (MPMusicPlayerController; Apple Events on macOS) |
 | Spotify | Web API player endpoints + user token (this pass); Apple Events on macOS |
-| YouTube Music | No official API of any kind |
+| YouTube Music | No official API of any kind — only cookie-scraping unofficial wrappers (ytmusicapi), a ToS violation FLOWS won't ship |
 | Amazon Music | Web/Device APIs are a closed partner beta: certification + Widevine DRM, in-app playback only — no remote control |
+| Pandora | Official GraphQL API exists but is partner-only, and Pandora states it is "not currently exploring new partnerships" — no public path |
+| SiriusXM | No public API ever; third-party stream access was deliberately shut off (their player tech changes lock out outside apps) — app/web-player deep link only |
 | Deezer | API frozen (no new tokens issued); player SDKs deprecated; no playback control |
 | Tidal | Public API is catalog/playlists only; playback means their SDK in your app (client key) — no remote endpoint |
 | SoundCloud | App registration closed since 2022; the API streams audio into YOUR app — no remote control |
 | Qobuz | Partner-agreement API only |
-| iHeartRadio / JioSaavn / Gaana / Apple Podcasts / Audible | No public control APIs |
+| iHeartRadio | No public control API. BUT its broadcast stations are AM/FM simulcasts — many stream keylessly through the radio-browser.info directory, so the radio card already plays them (that's the honest keyless path to iHeart content) |
+| JioSaavn / Gaana / Apple Podcasts / Audible | No public control APIs |
+
+Pandora and SiriusXM joined the provider picker in this pass as honest
+deep-link options (`pandora://` / `sxm://` app schemes with the web player
+as fallback — `openApp()` degrades gracefully if a scheme changes). Both
+read as uncontrollable in the truth table like every other no-API
+service: transport buttons never appear for them.
 
 Consequence in code: `MusicProvider.controllable(onMac:spotifyLinked:)` is
 the ONE truth table, and every transport surface consults it — the HUD mini

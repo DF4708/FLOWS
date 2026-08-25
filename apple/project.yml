@@ -278,6 +278,7 @@ targets:
       - path: FLOWS/Sources/Core/RadioBrowser.swift
       - path: FLOWS/Sources/Core/MusicController.swift
       - path: FLOWS/Sources/Core/SpotifyRemote.swift
+      - path: FLOWS/Sources/Core/SiriSummaries.swift
       - path: FLOWSTests
     settings:
       base:
