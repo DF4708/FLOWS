@@ -1911,7 +1911,9 @@ struct SettingsSheet: View {
             Text("The little player in the drive bar uses this app. Play, "
                  + "pause, and skip work right in FLOWS with Apple Music — "
                  + "and with Spotify when a Spotify token is set under Data "
-                 + "sources. Other apps open in their own app.")
+                 + "sources. No other music service lets outside apps "
+                 + "control it, so the rest open in their own app. The same "
+                 + "rule drives the Siri and CarPlay buttons.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

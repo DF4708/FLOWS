@@ -1558,9 +1558,10 @@ struct NavigationHUD: View {
                 }
             }
             Text("Apple Music plays right here in FLOWS. Spotify can too — "
-                 + "on iPhone it needs a Spotify token (⚙ Settings → Data "
-                 + "sources). Other apps open in their own app. Change it "
-                 + "anytime under ⚙ Settings.")
+                 + "on iPhone add a Spotify token (⚙ Settings → Data "
+                 + "sources). No other music service lets outside apps "
+                 + "control it, so the rest open in their own app. Change "
+                 + "your pick anytime under ⚙ Settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

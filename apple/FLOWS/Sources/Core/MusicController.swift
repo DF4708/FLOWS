@@ -56,7 +56,20 @@ final class MusicController: ObservableObject {
     /// provider pick). Apple Music rides MPMusicPlayerController; Spotify —
     /// when the user added a token in Settings — rides SpotifyRemote's
     /// Web API calls. Everything else deep-links, so never reaches here.
-    var provider: MusicProvider = .appleMusic
+    /// Seeded from the stored pick, not hard-wired to Apple Music: Siri and
+    /// CarPlay can call in before the SwiftUI scene (and AppModel) exist.
+    var provider: MusicProvider = MusicProvider(
+        rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
+    ) ?? .appleMusic
+
+    /// True when the transport calls drive the PICKED service rather than
+    /// falling through to Apple Music — the one gate every surface checks
+    /// (HUD mini player, Siri intents, CarPlay). Truth table + per-service
+    /// survey: MusicProvider.controllable(onMac:spotifyLinked:).
+    var controlsInPlace: Bool {
+        provider.controllable(onMac: false,
+                              spotifyLinked: SpotifyRemote.shared.linked)
+    }
 
     /// Now-playing artwork thumbnail. Stored + published: a computed read of
     /// nowPlayingItem never invalidates SwiftUI, so the mini-player would
@@ -121,6 +134,7 @@ final class MusicController: ObservableObject {
     func playPause() {
         if spotifyActive {
             SpotifyRemote.shared.playPause()
+            syncFromSpotify()   // Siri reads isPlaying right back — no hop
             return
         }
         if player.playbackState == .playing {
@@ -152,6 +166,7 @@ final class MusicController: ObservableObject {
     func resumeRecent() {
         if spotifyActive {
             SpotifyRemote.shared.resume()
+            syncFromSpotify()
             return
         }
         if player.nowPlayingItem == nil {
@@ -301,8 +316,17 @@ final class MusicController: ObservableObject {
     }
 
     /// Which service the transport buttons drive (set from the user's
-    /// provider pick). macOS can script Spotify as well as Music.
-    var provider: MusicProvider = .appleMusic
+    /// provider pick, seeded from the stored value). macOS can script
+    /// Spotify as well as Music.
+    var provider: MusicProvider = MusicProvider(
+        rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
+    ) ?? .appleMusic
+
+    /// Same gate as iOS: Apple Music and Spotify script in place here;
+    /// no other service exposes a way in (see MusicProvider.controllable).
+    var controlsInPlace: Bool {
+        provider.controllable(onMac: true, spotifyLinked: false)
+    }
 
     func playPause() {
         if provider == .spotify {
@@ -381,6 +405,7 @@ final class MusicController: ObservableObject {
     #else
     static let isAvailable = false
     var provider: MusicProvider = .appleMusic
+    var controlsInPlace: Bool { false }
     init() {}
     func playPause() {}
     func skip() {}

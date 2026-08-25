@@ -78,18 +78,34 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// True when FLOWS can play/pause/skip this service in place with NO
-    /// key: Apple Music everywhere; Spotify on macOS via Apple Events. On
-    /// iOS, Spotify becomes controllable only with a user-supplied Web API
-    /// token — that state lives in AppModel (`musicControllable`), which is
-    /// what the UI checks; this stays the keyless floor. Everything else
-    /// deep-links to the service's own app.
+    /// The in-place-control truth table, pure so tests pin every case.
+    /// Surveyed per service 2026-08 (docs/DATA_FEEDS.md §13), not assumed:
+    /// Spotify is the ONLY third-party service with a public remote-control
+    /// API (Web API player endpoints, user token). Amazon's API is a closed
+    /// partner beta (in-app DRM playback, no remote), Deezer's is frozen
+    /// with its SDKs deprecated, SoundCloud registration has been closed
+    /// since 2022, Tidal's public API is catalog-only (playback = their SDK
+    /// + client key), and YouTube Music / Qobuz / iHeartRadio / JioSaavn /
+    /// Gaana / Apple Podcasts / Audible publish no control API at all. So:
+    /// Apple Music always; Spotify via Apple Events on macOS or a user
+    /// token on iOS; everything else only its own app can control.
+    func controllable(onMac: Bool, spotifyLinked: Bool) -> Bool {
+        switch self {
+        case .appleMusic: return true
+        case .spotify: return onMac || spotifyLinked
+        default: return false
+        }
+    }
+
+    /// The KEYLESS floor of the table above — what works with no token.
+    /// The token-aware answer every surface should gate on lives in
+    /// `MusicController.controlsInPlace` / `AppModel.musicControllable`.
     var controllable: Bool {
-        if self == .appleMusic { return true }
         #if os(macOS)
-        if self == .spotify { return true }
+        return controllable(onMac: true, spotifyLinked: false)
+        #else
+        return controllable(onMac: false, spotifyLinked: false)
         #endif
-        return false
     }
 
     /// One-letter badge so the mini player shows WHICH service is active

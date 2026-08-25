@@ -122,6 +122,27 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(ScannerLinks.broadcastifyNearMe.host, "www.broadcastify.com")
     }
 
+    // MARK: in-place control — the truth table every surface consults
+
+    func testInPlaceControlTruthTableCoversEveryProvider() {
+        for provider in MusicProvider.allCases {
+            let keyless = provider == .appleMusic
+            // Keyless floor off-mac: Apple Music only.
+            XCTAssertEqual(provider.controllable(onMac: false, spotifyLinked: false),
+                           keyless, "\(provider.rawValue) keyless")
+            // A Spotify token upgrades EXACTLY one provider — Spotify. No
+            // other service publishes a control API, so no token, key, or
+            // setting may ever flip the rest (the survey in DATA_FEEDS §13).
+            XCTAssertEqual(provider.controllable(onMac: false, spotifyLinked: true),
+                           keyless || provider == .spotify,
+                           "\(provider.rawValue) with Spotify token")
+            // macOS adds Apple-Events Spotify; the rest stay uncontrollable.
+            XCTAssertEqual(provider.controllable(onMac: true, spotifyLinked: false),
+                           keyless || provider == .spotify,
+                           "\(provider.rawValue) on macOS")
+        }
+    }
+
     // MARK: Spotify Web API — request shapes
 
     func testTransportCallsMapToThePlayerEndpoints() {

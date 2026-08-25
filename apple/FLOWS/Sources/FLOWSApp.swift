@@ -447,13 +447,12 @@ final class AppModel: ObservableObject {
         didSet { SpotifyRemote.shared.setToken(spotifyWebToken) }
     }
 
-    /// Can the transport buttons drive the picked service IN PLACE? The
-    /// keyless floor (`MusicProvider.controllable`) plus the one keyed
-    /// upgrade: Spotify on iOS with a user-supplied token.
-    var musicControllable: Bool {
-        musicProvider.controllable
-            || (musicProvider == .spotify && !spotifyWebToken.isEmpty)
-    }
+    /// Can the transport buttons drive the picked service IN PLACE?
+    /// Delegates to the controller's gate so the HUD, Siri, and CarPlay
+    /// all read the SAME truth table (Apple Music always; Spotify on
+    /// macOS, or on iOS with a user token; nothing else — no other
+    /// service publishes a control API).
+    var musicControllable: Bool { MusicController.shared.controlsInPlace }
 
     /// Play pressed: gate on the one-time provider ask, then play through
     /// the chosen service (Apple Music in-app; other services open their app).

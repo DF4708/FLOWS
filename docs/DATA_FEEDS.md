@@ -569,6 +569,37 @@ maps to one plain-words fix (`SpotifyWebAPI.plainWords`). Without a token
 the mini player keeps the honest "Open Spotify" button. macOS is untouched:
 Spotify.app is still scripted directly over Apple Events.
 
+#### Why only Spotify — the per-service control survey (2026-08)
+
+"Can FLOWS's transport buttons drive this service in place?" was checked
+for every provider the mini player offers, not extrapolated from Spotify's
+answer. The result: **Spotify is the only third-party service with a public
+remote-control API** — everything else publishes no API, froze it, or gates
+an in-app-playback SDK behind a partner agreement (a dependency + client
+key, exactly what the optional-token pattern exists to avoid).
+
+| Service | Diagnosis |
+|---|---|
+| Apple Music | In place everywhere, keyless (MPMusicPlayerController; Apple Events on macOS) |
+| Spotify | Web API player endpoints + user token (this pass); Apple Events on macOS |
+| YouTube Music | No official API of any kind |
+| Amazon Music | Web/Device APIs are a closed partner beta: certification + Widevine DRM, in-app playback only — no remote control |
+| Deezer | API frozen (no new tokens issued); player SDKs deprecated; no playback control |
+| Tidal | Public API is catalog/playlists only; playback means their SDK in your app (client key) — no remote endpoint |
+| SoundCloud | App registration closed since 2022; the API streams audio into YOUR app — no remote control |
+| Qobuz | Partner-agreement API only |
+| iHeartRadio / JioSaavn / Gaana / Apple Podcasts / Audible | No public control APIs |
+
+Consequence in code: `MusicProvider.controllable(onMac:spotifyLinked:)` is
+the ONE truth table, and every transport surface consults it — the HUD mini
+player (`AppModel.musicControllable`), the Siri intents, and CarPlay
+(`MusicController.controlsInPlace`). A service that can't be driven in
+place shows transport controls NOWHERE: the HUD offers "Open <service>",
+Siri answers in plain words ("<service> can only be controlled in its own
+app"), and CarPlay shows no music buttons — closing the
+buttons-that-secretly-played-Apple-Music class of bug for all thirteen
+options at once, not per service.
+
 ---
 
 ## Deployment posture: keyless / open-source / politely-scraped first (2026-07)

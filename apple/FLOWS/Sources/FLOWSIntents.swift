@@ -15,14 +15,33 @@ import Foundation
 
 // MARK: music
 
+/// The picked service can't be driven from FLOWS — no music service except
+/// Apple Music and Spotify publishes a way in (MusicProvider.controllable).
+/// Siri says so in plain words instead of silently driving Apple Music
+/// over whatever the driver actually picked.
+@MainActor
+private func musicHandsOffDialog() -> IntentDialog {
+    let provider = MusicController.shared.provider
+    if provider == .spotify {
+        return IntentDialog(
+            "Add a Spotify token in FLOWS Settings — then Siri can control Spotify here.")
+    }
+    return IntentDialog(
+        "\(provider.displayName) can only be controlled in its own app.")
+}
+
 struct PlayPauseMusicIntent: AppIntent {
     static let title: LocalizedStringResource = "Play or pause music"
     static let description = IntentDescription("Toggles music playback while navigating.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        MusicController.shared.playPause()
-        return .result(dialog: MusicController.shared.isPlaying ? "Playing." : "Paused.")
+        let music = MusicController.shared
+        guard music.controlsInPlace else {
+            return .result(dialog: musicHandsOffDialog())
+        }
+        music.playPause()
+        return .result(dialog: music.isPlaying ? "Playing." : "Paused.")
     }
 }
 
@@ -32,7 +51,11 @@ struct SkipTrackIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        MusicController.shared.skip()
+        let music = MusicController.shared
+        guard music.controlsInPlace else {
+            return .result(dialog: musicHandsOffDialog())
+        }
+        music.skip()
         return .result(dialog: "Skipped.")
     }
 }
@@ -43,8 +66,12 @@ struct ToggleShuffleIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
-        MusicController.shared.toggleShuffle()
-        return .result(dialog: MusicController.shared.shuffleOn ? "Shuffle on." : "Shuffle off.")
+        let music = MusicController.shared
+        guard music.controlsInPlace else {
+            return .result(dialog: musicHandsOffDialog())
+        }
+        music.toggleShuffle()
+        return .result(dialog: music.shuffleOn ? "Shuffle on." : "Shuffle off.")
     }
 }
 

@@ -6,16 +6,15 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
-// CarPlay surface: CPMapTemplate for navigation plus Apple Music transport
-// controls. Activates ONLY when Apple has granted the app the
-// com.apple.developer.carplay-maps entitlement (applied for via
+// CarPlay surface: CPMapTemplate for navigation plus transport controls for
+// the driver's PICKED music service. Activates ONLY when Apple has granted
+// the app the com.apple.developer.carplay-maps entitlement (applied for via
 // developer.apple.com/carplay — see docs/APPLE_APP.md §CarPlay). Without the
 // entitlement iOS simply never connects this scene; the phone/iPad app is
 // unaffected.
 
 #if canImport(CarPlay)
 import CarPlay
-import MediaPlayer
 import UIKit
 
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
@@ -31,17 +30,22 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let map = CPMapTemplate()
         map.automaticallyHidesNavigationBar = true
 
-        // Apple Music transport controls, right on the map template. Playback
-        // uses the system music player so whatever the driver had going in
-        // Music keeps playing — FLOWS just surfaces the controls.
-        let player = MPMusicPlayerController.systemMusicPlayer
-        let playPause = CPBarButton(title: "⏯") { _ in
-            if player.playbackState == .playing { player.pause() } else { player.play() }
+        // Transport controls for the PICKED service, through the same
+        // MusicController as the phone HUD (Apple Music always; Spotify
+        // with the user's token). A service FLOWS can't drive gets NO
+        // buttons here — CarPlay can't open another app, and buttons that
+        // silently played Apple Music over the driver's pick were the
+        // dishonest-controls bug, for every streaming option alike.
+        let music = MusicController.shared
+        if music.controlsInPlace {
+            let playPause = CPBarButton(title: "⏯") { _ in
+                Task { @MainActor in MusicController.shared.playPause() }
+            }
+            let next = CPBarButton(title: "⏭") { _ in
+                Task { @MainActor in MusicController.shared.skip() }
+            }
+            map.trailingNavigationBarButtons = [playPause, next]
         }
-        let next = CPBarButton(title: "⏭") { _ in
-            player.skipToNextItem()
-        }
-        map.trailingNavigationBarButtons = [playPause, next]
 
         self.mapTemplate = map
         interfaceController.setRootTemplate(map, animated: true, completion: nil)
