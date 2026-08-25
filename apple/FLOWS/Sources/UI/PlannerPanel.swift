@@ -314,6 +314,7 @@ struct PlannerPanel: View {
     }
 
     private func plan() async {
+        destSearch.clear()   // suggestions down once a plan starts
         // Reentry guard: the button's action AND its simultaneous tap gesture
         // can both fire on one click — the second call must be a no-op.
         guard !isWorking else { return }

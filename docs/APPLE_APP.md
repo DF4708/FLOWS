@@ -534,7 +534,7 @@ risk" above. Everything else that landed with it:
   (`rust/flows-core/src/transit/`); spatial grids for `RoutePath.nearest`,
   the shower tables, SMN municipios, and `RiskFieldService.selectZips`;
   per-sweep overlay caches on the map.
-- **Tests**: 180 Swift test functions (`apple/FLOWSTests/`) + 101 Rust
+- **Tests**: 231 Swift test functions (`apple/FLOWSTests/`) + 101 Rust
   (flows-core 55, flows-train 35), zero warnings, `cargo clippy -D warnings`
   clean locally and enforced by CI on a pinned toolchain.
 

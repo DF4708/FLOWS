@@ -435,6 +435,20 @@ final class AppModel: ObservableObject {
     /// First play press: the "what do you play music with?" card.
     @Published var showMusicProviderPrompt = false
 
+    /// Play pressed: gate on the one-time provider ask, then play through
+    /// the chosen service (Apple Music in-app; other services open their app).
+    func playMusic() {
+        guard musicProviderChosen else {
+            showMusicProviderPrompt = true
+            return
+        }
+        if musicProvider.controllable {
+            MusicController.shared.playPause()
+        } else {
+            musicProvider.openApp()
+        }
+    }
+
     /// First-play choice: remember it, then do what play was about to do.
     func chooseMusicProvider(_ provider: MusicProvider) {
         musicProvider = provider
@@ -447,18 +461,20 @@ final class AppModel: ObservableObject {
     }
 
     /// Close every floating panel or menu a map click can sit under —
-    /// settings, the fuel/food/store menus, the stop list, the slider card,
-    /// the towing card, and the music ask. Route cards and map pins handle
-    /// their own taps first, so those still work.
+    /// settings, the category pickers, the slider card, the towing card, and
+    /// the music ask. POI RESULTS are deliberately left alone: the Tourist
+    /// filter's stars, per-route attraction counts, and scenic ordering all
+    /// read poi.results, and clearing them on a stray map tap erased the
+    /// stars until the filter was toggled. Closing the stop list stays an
+    /// explicit act (its X button). Route cards and map pins handle their
+    /// own taps first, so those still work.
     func dismissFloatingPanels() {
         showSettings = false
         showTowingCard = false
         showMusicProviderPrompt = false
-        if poi.activeKind != nil || !poi.results.isEmpty
-            || poi.pendingFoodChoice || poi.pendingFuelChoice
-            || poi.pendingStoreChoice || poi.emptyResultMessage != nil {
-            poi.clearResults()
-        }
+        poi.pendingFoodChoice = false
+        poi.pendingFuelChoice = false
+        poi.pendingStoreChoice = false
         filterCardsHidden = true
     }
 

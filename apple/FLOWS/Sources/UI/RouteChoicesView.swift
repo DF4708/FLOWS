@@ -352,7 +352,19 @@ struct RouteChoicesView: View {
         var accessLeg = TransitLeg(kind: .walk, fromName: startName, toName: boardName,
                                    seconds: w1sec, miles: w1mi,
                                    polyline: w1poly, steps: w1steps)
-        if (w1sec ?? .infinity) > 2700 {
+        // WALKING MODE: no car — a far airport gets ride-share guidance,
+        // never a drive-and-park leg (same rule as the rail/bus cards).
+        if model.walkingMode {
+            if (w1sec ?? .infinity) > 2700 {
+                accessLeg = TransitLeg(
+                    kind: .walk, fromName: startName, toName: boardName,
+                    seconds: w1sec, miles: w1mi, polyline: w1poly,
+                    steps: ["The airport is a long walk (\(TransitPlanning.fmt(w1sec)))",
+                            "A ride share can cover this first leg:",
+                            "Uber: m.uber.com — set drop-off to \(boardName)",
+                            "Lyft: lyft.com/ride — set drop-off to \(boardName)"])
+            }
+        } else if (w1sec ?? .infinity) > 2700 {
             let (drivePoly, driveMi, driveSecs) = await transitDrive(ep.from, boardC)
             if let driveSecs {
                 accessLeg = TransitLeg(
@@ -383,6 +395,13 @@ struct RouteChoicesView: View {
                                    steps: last.2.isEmpty
                                        ? ["Walk from \(alightName) to \(destName)"]
                                        : last.2))
+        } else if model.walkingMode {
+            legs.append(TransitLeg(kind: .walk, fromName: alightName, toName: destName,
+                                   seconds: last.1, miles: last.3, polyline: last.0,
+                                   steps: ["\(destName) is a long way from \(alightName)",
+                                           "A ride share can cover this last leg:",
+                                           "Uber: m.uber.com — set drop-off to \(destName)",
+                                           "Lyft: lyft.com/ride — set drop-off to \(destName)"]))
         } else {
             let (drivePoly, driveMi, driveSecs) = await transitDrive(alightC, ep.to)
             legs.append(TransitLeg(kind: .drive, fromName: alightName, toName: destName,
@@ -542,8 +561,10 @@ struct RouteChoicesView: View {
             activeTransitModes.contains($0) && transitOptions[$0]?.itinerary != nil
         }) {
             model.transitItinerary = transitOptions[next]?.itinerary
-        } else if activeTransitModes.isEmpty,
-                  model.transitItinerary?.mode != "Walk + ride" {
+        } else if model.transitItinerary?.mode != "Walk + ride" {
+            // Siblings may still be computing — better an empty map for a
+            // moment than the CLOSED mode's route still drawn as if chosen;
+            // each sibling task assigns its own itinerary when it lands.
             model.transitItinerary = nil
         }
     }

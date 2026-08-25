@@ -664,7 +664,7 @@ struct ContentView: View {
                 // a symbol.
                 let sp = flowsSignposter.beginInterval("badge-sweep")
                 clusteredBadgesCache = BadgeClustering.cluster(
-                    found.compactMap { hz in
+                    viewportHazards.compactMap { hz in
                         hz.realized >= model.riskDisplayFloor
                             ? BadgeClustering.Item(coordinate: hz.coordinate,
                                                    kind: hz.kind, score: hz.realized)
@@ -1193,8 +1193,11 @@ struct ContentView: View {
     private func poiPin(_ ranked: POIService.RankedPOI) -> some View {
         let isSelected = ranked.id == model.poi.selected?.id
         return Button {
-            model.poi.selected = ranked
-            if model.poi.activeKind == .tourist { model.poi.touristDetail = ranked }
+            model.poi.choose(ranked)
+            if model.poi.activeKind == .tourist {
+                model.poi.touristDetail = ranked
+                hazardInfo = nil   // shares the bottom-center slot
+            }
         } label: {
             Image(systemName: model.poi.activeKind?.symbol ?? "mappin")
                 .font(.system(size: 13, weight: .bold))
@@ -1282,6 +1285,7 @@ struct ContentView: View {
         return Button {
             if let coordinate {
                 hazardInfo = HazardTapInfo(kind: kind, coordinate: coordinate, score: score)
+                model.poi.touristDetail = nil   // shares the bottom-center slot
             }
         } label: {
             Image(systemName: kind.symbol)
@@ -1438,32 +1442,21 @@ struct ContentView: View {
     }
     @State private var corridorAreas: [CorridorHazardArea] = []
     @State private var corridorAreaRouteID: UUID?
-    /// Keyed by sample COORDINATE, not the filtered enumeration offset —
-    /// the display floor changes with walking mode, which shifts the filtered
-    /// index space and made offset-keyed coverage suppress the WRONG circles.
-    @State private var corridorCoveredSamples: Set<String> = []
-
-    private static func sampleKey(_ c: CLLocationCoordinate2D) -> String {
-        "\(c.latitude)|\(c.longitude)"
-    }
     @State private var corridorBadges: [BadgeClustering.Item<HazardKind>] = []
 
     private func rebuildCorridorAreas(for route: PlannedRoute) async {
         // Index space = the FILTERED list, matching the renderer's enumeration.
         let risky = route.riskSamples.filter { $0.risk >= model.riskDisplayFloor }
         var areas: [CorridorHazardArea] = []
-        var covered: Set<String> = []
         var seenCodes: Set<String> = []
         for sample in risky.prefix(20) {
             guard let z = await ZCTAFetcher.shared.zcta(containing: sample.coordinate)
             else { continue }
-            covered.insert(Self.sampleKey(sample.coordinate))
             guard seenCodes.insert(z.code).inserted else { continue }
             areas.append(CorridorHazardArea(
                 id: z.code, ring: z.ring, kind: corridorKind(sample)))
         }
         corridorAreas = areas
-        corridorCoveredSamples = covered
         // Badge clustering moved OFF the render path: computed once per route
         // change here instead of inside mapContent on every frame.
         corridorBadges = BadgeClustering.cluster(
@@ -1742,8 +1735,18 @@ struct FilterSlidersCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         // The SAME weights the towing card uses — change
                         // either place and both follow.
-                        Text(String(format: "Vehicle weight: %.0f lb", model.towVehicleWeightLbs))
-                            .font(.caption.weight(.semibold))
+                        HStack {
+                            Text(model.towVehicleWeightLbs > 0
+                                 ? String(format: "Vehicle weight: %.0f lb", model.towVehicleWeightLbs)
+                                 : "Vehicle weight: not set (no roads excluded)")
+                                .font(.caption.weight(.semibold))
+                            if model.towVehicleWeightLbs > 0 {
+                                Button("Clear") { model.towVehicleWeightLbs = 0 }
+                                    .font(.caption2)
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(.blue)
+                            }
+                        }
                         Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
                         Text(String(format: "Towing weight: %.0f lb", model.towTrailerWeightLbs))
                             .font(.caption.weight(.semibold))
@@ -1906,7 +1909,7 @@ struct SettingsSheet: View {
             Text("The little player in the drive bar uses this app. Play, "
                  + "pause, and skip work right in FLOWS with Apple Music. "
                  + "Other apps open in their own app — controlling them from "
-                 + "FLOWS needs each app's own kit.")
+                 + "FLOWS can only control Apple Music directly.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -2230,6 +2233,17 @@ struct SettingsSheet: View {
                 .foregroundStyle(.secondary)
 
             Divider()
+            Text("Your everyday area")
+                .font(.system(size: 14, weight: .semibold))
+            Text(String(format: "Stops you use often within ~%.0f miles of "
+                 + "home are remembered on this device for instant results. "
+                 + "The area is learned from your trips (20-mile max) and "
+                 + "never leaves your phone.",
+                 EverydayPlaces.shared.radiusMiles))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
             Text("Attribution & licenses")
                 .font(.system(size: 14, weight: .semibold))
             Text("Places (fuel, food, lodging, medical, transit): Foursquare "
@@ -2424,6 +2438,11 @@ struct VehicleEditorSheet: View {
                     } else {
                         specModel = ""
                     }
+                }
+                if make == Self.customMake {
+                    TextField("Year (e.g. 2022)", text: $vehicleYear)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 110)
                 }
                 if make != Self.customMake {
                     Picker("Model", selection: $specModel) {

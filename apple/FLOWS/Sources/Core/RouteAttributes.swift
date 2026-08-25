@@ -92,7 +92,10 @@ enum RouteAttributes {
         // Longest suffix first so "5 st" (short tons) never reads as "t".
         let units: [(suffix: String, lbsPerUnit: Double)] = [
             ("tonnes", lbsPerTonne), ("tonne", lbsPerTonne),
-            ("tons", lbsPerTonne), ("ton", lbsPerTonne),
+            // US mappers write "10 tons" meaning SHORT tons (20,000 lb).
+            // Reading it as metric (22,046 lb) was ~10% too permissive on a
+            // safety filter — bare ton/tons is the conservative 2,000 lb.
+            ("tons", 2000), ("ton", 2000),
             ("lbs", 1), ("lb", 1),
             ("kg", 2.20462),
             ("st", 2000),          // US short ton

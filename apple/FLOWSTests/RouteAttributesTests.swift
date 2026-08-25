@@ -53,6 +53,10 @@ final class RouteAttributesTests: XCTestCase {
         // Explicit units: tonnes, pounds, short tons, kilograms.
         XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "7.5 t")!, 16_534.65, accuracy: 0.1)
         XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "2 tonnes")!, 4_409.24, accuracy: 0.1)
+        // Bare ton/tons is US signage — SHORT tons, never metric (a metric
+        // read was ~10% too permissive on a safety limit).
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "10 tons")!, 20_000, accuracy: 0.1)
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "3 ton")!, 6_000, accuracy: 0.1)
         XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "10000 lbs")!, 10_000, accuracy: 1e-9)
         XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "5 st")!, 10_000, accuracy: 1e-9)
         XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "3500 kg")!, 7_716.17, accuracy: 0.1)

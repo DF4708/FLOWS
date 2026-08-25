@@ -591,8 +591,12 @@ final class POIService: ObservableObject {
                 r.parkingFee = BrandKnowledge.parkingFee(name: poiName)
             }
             if kind == .shelter {
+                // Only the FIRST query carries the live warning's intent
+                // (shelterQuery() picks it per event); the static probe
+                // queries contain the word "storm" and mislabeled every
+                // unnamed shelter during floods and heat events.
                 r.shelterType = BrandKnowledge.shelterType(
-                    name: poiName, query: queries.joined(separator: " "))
+                    name: poiName, query: queries.first ?? "")
             }
             // Gym showers are a brand standard (or a known brand omission);
             // unknown brands say nothing rather than guess.
@@ -643,7 +647,9 @@ final class POIService: ObservableObject {
         // If the ahead-only/detour ranking dropped EVERY raw hit (vehicle
         // position quirks, all hits slightly behind, tight detour caps),
         // showing the nearest raw results beats claiming nothing exists.
-        if finalRanked.isEmpty, !unique.isEmpty, let anchor = position ?? centers.first {
+        if finalRanked.isEmpty, !unique.isEmpty, let anchor = position ?? centers.first,
+           kind == .gas || kind == .food || kind == .medical || kind == .stores
+               || kind == .shelter {
             finalRanked = unique
                 .sorted { POIRanking.meters($0.placemark.coordinate, anchor)
                         < POIRanking.meters($1.placemark.coordinate, anchor) }
@@ -683,10 +689,23 @@ final class POIService: ObservableObject {
         // loses its pin (it can still rank normally via the essential-kind
         // fallback above, flagged as maybe-closed).
         let closedKeys = Set(ranked.filter { $0.isOpenNow == false }.map(Self.rowKey))
+        // Once ranked results exist, a remembered stop keeps its top pin ONLY
+        // when the corridor search confirmed it (real ahead/detour numbers).
+        // Unconfirmed remembered stops drop off rather than sit above the
+        // ranking with straight-line distances — on a long trip away from
+        // home they could be hundreds of miles BEHIND the vehicle.
+        let rankedKeys = Set(finalRanked.map(Self.rowKey))
         let pinned = (kind == .medical ? [] : everyday)
             .filter { !closedKeys.contains(Self.rowKey($0)) }
+            .filter { finalRanked.isEmpty || rankedKeys.contains(Self.rowKey($0)) }
         results = Self.merged(everyday: pinned, network: finalRanked)
-        selected = results.first
+        // 16: don't yank the camera a second time — keep the driver's current
+        // selection when it survived the merge; only reseat when it vanished.
+        if let cur = selected, results.contains(where: { $0.id == cur.id }) == false {
+            selected = results.first
+        } else if selected == nil {
+            selected = results.first
+        }
         if results.isEmpty {
             emptyResultMessage = "No \(kind.rawValue.lowercased()) found ahead on this route."
             activeKind = nil

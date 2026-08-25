@@ -131,10 +131,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true
-        WKCompanionAppBundleIdentifier: com.flows.app
+        WKCompanionAppBundleIdentifier: com.wizeman555.flows
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.watchkitapp
+        PRODUCT_BUNDLE_IDENTIFIER: com.wizeman555.flows.watchkitapp
         PRODUCT_NAME: FLOWS
         CODE_SIGN_IDENTITY: "-"
         GENERATE_INFOPLIST_FILE: NO
@@ -255,6 +255,9 @@ targets:
       - path: FLOWS/Sources/Core/LiveHazardFeeds.swift
       - path: FLOWS/Sources/Core/RatingsAndCost.swift
       - path: FLOWS/Sources/Core/BrandKnowledge.swift
+      - path: FLOWS/Sources/Core/SecureStore.swift
+      - path: FLOWS/Sources/Core/DestinationSearch.swift
+      - path: FLOWS/Sources/Core/MusicProviders.swift
       - path: FLOWS/Sources/Core/TouristInfo.swift
       - path: FLOWS/Sources/Core/RiskFieldService.swift
       - path: FLOWS/Sources/Core/VehicleLink.swift

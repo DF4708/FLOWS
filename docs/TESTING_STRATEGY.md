@@ -40,11 +40,11 @@ during that expansion runs through the harness described here.
 
 | Suite | Where | Count | Run with |
 |---|---|---|---|
-| Swift XCTest | `apple/FLOWSTests/` (18 files) | **180** `func test…` | `xcodebuild test -scheme FLOWSTests` |
-| Rust `flows-core` | `rust/flows-core/src/*.rs` + `src/transit/` | **55** `#[test]` | `cargo test --release -p flows-core` |
-| Rust `flows-train` | `src/main.rs` + `src/bin/*.rs` (history-baseline, national-bundle, places-shard, bundle-frb) | **35** `#[test]` | `cargo test --release -p flows-train` |
+| Swift XCTest | `apple/FLOWSTests/` (22 files) | **231** `func test…` | `xcodebuild test -scheme FLOWSTests` |
+| Rust `flows-core` | `rust/flows-core/src/*.rs` + `src/transit/` | **61** `#[test]` | `cargo test --release -p flows-core` |
+| Rust `flows-train` | `src/main.rs` + `src/bin/*.rs` (history-baseline, national-bundle, places-shard, bundle-frb) | **40** `#[test]` | `cargo test --release -p flows-train` |
 
-That is **180 Swift + 101 Rust** tests, zero compiler warnings, and
+That is **231 Swift + 101 Rust** tests, zero compiler warnings, and
 `cargo clippy -D warnings` clean.
 
 Swift coverage concentrates where the money is: `SafetyAndGradeTests`
@@ -239,7 +239,7 @@ work; that data survives.
 > no `R/`, no `Rscript`, no `tests/` harness). They are preserved here
 > as the historical record of how that engine was gated, and as the
 > definition of the behavior later frozen into the §0 fixtures. Landing
-> today means passing the §0 suites (180 Swift + 101 Rust tests) and CI,
+> today means passing the §0 suites (231 Swift + 101 Rust tests) and CI,
 > not these.
 
 Every experiment's post-measurement must pass these gates before the

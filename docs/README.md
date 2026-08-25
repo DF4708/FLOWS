@@ -54,7 +54,7 @@ the Rust core bridge. Build, architecture, and roadmap.
 
 ## Companion directories
 
-- `../apple/FLOWSTests/` — the Swift regression suite (180 tests); the
+- `../apple/FLOWSTests/` — the Swift regression suite (231 tests); the
   Rust suites live beside their crates under `../rust/` (101 tests).
 - `../data/results/experiments.jsonl` — the append-only experiment log
   (carried forward from the retired R harness; new entries come from the

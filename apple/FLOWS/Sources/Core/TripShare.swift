@@ -126,23 +126,42 @@ struct ShareRecipient: Codable, Equatable {
     var shareDates: [Date]
 }
 
-/// Prior share recipients (UserDefaults JSON, injectable for tests — same
-/// shape as FavoritesStore). PRIVACY: this history never leaves the device.
-/// It is a small suggestion list, not a message log — both dimensions are
-/// capped so it stays a preference-sized blob.
+/// Prior share recipients. PRIVACY: contact names + phone numbers live in
+/// the KEYCHAIN (SecureStore — same doctrine that moved medical notes out of
+/// UserDefaults: an unencrypted plist rides device backups). Tests inject a
+/// UserDefaults instance and stay plist-backed; only the app's standard
+/// instance uses the Keychain, migrating and scrubbing any earlier plist
+/// copy. It is a small suggestion list, not a message log — both dimensions
+/// are capped so it stays a preference-sized blob.
 @MainActor
 final class ShareHistoryStore: ObservableObject {
     @Published private(set) var recipients: [ShareRecipient] = []
 
     private let defaults: UserDefaults
+    private let useKeychain: Bool
     private static let key = "flows.shareHistory"
+    private static let keychainKey = "shareHistory"
     static let maxRecipients = 12
     static let maxDatesPerRecipient = 10
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        if let data = defaults.data(forKey: Self.key),
-           let saved = try? JSONDecoder().decode([ShareRecipient].self, from: data) {
+        useKeychain = defaults === UserDefaults.standard
+        if useKeychain {
+            var json = SecureStore.get(Self.keychainKey) ?? ""
+            // Migrate an earlier plist copy (stored as Data, so the string
+            // helper can't see it) and scrub the plaintext.
+            if json.isEmpty, let legacy = defaults.data(forKey: Self.key) {
+                json = String(decoding: legacy, as: UTF8.self)
+                SecureStore.set(json, for: Self.keychainKey)
+                defaults.removeObject(forKey: Self.key)
+            }
+            if let saved = try? JSONDecoder().decode(
+                [ShareRecipient].self, from: Data(json.utf8)) {
+                recipients = saved
+            }
+        } else if let data = defaults.data(forKey: Self.key),
+                  let saved = try? JSONDecoder().decode([ShareRecipient].self, from: data) {
             recipients = saved
         }
     }
@@ -181,7 +200,13 @@ final class ShareHistoryStore: ObservableObject {
 
     private func persist() {
         do {
-            defaults.set(try JSONEncoder().encode(recipients), forKey: Self.key)
+            let data = try JSONEncoder().encode(recipients)
+            if useKeychain {
+                SecureStore.set(String(decoding: data, as: UTF8.self),
+                                for: Self.keychainKey)
+            } else {
+                defaults.set(data, forKey: Self.key)
+            }
         } catch {
             print("[TripShare] persist failed: \(error)")
         }

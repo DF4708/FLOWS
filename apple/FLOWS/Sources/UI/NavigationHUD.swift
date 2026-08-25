@@ -296,13 +296,6 @@ struct NavigationHUD: View {
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-        #if os(iOS)
-        .sheet(isPresented: $showShareContactPicker) {
-            ContactPicker { name, phone in
-                sendShare(name: name, phone: phone)
-            }
-        }
-        #endif
     }
 
     // MARK: food category picker — shown when Food is tapped
@@ -607,10 +600,31 @@ struct NavigationHUD: View {
     /// Trigger + message live in TripShareLogic; the one-per-trip latch in
     /// AppModel.maybeOfferTripShare.
     private var tripShareBanner: some View {
+        shareBannerBody
+            // The picker rides the BANNER (always rendered while the offer is
+            // up) — mounted on the fuel cluster it never appeared for walking
+            // routes or drivers with no saved vehicle.
+            #if os(iOS)
+            .sheet(isPresented: $showShareContactPicker) {
+                ContactPicker { name, phone in
+                    sendShare(name: name, phone: phone)
+                }
+            }
+            #endif
+    }
+
+    @State private var shareErrorText: String?
+
+    private var shareBannerBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Long trip — share your route with someone?",
                   systemImage: "paperplane.fill")
                 .font(.system(size: 15, weight: .bold))
+            if let shareErrorText {
+                Text(shareErrorText)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.red)
+            }
             Text("Send a text with where you're going, when you'll get there, and a map.")
                 .font(.footnote)
             if showShareChooser {
@@ -707,10 +721,16 @@ struct NavigationHUD: View {
     /// Open Messages prefilled (driver still taps send — apps cannot send a
     /// text silently) and remember the recipient for future suggestions.
     private func sendShare(name: String, phone: String) {
-        if let url = model.tripShareURL(phone: phone) {
-            openURL(url)
-            model.shareHistory.recordShare(name: name, phone: phone)
+        guard let url = model.tripShareURL(phone: phone) else {
+            // No usable number (a contact card with no phone) — keep the
+            // banner up and say why, or the one-per-trip offer would vanish
+            // with no message sent and never come back.
+            shareErrorText = "That contact has no phone number. Pick someone else."
+            return
         }
+        openURL(url)
+        model.shareHistory.recordShare(name: name, phone: phone)
+        shareErrorText = nil
         showShareChooser = false
         model.tripSharePrompt = false
     }
@@ -1268,7 +1288,7 @@ struct NavigationHUD: View {
             .buttonStyle(.plain)
             .help("Previous track")
             // Shows PAUSE while playing (press to stop), PLAY while paused.
-            Button { music.playPause() } label: {
+            Button { model.playMusic() } label: {
                 Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }

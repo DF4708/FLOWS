@@ -49,6 +49,8 @@ final class DestinationSearch: NSObject, ObservableObject {
     /// (~50 km box around the driver; Apple expands outward as needed).
     func update(fragment: String, near center: CLLocationCoordinate2D?) {
         if suppressNextUpdate {
+            // One programmatic fill only — and if the fill produced no change
+            // event (equal text), the next real keystroke must not be eaten.
             suppressNextUpdate = false
             return
         }
