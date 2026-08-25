@@ -140,6 +140,9 @@ actor YelpLink {
         let rating: Double?      // 0–5
         let price: String?       // "$"…"$$$$"
         var isOpenNow: Bool? = nil
+        /// Weekly hours lines, Monday first ("Monday: 9:00 AM – 5:00 PM") —
+        /// Google supplies them; Yelp's search response doesn't, so nil there.
+        var hours: [String]? = nil
     }
 
     private var cache: [String: BusinessInfo] = [:]
@@ -201,7 +204,8 @@ actor GooglePlacesLink {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
         request.setValue(
-            "places.rating,places.priceLevel,places.currentOpeningHours.openNow",
+            "places.rating,places.priceLevel,places.currentOpeningHours.openNow,"
+                + "places.regularOpeningHours.weekdayDescriptions",
             forHTTPHeaderField: "X-Goog-FieldMask")
         let body: [String: Any] = [
             "textQuery": name,
@@ -228,8 +232,11 @@ actor GooglePlacesLink {
             }
         }
         let openNow = (first["currentOpeningHours"] as? [String: Any])?["openNow"] as? Bool
+        let hours = (first["regularOpeningHours"] as? [String: Any])?["weekdayDescriptions"]
+            as? [String]
         let info = YelpLink.BusinessInfo(rating: first["rating"] as? Double,
-                                         price: price, isOpenNow: openNow)
+                                         price: price, isOpenNow: openNow,
+                                         hours: hours)
         cache[key] = info
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info

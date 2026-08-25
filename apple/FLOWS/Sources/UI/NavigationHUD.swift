@@ -425,14 +425,24 @@ struct NavigationHUD: View {
                         .foregroundStyle(.blue)
                 }
             }
-            ScrollView {
-                VStack(spacing: 4) {
-                    ForEach(model.poi.results) { ranked in
-                        poiRow(ranked)
+            // Reader: tapping a pin on the MAP selects its row here — scroll
+            // that row into view, the same way tapping a route card brings
+            // its route forward on the map.
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(model.poi.results) { ranked in
+                            poiRow(ranked)
+                                .id(ranked.id)
+                        }
                     }
                 }
+                .frame(maxHeight: 230)
+                .onChange(of: model.poi.selected?.id) { _, id in
+                    guard let id else { return }
+                    withAnimation { scroller.scrollTo(id, anchor: .center) }
+                }
             }
-            .frame(maxHeight: 230)
         }
         .floatingCard()
         .frame(maxWidth: isCompact ? .infinity : 640)
