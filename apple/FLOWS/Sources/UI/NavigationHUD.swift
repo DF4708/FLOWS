@@ -24,6 +24,9 @@ struct NavigationHUD: View {
     /// Radio card visibility (trucker radio in trucker mode, emergency
     /// radio otherwise — same card, same relays).
     @State private var showRadio = false
+    /// Long-trip share banner: recipient list expanded / contacts sheet up.
+    @State private var showShareChooser = false
+    @State private var showShareContactPicker = false
     /// Persisted station choice (67 bundled NOAA relays).
     @AppStorage("flows.radioChannel") private var radioChannelID = ""
     /// Quick music menu (resume / station / genres) visibility.
@@ -59,6 +62,9 @@ struct NavigationHUD: View {
                 escalationBanner(escalation)
             } else if model.imminentWarning == nil, !model.alerts.activeHeadlines.isEmpty {
                 alertStrip
+            }
+            if model.tripSharePrompt {
+                tripShareBanner
             }
             if model.stopDelaySeconds > 0 {
                 shelterDelayChip
@@ -287,6 +293,13 @@ struct NavigationHUD: View {
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+        #if os(iOS)
+        .sheet(isPresented: $showShareContactPicker) {
+            ContactPicker { name, phone in
+                sendShare(name: name, phone: phone)
+            }
+        }
+        #endif
     }
 
     // MARK: food category picker — shown when Food is tapped
@@ -581,6 +594,122 @@ struct NavigationHUD: View {
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
+    }
+
+    // MARK: long-trip share — one nudge per trip (200+ mile route or day)
+
+    /// "Tell someone where you're going." iOS cannot start a Find My live
+    /// share for the user (no API — only Messages/Find My can), so this is
+    /// the honest version: a prefilled text the driver sends with one tap.
+    /// Trigger + message live in TripShareLogic; the one-per-trip latch in
+    /// AppModel.maybeOfferTripShare.
+    private var tripShareBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Long trip — share your route with someone?",
+                  systemImage: "paperplane.fill")
+                .font(.system(size: 15, weight: .bold))
+            Text("Send a text with where you're going, when you'll get there, and a map.")
+                .font(.footnote)
+            if showShareChooser {
+                shareChooserRows
+            } else {
+                HStack(spacing: 8) {
+                    Spacer()
+                    Button("Not now") { model.tripSharePrompt = false }
+                        .font(.system(size: 15, weight: .bold))
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: Theme.tapMinimum)   // HIG driving target
+                        .background(Color.white.opacity(0.25))
+                        .clipShape(Capsule())
+                    Button("Share") { startShare() }
+                        .font(.system(size: 15, weight: .heavy))
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 18)
+                        .frame(minHeight: Theme.tapMinimum)
+                        .background(Color.white)
+                        .foregroundStyle(Theme.cta)
+                        .clipShape(Capsule())
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: isCompact ? .infinity : 560)
+        .background(Theme.cta.opacity(0.95))
+        .foregroundStyle(.white)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .shadow(color: Theme.cardShadow, radius: 14, y: 5)
+        .onDisappear { showShareChooser = false }
+    }
+
+    /// Share pressed: one obvious candidate → straight to Messages (the
+    /// emergency contact is the default). Several → pick from a short list,
+    /// best first. None → the contacts picker (iOS; macOS opens settings,
+    /// where the emergency contact fields live — it has no CNContactPicker).
+    private func startShare() {
+        let candidates = model.tripShareCandidates()
+        if candidates.count == 1 {
+            sendShare(name: candidates[0].name, phone: candidates[0].phone)
+        } else if candidates.isEmpty {
+            #if os(iOS)
+            showShareContactPicker = true
+            #else
+            model.showSettings = true
+            #endif
+        } else {
+            showShareChooser = true
+        }
+    }
+
+    /// Suggested people, best first: emergency contact, then the people
+    /// actually texted before (frequency + recency, from on-device history).
+    private var shareChooserRows: some View {
+        VStack(spacing: 6) {
+            ForEach(Array(model.tripShareCandidates().prefix(4).enumerated()),
+                    id: \.offset) { index, person in
+                Button { sendShare(name: person.name, phone: person.phone) } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: index == 0 ? "star.fill" : "person.fill")
+                            .font(.system(size: 13))
+                        Text(person.name)
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1)
+                        Spacer()
+                        Text("Text")
+                            .font(.system(size: 13, weight: .heavy))
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 30)
+                            .background(Color.white)
+                            .foregroundStyle(Theme.cta)
+                            .clipShape(Capsule())
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: Theme.tapMinimum)
+                    .background(Color.white.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            #if os(iOS)
+            Button("Someone else") { showShareContactPicker = true }
+                .font(.system(size: 14, weight: .bold))
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .background(Color.white.opacity(0.25))
+                .clipShape(Capsule())
+            #endif
+        }
+    }
+
+    /// Open Messages prefilled (driver still taps send — apps cannot send a
+    /// text silently) and remember the recipient for future suggestions.
+    private func sendShare(name: String, phone: String) {
+        if let url = model.tripShareURL(phone: phone) {
+            openURL(url)
+            model.shareHistory.recordShare(name: name, phone: phone)
+        }
+        showShareChooser = false
+        model.tripSharePrompt = false
     }
 
     // MARK: escalating-risk prompt — flashing, driver-approved reroute
