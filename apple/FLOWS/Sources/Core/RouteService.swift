@@ -96,8 +96,13 @@ struct PlannedRoute: Identifiable {
     /// All posted clearances (meters) found near the corridor below ~5.5 m —
     /// compared against the driver's vehicle-height slider.
     var clearancesMeters: [Double]?
-    /// True when BOTH Overpass endpoints failed — the card says "no OSM
-    /// data" instead of spinning on "checking…" forever.
+    /// All posted weight limits (pounds) found on the corridor, from the
+    /// same Overpass sweep — compared against the driver's vehicle + towing
+    /// weight for the Bridge weight filter.
+    var weightLimitsLbs: [Double]?
+    /// True when EVERY Overpass endpoint failed (clearances and weight
+    /// limits ride one query) — the card says "no OSM data" instead of
+    /// spinning on "checking…" forever.
     var clearanceDataUnavailable = false
     /// Fraction of sampled corridor points inside FEMA A*/V* flood zones.
     var femaFloodFraction: Double?
@@ -150,15 +155,16 @@ struct PlannedRoute: Identifiable {
 ///   * noTolls additionally triggers a toll-free REPLAN (MKDirections
 ///     tollPreference = .avoid) so satisfying routes exist instead of the
 ///     filter collapsing the list to local roads.
-///   * lowWeatherRisk is RELATIVE (best route + near-ties) — handled in
-///     AppModel.filteredChoices, since there is always a lowest-risk option.
-///   * lowBridges / mountainGrades / noFloodRisk are backed by real public
-///     data (OSM maxheight, USGS elevations, FEMA flood zones + live field
-///     + active alerts); unknown data never excludes a route.
+///   * bridgeWeight / lowBridges / mountainGrades / noFloodRisk are backed
+///     by real public data (OSM maxweight/maxheight, USGS elevations, FEMA
+///     flood zones + live field + active alerts); unknown data never
+///     excludes a route.
+///   ("Low weather risk" used to live here as a relative best-plus-near-ties
+///   filter — removed as redundant with the map's and cards' risk colors.)
 enum RouteFilter: String, CaseIterable, Identifiable {
     case noTolls = "No tolls"
     case noHighways = "No highways"
-    case lowWeatherRisk = "Low weather risk"
+    case bridgeWeight = "Bridge weight"
     case noHighWinds = "No high winds"
     case noFloodRisk = "No flood risk"
     case avoidTraffic = "Avoid traffic"
@@ -182,8 +188,10 @@ enum RouteFilter: String, CaseIterable, Identifiable {
             // guarantee — if this empties the list, the closest-match fallback
             // surfaces the least-violating route rather than a false pass.
             return !route.hasHighways
-        case .lowWeatherRisk:
-            return true   // relative — resolved against the whole set in AppModel
+        case .bridgeWeight:
+            // Every posted weight limit on the corridor must take the rig's
+            // total weight (vehicle + towed). Unknown data never excludes.
+            return limits.passesWeightLimits(route.weightLimitsLbs)
         case .noHighWinds:
             return !route.weatherScored
                 || (route.familyPeaks["wind"] ?? 0) < FlowsCore.riskYellowMin

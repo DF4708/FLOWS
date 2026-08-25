@@ -1475,6 +1475,22 @@ private struct RouteCard: View {
         } else if route.clearanceDataUnavailable {
             parts.append("Bridges: no OSM data")
         } else { parts.append("Bridges: checking…") }
+        if let weightLimits = route.weightLimitsLbs {
+            if let lowest = weightLimits.min() {
+                var text = String(format: "Lowest weight sign %.0f lb", lowest)
+                // Verdict only when the driver has GIVEN a weight — a ✓
+                // against no entered weight would be an empty promise.
+                if model.routeFilters.contains(.bridgeWeight), limits.rigWeightLbs != nil {
+                    text += limits.passesWeightLimits(weightLimits)
+                        ? " ✓" : " ✗ too heavy for this road"
+                }
+                parts.append(text)
+            } else { parts.append("No posted weight limits") }
+        } else if !route.clearanceDataUnavailable {
+            // Weight limits ride the same Overpass fetch as the clearances —
+            // "no OSM data" above already covers the failure case.
+            parts.append("Weight limits: checking…")
+        }
         if let f = route.femaFloodFraction {
             parts.append(String(format: "FEMA flood %.0f%%", f * 100))
         } else {

@@ -327,9 +327,10 @@ struct TowingCard: View {
                 .buttonStyle(.plain)
             }
             if model.towingActive {
-                Text("Route filters set: avoiding steep grades, low bridges, and "
-                     + "high winds. Fuel prediction switched to the towing pattern "
-                     + "(kept separate from your normal pattern).")
+                Text("Route filters set: avoiding steep grades, low bridges, "
+                     + "high winds, and roads with weight signs under your "
+                     + "vehicle + towing weight. Fuel prediction switched to the "
+                     + "towing pattern (kept separate from your normal pattern).")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

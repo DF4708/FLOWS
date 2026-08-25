@@ -1652,13 +1652,15 @@ private struct PlanningChrome: View {
     }
 }
 
-/// Right-hand sliders that appear with the Low bridges / Mountain grades
-/// filters: set YOUR vehicle's height and comfortable max grade.
+/// Right-hand sliders that appear with the Low bridges / Mountain grades /
+/// Bridge weight filters: set YOUR vehicle's height, comfortable max grade,
+/// and the weights the bridge-weight check compares against.
 struct FilterSlidersCard: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        if model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades) {
+        if model.routeFilters.contains(.lowBridges) || model.routeFilters.contains(.mountainGrades)
+            || model.routeFilters.contains(.bridgeWeight) {
             VStack(alignment: .leading, spacing: 8) {
                 if model.routeFilters.contains(.lowBridges) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -1689,6 +1691,31 @@ struct FilterSlidersCard: View {
                         Text("USGS elevation profile must stay under this incline.")
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
+                    }
+                }
+                if model.routeFilters.contains(.bridgeWeight) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        // The SAME weights the towing card uses — change
+                        // either place and both follow.
+                        Text(String(format: "Vehicle weight: %.0f lb", model.towVehicleWeightLbs))
+                            .font(.caption.weight(.semibold))
+                        Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
+                        Text(String(format: "Towing weight: %.0f lb", model.towTrailerWeightLbs))
+                            .font(.caption.weight(.semibold))
+                        Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
+                        // Spell out the effect: the whole rig vs posted limits.
+                        if let rig = model.filterLimits.rigWeightLbs {
+                            Text(String(format: "Avoiding roads and bridges with "
+                                        + "weight signs under %.0f lb "
+                                        + "(your vehicle + what you tow).", rig))
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Set your weights so routes can be checked "
+                                 + "against posted weight signs.")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 // Per-route verdicts against YOUR limits — moving a slider
@@ -1743,6 +1770,20 @@ extension FilterSlidersCard {
                         .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
                 } else {
                     Text("bridges…").font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            if model.routeFilters.contains(.bridgeWeight) {
+                if limits.rigWeightLbs == nil {
+                    // No entered weight → nothing honest to check against.
+                    Text("set weight").font(.system(size: 9)).foregroundStyle(.secondary)
+                } else if let wl = r.weightLimitsLbs {
+                    let passes = limits.passesWeightLimits(wl)
+                    Label(wl.min().map { String(format: "%.0f lb", $0) } ?? "no weight signs",
+                          systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
+                } else {
+                    Text("weight…").font(.system(size: 9)).foregroundStyle(.secondary)
                 }
             }
         }

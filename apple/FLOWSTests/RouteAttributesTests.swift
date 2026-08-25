@@ -45,6 +45,26 @@ final class RouteAttributesTests: XCTestCase {
         XCTAssertLessThan(canOpener, RouteAttributes.lowClearanceThresholdMeters)
     }
 
+    func testOSMWeightLimitParsing() {
+        // Bare numbers are metric tonnes (the OSM default); decimal commas
+        // appear in the global dataset just like they do for maxheight.
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "7.5")!, 16_534.65, accuracy: 0.1)
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "3,5")!, 7_716.17, accuracy: 0.1)
+        // Explicit units: tonnes, pounds, short tons, kilograms.
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "7.5 t")!, 16_534.65, accuracy: 0.1)
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "2 tonnes")!, 4_409.24, accuracy: 0.1)
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "10000 lbs")!, 10_000, accuracy: 1e-9)
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "5 st")!, 10_000, accuracy: 1e-9)
+        XCTAssertEqual(RouteAttributes.weightLimitLbs(fromOSM: "3500 kg")!, 7_716.17, accuracy: 0.1)
+        // Non-numeric signage → unknown, never a fabricated limit.
+        XCTAssertNil(RouteAttributes.weightLimitLbs(fromOSM: "default"))
+        XCTAssertNil(RouteAttributes.weightLimitLbs(fromOSM: "none"))
+        XCTAssertNil(RouteAttributes.weightLimitLbs(fromOSM: "heavy"))
+        // The relevance cap sits above the US federal interstate max — an
+        // 80,000 lb posting still counts as a real restriction.
+        XCTAssertLessThan(80_000, RouteAttributes.weightLimitCapLbs)
+    }
+
     func testFEMAHighRiskZones() {
         XCTAssertTrue(RouteAttributes.isHighRiskFloodZone("AE"))
         XCTAssertTrue(RouteAttributes.isHighRiskFloodZone("A"))
