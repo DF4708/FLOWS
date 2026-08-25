@@ -1152,7 +1152,11 @@ struct NavigationHUD: View {
             // no licensed internet relays — those play buttons stay disabled
             // with the frequency to tune on the physical radio; any entry that
             // gains a stream URL (trucker_radio.json) lights up.
-            ForEach(TruckerRadio.frequencyGuide, id: \.0) { channel, what in
+            // Playable stations lead; channels with no internet relay
+            // collapse into one line below instead of a wall of grayed rows.
+            ForEach(TruckerRadio.frequencyGuide.filter {
+                model.radio.cabStream(for: $0.0) != nil
+            }, id: \.0) { channel, what in
                 HStack(alignment: .center, spacing: 6) {
                     VStack(alignment: .leading, spacing: 0) {
                         Text(channel).font(.caption2.weight(.semibold))
@@ -1177,9 +1181,19 @@ struct NavigationHUD: View {
                         Image(systemName: "play.slash")
                             .font(.system(size: 13))
                             .foregroundStyle(.tertiary)
-                            .help("No internet relay exists for this channel — tune it on the cab radio")
+                            .help("No internet relay exists for this channel — tune it on a car radio")
                     }
                 }
+            }
+            let overAir = TruckerRadio.frequencyGuide.filter {
+                model.radio.cabStream(for: $0.0) == nil
+            }
+            if !overAir.isEmpty {
+                Text("\(overAir.count) more channels (CB, advisory AM) are "
+                     + "over-the-air only — a car radio can tune them: "
+                     + overAir.map(\.0).joined(separator: ", "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .floatingCard()
@@ -1265,22 +1279,27 @@ struct NavigationHUD: View {
             // menu — resume, station, genres.
             Button { showMusicMenu.toggle() } label: {
                 Group {
-                    if let art = music.artwork {
+                    if model.musicProvider.controllable, let art = music.artwork {
                         Image(decorative: art, scale: 1)
                             .resizable()
                             .scaledToFill()
                     } else {
-                        Image(systemName: "music.note")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                        // The active SERVICE, visibly: a brand-colored
+                        // monogram (logos need each service's asset license).
+                        Text(model.musicProvider.monogram)
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(.white)
                     }
                 }
                 .frame(width: 30, height: 30)
-                .background(Color.black.opacity(0.08))
+                .background(model.musicProvider.controllable && music.artwork != nil
+                            ? Color.black.opacity(0.08)
+                            : model.musicProvider.badgeColor)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .help(music.trackName.isEmpty ? "Music" : music.trackName)
+            .help(music.trackName.isEmpty ? model.musicProvider.rawValue : music.trackName)
+            if model.musicProvider.controllable {
             Button { music.back() } label: {
                 Image(systemName: "backward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
@@ -1294,6 +1313,22 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help(music.isPlaying ? "Pause" : "Play")
+            } else {
+            // HONEST CONTROLS: this service can't be driven from inside
+            // FLOWS on this platform (it needs the service's own kit and
+            // key) — one clear "open the app" beats skip buttons that
+            // secretly just launch it.
+            Button { model.playMusic() } label: {
+                Label("Open \(model.musicProvider.rawValue)",
+                      systemImage: "arrow.up.forward.app")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .frame(height: Theme.tapMinimum)
+            }
+            .buttonStyle(.plain)
+            .help("Playback controls live in \(model.musicProvider.rawValue)")
+            }
+            if model.musicProvider.controllable {
             Button { music.skip() } label: {
                 Image(systemName: "forward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
@@ -1308,6 +1343,7 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help("Play order: \(music.playOrder.rawValue)")
+            }
         }
         .font(.system(size: 14, weight: .semibold))
         .padding(.horizontal, 4)

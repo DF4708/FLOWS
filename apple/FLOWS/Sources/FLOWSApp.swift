@@ -426,6 +426,9 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
             musicProviderChosen = true
+            #if os(macOS)
+            MusicController.shared.provider = musicProvider
+            #endif
         }
     }
     /// False until the driver picks a service (Settings picker, or the ask
@@ -486,6 +489,9 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(truckerUI, forKey: "flows.truckerUI")
             poi.truckerMode = truckerUI
+            #if os(macOS)
+            MusicController.shared.provider = musicProvider   // didSet skips the initial load
+            #endif
         }
     }
 

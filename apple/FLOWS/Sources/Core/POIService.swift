@@ -649,7 +649,8 @@ final class POIService: ObservableObject {
         // showing the nearest raw results beats claiming nothing exists.
         if finalRanked.isEmpty, !unique.isEmpty, let anchor = position ?? centers.first,
            kind == .gas || kind == .food || kind == .medical || kind == .stores
-               || kind == .shelter {
+               || kind == .shelter || kind == .shower || kind == .rest
+               || kind == .truckParking {
             finalRanked = unique
                 .sorted { POIRanking.meters($0.placemark.coordinate, anchor)
                         < POIRanking.meters($1.placemark.coordinate, anchor) }

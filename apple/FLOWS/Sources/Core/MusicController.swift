@@ -230,7 +230,16 @@ final class MusicController: ObservableObject {
         refreshSoon()
     }
 
+    /// Which service the transport buttons drive (set from the user's
+    /// provider pick). macOS can script Spotify as well as Music.
+    var provider: MusicProvider = .appleMusic
+
     func playPause() {
+        if provider == .spotify {
+            run("tell application \"Spotify\" to playpause")
+            refreshSoon()
+            return
+        }
         playWithLibraryFallback("tell application \"Music\" to playpause")
     }
 
@@ -260,12 +269,16 @@ final class MusicController: ObservableObject {
     }
 
     func skip() {
-        run("tell application \"Music\" to next track")
+        run(provider == .spotify
+            ? "tell application \"Spotify\" to next track"
+            : "tell application \"Music\" to next track")
         refreshSoon()
     }
 
     func back() {
-        run("tell application \"Music\" to previous track")
+        run(provider == .spotify
+            ? "tell application \"Spotify\" to previous track"
+            : "tell application \"Music\" to previous track")
         refreshSoon()
     }
 

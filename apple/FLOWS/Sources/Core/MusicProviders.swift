@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+import SwiftUI
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -77,9 +78,41 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// True when FLOWS can play/pause/skip this service in place. Everything
+    /// True when FLOWS can play/pause/skip this service in place. Apple
+    /// Music everywhere; Spotify on macOS via Apple Events (its iOS control
+    /// needs Spotify's own SDK + key — deep-link only there). Everything
     /// else deep-links to the service's own app.
-    var controllable: Bool { self == .appleMusic }
+    var controllable: Bool {
+        if self == .appleMusic { return true }
+        #if os(macOS)
+        if self == .spotify { return true }
+        #endif
+        return false
+    }
+
+    /// One-letter badge so the mini player shows WHICH service is active
+    /// (brand logos need each service's asset license; a colored monogram
+    /// identifies without imitating).
+    var monogram: String { String(rawValue.prefix(1)) }
+
+    /// The service's signature color, approximated for the badge.
+    var badgeColor: Color {
+        switch self {
+        case .appleMusic: return Color(red: 0.98, green: 0.18, blue: 0.32)
+        case .spotify: return Color(red: 0.11, green: 0.73, blue: 0.33)
+        case .youtubeMusic: return Color(red: 0.93, green: 0.11, blue: 0.14)
+        case .amazonMusic: return Color(red: 0.05, green: 0.65, blue: 0.85)
+        case .jioSaavn: return Color(red: 0.17, green: 0.62, blue: 0.56)
+        case .gaana: return Color(red: 0.91, green: 0.26, blue: 0.21)
+        case .soundCloud: return Color(red: 1.00, green: 0.33, blue: 0.00)
+        case .deezer: return Color(red: 0.64, green: 0.00, blue: 1.00)
+        case .qobuz: return Color(red: 0.00, green: 0.35, blue: 0.65)
+        case .tidal: return .black
+        case .applePodcasts: return Color(red: 0.57, green: 0.25, blue: 0.86)
+        case .iHeartRadio: return Color(red: 0.78, green: 0.06, blue: 0.19)
+        case .audible: return Color(red: 0.96, green: 0.60, blue: 0.05)
+        }
+    }
 
     /// The service's public app URL scheme (launches the installed app).
     var appURL: URL? {
