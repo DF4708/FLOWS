@@ -28,6 +28,12 @@ struct VehicleSpec: Equatable, Identifiable {
     var gvwrLbs: Double? = nil
     var towCapacityLbs: Double? = nil
     var gcwrLbs: Double? = nil
+    /// Maker steep-grade guidance in PERCENT, where the class's driver
+    /// handbooks publish one (heavy chassis: the sustained grade above which
+    /// engine braking is called for). nil = derive the grade-slider default
+    /// from the weight/towing heuristic instead
+    /// (`FilterLimits.vehicleDefaultMaxGradeDegrees`).
+    var publishedMaxGradePercent: Double? = nil
 
     var id: String { "\(make) \(model)" }
 
@@ -94,7 +100,7 @@ enum VehicleSpecs {
         VehicleSpec(make: "Mercedes-Benz", model: "Sprinter (standard roof, diesel)", fuelType: .diesel, cityMPU: 19, highwayMPU: 23, tankUnits: 24.5, heightFeet: 7.9, gvwrLbs: 9050, towCapacityLbs: 5000, gcwrLbs: 13550),
         VehicleSpec(make: "Mercedes-Benz", model: "Sprinter (high roof, diesel)", fuelType: .diesel, cityMPU: 19, highwayMPU: 23, tankUnits: 24.5, heightFeet: 9.0, gvwrLbs: 9990, towCapacityLbs: 5000, gcwrLbs: 15250),
         VehicleSpec(make: "Ram", model: "ProMaster (high roof)", fuelType: .gas, cityMPU: 14, highwayMPU: 18, tankUnits: 24.0, heightFeet: 8.6, gvwrLbs: 9350, towCapacityLbs: 6910, gcwrLbs: 16255),
-        VehicleSpec(make: "Ford", model: "E-450 Econoline cutaway", fuelType: .gas, cityMPU: 8, highwayMPU: 11, tankUnits: 55.0, heightFeet: 10.5, gvwrLbs: 14500, towCapacityLbs: 10000, gcwrLbs: 22000),
+        VehicleSpec(make: "Ford", model: "E-450 Econoline cutaway", fuelType: .gas, cityMPU: 8, highwayMPU: 11, tankUnits: 55.0, heightFeet: 10.5, gvwrLbs: 14500, towCapacityLbs: 10000, gcwrLbs: 22000, publishedMaxGradePercent: 8),
         VehicleSpec(make: "Mercedes-Benz", model: "Sprinter 3500 (diesel)", fuelType: .diesel, cityMPU: 17, highwayMPU: 21, tankUnits: 24.5, heightFeet: 9.1, gvwrLbs: 11030, towCapacityLbs: 7500, gcwrLbs: 15250),
         VehicleSpec(make: "Chrysler", model: "Pacifica", fuelType: .gas, cityMPU: 19, highwayMPU: 28, tankUnits: 19.0, heightFeet: 5.8, gvwrLbs: 6055, towCapacityLbs: 3600, gcwrLbs: 9650),
         VehicleSpec(make: "Honda", model: "Odyssey", fuelType: .gas, cityMPU: 19, highwayMPU: 28, tankUnits: 19.5, heightFeet: 5.8, gvwrLbs: 6019, towCapacityLbs: 3500, gcwrLbs: 9542),
@@ -109,8 +115,8 @@ enum VehicleSpecs {
         VehicleSpec(make: "Rivian", model: "R1T", fuelType: .electric, cityMPU: 2.6, highwayMPU: 2.2, tankUnits: 128, heightFeet: 6.0, gvwrLbs: 8532, towCapacityLbs: 11000, gcwrLbs: 20000),
 
         // ---- RVs / motorhomes ----
-        VehicleSpec(make: "RV", model: "Class C motorhome", fuelType: .gas, cityMPU: 9, highwayMPU: 11, tankUnits: 55, heightFeet: 11.0, gvwrLbs: 14500, towCapacityLbs: 7500, gcwrLbs: 22000),
-        VehicleSpec(make: "RV", model: "Class A motorhome (diesel)", fuelType: .diesel, cityMPU: 7, highwayMPU: 9, tankUnits: 100, heightFeet: 12.5, gvwrLbs: 32000, towCapacityLbs: 10000, gcwrLbs: 42000),
+        VehicleSpec(make: "RV", model: "Class C motorhome", fuelType: .gas, cityMPU: 9, highwayMPU: 11, tankUnits: 55, heightFeet: 11.0, gvwrLbs: 14500, towCapacityLbs: 7500, gcwrLbs: 22000, publishedMaxGradePercent: 8),
+        VehicleSpec(make: "RV", model: "Class A motorhome (diesel)", fuelType: .diesel, cityMPU: 7, highwayMPU: 9, tankUnits: 100, heightFeet: 12.5, gvwrLbs: 32000, towCapacityLbs: 10000, gcwrLbs: 42000, publishedMaxGradePercent: 7),
 
         // ---- generic classes (type fallback when the exact model isn't
         // listed: "trucks" vs "sedans" vs "bus" — typical figures) ----
@@ -118,17 +124,17 @@ enum VehicleSpecs {
         VehicleSpec(make: "Generic", model: "SUV", fuelType: .gas, cityMPU: 22, highwayMPU: 28, tankUnits: 17.5, heightFeet: 5.7, gvwrLbs: 6200, towCapacityLbs: 5000),
         VehicleSpec(make: "Generic", model: "Pickup truck", fuelType: .gas, cityMPU: 19, highwayMPU: 24, tankUnits: 25.0, heightFeet: 6.4, gvwrLbs: 7000, towCapacityLbs: 9000, gcwrLbs: 15500),
         VehicleSpec(make: "Generic", model: "Cargo van", fuelType: .gas, cityMPU: 15, highwayMPU: 19, tankUnits: 25.0, heightFeet: 8.5, gvwrLbs: 9000, towCapacityLbs: 6000),
-        VehicleSpec(make: "Generic", model: "Bus", fuelType: .diesel, cityMPU: 6, highwayMPU: 8, tankUnits: 100.0, heightFeet: 10.5, gvwrLbs: 36200, towCapacityLbs: 10000, gcwrLbs: 46200),
-        VehicleSpec(make: "Generic", model: "Motorhome (Class A)", fuelType: .diesel, cityMPU: 7, highwayMPU: 9, tankUnits: 100.0, heightFeet: 12.5, gvwrLbs: 32000, towCapacityLbs: 10000, gcwrLbs: 42000),
+        VehicleSpec(make: "Generic", model: "Bus", fuelType: .diesel, cityMPU: 6, highwayMPU: 8, tankUnits: 100.0, heightFeet: 10.5, gvwrLbs: 36200, towCapacityLbs: 10000, gcwrLbs: 46200, publishedMaxGradePercent: 7),
+        VehicleSpec(make: "Generic", model: "Motorhome (Class A)", fuelType: .diesel, cityMPU: 7, highwayMPU: 9, tankUnits: 100.0, heightFeet: 12.5, gvwrLbs: 32000, towCapacityLbs: 10000, gcwrLbs: 42000, publishedMaxGradePercent: 7),
 
         // ---- heavy trucks (13'6" standard trailer height) ----
-        VehicleSpec(make: "Freightliner", model: "Cascadia (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.5, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000),
-        VehicleSpec(make: "Peterbilt", model: "579 (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.5, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000),
-        VehicleSpec(make: "Kenworth", model: "T680 (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.5, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000),
-        VehicleSpec(make: "Volvo", model: "VNL (semi)", fuelType: .diesel, cityMPU: 6.2, highwayMPU: 7.8, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000),
-        VehicleSpec(make: "International", model: "LT (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.4, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000),
-        VehicleSpec(make: "Box truck", model: "26 ft straight truck", fuelType: .diesel, cityMPU: 8, highwayMPU: 10, tankUnits: 60, heightFeet: 13.0, gvwrLbs: 25999, towCapacityLbs: 8000, gcwrLbs: 33500),
-        VehicleSpec(make: "Box truck", model: "16 ft box truck", fuelType: .gas, cityMPU: 9, highwayMPU: 12, tankUnits: 33, heightFeet: 12.0, gvwrLbs: 14500, towCapacityLbs: 6000, gcwrLbs: 20500),
+        VehicleSpec(make: "Freightliner", model: "Cascadia (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.5, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000, publishedMaxGradePercent: 6),
+        VehicleSpec(make: "Peterbilt", model: "579 (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.5, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000, publishedMaxGradePercent: 6),
+        VehicleSpec(make: "Kenworth", model: "T680 (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.5, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000, publishedMaxGradePercent: 6),
+        VehicleSpec(make: "Volvo", model: "VNL (semi)", fuelType: .diesel, cityMPU: 6.2, highwayMPU: 7.8, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000, publishedMaxGradePercent: 6),
+        VehicleSpec(make: "International", model: "LT (semi)", fuelType: .diesel, cityMPU: 6.0, highwayMPU: 7.4, tankUnits: 240, heightFeet: 13.5, gvwrLbs: 35000, towCapacityLbs: 45000, gcwrLbs: 80000, publishedMaxGradePercent: 6),
+        VehicleSpec(make: "Box truck", model: "26 ft straight truck", fuelType: .diesel, cityMPU: 8, highwayMPU: 10, tankUnits: 60, heightFeet: 13.0, gvwrLbs: 25999, towCapacityLbs: 8000, gcwrLbs: 33500, publishedMaxGradePercent: 8),
+        VehicleSpec(make: "Box truck", model: "16 ft box truck", fuelType: .gas, cityMPU: 9, highwayMPU: 12, tankUnits: 33, heightFeet: 12.0, gvwrLbs: 14500, towCapacityLbs: 6000, gcwrLbs: 20500, publishedMaxGradePercent: 8),
     ]
 
     /// Distinct makes, table order preserved.

@@ -218,6 +218,7 @@ final class AppModel: ObservableObject {
             } else {
                 routeFilters.subtract(safety)
             }
+            applyVehicleMaxGradeDefault()   // towing lowers the grade default
         }
     }
     @Published var showTowingCard = false
@@ -236,6 +237,7 @@ final class AppModel: ObservableObject {
             UserDefaults.standard.set(towTrailerWeightLbs, forKey: "flows.towTrailerLbs")
             // Entering a trailer weight IS declaring you're towing.
             if towTrailerWeightLbs > 0, !towingActive { towingActive = true }
+            applyVehicleMaxGradeDefault()   // a heavier trailer lowers it further
         }
     }
     /// The vehicle's manufacturer ratings (from the spec table entry).
@@ -333,14 +335,62 @@ final class AppModel: ObservableObject {
     /// Driver-tunable filter limits (right-hand sliders; persisted).
     @Published var vehicleHeightFeet: Double =
         UserDefaults.standard.object(forKey: "flows.vehicleHeightFeet") as? Double ?? 13.5 {
-        didSet { UserDefaults.standard.set(vehicleHeightFeet, forKey: "flows.vehicleHeightFeet") }
+        didSet {
+            UserDefaults.standard.set(vehicleHeightFeet, forKey: "flows.vehicleHeightFeet")
+            applyVehicleMaxGradeDefault()   // height feeds the size-class fallback
+        }
     }
     /// Grade limit in DEGREES — the unit a driver towing heavy thinks in
     /// (14° ≈ 25% grade). Converted to percent for the elevation-profile
-    /// comparison in FilterLimits.
+    /// comparison in FilterLimits. Until the driver moves the slider, the
+    /// value TRACKS the vehicle (`vehicleDefaultMaxGradeDegrees`); a manual
+    /// move persists the choice and stops the tracking.
     @Published var maxGradeDegrees: Double =
         UserDefaults.standard.object(forKey: "flows.maxGradeDegrees") as? Double ?? 8.0 {
-        didSet { UserDefaults.standard.set(maxGradeDegrees, forKey: "flows.maxGradeDegrees") }
+        didSet {
+            guard !applyingDerivedMaxGrade else { return }
+            maxGradeIsCustom = true
+            UserDefaults.standard.set(maxGradeDegrees, forKey: "flows.maxGradeDegrees")
+        }
+    }
+    /// True once the driver has set the grade slider themselves — the stored
+    /// key only ever comes from a manual move, so its presence IS the flag.
+    private var maxGradeIsCustom =
+        UserDefaults.standard.object(forKey: "flows.maxGradeDegrees") != nil
+    /// Set while the model itself writes the derived default, so didSet can
+    /// tell a vehicle-driven update from the driver grabbing the slider.
+    private var applyingDerivedMaxGrade = false
+
+    /// The vehicle's own grade ceiling — "the grade where a parking brake is
+    /// highly encouraged": maker guidance when the spec table has it, else
+    /// the weight/height/towing heuristic (documented in FilterLimits).
+    var vehicleDefaultMaxGradeDegrees: Double {
+        let spec = vehicle.profile.flatMap {
+            VehicleSpecs.spec(make: $0.make, model: $0.model)
+        }
+        let ratings = towingRatings
+        return FilterLimits.vehicleDefaultMaxGradeDegrees(
+            publishedMaxGradePercent: spec?.publishedMaxGradePercent,
+            gvwrLbs: ratings.gvwrLbs,
+            towCapacityLbs: ratings.towCapacityLbs,
+            heightFeet: vehicleHeightFeet,
+            towing: towingActive || towTrailerWeightLbs > 0,
+            trailerWeightLbs: towTrailerWeightLbs)
+    }
+
+    /// Keep the grade slider on the vehicle's default until the driver moves
+    /// it. `force` clears a manual override ("use my vehicle's number").
+    func applyVehicleMaxGradeDefault(force: Bool = false) {
+        if force {
+            maxGradeIsCustom = false
+            UserDefaults.standard.removeObject(forKey: "flows.maxGradeDegrees")
+        }
+        guard !maxGradeIsCustom else { return }
+        let derived = vehicleDefaultMaxGradeDegrees
+        guard abs(derived - maxGradeDegrees) > 0.01 else { return }
+        applyingDerivedMaxGrade = true
+        maxGradeDegrees = derived
+        applyingDerivedMaxGrade = false
     }
     var filterLimits: FilterLimits {
         // Bridge-weight check compares posted limits against the whole rig:
@@ -354,7 +404,63 @@ final class AppModel: ObservableObject {
     /// Independent weather layer: snow/rain/storm blotches by type.
     @Published var showWeatherLayer = true
     /// Active route filters on the choices screen. Avoid-traffic defaults ON.
-    @Published var routeFilters: Set<RouteFilter> = [.avoidTraffic]
+    @Published var routeFilters: Set<RouteFilter> = [.avoidTraffic] {
+        didSet {
+            // Touching the filters brings back a slider card a map click hid.
+            if oldValue != routeFilters { filterCardsHidden = false }
+        }
+    }
+    /// Click-off state for the height/grade slider card: a click on the map
+    /// hides it; changing any filter shows it again.
+    @Published var filterCardsHidden = false
+
+    // MARK: music provider
+
+    /// The mini player's service. Apple Music plays in place
+    /// (MPMusicPlayerController on iOS/CarPlay; Music.app on macOS). Every
+    /// other service opens its own app — in-app control there needs that
+    /// service's SDK.
+    @Published var musicProvider: MusicProvider = MusicProvider(
+        rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
+    ) ?? .appleMusic {
+        didSet {
+            UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
+            musicProviderChosen = true
+        }
+    }
+    /// False until the driver picks a service (Settings picker, or the ask
+    /// that appears on the first play press).
+    @Published var musicProviderChosen: Bool =
+        UserDefaults.standard.string(forKey: "flows.musicProvider") != nil
+    /// First play press: the "what do you play music with?" card.
+    @Published var showMusicProviderPrompt = false
+
+    /// First-play choice: remember it, then do what play was about to do.
+    func chooseMusicProvider(_ provider: MusicProvider) {
+        musicProvider = provider
+        showMusicProviderPrompt = false
+        if provider.controllable {
+            MusicController.shared.playPause()
+        } else {
+            provider.openApp()
+        }
+    }
+
+    /// Close every floating panel or menu a map click can sit under —
+    /// settings, the fuel/food/store menus, the stop list, the slider card,
+    /// the towing card, and the music ask. Route cards and map pins handle
+    /// their own taps first, so those still work.
+    func dismissFloatingPanels() {
+        showSettings = false
+        showTowingCard = false
+        showMusicProviderPrompt = false
+        if poi.activeKind != nil || !poi.results.isEmpty
+            || poi.pendingFoodChoice || poi.pendingFuelChoice
+            || poi.pendingStoreChoice || poi.emptyResultMessage != nil {
+            poi.clearResults()
+        }
+        filterCardsHidden = true
+    }
 
     /// TRUCKER MODE (top-left toggle, persisted): trucker-specific UI —
     /// showers / legal truck parking / truck-friendly motels / diesel-by-cost
@@ -853,6 +959,16 @@ final class AppModel: ObservableObject {
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
         vehicle.towingActive = towingActive
         checkTowingSignal()   // and at app start
+        // Grade slider default follows the vehicle until the driver moves the
+        // slider — seed it now and re-derive whenever the vehicle changes.
+        // (receive(on:) defers past @Published's willSet so the new profile
+        // is actually in place when the default is recomputed.)
+        applyVehicleMaxGradeDefault()
+        vehicle.$profile
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.applyVehicleMaxGradeDefault() }
+            .store(in: &serviceSubscriptions)
         vehicleLink.scanning = true   // Bluetooth vehicle link on by default
         // Populate the price column with state-average ESTIMATES (labeled
         // "est."); a licensed station feed replaces this same hook.
@@ -1228,6 +1344,7 @@ final class AppModel: ObservableObject {
         transitItinerary = nil   // drive routes replace any transit overlay
         highlightedRouteID = routes.first?.id
         mode = .choosing
+        filterCardsHidden = false   // fresh choices bring the slider card back
         // Supersede any prior hydration: its retry loop reads the LIVE
         // routeChoices, so a replan while still .choosing would otherwise
         // stack a second (then third…) loop re-scoring the same routes —

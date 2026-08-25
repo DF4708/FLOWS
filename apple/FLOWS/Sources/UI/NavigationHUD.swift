@@ -187,6 +187,8 @@ struct NavigationHUD: View {
             }
             if showMusicMenu {
                 musicMenuCard
+            if model.showMusicProviderPrompt {
+                musicProviderCard
             }
             if model.poi.pendingFoodChoice {
                 foodCategoryCard
@@ -1235,7 +1237,37 @@ struct NavigationHUD: View {
 
     /// Hands-free music: play/pause, skip, shuffle — mirrored as Siri App
     /// Intents ("skip track in FLOWS") so nothing needs a tap while driving.
+    /// Apple Music is driven in place; any other chosen service shows one
+    /// button that opens that service's app (in-app control needs its SDK).
+    @ViewBuilder
     private var musicControls: some View {
+        if model.musicProviderChosen && !model.musicProvider.controllable {
+            // Hand-off player: FLOWS can't drive this service in place, so
+            // the whole control IS the hand-off.
+            Button { model.musicProvider.openApp() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: model.musicProvider.symbol)
+                    Text(model.musicProvider.displayName)
+                        .font(.system(size: 12, weight: .bold))
+                        .lineLimit(1)
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .frame(minHeight: 38)
+            }
+            .buttonStyle(.plain)
+            .background(Color.black.opacity(0.06))
+            .clipShape(Capsule())
+            .help("Opens \(model.musicProvider.displayName). Play buttons "
+                  + "inside FLOWS work with Apple Music; change the app in ⚙ Settings.")
+        } else {
+            appleMusicControls
+        }
+    }
+
+    private var appleMusicControls: some View {
         HStack(spacing: 4) {
             // Album art (real artwork on iOS; placeholder tile on macOS,
             // track name in the tooltip). Tapping opens the quick music
@@ -1265,7 +1297,14 @@ struct NavigationHUD: View {
             .buttonStyle(.plain)
             .help("Previous track")
             // Shows PAUSE while playing (press to stop), PLAY while paused.
-            Button { music.playPause() } label: {
+            // The very first play press asks which service to use from then on.
+            Button {
+                if model.musicProviderChosen {
+                    music.playPause()
+                } else {
+                    model.showMusicProviderPrompt = true
+                }
+            } label: {
                 Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }
@@ -1301,6 +1340,16 @@ struct NavigationHUD: View {
                     .font(.system(size: 15, weight: .bold))
                 Spacer()
                 Button { showMusicMenu = false } label: {
+    /// First play press: ask which service the driver uses, once. The pick
+    /// is stored (changeable in ⚙ Settings) and play continues right away —
+    /// Apple Music plays here; anything else opens its own app.
+    private var musicProviderCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("What do you play music with?")
+                    .font(.system(size: 15, weight: .bold))
+                Spacer()
+                Button { model.showMusicProviderPrompt = false } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1360,6 +1409,31 @@ struct NavigationHUD: View {
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 6)],
+                      alignment: .leading, spacing: 6) {
+                ForEach(MusicProvider.allCases) { provider in
+                    Button {
+                        model.chooseMusicProvider(provider)
+                    } label: {
+                        Label(provider.displayName, systemImage: provider.symbol)
+                            .font(.system(size: 12, weight: .semibold))
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .background(provider == .appleMusic
+                                        ? Theme.riskGreen.opacity(0.18)
+                                        : Color.black.opacity(0.05))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Text("Apple Music plays right here in FLOWS. Other apps open in "
+                 + "their own app. Change it anytime under ⚙ Settings.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .floatingCard()
+        .frame(maxWidth: isCompact ? .infinity : 640)
     }
 
     // MARK: formatting
