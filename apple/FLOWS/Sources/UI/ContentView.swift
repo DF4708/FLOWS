@@ -236,11 +236,13 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             mapLayer
+            // Legend first: it is BACKGROUND — every input and information
+            // box (planner, cards, banners) draws over it, never under it.
+            if model.mode != .navigating {
+                LegendCard(isCompact: isCompact)
+            }
             chromeLayer
             // (Re-center now lives in the middle of the bottom bar.)
-            if model.mode != .navigating {
-                LegendCard()
-            }
             if model.mode == .planning, model.needsVehicleOnboarding {
                 vehicleOnboardingCard
             }
@@ -2315,6 +2317,9 @@ private struct TripSummaryPill: View {
 /// weather blotches mean. Hidden while navigating (driver knows by then).
 private struct LegendCard: View {
     @EnvironmentObject private var model: AppModel
+    /// Compact (phone) layouts anchor the planner to the bottom edge — the
+    /// legend rises above that band so it never sits beneath the search bar.
+    var isCompact = false
 
     var body: some View {
         VStack {
@@ -2374,7 +2379,7 @@ private struct LegendCard: View {
                 Spacer()
             }
             .padding(.leading, 16)
-            .padding(.bottom, 16)
+            .padding(.bottom, isCompact ? 248 : 16)
         }
         .allowsHitTesting(false)
     }
