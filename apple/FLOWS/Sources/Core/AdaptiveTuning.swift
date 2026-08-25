@@ -32,6 +32,15 @@ final class AdaptiveTuning: @unchecked Sendable {
     struct Settings: Sendable, Equatable {
         /// App-wide cap on concurrent network requests (the FlowsHTTP gate).
         let maxInFlight: Int
+        /// Elevated in-flight ceiling for USER-INITIATED planning bursts (the
+        /// driver just asked for routes and is watching a spinner until GO
+        /// unlocks). A 950-mile plan is ~300 short fetches; at the background
+        /// ceiling on cellular round-trips that is 30–70 s of waiting. The
+        /// burst lane clears the same bounded request set sooner — total
+        /// request COUNT is unchanged and the ceiling stays a hard cap, so
+        /// the polite-API doctrine holds. Background sweeps and the corridor
+        /// watch never use this lane.
+        let planningMaxInFlight: Int
         /// N×N grid the viewport hazard sweep samples (fewer points = fewer
         /// requests AND less CPU per refresh).
         let viewportGridSpan: Int
@@ -117,7 +126,22 @@ final class AdaptiveTuning: @unchecked Sendable {
             grid = max(3, min(grid, 4))
             debounce = max(debounce, 1.0)
         }
-        return Settings(maxInFlight: maxInFlight, viewportGridSpan: grid,
+        // Planning burst = double the background ceiling, bounded by how much
+        // headroom the device state allows: a cool device may briefly run 2×,
+        // a warming one less, and a critical/Low-Power device barely more than
+        // background (critical allows NO boost — the ceiling equals the
+        // background one, so a hot device never spikes for a burst).
+        var burstCap: Int
+        switch thermal {
+        case .fair:     burstCap = 12
+        case .serious:  burstCap = 6
+        case .critical: burstCap = 2
+        default:        burstCap = 16   // .nominal
+        }
+        if lowPower { burstCap = min(burstCap, 8) }
+        let planningMax = max(maxInFlight, min(burstCap, maxInFlight * 2))
+        return Settings(maxInFlight: maxInFlight, planningMaxInFlight: planningMax,
+                        viewportGridSpan: grid,
                         ttlMultiplier: ttlMul, debounceSeconds: debounce)
     }
 }

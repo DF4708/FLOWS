@@ -59,6 +59,15 @@ struct PlannedRoute: Identifiable {
     var alertEvents: [String] = []
     var alertPolygons: [WeatherAlertService.AlertPolygon] = []
     var weatherScored = false
+    /// 0…1 fraction of this route's corridor alert cells already resolved —
+    /// fills the card's "Checking weather" progress while scoring runs.
+    var scoringProgress: Double = 0
+    /// Mid-scoring per-sample view: realized risk where the cell has landed,
+    /// nil where the fetch is still in flight (or failed — unknown is never
+    /// shown as clear). Display-only: the card colors what is known so a slow
+    /// cellular link shows risk as it lands; GO stays locked until the full
+    /// verdict flips `weatherScored`.
+    var provisionalSamples: [RiskSample?] = []
     /// Per-sample corridor risk + map-drawable segments, filled at hydration.
     /// Sample/segment risk is the noisy-OR blend of alert severity AND the
     /// R engine's continuous ZIP environmental field (RiskFieldService), so
@@ -148,6 +157,32 @@ struct PlannedRoute: Identifiable {
             guard let c = counts[band], c > 0 else { return nil }
             return (band, Double(c) / n)
         }
+    }
+
+    /// Worst realized risk among the corridor cells resolved SO FAR — the
+    /// provisional "so far" band while scoring. nil until anything lands.
+    var provisionalWorstRisk: Double? {
+        provisionalSamples.compactMap { $0?.risk }.max()
+    }
+
+    /// Mid-scoring strip fractions: resolved samples by band, plus a trailing
+    /// nil-band share for cells still being checked (drawn as pending, so an
+    /// unfetched stretch never reads as clear).
+    var provisionalFractions: [(band: RiskBand?, fraction: Double)] {
+        guard !provisionalSamples.isEmpty else { return [] }
+        var counts: [RiskBand: Int] = [:]
+        var unknown = 0
+        for s in provisionalSamples {
+            if let s { counts[FlowsCore.riskBand(score: s.risk), default: 0] += 1 } else { unknown += 1 }
+        }
+        let n = Double(provisionalSamples.count)
+        var out: [(band: RiskBand?, fraction: Double)] = [RiskBand.clear, .green, .yellow, .red]
+            .compactMap { band in
+                guard let c = counts[band], c > 0 else { return nil }
+                return (band, Double(c) / n)
+            }
+        if unknown > 0 { out.append((nil, Double(unknown) / n)) }
+        return out
     }
 }
 

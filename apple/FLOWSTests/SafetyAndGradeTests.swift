@@ -715,6 +715,32 @@ final class AdaptiveTuningTests: XCTestCase {
         XCTAssertEqual(hot.ttlMultiplier * 1800, 5400, accuracy: 1e-6)
     }
 
+    /// The planning-burst lane: double the background ceiling for the moments
+    /// a driver is actively waiting on route scoring, bounded by device
+    /// state — and NEVER below the background ceiling or boosted at all on a
+    /// critically hot device.
+    func testPlanningBurstCeiling() {
+        let low = AdaptiveTuning.settings(tier: .low, thermal: .nominal, lowPower: false)
+        let std = AdaptiveTuning.settings(tier: .standard, thermal: .nominal, lowPower: false)
+        let high = AdaptiveTuning.settings(tier: .high, thermal: .nominal, lowPower: false)
+        XCTAssertEqual(low.planningMaxInFlight, 6)     // 2 × base 3
+        XCTAssertEqual(std.planningMaxInFlight, 12)    // 2 × base 6
+        XCTAssertEqual(high.planningMaxInFlight, 16)   // 2 × 10, capped at 16
+        for s in [low, std, high] {
+            XCTAssertGreaterThanOrEqual(s.planningMaxInFlight, s.maxInFlight)
+        }
+        // Critical thermal: the burst ceiling IS the background ceiling.
+        let hot = AdaptiveTuning.settings(tier: .high, thermal: .critical, lowPower: false)
+        XCTAssertEqual(hot.planningMaxInFlight, hot.maxInFlight)
+        // Low Power Mode: bursts stay modest even on a high-tier device.
+        let saving = AdaptiveTuning.settings(tier: .high, thermal: .nominal, lowPower: true)
+        XCTAssertLessThanOrEqual(saving.planningMaxInFlight, 8)
+        // A warming device gets a smaller burst than a cool one.
+        let warm = AdaptiveTuning.settings(tier: .standard, thermal: .serious, lowPower: false)
+        XCTAssertLessThanOrEqual(warm.planningMaxInFlight, 6)
+        XCTAssertGreaterThanOrEqual(warm.planningMaxInFlight, warm.maxInFlight)
+    }
+
     /// The gate must never let more than the device cap run at once, no matter
     /// how wide the fan-out.
     func testRequestGateCapsConcurrency() async {

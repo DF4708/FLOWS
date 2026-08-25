@@ -79,9 +79,16 @@ final class WeatherAlertService: ObservableObject {
     /// Time-aware: an alert that EXPIRES before the driver arrives at its
     /// stretch contributes nothing there — a 10 h route with a 1 h-remaining
     /// storm at the far end scores clear at that end (RiskTiming).
+    /// `onProgress` (optional) is called after each fetch batch with the
+    /// fraction of corridor cells resolved and the provisional per-sample
+    /// view (`provisionalSamples`) — on a slow cellular link the card can
+    /// color the corridor as cells land instead of spinning until the last
+    /// one. Progress is display-only; the returned score (and its `complete`
+    /// contract) is unchanged.
     func corridorRisk(
         at samples: [CLLocationCoordinate2D],
-        arrivalOffsets: [TimeInterval]? = nil
+        arrivalOffsets: [TimeInterval]? = nil,
+        onProgress: (@MainActor (Double, [RiskSample?]) -> Void)? = nil
     ) async -> CorridorScore {
         let now = Date()
         func offset(_ i: Int) -> TimeInterval {
@@ -133,19 +140,27 @@ final class WeatherAlertService: ObservableObject {
                     }
                 }
             }
+            if let onProgress {
+                // Failed cells count as ATTEMPTED for the progress fraction
+                // (the pass over them is done) but stay nil in the samples —
+                // a failure is "unknown", never "clear".
+                let attempted = Double(cellAlerts.count + fetchFailures)
+                onProgress(
+                    min(attempted / Double(max(cells.count, 1)), 1),
+                    Self.provisionalSamples(
+                        samples: samples, cellAlerts: cellAlerts,
+                        arrivalOffsets: arrivalOffsets, now: now))
+            }
         }
         // Per-sample local risk: the worst alert in the sample's cell that
-        // will STILL BE ACTIVE when the driver arrives there.
-        let riskSamples = samples.enumerated().map { i, pt -> RiskSample in
-            let hits = (cellAlerts[Self.cellKey(pt)] ?? [])
-                .filter { RiskTiming.isActive(expires: $0.expires, arrivalOffset: offset(i), now: now) }
-            let worst = hits.max { $0.severityScore < $1.severityScore }
-            return RiskSample(
-                coordinate: pt,
-                risk: worst?.severityScore ?? 0,
-                worstEvent: worst?.event,
-                alertID: worst?.id)
-        }
+        // will STILL BE ACTIVE when the driver arrives there. Same mapping as
+        // the provisional view; a cell with no data (failed fetch) scores 0
+        // here and is reported through `complete: false` instead.
+        let riskSamples = zip(
+            samples,
+            Self.provisionalSamples(samples: samples, cellAlerts: cellAlerts,
+                                    arrivalOffsets: arrivalOffsets, now: now)
+        ).map { pt, s in s ?? RiskSample(coordinate: pt, risk: 0) }
         // Per-alert corridor coverage: fraction of samples whose cell
         // contains that alert AND where it survives until arrival.
         var alertSampleCount: [String: Int] = [:]
@@ -198,9 +213,102 @@ final class WeatherAlertService: ObservableObject {
     }
 
     /// 0.25° cell key (~28 km): matches NWS zone scale without merging
-    /// adjacent 40 km corridor samples.
-    private static func cellKey(_ pt: CLLocationCoordinate2D) -> String {
+    /// adjacent 40 km corridor samples. Internal (not private) so the tests
+    /// can key `provisionalSamples` fixtures the way the scorer does.
+    nonisolated static func cellKey(_ pt: CLLocationCoordinate2D) -> String {
         "\(Int((pt.latitude * 4).rounded()))|\(Int((pt.longitude * 4).rounded()))"
+    }
+
+    /// Per-sample view of a PARTIALLY fetched corridor: samples whose cell
+    /// has landed carry their worst-active-alert risk, cells still in flight
+    /// (or failed) stay nil. Pure — the corridor scorer uses it for both the
+    /// mid-fetch progress callbacks and (with nils zero-filled) the final
+    /// sample list, so the two can never disagree.
+    nonisolated static func provisionalSamples(
+        samples: [CLLocationCoordinate2D],
+        cellAlerts: [String: [NWSAlert]],
+        arrivalOffsets: [TimeInterval]?,
+        now: Date
+    ) -> [RiskSample?] {
+        samples.enumerated().map { i, pt in
+            guard let hits = cellAlerts[Self.cellKey(pt)] else { return nil }
+            let offset: TimeInterval = {
+                guard let arrivalOffsets, i < arrivalOffsets.count else { return 0 }
+                return arrivalOffsets[i]
+            }()
+            let active = hits.filter {
+                RiskTiming.isActive(expires: $0.expires, arrivalOffset: offset, now: now)
+            }
+            let worst = active.max { $0.severityScore < $1.severityScore }
+            return RiskSample(
+                coordinate: pt,
+                risk: worst?.severityScore ?? 0,
+                worstEvent: worst?.event,
+                alertID: worst?.id)
+        }
+    }
+
+    // MARK: geocode-time prefetch
+
+    private var prefetchTask: Task<Void, Never>?
+
+    /// Warm the alert-cell cache the moment BOTH endpoints are known — before
+    /// MKDirections has returned a single polyline — along the straight line
+    /// between them. By the time the real corridors arrive, their cells that
+    /// the line crossed are already cached (180 s TTL comfortably covers the
+    /// route-planning gap), and in-flight prefetches are joined, not repeated
+    /// (AlertZoneCache coalescing). Distance-gated inside `prefetchCells` —
+    /// see there for why long trips must NOT prefetch.
+    func prefetchCorridor(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
+        let points = Self.prefetchCells(from: from, to: to)
+        guard !points.isEmpty else { return }
+        prefetchTask?.cancel()
+        prefetchTask = Task {
+            await RequestGate.shared.beginPlanningBurst()
+            await withTaskGroup(of: Void.self) { group in
+                for pt in points {
+                    group.addTask {
+                        // A superseded prefetch (new destination typed) stops
+                        // starting cells; ones already fetching run out in the
+                        // cache actor's coalesced tasks and stay useful.
+                        guard !Task.isCancelled else { return }
+                        _ = await self.cache.fetch(Self.cellKey(pt)) {
+                            await self.activeAlerts(at: pt)
+                        }
+                    }
+                }
+            }
+            await RequestGate.shared.endPlanningBurst()
+        }
+    }
+
+    /// One representative point per 0.25° cell along the straight line
+    /// between two endpoints — the only corridor guess available before
+    /// route geometry exists. Distance-gated: measured against real
+    /// MKDirections corridors, roads track the straight line well on short
+    /// and medium trips (~50% of route cells prewarmed at ≤150 mi) but
+    /// barely at all cross-country (4–6% at 950 mi), where prefetching the
+    /// line would spend NWS requests on cells no route crosses — so beyond
+    /// `maxCells` of line this returns [] and the plan proceeds unprimed.
+    nonisolated static func prefetchCells(
+        from: CLLocationCoordinate2D, to: CLLocationCoordinate2D,
+        maxCells: Int = 16
+    ) -> [CLLocationCoordinate2D] {
+        let a = CLLocation(latitude: from.latitude, longitude: from.longitude)
+        let b = CLLocation(latitude: to.latitude, longitude: to.longitude)
+        // ~20 km steps: finer than the cell size so a diagonal line doesn't
+        // step over cells it crosses.
+        let steps = max(Int(b.distance(from: a) / 20_000), 1)
+        var seen = Set<String>()
+        var out: [CLLocationCoordinate2D] = []
+        for i in 0...steps {
+            let f = Double(i) / Double(steps)
+            let pt = CLLocationCoordinate2D(
+                latitude: from.latitude + (to.latitude - from.latitude) * f,
+                longitude: from.longitude + (to.longitude - from.longitude) * f)
+            if seen.insert(cellKey(pt)).inserted { out.append(pt) }
+        }
+        return out.count <= maxCells ? out : []
     }
 
     /// While navigating: re-check the corridor ahead every few minutes —

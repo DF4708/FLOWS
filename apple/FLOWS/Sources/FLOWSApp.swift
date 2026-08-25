@@ -833,6 +833,16 @@ final class AppModel: ObservableObject {
         lastPlanEndpoints
     }
 
+    /// Fire-and-forget cache warmer for the moment BOTH plan endpoints are
+    /// known but MKDirections hasn't returned geometry yet — the planner UI
+    /// calls this the instant the destination geocodes, so short/medium
+    /// corridors have most of their alert cells cached before scoring even
+    /// starts (WeatherAlertService.prefetchCells gates away corridors too
+    /// long for the straight line to predict the roads).
+    func prefetchDestinationCorridor(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
+        alerts.prefetchCorridor(from: from, to: to)
+    }
+
     /// Planning entry point used by the planner UI: remembers endpoints and
     /// includes a toll-free variant up front when that filter is already on.
     func plan(from: CLLocationCoordinate2D, fromName: String,
@@ -1347,6 +1357,9 @@ final class AppModel: ObservableObject {
     func planToFavorite(_ fav: FavoriteAddress) async -> [PlannedRoute]? {
         guard let here = effectivePosition ?? location.coordinate else { return nil }
         plannerDestination = fav.name
+        // A favorite needs no geocode — both endpoints are known right now,
+        // so the corridor cache starts warming before routing begins.
+        prefetchDestinationCorridor(from: here, to: fav.coordinate)
         guard let planned = try? await plan(
             from: here, fromName: "Current location",
             to: fav.coordinate, toName: fav.name), !planned.isEmpty else { return nil }
@@ -1375,18 +1388,42 @@ final class AppModel: ObservableObject {
         riskHydrationTask = Task { await hydrateRouteRisk() }
     }
 
+    /// Land a finished score on its (possibly re-sorted) card. If the user
+    /// already picked a route (choices cleared), the index lookup fails and
+    /// the late score is dropped harmlessly. An INCOMPLETE score keeps the
+    /// provisional picture the card already shows — the retry pass refreshes
+    /// it — instead of blanking back to a bare spinner.
+    private func landScore(_ done: PlannedRoute) {
+        guard let i = routeChoices.firstIndex(where: { $0.id == done.id }) else { return }
+        var done = done
+        if !done.weatherScored {
+            done.scoringProgress = routeChoices[i].scoringProgress
+            done.provisionalSamples = routeChoices[i].provisionalSamples
+        }
+        routeChoices[i] = done
+    }
+
     private func hydrateRouteRisk() async {
+        // The driver just asked for these routes and is watching the cards —
+        // the whole phase-1 pass rides the planning-burst lane (elevated
+        // in-flight ceiling, same bounded request set).
+        await RequestGate.shared.beginPlanningBurst()
+        // FASTEST ROUTE FIRST: routeChoices arrive ETA-sorted, so the top
+        // card — the one most drivers take — gets the entire burst lane to
+        // itself and its GO unlocks in a few seconds; the alternates then
+        // score concurrently, and cheaper than they look (they share most of
+        // their corridor cells with the leader through the TTL cache).
+        let leadID = routeChoices.first?.id
+        if let lead = routeChoices.first {
+            landScore(await scored(lead))
+        }
         await withTaskGroup(of: PlannedRoute.self) { group in
-            for r in routeChoices {
+            for r in routeChoices where r.id != leadID {
                 group.addTask { await self.scored(r) }
             }
-            for await done in group {
-                // If the user already picked a route (choices cleared), the
-                // index lookup fails and the late score is dropped harmlessly.
-                guard let i = routeChoices.firstIndex(where: { $0.id == done.id }) else { continue }
-                routeChoices[i] = done
-            }
+            for await done in group { landScore(done) }
         }
+        await RequestGate.shared.endPlanningBurst()
         if mode == .choosing {
             routeChoices.sort {
                 // Near-equal ETA → prefer the lower balanced risk (band + identified
@@ -1405,12 +1442,14 @@ final class AppModel: ObservableObject {
                 guard !incomplete.isEmpty, mode == .choosing, !Task.isCancelled else { break }
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { break }
+                // Burst only around the re-scoring itself, never across the
+                // backoff sleeps — the elevated ceiling is for active,
+                // user-blocking work.
+                await RequestGate.shared.beginPlanningBurst()
                 for r in incomplete where mode == .choosing {
-                    let redone = await scored(r)
-                    if let i = routeChoices.firstIndex(where: { $0.id == redone.id }) {
-                        routeChoices[i] = redone
-                    }
+                    landScore(await scored(r))
                 }
+                await RequestGate.shared.endPlanningBurst()
             }
         }
         // PHASE 2 — physical attributes (grades / clearances / FEMA / EV
@@ -1495,40 +1534,21 @@ final class AppModel: ObservableObject {
         return RiskEquations.realizedRisk(bandInput)
     }
 
-    private func scored(_ input: PlannedRoute) async -> PlannedRoute {
-        var r = input
-        // Partition once: boundaries feed the weather scorer, the
-        // between-boundary runs become map-drawable segments.
-        let part = RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000)
-        // Time-aware: sample i is reached ~(eta * i / n) after departure —
-        // alerts that expire before then don't count there.
-        let score = await alerts.corridorRisk(
-            at: part.samples,
-            arrivalOffsets: RiskTiming.arrivalOffsets(
-                sampleCount: part.samples.count, totalTravelSeconds: r.eta))
-
-        // Blend alert severity with the R engine's continuous ZIP
-        // environmental field (noisy-OR, per sample) — this is what makes the
-        // route colored PHYSICALLY where the risk is, even where no alert
-        // polygon is active. Track per-family peaks along the way
-        // (wind/flood/… power the route filters).
-        var peaks: [String: Double] = [:]
-        let filterFamilies = ["wind", "qpf_flood", "winter", "convective"]
-
-        // ON-DEVICE R equations, CONUS-wide: NWS gridpoint forecasts at every
-        // other corridor sample (capped), scored with the EXACT ported
-        // equations (RiskEquations ← R/scoring.R + R/forecast.R). Where the
-        // richer WI engine export exists, the max of the two applies — so
-        // coverage is no longer Wisconsin-only.
-        let forecastIdx = stride(from: 0, to: score.samples.count, by: 2).prefix(15)
-        // Conditions AND elevation per sample: the latitude-band profile can
-        // shift ±1 band on elevation (contiguous rule), so mountain samples
-        // normalize against their climatically-correct band.
-        let onDevice: [Int: (ForecastConditions, Double?)] = await withTaskGroup(
-            of: (Int, ForecastConditions?, Double?).self
-        ) { group in
-            for i in forecastIdx {
-                let pt = score.samples[i].coordinate
+    /// ON-DEVICE R equations, CONUS-wide: NWS gridpoint forecasts at every
+    /// other corridor sample (capped), scored with the EXACT ported equations
+    /// (RiskEquations ← R/scoring.R + R/forecast.R). Where the richer WI
+    /// engine export exists, the max of the two applies — so coverage is no
+    /// longer Wisconsin-only. Conditions AND elevation per sample: the
+    /// latitude-band profile can shift ±1 band on elevation (contiguous
+    /// rule), so mountain samples normalize against their climatically-
+    /// correct band. Keyed by SAMPLE INDEX into `samples`. Split from
+    /// `scored` so these fetches overlap the alert-cell pass.
+    nonisolated private static func corridorForecasts(
+        at samples: [CLLocationCoordinate2D]
+    ) async -> [Int: (ForecastConditions, Double?)] {
+        await withTaskGroup(of: (Int, ForecastConditions?, Double?).self) { group in
+            for i in stride(from: 0, to: samples.count, by: 2).prefix(15) {
+                let pt = samples[i]
                 group.addTask {
                     async let c = NWSForecastFetcher.shared.conditions(at: pt)
                     async let e = RouteAttributeFetcher.shared.elevation(at: pt)
@@ -1539,6 +1559,86 @@ final class AppModel: ObservableObject {
             for await (i, c, e) in group { if let c { out[i] = (c, e) } }
             return out
         }
+    }
+
+    /// `scored` on the planning-burst lane: for the single-route scorings a
+    /// driver actively waits on (escalation/traffic reroutes, resuming after
+    /// a stop). Background scorings (the continuation leg planned while the
+    /// driver is still en route to a stop) call `scored` directly and stay at
+    /// the background ceiling.
+    private func scoredBurst(_ input: PlannedRoute) async -> PlannedRoute {
+        await RequestGate.shared.beginPlanningBurst()
+        let out = await scored(input)
+        await RequestGate.shared.endPlanningBurst()
+        return out
+    }
+
+    private func scored(_ input: PlannedRoute) async -> PlannedRoute {
+        var r = input
+        // Partition once: boundaries feed the weather scorer, the
+        // between-boundary runs become map-drawable segments.
+        let part = RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000)
+        // Progressive display: as alert cells land, the card colors the
+        // resolved share of the corridor instead of spinning until the last
+        // cell. Each landed sample runs through the SAME realized-risk
+        // equation as the final pass (field predictors + capped alert), so
+        // the provisional band can't red-out on a watch the final pass would
+        // cap. GO still waits for the complete verdict.
+        let routeID = r.id
+        let progressSink: @MainActor (Double, [RiskSample?]) -> Void = { [weak self] fraction, partial in
+            guard let self, let i = self.routeChoices.firstIndex(where: { $0.id == routeID })
+            else { return }
+            self.routeChoices[i].provisionalSamples = partial.map { s in
+                s.map { RiskSample(
+                    coordinate: $0.coordinate,
+                    risk: self.sampleRealizedRisk(
+                        at: $0.coordinate, alertEvent: $0.worstEvent, alertSeverity: $0.risk),
+                    worstEvent: $0.worstEvent, alertID: $0.alertID) }
+            }
+            self.routeChoices[i].scoringProgress = fraction
+        }
+
+        // Corridor bbox for the flood-evidence fetches.
+        let sampleLats = part.samples.map(\.latitude)
+        let sampleLons = part.samples.map(\.longitude)
+        let bbox = (minLat: (sampleLats.min() ?? 0) - 0.05, minLon: (sampleLons.min() ?? 0) - 0.05,
+                    maxLat: (sampleLats.max() ?? 0) + 0.05, maxLon: (sampleLons.max() ?? 0) + 0.05)
+
+        // The alert-cell pass, the forecast/elevation pairs, and the
+        // closure/gauge feeds are independent — they need only the sample
+        // coordinates — so they run CONCURRENTLY through the gate. Running
+        // them back-to-back serialized the two biggest request phases and
+        // roughly doubled the time to the card's verdict on cellular.
+        // Time-aware: sample i is reached ~(eta * i / n) after departure —
+        // alerts that expire before then don't count there.
+        let eta = r.eta
+        async let scoreF = alerts.corridorRisk(
+            at: part.samples,
+            arrivalOffsets: RiskTiming.arrivalOffsets(
+                sampleCount: part.samples.count, totalTravelSeconds: eta),
+            onProgress: progressSink)
+        async let onDeviceF = Self.corridorForecasts(at: part.samples)
+        // DOT closures along the corridor (WZDx): realized blocked-road proof.
+        async let closuresF = LiveHazardFeedFetcher.shared.roadClosures(
+            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
+        // FLOOD SUPPORTING EVIDENCE — the topographic analysis the waterline
+        // model gates on (a road between local min and max floods only WITH
+        // evidence): live river GAUGES at/above flood stage (was map-only; now
+        // scored on the route), and USGS NHD RIVER/LAKE proximity (the rivers &
+        // lakes piece that was missing). FEMA A/V zones remain the route filter.
+        async let gaugesF = LiveHazardFeedFetcher.shared.floodGauges(
+            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
+
+        let score = await scoreF
+        let onDevice = await onDeviceF
+
+        // Blend alert severity with the R engine's continuous ZIP
+        // environmental field (noisy-OR, per sample) — this is what makes the
+        // route colored PHYSICALLY where the risk is, even where no alert
+        // polygon is active. Track per-family peaks along the way
+        // (wind/flood/… power the route filters).
+        var peaks: [String: Double] = [:]
+        let filterFamilies = ["wind", "qpf_flood", "winter", "convective"]
         func nearestOnDevice(_ i: Int) -> (ForecastConditions, Double?)? {
             // Nearest fetched sample (they're every other one).
             let candidates = [i, i - 1, i + 1, i - 2, i + 2].filter { onDevice[$0] != nil }
@@ -1551,21 +1651,7 @@ final class AppModel: ObservableObject {
             return c.predictorFamilies(latitude: coord.latitude, longitude: coord.longitude,
                                        elevationMeters: elev)
         }
-        // Corridor bbox for the flood-evidence fetches.
-        let sampleLats = score.samples.map(\.coordinate.latitude)
-        let sampleLons = score.samples.map(\.coordinate.longitude)
-        let bbox = (minLat: (sampleLats.min() ?? 0) - 0.05, minLon: (sampleLons.min() ?? 0) - 0.05,
-                    maxLat: (sampleLats.max() ?? 0) + 0.05, maxLon: (sampleLons.max() ?? 0) + 0.05)
-        // DOT closures along the corridor (WZDx): realized blocked-road proof.
-        async let closuresF = LiveHazardFeedFetcher.shared.roadClosures(
-            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
-        // FLOOD SUPPORTING EVIDENCE — the topographic analysis the waterline
-        // model gates on (a road between local min and max floods only WITH
-        // evidence): live river GAUGES at/above flood stage (was map-only; now
-        // scored on the route), and USGS NHD RIVER/LAKE proximity (the rivers &
-        // lakes piece that was missing). FEMA A/V zones remain the route filter.
-        async let gaugesF = LiveHazardFeedFetcher.shared.floodGauges(
-            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
+
         // Rain-gate: water-proximity evidence only matters when the corridor
         // has forecast rain (the multiplier ignores evidence at qpf 0) — a dry
         // day skips the NHD queries entirely.
@@ -2139,7 +2225,7 @@ final class AppModel: ObservableObject {
         // to the calmest — hydrated, so the nav map keeps its risk coloring.
         var best: PlannedRoute?
         for candidate in planned {
-            let s = await scored(candidate)
+            let s = await scoredBurst(candidate)
             if s.weatherRisk < (best?.weatherRisk ?? .infinity) { best = s }
         }
         guard let best else { return }
@@ -2252,7 +2338,7 @@ final class AppModel: ObservableObject {
             from: fix, fromName: "Current location",
             to: dest.coordinate, toName: dest.name),
             let fastest = planned.first else { return }
-        let route = await scored(fastest)
+        let route = await scoredBurst(fastest)
         // Don't restart a trip the driver ended/finished during the awaits above.
         guard mode == .navigating else { return }
         // Direct reroute: drop any pending stop (name + kind), same as the
@@ -2346,7 +2432,7 @@ final class AppModel: ObservableObject {
                     from: from, fromName: stopName,
                     to: dest.coordinate, toName: dest.name))?.first {
                     guard self.mode == .navigating else { return }
-                    let scored = await self.scored(leg)
+                    let scored = await self.scoredBurst(leg)
                     guard self.mode == .navigating else { return }
                     self.startLeg(scored)
                 } else if self.mode == .navigating {
