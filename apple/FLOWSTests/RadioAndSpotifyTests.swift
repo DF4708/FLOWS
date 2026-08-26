@@ -341,6 +341,14 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(ScannerLinks.openMHz.host, "openmhz.com")
     }
 
+    func testWeatherWordsRouteToTheNOAARelayPath() {
+        XCTAssertTrue(VoiceCommands.wantsWeatherRadio("the weather radio"))
+        XCTAssertTrue(VoiceCommands.wantsWeatherRadio("Play NOAA please"))
+        XCTAssertTrue(VoiceCommands.wantsWeatherRadio("Weather"))
+        XCTAssertFalse(VoiceCommands.wantsWeatherRadio("classic country"))
+        XCTAssertFalse(VoiceCommands.wantsWeatherRadio("KMFA"))
+    }
+
     // MARK: Siri hours-of-service line
 
     func testHOSLineSpeaksOnlyWhenTheClockMatters() {

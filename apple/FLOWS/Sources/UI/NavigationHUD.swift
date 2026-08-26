@@ -37,6 +37,9 @@ struct NavigationHUD: View {
     @AppStorage("flows.radioChannel") private var radioChannelID = ""
     /// Quick music menu (resume / station / genres) visibility.
     @State private var showMusicMenu = false
+    /// In-app mic states (music ask / radio ask) — "Listening…" feedback.
+    @State private var musicMicListening = false
+    @State private var radioMicListening = false
     /// Live-economy inputs, fed by GPS fixes: current speed and a lightly
     /// smoothed acceleration (single-fix speed noise would flicker the bar).
     @State private var liveMph: Double = 0
@@ -1243,6 +1246,24 @@ struct NavigationHUD: View {
                 .buttonStyle(.plain)
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.blue)
+                // Spoken station pick: "weather radio", "KMFA", "bluegrass".
+                Button {
+                    guard !radioMicListening else { return }
+                    radioMicListening = true
+                    VoiceReply.shared.listenForDictation { transcript in
+                        radioMicListening = false
+                        guard let transcript else { return }
+                        stationSearch = transcript
+                        model.playRadioAsk(transcript)
+                    }
+                } label: {
+                    Image(systemName: radioMicListening ? "waveform" : "mic.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+                .accessibilityLabel(radioMicListening
+                    ? "Listening" : "Say a station or genre")
             }
             if let note = model.radioBrowser.status {
                 Text(note).font(.caption2).foregroundStyle(.secondary)
@@ -1530,6 +1551,40 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
             }
+            // FLOWS's own mic — no "Hey Siri" needed: say a genre, artist,
+            // or mood and it routes through the picked service (catalog
+            // play, Spotify remote, or the service's own search).
+            Button {
+                guard !musicMicListening else { return }
+                musicMicListening = true
+                VoiceReply.shared.listenForDictation { transcript in
+                    musicMicListening = false
+                    guard let transcript else { return }
+                    model.playMusicAsk(transcript)
+                    showMusicMenu = false
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: musicMicListening ? "waveform" : "mic.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(musicMicListening ? "Listening…" : "Say what to play")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Genre, artist, or mood — through \(model.musicProvider.displayName)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .frame(minHeight: 38)
+                .frame(maxWidth: .infinity)
+                .background(Color.black.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(musicMicListening ? "Listening" : "Say what to play")
             if !model.musicControllable {
                 // No control API exists for this service — the menu is
                 // honest deep links into ITS OWN app: open it, or jump

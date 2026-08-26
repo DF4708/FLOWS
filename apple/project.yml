@@ -70,10 +70,12 @@ targets:
         NSMicrophoneUsageDescription: >-
           When FLOWS asks a question out loud — a crash check-in, or a
           faster-route offer — it listens briefly for your spoken yes-or-no
-          reply so you never reach for the screen.
+          reply; the mic buttons listen for what to play (a music ask, a
+          radio station). Nothing records outside those short moments.
         NSSpeechRecognitionUsageDescription: >-
-          Understands short spoken answers ("yes", "no", "I'm okay") to
-          crash check-ins and route questions.
+          Understands short spoken answers ("yes", "no", "I'm okay") and
+          asks ("classic country", "the weather radio") to crash check-ins,
+          route questions, and the music and radio mic buttons.
         NSMotionUsageDescription: >-
           Crash detection watches for sudden impacts while navigating.
         NSBluetoothAlwaysUsageDescription: >-

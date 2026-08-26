@@ -547,6 +547,60 @@ final class AppModel: ObservableObject {
     /// service publishes a control API).
     var musicControllable: Bool { MusicController.shared.controlsInPlace }
 
+    /// One spoken/typed music ask, routed by the picked provider — the
+    /// in-app mic and Siri share this: Apple Music tries the FULL catalog
+    /// (MusicKit) then the library; token-linked Spotify searches and
+    /// starts the best playlist remotely; every no-API service opens at
+    /// its own search. The spoken confirmation says which of those
+    /// actually happened.
+    func playMusicAsk(_ term: String) {
+        if musicProvider == .appleMusic {
+            MusicController.shared.playSearchOrGenre(term)
+            VoiceAnnouncer.shared.announce("Playing \(term).")
+            return
+        }
+        if musicProvider == .spotify, SpotifyRemote.shared.linked {
+            Task { [weak self] in
+                if await SpotifyRemote.shared.playSearch(term) {
+                    VoiceAnnouncer.shared.announce("Playing \(term) on Spotify.")
+                } else if let self {
+                    self.musicProvider.openSearch(query: term)
+                    VoiceAnnouncer.shared.announce(
+                        "Opening Spotify's search for \(term).")
+                }
+            }
+            return
+        }
+        musicProvider.openSearch(query: term)
+        VoiceAnnouncer.shared.announce(
+            "Opening \(musicProvider.displayName) — \(term).")
+    }
+
+    /// One spoken radio ask: "weather" tunes the nearest NOAA relay;
+    /// anything else searches the AM/FM directory and plays the top hit.
+    func playRadioAsk(_ term: String) {
+        if VoiceCommands.wantsWeatherRadio(term) {
+            let channel = effectivePosition
+                .flatMap { radio.nearestChannel(to: $0)?.channel }
+                ?? radio.nearestChannel(stateCode: currentStateCode)
+            if let channel {
+                radio.play(channel)
+                VoiceAnnouncer.shared.announce("Playing \(channel.name).")
+            }
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            await self.radioBrowser.search(text: term)
+            if let top = self.radioBrowser.stations.first {
+                self.radio.play(top.channel)
+                VoiceAnnouncer.shared.announce("Playing \(top.name).")
+            } else {
+                VoiceAnnouncer.shared.announce("No station found for \(term).")
+            }
+        }
+    }
+
     /// Play pressed: gate on the one-time provider ask, then play through
     /// the chosen service (Apple Music in-app; other services open their app).
     func playMusic() {

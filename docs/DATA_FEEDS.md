@@ -731,12 +731,31 @@ Voice-slot note: this took the tenth App Shortcut slot from
 TakeFasterRouteIntent (still available in the Shortcuts app) — "go ahead
 in FLOWS" and the plain spoken yes already accept faster-route offers.
 
-**Documented next step, not wired:** MusicKit could upgrade Apple Music
-from library-genre playback to FULL CATALOG search-and-play in place
-(ApplicationMusicPlayer; automatic developer tokens for apps with the
-MusicKit app service enabled in the developer portal — a signing/portal
-task, no third-party dependency). Deferred until that portal step is
-wanted.
+4. **FLOWS's own microphone** — no "Hey Siri" at all: a mic row in the
+   music menu and a mic button in the radio card listen for a few
+   seconds and route what was said (`VoiceReply.listenForDictation` —
+   the same guarded pattern as the yes/no listener, in dictation mode:
+   it keeps the best partial and settles early on a FINAL result).
+   Music asks go through `AppModel.playMusicAsk` (the provider router
+   above); radio asks through `playRadioAsk`, where weather words
+   ("weather", "NOAA" — `VoiceCommands.wantsWeatherRadio`, pinned) tune
+   the nearest NOAA relay and anything else searches the AM/FM
+   directory and plays the top hit. FLOWS speaks the result back, so
+   the loop never needs the screen.
+
+**MusicKit full-catalog Apple Music — WIRED** (`MusicKitCatalog`): a
+spoken ask now searches the ENTIRE Apple Music catalog (playlists
+first — a genre/mood ask wants a running mix, not one song then
+silence) and queues it on `SystemMusicPlayer`, the same player the
+transport buttons and lock screen already drive. MusicKit is a system
+framework, so no dependency. It degrades honestly at every gate —
+authorization refused, no Apple Music subscription, offline, or the
+MusicKit app service not yet enabled for this bundle id in the
+developer portal (a signing task, not code) — each returns false and
+the library-genre path runs exactly as before. **Portal step to unlock
+it in production:** developer.apple.com → Identifiers → the FLOWS app
+id → enable the MusicKit app service; the automatic developer token
+then issues at runtime with no key in the repo.
 
 What every service DOES expose keylessly: its own search pages as https
 universal links — on a phone with the service's app installed, iOS

@@ -441,6 +441,11 @@ struct PlayMusicSearchIntent: AppIntent {
         }
         let provider = model.musicProvider
         if provider == .appleMusic {
+            // Full catalog first (MusicKit; needs the portal's MusicKit
+            // service + a subscription) — the library genre path otherwise.
+            if await MusicKitCatalog.playSearch(music) {
+                return .result(dialog: IntentDialog("Playing \(music) from Apple Music."))
+            }
             MusicController.shared.playGenre(music)
             return .result(dialog: IntentDialog("Playing \(music)."))
         }

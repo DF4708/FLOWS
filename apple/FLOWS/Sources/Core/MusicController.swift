@@ -231,6 +231,18 @@ final class MusicController: ObservableObject {
         }
     }
 
+    /// A spoken/tapped music ask: the FULL Apple Music catalog first
+    /// (MusicKit — plays on the same system player the transport buttons
+    /// drive), the on-device library genre path when the catalog can't
+    /// serve (no portal token, no subscription, offline).
+    func playSearchOrGenre(_ term: String) {
+        activateIfNeeded()
+        Task { [weak self] in
+            if await MusicKitCatalog.playSearch(term) { return }
+            await MainActor.run { self?.playGenre(term) }
+        }
+    }
+
     func skip() {
         if spotifyActive {
             SpotifyRemote.shared.skip()
@@ -377,6 +389,10 @@ final class MusicController: ObservableObject {
         playLibraryShuffled()
     }
 
+    /// macOS has no MusicKit system-player path — a music ask goes
+    /// straight to the scripted library-genre play.
+    func playSearchOrGenre(_ term: String) { playGenre(term) }
+
     /// One-tap genre play from the library; shuffled library when no track
     /// carries the genre (genre strings come from the fixed genreRows list,
     /// so no AppleScript quoting is needed).
@@ -438,6 +454,7 @@ final class MusicController: ObservableObject {
     func resumeRecent() {}
     func playMyStation() {}
     func playGenre(_ genre: String) {}
+    func playSearchOrGenre(_ term: String) {}
     var artwork: CGImage? { nil }
     #endif
 }

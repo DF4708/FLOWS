@@ -39,6 +39,17 @@ enum YesNoWords {
                           "stay", "keep this route", "not now", "never mind"]
 }
 
+/// Routing words for the in-app mic (no "Hey Siri" needed) — pure so the
+/// radio mic's weather branch is pinned by tests.
+enum VoiceCommands {
+    /// "the weather radio", "NOAA", "weather channel" → the NOAA relay
+    /// path instead of an AM/FM directory search.
+    static func wantsWeatherRadio(_ transcript: String) -> Bool {
+        let lower = transcript.lowercased()
+        return lower.contains("weather") || lower.contains("noaa")
+    }
+}
+
 /// Match a spoken reply against the options FLOWS just offered out loud
 /// ("Does Taco Bell or El Rays work for you?"): naming an option picks it
 /// (the name's words must appear as standalone words in the reply — "yes,
@@ -132,6 +143,10 @@ final class VoiceReply {
     private var recognitionTask: SFSpeechRecognitionTask?
     private var onAnswer: ((Bool?) -> Void)?
     private var answered = false
+    /// Dictation mode (the in-app mic): capture the words instead of
+    /// interpreting yes/no; the transcript is delivered at window end.
+    private var onTranscript: ((String?) -> Void)?
+    private var lastHeard = ""
 
     /// Wait for the announcement to finish, then listen ~`seconds` for a
     /// yes/no. Calls back exactly once on the main actor; nil = no clear
@@ -151,10 +166,32 @@ final class VoiceReply {
         }
     }
 
-    private func begin(seconds: Double, onAnswer: @escaping (Bool?) -> Void) {
-        guard let recognizer, recognizer.isAvailable else { onAnswer(nil); return }
+    /// The in-app mic (music ask, station ask): listen ~`seconds` and hand
+    /// back what was SAID — final transcript, or the last partial when the
+    /// window closes first. nil = permission refused or nothing heard.
+    func listenForDictation(seconds: Double = 5.0,
+                            onTranscript: @escaping (String?) -> Void) {
+        SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            Task { @MainActor in
+                guard let self else { return }
+                guard auth == .authorized else { onTranscript(nil); return }
+                self.begin(seconds: seconds, onAnswer: nil,
+                           onTranscript: onTranscript)
+            }
+        }
+    }
+
+    private func begin(seconds: Double, onAnswer: ((Bool?) -> Void)?,
+                       onTranscript: ((String?) -> Void)? = nil) {
+        guard let recognizer, recognizer.isAvailable else {
+            onAnswer?(nil)
+            onTranscript?(nil)
+            return
+        }
         teardown()
         self.onAnswer = onAnswer
+        self.onTranscript = onTranscript
+        lastHeard = ""
         answered = false
         // Record-capable session for the tap; the radio/music session is
         // re-established by whichever playback starts next.
@@ -183,9 +220,15 @@ final class VoiceReply {
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, _ in
             guard let result else { return }
             let transcript = result.bestTranscription.formattedString
+            let isFinal = result.isFinal
             Task { @MainActor in
                 guard let self, !self.answered else { return }
-                if let answer = YesNoWords.interpret(transcript) {
+                if self.onTranscript != nil {
+                    // Dictation: keep the best-so-far; a FINAL result ends
+                    // the window early with the settled words.
+                    self.lastHeard = transcript
+                    if isFinal { self.finish(with: nil) }
+                } else if let answer = YesNoWords.interpret(transcript) {
                     self.finish(with: answer)
                 }
             }
@@ -199,10 +242,14 @@ final class VoiceReply {
     private func finish(with answer: Bool?) {
         guard !answered else { return }
         answered = true
-        let callback = onAnswer
+        let yesNo = onAnswer
+        let dictation = onTranscript
+        let heard = lastHeard.trimmingCharacters(in: .whitespacesAndNewlines)
         onAnswer = nil
+        onTranscript = nil
         teardown()
-        callback?(answer)
+        yesNo?(answer)
+        dictation?(heard.isEmpty ? nil : heard)
     }
 
     private func teardown() {
@@ -223,6 +270,10 @@ final class VoiceReply {
     func listenAfterSpeech(seconds: Double = 6.0,
                            onAnswer: @escaping (Bool?) -> Void) {
         onAnswer(nil)
+    }
+    func listenForDictation(seconds: Double = 5.0,
+                            onTranscript: @escaping (String?) -> Void) {
+        onTranscript(nil)
     }
 }
 #endif
