@@ -31,6 +31,12 @@ struct ContentView: View {
     /// Navigation camera mode: follows GPS until the user pans; a re-center
     /// button restores following (Apple/Google Maps behavior).
     @State private var cameraFollows = true
+    /// The forward-facing chase view waits for the vehicle to actually MOVE:
+    /// at GO the map holds a flat street-scale overview, and the first real
+    /// motion (speed + course) pitches it into the heading-up chase — which
+    /// then STAYS engaged through red lights (momentary stops must not flip
+    /// the view back).
+    @State private var chaseEngaged = false
     /// Stable identity for the reach-circle tick: built inline, the publisher
     /// was recreated (and its 30 s countdown restarted) on every re-render —
     /// at ~1 Hz GPS ticks it never fired at all.
@@ -334,14 +340,36 @@ struct ContentView: View {
         .onReceive(model.navigation.$guidance) { guidance in
             // Navigation camera: chase the GPS fix at the engine's altitude —
             // but never fight the user; a manual pan pauses following until
-            // re-center is tapped.
+            // re-center is tapped. The forward-facing pitch waits for the
+            // vehicle to START MOVING: parked at GO the map holds a flat
+            // overview, and the first motion with a real course engages the
+            // heading-up chase, which then survives red lights.
             guard model.mode == .navigating, cameraFollows, let g = guidance,
                   let coord = model.location.coordinate else { return }
+            if !chaseEngaged, model.location.speed > 1.2,
+               model.location.course >= 0 {
+                chaseEngaged = true
+            }
             moveCamera(.camera(MapCamera(
                 centerCoordinate: coord,
-                distance: g.cameraAltitude,
-                heading: model.location.course >= 0 ? model.location.course : 0,
-                pitch: model.show3DMap ? 66 : 55)))
+                distance: chaseEngaged ? g.cameraAltitude : g.cameraAltitude * 1.4,
+                heading: chaseEngaged && model.location.course >= 0
+                    ? model.location.course : 0,
+                pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
+        }
+        // FLIGHT camera: with the plane option chosen, the map follows the
+        // traveler by phase — airport-close like walking (before takeoff and
+        // on approach), continent-wide at cruise (CameraZoom.flightAltitude).
+        // It engages only while actually MOVING, so browsing the choices
+        // never fights the camera; a pan pauses it, and picking the plane
+        // card again resumes.
+        .onReceive(model.location.$latest.compactMap { $0 }) { fix in
+            guard model.mode != .navigating, cameraFollows, fix.speed > 0.7,
+                  let camera = flightCamera(for: fix) else { return }
+            moveCamera(.camera(camera))
+        }
+        .onChange(of: model.transitItinerary?.mode) { _, mode in
+            if mode == "Plane" { cameraFollows = true }
         }
         .onReceive(model.location.$latest.compactMap { $0 }) { fix in
             // First fix in planning mode: settle from CONUS onto the user.
@@ -379,17 +407,19 @@ struct ContentView: View {
             case .navigating:
                 // Selection flips the map from corridor-scale to street-scale
                 // IMMEDIATELY (Apple/Google Maps behavior): zoom to the GPS
-                // fix — or the route start when there is no fix yet — heading-
-                // up and pitched for driving.
+                // fix — or the route start when there is no fix yet. The view
+                // stays a flat overview until the vehicle starts moving; the
+                // guidance chase pitches it forward-facing then.
                 cameraFollows = true
+                chaseEngaged = false
                 let target = model.location.coordinate
                     ?? model.navigation.route.flatMap { firstCoordinate(of: $0) }
                 guard let target else { return }
                 moveCamera(.camera(MapCamera(
                     centerCoordinate: target,
-                    distance: 900,
-                    heading: model.location.course >= 0 ? model.location.course : 0,
-                    pitch: model.show3DMap ? 66 : 55)))
+                    distance: 1_260,
+                    heading: 0,
+                    pitch: 0)))
             case .planning where previous == .navigating:
                 // Ending a trip: zoom back out to the corridor (or the user)
                 // instead of stranding the camera at street level.
@@ -412,11 +442,14 @@ struct ContentView: View {
             model.recenterRequested = false
             cameraFollows = true
             if let coord = model.location.coordinate {
+                // Same rule as the chase: pitched heading-up only once the
+                // vehicle has moved; re-centering while parked stays flat.
                 moveCamera(.camera(MapCamera(
                     centerCoordinate: coord,
                     distance: model.navigation.guidance?.cameraAltitude ?? 900,
-                    heading: model.location.course >= 0 ? model.location.course : 0,
-                    pitch: model.show3DMap ? 66 : 55)))
+                    heading: chaseEngaged && model.location.course >= 0
+                        ? model.location.course : 0,
+                    pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
             }
         }
         .sheet(isPresented: $showDemoGalleryRoot) {
@@ -912,6 +945,28 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.8)) { camera = position }
     }
 
+    /// The flight-phase camera for an active plane itinerary: altitude from
+    /// the distance to the NEAREST airport (the flight arc's endpoints) —
+    /// walking-close on the ground and on approach, continent-wide at cruise.
+    private func flightCamera(for fix: CLLocation) -> MapCamera? {
+        guard model.transitItinerary?.mode == "Plane",
+              let poly = model.transitItinerary?.legs
+                  .first(where: { $0.kind == .ride })?.polyline,
+              poly.pointCount >= 2 else { return nil }
+        var board = CLLocationCoordinate2D()
+        var alight = CLLocationCoordinate2D()
+        poly.getCoordinates(&board, range: NSRange(location: 0, length: 1))
+        poly.getCoordinates(&alight, range: NSRange(location: poly.pointCount - 1,
+                                                    length: 1))
+        let nearest = min(POIRanking.meters(board, fix.coordinate),
+                          POIRanking.meters(alight, fix.coordinate))
+        return MapCamera(
+            centerCoordinate: fix.coordinate,
+            distance: CameraZoom.flightAltitude(metersToNearestAirport: nearest),
+            heading: fix.course >= 0 ? fix.course : 0,
+            pitch: 0)
+    }
+
     private var mapLayer: some View {
         mapContent
             // The red-alert reach-circle tick only exists while a red alert
@@ -1220,8 +1275,13 @@ struct ContentView: View {
         // A drag is DEFINITIVE user intent: stop chasing GPS immediately.
         // (The old stamp-window heuristic never fired at 1 Hz guidance —
         // every settle looked programmatic and the map fought every pan.)
+        // Applies to the flight-phase follow too — panning while a plane
+        // itinerary is chosen pauses it; picking the plane card resumes.
         .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in
-            if model.mode == .navigating, cameraFollows { cameraFollows = false }
+            if cameraFollows,
+               model.mode == .navigating || model.transitItinerary?.mode == "Plane" {
+                cameraFollows = false
+            }
         })
         // Click-off dismiss: a click/tap on the MAP closes any open floating
         // panel or menu (settings, fuel/food/store menus, stop list, slider
@@ -1238,9 +1298,15 @@ struct ContentView: View {
             refreshViewportHazards(context.region)
 
             // A camera settle we didn't initiate while navigating = the user
-            // panned/zoomed. Stop chasing GPS until they re-center.
+            // panned/zoomed. Stop chasing GPS until they re-center. The
+            // window is generous: the GO jump (state-wide choices view down
+            // to street level) can take MapKit well past the animation's
+            // nominal 0.8 s, and a settle just outside a tight window read
+            // as a user pan — killing the chase before the trip even moved.
+            // Real pans are caught by the drag gesture above; this backstop
+            // only needs to catch stationary pinches.
             if model.mode == .navigating, cameraFollows,
-               Date().timeIntervalSince(programmaticCameraMove) > 1.6 {
+               Date().timeIntervalSince(programmaticCameraMove) > 4.0 {
                 cameraFollows = false
             }
         }

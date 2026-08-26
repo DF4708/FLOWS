@@ -14,18 +14,19 @@ import MapKit
 /// Turn-by-turn navigation state machine.
 ///
 /// Once a route is selected the map becomes TIME-SENSITIVE: every GPS fix
-/// advances the instruction state and re-aims the camera. The camera's zoom is
-/// not fixed — it adapts to the concentration of upcoming maneuvers:
+/// advances the instruction state and re-aims the camera. The camera's zoom
+/// follows the DISTANCE BETWEEN INTERSECTIONS (CameraZoom):
 ///
-///   * long highway stretch, no exits to take  → high altitude (zoomed out),
+///   * long highway stretch between off-ramps → high altitude (zoomed out),
 ///     scaled further out with speed so the driver sees farther ahead;
 ///   * dense city blocks with turns every few hundred meters → low altitude
 ///     (zoomed in), regardless of speed;
-///   * imminent maneuver (< 250 m) → tight zoom on the intersection.
+///   * imminent maneuver (< 250 m) → tight zoom on the intersection;
+///   * walking → always the close-in view (walking pace never needs distance).
 ///
-/// The zoom signal is maneuvers-per-km in a speed-scaled lookahead window —
-/// cheap integer/geometry work per fix (the kind of loop that migrates into
-/// rust/flows-core if profiling ever shows it hot; at 1 Hz it never has been).
+/// The spacing signal is the current step's length — the road between the
+/// maneuver behind and the one ahead — cheap per-fix arithmetic on the
+/// flattened geometry.
 @MainActor
 final class NavigationEngine: ObservableObject {
     struct Guidance {
@@ -75,6 +76,10 @@ final class NavigationEngine: ObservableObject {
         route = richer
     }
 
+    /// True for pedestrian routes (real or estimated) — the camera then pins
+    /// to the close-in walking view instead of the intersection-spacing zoom.
+    private var isWalkingRoute = false
+
     /// `onArrival` is a parameter (not assigned after the fact) because
     /// start() produces guidance immediately — review finding: assigning the
     /// callback on the NEXT line meant a <120 m arrival fired into a nil or
@@ -84,6 +89,8 @@ final class NavigationEngine: ObservableObject {
         rerouteTask?.cancel()   // a reroute for the OLD leg must not clobber this one
         self.route = route
         self.onArrival = onArrival
+        isWalkingRoute = route.isWalkingEstimate
+            || route.route.transportType == .walking
         flatten(route: route.route)
         currentStep = firstRealStep()
         offRouteFixes = 0
@@ -202,29 +209,21 @@ final class NavigationEngine: ObservableObject {
         }
     }
 
-    /// Zoom policy: maneuver density in a speed-scaled lookahead window.
+    /// Zoom policy: the distance between intersections — this step's length,
+    /// from the maneuver behind to the one ahead — mapped by CameraZoom.
+    /// City blocks read close, highway stretches read far, walking pins to
+    /// the close-in view.
     private func cameraAltitude(
         nearestIndex: Int, distToManeuver: CLLocationDistance, speed: Double
     ) -> Double {
-        // Imminent turn: zoom to the intersection.
-        if distToManeuver < 250 { return 350 }
-
-        // Lookahead: ~90 s of travel, clamped to 0.8–8 km.
-        let lookahead = min(max(speed * 90, 800), 8000)
-        let here = cumulative[nearestIndex]
-        let horizon = here + lookahead
-        let upcoming = stepEndIndex.filter {
-            cumulative[$0] > here && cumulative[$0] <= horizon
-        }.count
-        let turnsPerKm = Double(upcoming) / (lookahead / 1000)
-
-        // Dense urban grid (≥ ~2.5 turns/km) pins to 500 m altitude; an empty
-        // highway window relaxes to 2400 m, stretched up to 1.5× with speed so
-        // faster travel sees proportionally farther.
-        let density = min(max(turnsPerKm / 2.5, 0), 1)
-        let base = 2400 - (2400 - 500) * density
-        let speedStretch = min(max(speed / 31.0, 1.0), 1.5)   // 31 m/s ≈ 70 mph
-        return base * (density < 0.5 ? speedStretch : 1.0)
+        if isWalkingRoute { return CameraZoom.walkingAltitude }
+        let stepIdx = min(currentStep, stepEndIndex.count - 1)
+        let stepStart = stepIdx == 0 ? 0 : stepEndIndex[stepIdx - 1]
+        let spacing = cumulative[stepEndIndex[stepIdx]] - cumulative[stepStart]
+        return CameraZoom.drivingAltitude(
+            intersectionSpacingMeters: spacing,
+            distanceToManeuverMeters: distToManeuver,
+            speedMps: speed)
     }
 
     // MARK: reroute

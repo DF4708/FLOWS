@@ -273,6 +273,7 @@ targets:
       - path: FLOWS/Resources/amtrak_stations.json
         buildPhase: resources
       - path: FLOWS/Sources/Core/AdaptiveTuning.swift
+      - path: FLOWS/Sources/Core/CameraZoom.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
       - path: FLOWSTests
     settings:
