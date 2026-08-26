@@ -612,6 +612,24 @@ escalation banner holds steady instead of flashing under Reduce Motion,
 and the icon-only controls (transport, radio play/stop per station, the
 stop buttons' compact row) carry VoiceOver labels.
 
+**Finding-the-right-words rescue (`IntentClarifier`)**: when the
+deterministic matchers read a dialogue reply as unclear, Apple's
+ON-DEVICE foundation model (Apple Intelligence, iOS 26+, a system
+framework — keyless, no dependency, nothing leaves the phone) gets one
+shot at mapping the utterance onto an offered option ("the one with the
+tacos" → Taco Bell) before the on-screen fallback. It never overrides a
+clear match, is never asked yes/no safety questions, and its reply is
+parsed defensively (first number, in range — `optionIndex`, pinned). On
+hardware without Apple Intelligence the dialogue behaves exactly as
+before.
+
+**Text size (`TextScale`)**: a Settings slider sets the app's type size
+directly, and BOTH paths — the slider and the phone's own accessibility
+setting — are clamped at the app root to what the current window width
+can hold (phone-width caps before the giant accessibility tiers), so
+enormous type can never wrap cards into a smear or push words off an
+edge. −1 = follow the system; pure range math pinned by tests.
+
 ### Spotify remote — optional user token (the Yelp/TomTom pattern)
 
 True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client

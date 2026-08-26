@@ -158,8 +158,17 @@ struct FindStopIntent: AppIntent {
                     "Yes — what sounds good: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?")
                 cuisineReply = asked ?? ""
             }
-            guard case .picked(let index) = VoicePick.choose(
-                reply: cuisineReply, options: cuisineNames) else {
+            // Deterministic match first; when it can't read the reply, the
+            // ON-DEVICE model gets one shot at mapping it ("the spicy one
+            // with tortillas" → Mexican) before the on-screen fallback —
+            // the finding-the-right-words accessibility path.
+            var cuisineOutcome = VoicePick.choose(reply: cuisineReply,
+                                                  options: cuisineNames)
+            if case .picked = cuisineOutcome {} else if let idx =
+                await IntentClarifier.pick(reply: cuisineReply, options: cuisineNames) {
+                cuisineOutcome = .picked(idx)
+            }
+            guard case .picked(let index) = cuisineOutcome else {
                 await model.poi.request(.food, aheadOf: position)
                 return .result(dialog: "Okay — the food picker is on screen.")
             }
@@ -200,7 +209,15 @@ struct FindStopIntent: AppIntent {
                 reply = asked ?? ""
             }
             let onlyFoodCuisines = kind == .food ? cuisineNames : []
-            switch VoicePick.placeReply(reply, places: names, cuisines: onlyFoodCuisines) {
+            var outcome = VoicePick.placeReply(reply, places: names,
+                                               cuisines: onlyFoodCuisines)
+            // Same on-device rescue as the cuisine step: "the one with the
+            // tacos" should reach Taco Bell, not dead-end at the list.
+            if outcome == .unclear,
+               let idx = await IntentClarifier.pick(reply: reply, options: names) {
+                outcome = .picked(idx)
+            }
+            switch outcome {
             case .picked(let index):
                 let pick = ranked[index]
                 let name = pick.item.name ?? names[index]

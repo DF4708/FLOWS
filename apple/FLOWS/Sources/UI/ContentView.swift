@@ -1866,6 +1866,9 @@ struct SettingsSheet: View {
     @EnvironmentObject private var model: AppModel
     @State private var showDemoGallery = false
     @State private var showContactPicker = false
+    /// Seeds the text-size slider at the phone's current setting until the
+    /// driver moves it (already clamped by the root modifier).
+    @Environment(\.dynamicTypeSize) private var systemTypeSize
 
     var body: some View {
         ScrollView {
@@ -1980,6 +1983,38 @@ struct SettingsSheet: View {
             Toggle(isOn: $model.refuelCheckInsEnabled) {
                 Text("Refuel gauge check-ins (train range prediction to 80%+)").font(.caption)
             }
+
+            Divider()
+            Text("Text size")
+                .font(.system(size: 14, weight: .semibold))
+            HStack(spacing: 10) {
+                Text("A").font(.system(size: 12, weight: .semibold))
+                Slider(
+                    value: Binding(
+                        get: {
+                            Double(model.textSizeIndex >= 0
+                                ? min(model.textSizeIndex, model.textSizeMaxIndex)
+                                : min(TextScale.index(of: systemTypeSize),
+                                      model.textSizeMaxIndex))
+                        },
+                        set: { model.textSizeIndex = Int($0.rounded()) }),
+                    in: 0...Double(max(model.textSizeMaxIndex, 1)),
+                    step: 1)
+                    .accessibilityLabel("Text size")
+                Text("A").font(.system(size: 22, weight: .semibold))
+            }
+            if model.textSizeIndex >= 0 {
+                Button("Match the phone's text size") { model.textSizeIndex = -1 }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                    .font(.caption.weight(.bold))
+            }
+            Text("Bigger or smaller words, your pick. The top end is capped "
+                 + "to this screen's size, so words never warp or fall off "
+                 + "the edge. Until you move the slider, FLOWS follows the "
+                 + "phone's own text-size setting.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             Button {
                 showDemoGallery = true
             } label: {

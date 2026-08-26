@@ -246,6 +246,52 @@ final class RadioAndSpotifyTests: XCTestCase {
                        .backToCuisine)
     }
 
+    // MARK: on-device clarifier — the model's reply parses safely
+
+    func testClarifierParsesTheModelsNumberSafely() {
+        XCTAssertEqual(IntentClarifier.optionIndex(fromModelText: "2", optionCount: 3), 1)
+        XCTAssertEqual(IntentClarifier.optionIndex(fromModelText: "Option 3.", optionCount: 3), 2)
+        // 0 = the model says nothing matches — honored, never coerced.
+        XCTAssertNil(IntentClarifier.optionIndex(fromModelText: "0", optionCount: 3))
+        XCTAssertNil(IntentClarifier.optionIndex(fromModelText: "7", optionCount: 3))
+        XCTAssertNil(IntentClarifier.optionIndex(fromModelText: "none of them", optionCount: 3))
+        XCTAssertNil(IntentClarifier.optionIndex(fromModelText: "", optionCount: 3))
+        // The FIRST number wins — chatter after it can't redirect the pick.
+        XCTAssertEqual(IntentClarifier.optionIndex(
+            fromModelText: "1 (though 2 is close)", optionCount: 3), 0)
+    }
+
+    // MARK: text-size slider — screen-clamped bounds
+
+    func testTextScaleCapsFollowTheScreenWidth() {
+        // Phone-width windows stop before the accessibility tiers.
+        XCTAssertEqual(TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 375)],
+                       .xxxLarge)
+        // Mid widths (big phones, split view) allow the small accessibility
+        // sizes; only tablet/desktop widths offer the largest.
+        XCTAssertEqual(TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 650)],
+                       .accessibility2)
+        XCTAssertEqual(TextScale.steps[TextScale.maxStepIndex(forWidthPoints: 1200)],
+                       .accessibility5)
+    }
+
+    func testTextScaleRangePinsChoicesAndClampsTheSystem() {
+        let maxIdx = TextScale.maxStepIndex(forWidthPoints: 375)
+        // Follow-system (−1): free below, capped above.
+        XCTAssertEqual(TextScale.range(chosenIndex: -1, maxIndex: maxIdx),
+                       .xSmall ... .xxxLarge)
+        // A picked step pins exactly.
+        let large = TextScale.index(of: .large)
+        XCTAssertEqual(TextScale.range(chosenIndex: large, maxIndex: maxIdx),
+                       .large ... .large)
+        // A pick beyond the screen's cap clamps to the cap — words must
+        // never warp off the edge no matter what was stored.
+        XCTAssertEqual(TextScale.range(chosenIndex: 99, maxIndex: maxIdx),
+                       .xxxLarge ... .xxxLarge)
+        XCTAssertEqual(TextScale.range(chosenIndex: 0, maxIndex: 99),
+                       .small ... .small)
+    }
+
     func testSpokenTurnDistancesReadLikeANavigator() {
         XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 3 * 1609.344), "In 3 miles")
         XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 1609), "In a mile")

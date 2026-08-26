@@ -326,6 +326,17 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(speakTurns, forKey: "flows.speakTurns") }
     }
 
+    /// In-app text size (Settings slider): −1 follows the phone's setting;
+    /// otherwise an index into TextScale.steps. Both paths are clamped to
+    /// what the current screen holds (textSizeMaxIndex).
+    @Published var textSizeIndex: Int =
+        UserDefaults.standard.object(forKey: "flows.textSizeIndex") as? Int ?? -1 {
+        didSet { UserDefaults.standard.set(textSizeIndex, forKey: "flows.textSizeIndex") }
+    }
+    /// Highest slider step the current window width can hold — measured at
+    /// the app root, read by the Settings slider for its range.
+    @Published var textSizeMaxIndex: Int = TextScale.steps.count - 1
+
     /// Guidance state for the spoken turns: last step announced, and
     /// whether its close-in reminder has fired.
     private var lastSpokenTurnStep = -1
@@ -2565,14 +2576,31 @@ struct FLOWSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(model)
-                .onOpenURL { url in
-                    // flows://smartcar?code=… — the OAuth callback.
-                    if url.host == "smartcar" || url.absoluteString.contains("smartcar") {
-                        Task { await model.smartcar.handleCallback(url: url) }
+            // Text size is applied (and CLAMPED) at the root: the window's
+            // width caps how large type may grow, so a giant system
+            // accessibility size can't wrap cards into a smear on a phone;
+            // the Settings slider picks a size inside the same cap.
+            GeometryReader { geometry in
+                ContentView()
+                    .environmentObject(model)
+                    .dynamicTypeSize(TextScale.range(
+                        chosenIndex: model.textSizeIndex,
+                        maxIndex: model.textSizeMaxIndex))
+                    .onAppear {
+                        model.textSizeMaxIndex = TextScale.maxStepIndex(
+                            forWidthPoints: geometry.size.width)
                     }
-                }
+                    .onChange(of: geometry.size.width) { _, width in
+                        model.textSizeMaxIndex = TextScale.maxStepIndex(
+                            forWidthPoints: width)
+                    }
+                    .onOpenURL { url in
+                        // flows://smartcar?code=… — the OAuth callback.
+                        if url.host == "smartcar" || url.absoluteString.contains("smartcar") {
+                            Task { await model.smartcar.handleCallback(url: url) }
+                        }
+                    }
+            }
         }
         #if os(macOS)
         .defaultSize(width: 1200, height: 800)
