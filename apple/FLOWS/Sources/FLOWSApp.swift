@@ -675,10 +675,70 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Pending handoff while buffered audio is still playing.
+    private var handoffGraceTask: Task<Void, Never>?
+    /// Captured when the wait BEGINS: network-fed audio was playing. By
+    /// the time the buffer drains the player may already read as stopped,
+    /// and re-reading it then would cancel the very handoff it needs.
+    private var bufferedAudioWasPlaying = false
+
+    /// The path dropped — but the music didn't. Every player is holding
+    /// buffered audio, so wait it out instead of cutting off sound that
+    /// was going to play fine (a short tunnel then becomes a non-event).
+    /// Whichever comes first ends the wait: the audio actually stopping,
+    /// or the buffer running out.
+    private func beginHandoffGrace() {
+        guard handoffGraceTask == nil, !handedOffOffline else { return }
+        let music = MusicController.shared
+        let radioPlaying = radio.playingChannelID != nil
+        guard music.isPlaying || radioPlaying,
+              radioPlaying || music.currentPlaybackNeedsNetwork else { return }
+        bufferedAudioWasPlaying = true
+        let source: PlaybackGrace.Source = radioPlaying
+            ? .radio
+            : (musicProvider == .spotify ? .spotify : .appleMusicCloud)
+        // Radio is OUR player, so its remaining audio is measured, not
+        // estimated; the others only expose a conservative bound.
+        let grace = PlaybackGrace.graceSeconds(
+            for: source,
+            measuredBuffer: radioPlaying ? radio.bufferedSecondsAhead : nil)
+        radio.onStall = { [weak self] in self?.applyOfflineHandoff() }
+        music.onPlaybackStopped = { [weak self] in self?.applyOfflineHandoff() }
+        handoffGraceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(grace))
+            guard !Task.isCancelled else { return }
+            self?.applyOfflineHandoff()
+        }
+    }
+
+    /// Stop waiting — either the buffer carried the music through the
+    /// outage, or the handoff already happened.
+    private func endHandoffGrace() {
+        handoffGraceTask?.cancel()
+        handoffGraceTask = nil
+        radio.onStall = nil
+        MusicController.shared.onPlaybackStopped = nil
+    }
+
+    /// The buffer is spent and the link is still down: move playback to
+    /// whatever survives.
+    private func applyOfflineHandoff() {
+        guard breadcrumbs.isOffline, !handedOffOffline else {
+            endHandoffGrace()
+            return
+        }
+        endHandoffGrace()
+        handleOfflineNow()
+    }
+
     /// The network path changed. On loss, hand playback to whatever still
     /// works; on a return that HOLDS, switch back at a song boundary.
     private func handleConnectivity(offline: Bool) {
         guard offline else {
+            // Signal back: whatever was buffered carried the music
+            // through, so a pending handoff is simply cancelled — the
+            // driver never hears a thing.
+            endHandoffGrace()
             guard handedOffOffline else { return }
             // Wait out the hold window before trusting the connection: a
             // flapping link would otherwise ping-pong the driver. Each new
@@ -700,18 +760,24 @@ final class AppModel: ObservableObject {
             }
             return
         }
-        // Signal dropped (again): any pending switch-back is void.
+        // Signal dropped (again): any pending switch-back is void, and
+        // the buffer wait begins — nothing changes until it's spent.
         restoreTask?.cancel()
         restoreTask = nil
+        beginHandoffGrace()
+    }
+
+    /// The handoff itself, run only once the buffered audio is gone.
+    private func handleOfflineNow() {
         let music = MusicController.shared
-        let radioPlaying = radio.playingChannelID != nil
         let genre = lastMusicAsk
             ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel)
+        // Both facts were established when the wait began (a station is a
+        // stream too, so radio always counts as network-fed) — the player
+        // may have gone quiet since, which is exactly why we're here.
         let source = PlaybackFallback.onConnectionLost(
-            isPlaying: music.isPlaying || radioPlaying,
-            // A station is a stream too — radio playing always needs the
-            // network, whatever the picked provider says.
-            needsNetwork: radioPlaying || music.currentPlaybackNeedsNetwork,
+            isPlaying: bufferedAudioWasPlaying,
+            needsNetwork: bufferedAudioWasPlaying,
             hasLocalMusic: music.hasLocalMusic,
             lastGenre: genre)
         if let line = PlaybackFallback.spokenLine(for: source) {

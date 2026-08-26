@@ -290,6 +290,7 @@ targets:
       - path: FLOWS/Sources/Core/TextScale.swift
       - path: FLOWS/Sources/Core/IntentClarifier.swift
       - path: FLOWS/Sources/Core/PlaybackFallback.swift
+      - path: FLOWS/Sources/Core/PlaybackGrace.swift
       - path: FLOWSTests
     settings:
       base:

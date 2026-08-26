@@ -728,8 +728,34 @@ repeat, so the play-order button is hidden rather than lying.
 
 #### Signal drops mid-drive — the playback handoff
 
-`PlaybackFallback` (pure, pinned) decides what still plays, in the order
-of what actually survives:
+**First: the signal dropping is NOT the music stopping** (`PlaybackGrace`,
+pure + pinned). Every player is already holding buffered audio and keeps
+playing from it, so handing off the instant the path fails would cut off
+sound that was going to play fine — and would turn a ten-second tunnel
+into a jarring source switch for nothing. FLOWS waits out the buffer and
+acts only if the link is still down when that audio would have run out.
+Two things end the wait early, and both beat the clock:
+
+* **the connection returns** — the buffer carried the music through, so
+  the pending handoff is simply cancelled and the driver never hears a
+  thing;
+* **playback actually stalls** — the buffer was shorter than expected,
+  so there's no reason to sit in silence waiting for a timer.
+
+How long to wait depends on what can be *known*, not guessed:
+
+| Source | Wait | Basis |
+|---|---|---|
+| FLOWS's radio | **measured** `loadedTimeRanges` ahead of the play head, clamped 4–45 s | our own AVPlayer — the real buffer, not an estimate |
+| Apple Music (cloud track) | ≤30 s | read-ahead isn't published, so this only BOUNDS the wait — `.interrupted` on the system player is the real trigger |
+| Spotify | ≤40 s | plays on Spotify's own device and reports nothing while the link is down, so the cap is the only signal |
+
+A deliberate **pause** never triggers a handoff: only `.interrupted`
+(what a buffer-starved cloud track looks like) counts as the music
+dying, never `.paused`.
+
+**Then** `PlaybackFallback` (pure, pinned) decides what still plays, in
+the order of what actually survives:
 
 1. **Music saved on the phone** — the only thing that plays with NO
    connection. The check deliberately EXCLUDES cloud items

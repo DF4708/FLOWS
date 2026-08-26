@@ -285,6 +285,24 @@ final class TruckerRadio: ObservableObject {
 
     private var statusObservation: NSKeyValueObservation?
     private var failureObserver: NSObjectProtocol?
+    private var stallObserver: NSObjectProtocol?
+
+    /// Fired when the stream actually runs dry (AVFoundation's stall
+    /// notification) — the offline handoff listens, so it can act the
+    /// moment the audio really stops instead of waiting out a timer.
+    var onStall: (() -> Void)?
+
+    /// Seconds of audio already loaded ahead of the play head — a real
+    /// measurement of how long this station can survive a dead link.
+    /// nil when nothing is playing or the range isn't known yet.
+    var bufferedSecondsAhead: Double? {
+        guard let item = player?.currentItem,
+              let range = item.loadedTimeRanges.first?.timeRangeValue else { return nil }
+        let loadedEnd = CMTimeGetSeconds(range.start + range.duration)
+        let position = CMTimeGetSeconds(item.currentTime())
+        guard loadedEnd.isFinite, position.isFinite else { return nil }
+        return max(loadedEnd - position, 0)
+    }
 
     /// Tune a station. `clearQueue` defaults true so a one-off pick (a
     /// NOAA relay, a tapped row) ends the previous genre run; the queue
@@ -338,6 +356,12 @@ final class TruckerRadio: ObservableObject {
         }
         p.play()
         player = p
+        if let stallObserver { NotificationCenter.default.removeObserver(stallObserver) }
+        stallObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.onStall?() }
+        }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
@@ -393,6 +417,8 @@ final class TruckerRadio: ObservableObject {
         statusObservation = nil
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = nil
+        if let stallObserver { NotificationCenter.default.removeObserver(stallObserver) }
+        stallObserver = nil
         playingChannelID = nil
         status = nil
         isPaused = false

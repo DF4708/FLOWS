@@ -465,6 +465,50 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(TruckerRadio.advance(index: 5, count: 0, by: -1), 0)
     }
 
+    // MARK: buffer grace — the signal dropping isn't the music stopping
+
+    func testRadioGraceUsesTheMeasuredBufferWithinBounds() {
+        // Our own player, so the remaining audio is MEASURED: a 12-second
+        // buffer means 12 seconds before the music can actually die.
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .radio, measuredBuffer: 12), 12)
+        // A nearly-empty buffer still gets the floor — a stream tuned one
+        // second ago hasn't loaded anything yet.
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .radio, measuredBuffer: 0.5),
+            PlaybackGrace.radioFloorSeconds)
+        // An absurd buffer can't hold the handoff open forever.
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .radio, measuredBuffer: 600),
+            PlaybackGrace.radioCapSeconds)
+        // Unknown (nothing playing yet) falls back to the floor, never NaN.
+        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .radio),
+                       PlaybackGrace.radioFloorSeconds)
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .radio, measuredBuffer: .nan),
+            PlaybackGrace.radioFloorSeconds)
+    }
+
+    func testOtherPlayersUseTheirDocumentedCaps() {
+        // Their buffers aren't inspectable, so these bound the wait; the
+        // real trigger is the player reporting it stopped.
+        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .appleMusicCloud),
+                       PlaybackGrace.appleMusicCapSeconds)
+        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .spotify),
+                       PlaybackGrace.spotifyCapSeconds)
+        // A measured value can't leak in from a player we don't own.
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .appleMusicCloud, measuredBuffer: 3),
+            PlaybackGrace.appleMusicCapSeconds)
+        // Every wait is long enough to ride out a short tunnel, and none
+        // is so long the driver sits in silence.
+        for source: PlaybackGrace.Source in [.radio, .appleMusicCloud, .spotify] {
+            let grace = PlaybackGrace.graceSeconds(for: source, measuredBuffer: 20)
+            XCTAssertGreaterThanOrEqual(grace, 4, "\(source)")
+            XCTAssertLessThanOrEqual(grace, 45, "\(source)")
+        }
+    }
+
     // MARK: offline handoff — what still plays when the signal drops
 
     func testHandoffPrefersLocalMusicThenLikeForLikeRadio() {

@@ -167,10 +167,20 @@ final class MusicController: ObservableObject {
         shuffleOn = playOrder == .shuffle
     }
 
+    /// Fired when playback stops for a reason the DRIVER didn't choose —
+    /// `.interrupted`, which is what a cloud track starved of buffer
+    /// looks like. A deliberate `.paused` deliberately does NOT fire it,
+    /// so pausing while offline never triggers a handoff.
+    var onPlaybackStopped: (() -> Void)?
+
     private func refresh() {
         guard !spotifyActive else { return }   // Music.app state isn't ours
+        let wasPlaying = isPlaying
         isPlaying = player.playbackState == .playing
         shuffleOn = player.shuffleMode != .off
+        if wasPlaying, player.playbackState == .interrupted {
+            onPlaybackStopped?()
+        }
     }
 
     private func updateNowPlaying() {
@@ -504,6 +514,10 @@ final class MusicController: ObservableObject {
     /// switch back right away rather than never.
     func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
 
+    /// No equivalent Apple Events signal — the grace window is the only
+    /// trigger on macOS.
+    var onPlaybackStopped: (() -> Void)?
+
     /// One-tap genre play from the library; shuffled library when no track
     /// carries the genre (genre strings come from the fixed genreRows list,
     /// so no AppleScript quoting is needed).
@@ -573,6 +587,7 @@ final class MusicController: ObservableObject {
     var currentPlaybackNeedsNetwork: Bool { false }
     func playLocalLibrary() {}
     func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
+    var onPlaybackStopped: (() -> Void)?
     var artwork: CGImage? { nil }
     #endif
 }
