@@ -69,6 +69,72 @@ final class TruckerRadio: ObservableObject {
     private(set) var lastPlayed: Channel?
     private static let lastPlayedKey = "flows.radio.lastPlayed"
 
+    // MARK: station queue (radio as a music service)
+
+    /// A genre/search result set the driver moves through like a
+    /// playlist: "play rock" fills this, next/previous walk it.
+    @Published private(set) var queue: [Channel] = []
+    @Published private(set) var queueIndex = 0
+    /// True while the stream is paused (radio's "mute" — the connection
+    /// is dropped to save data; resuming re-tunes LIVE, since a live
+    /// broadcast has no "where you left off").
+    @Published private(set) var isPaused = false
+    /// What the queue was built from ("rock") — names the genre in
+    /// announcements and drives the offline handoff's like-for-like pick.
+    @Published private(set) var queueLabel = ""
+
+    /// Wrap-around step through a queue — pure so the walk is pinned.
+    /// Returns 0 for an empty queue (nothing to play).
+    nonisolated static func advance(index: Int, count: Int, by step: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let raw = (index + step) % count
+        return raw < 0 ? raw + count : raw
+    }
+
+    /// Start a genre/search result set: play the first station and keep
+    /// the rest queued for next/previous.
+    func playQueue(_ channels: [Channel], label: String, startAt: Int = 0) {
+        guard !channels.isEmpty else { return }
+        let start = max(0, min(startAt, channels.count - 1))
+        play(channels[start], clearQueue: false)
+        queue = channels
+        queueLabel = label
+        queueIndex = start
+    }
+
+    /// Next station of the same genre (wraps). Returns what it tuned.
+    @discardableResult
+    func nextStation() -> Channel? { step(by: 1) }
+
+    @discardableResult
+    func previousStation() -> Channel? { step(by: -1) }
+
+    private func step(by delta: Int) -> Channel? {
+        guard !queue.isEmpty else { return nil }
+        queueIndex = Self.advance(index: queueIndex, count: queue.count, by: delta)
+        let channel = queue[queueIndex]
+        play(channel, clearQueue: false)
+        return channel
+    }
+
+    /// The transport pause: silence the station and drop the stream
+    /// (a paused live stream would otherwise keep burning cellular
+    /// data). Resuming re-tunes to LIVE.
+    func pauseOrResume() {
+        if isPaused {
+            if let channel = lastPlayed { play(channel) }
+            return
+        }
+        guard playingChannelID != nil else {
+            // Nothing playing: resume the last station instead.
+            if let channel = lastPlayed { play(channel) }
+            return
+        }
+        player?.pause()
+        isPaused = true
+        status = "Paused — press play to go back on air."
+    }
+
     private var player: AVPlayer?
 
     /// True when channels came from the user's Application Support
@@ -220,7 +286,15 @@ final class TruckerRadio: ObservableObject {
     private var statusObservation: NSKeyValueObservation?
     private var failureObserver: NSObjectProtocol?
 
-    func play(_ channel: Channel) {
+    /// Tune a station. `clearQueue` defaults true so a one-off pick (a
+    /// NOAA relay, a tapped row) ends the previous genre run; the queue
+    /// walkers pass false to stay inside their own list.
+    func play(_ channel: Channel, clearQueue: Bool = true) {
+        if clearQueue {
+            queue = []
+            queueIndex = 0
+            queueLabel = ""
+        }
         guard let url = channel.streamURL else {
             status = "\(channel.name): no stream configured — see the frequency guide "
                 + "for the cab radio, or add a relay URL in trucker_radio.json."
@@ -236,6 +310,7 @@ final class TruckerRadio: ObservableObject {
         #endif
         status = "Tuning \(channel.name)…"
         playingChannelID = channel.id
+        isPaused = false
         lastPlayed = channel
         if let data = try? JSONEncoder().encode(channel) {
             UserDefaults.standard.set(data, forKey: Self.lastPlayedKey)
@@ -320,6 +395,7 @@ final class TruckerRadio: ObservableObject {
         failureObserver = nil
         playingChannelID = nil
         status = nil
+        isPaused = false
         updateNowPlaying(nil)
     }
 }

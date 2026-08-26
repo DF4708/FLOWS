@@ -26,6 +26,11 @@ import AppKit
 /// Standing project rule: no services operated from Russia, China, Iran, or
 /// North Korea (e.g. Tencent Music, NetEase, Yandex Music) — do not add them.
 enum MusicProvider: String, CaseIterable, Identifiable, Codable {
+    /// No streaming subscription needed: FLOWS's own AM/FM internet radio
+    /// AS the music service. A genre ask tunes a matching station, next
+    /// moves to the next station of that genre, pause silences it — the
+    /// shape of a streaming app, served by free public radio.
+    case radio
     case appleMusic
     case spotify
     case youtubeMusic
@@ -46,6 +51,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
+        case .radio: return "Radio (no subscription)"
         case .appleMusic: return "Apple Music"
         case .spotify: return "Spotify"
         case .youtubeMusic: return "YouTube Music"
@@ -66,6 +72,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     var symbol: String {
         switch self {
+        case .radio: return "radio.fill"
         case .appleMusic: return "music.note"
         case .spotify: return "music.note.list"
         case .youtubeMusic: return "play.rectangle.fill"
@@ -97,6 +104,9 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// token on iOS; everything else only its own app can control.
     func controllable(onMac: Bool, spotifyLinked: Bool) -> Bool {
         switch self {
+        // Radio IS FLOWS's own player — always drivable in place, with no
+        // account, subscription, key, or other app involved.
+        case .radio: return true
         case .appleMusic: return true
         case .spotify: return onMac || spotifyLinked
         default: return false
@@ -125,6 +135,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// The service's signature color, approximated for the badge.
     var badgeColor: Color {
         switch self {
+        case .radio: return Color(red: 0.45, green: 0.32, blue: 0.20)   // radio brown
         case .appleMusic: return Color(red: 0.98, green: 0.18, blue: 0.32)
         case .spotify: return Color(red: 0.11, green: 0.73, blue: 0.33)
         case .youtubeMusic: return Color(red: 0.93, green: 0.11, blue: 0.14)
@@ -147,6 +158,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     var appURL: URL? {
         let scheme: String
         switch self {
+        // Radio plays inside FLOWS — there is no app to launch.
+        case .radio: return nil
         case .appleMusic: scheme = "music://"
         case .spotify: scheme = "spotify://"
         case .youtubeMusic: scheme = "youtubemusic://"
@@ -170,6 +183,9 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     var webURL: URL {
         let address: String
         switch self {
+        // Never opened (radio is controllable in place); the directory
+        // FLOWS's stations come from is the honest stand-in.
+        case .radio: address = "https://www.radio-browser.info"
         case .appleMusic: address = "https://music.apple.com"
         case .spotify: address = "https://open.spotify.com"
         case .youtubeMusic: address = "https://music.youtube.com"
@@ -196,6 +212,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// no tip is shown rather than a guess.
     var siriPlaybackTip: String? {
         switch self {
+        // FLOWS plays radio itself, so its phrase routes through FLOWS.
+        case .radio: return "Play something in FLOWS"
         case .appleMusic: return "Hey Siri, play country music"
         case .spotify: return "Hey Siri, play country on Spotify"
         case .youtubeMusic: return "Hey Siri, play country on YouTube Music"
@@ -223,6 +241,8 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
         let address: String
         switch self {
+        // Radio searches happen in FLOWS (RadioBrowser), never on the web.
+        case .radio: return webURL
         case .appleMusic: address = "https://music.apple.com/us/search?term=\(q)"
         case .spotify: address = "https://open.spotify.com/search/\(q)"
         case .youtubeMusic: address = "https://music.youtube.com/search?q=\(q)"

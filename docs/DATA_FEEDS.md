@@ -705,6 +705,52 @@ credential-proxy stream servers, DRM circumvention — are ToS violations
 (DMCA §1201 territory where DRM is involved), risk the USER's account,
 and are App Store rejections. FLOWS ships none of them.
 
+#### Radio AS the music service — no subscription (2026-08)
+
+For a driver with no streaming account, free public radio now behaves
+like a streaming app. `MusicProvider.radio` is a first-class provider
+(and `controllable` everywhere — FLOWS owns the player), so every
+existing surface drives it with no new plumbing:
+
+| Ask | What happens |
+|---|---|
+| "play rock" (voice, mic, or genre chip) | The AM/FM directory is searched for that genre and the results become a station QUEUE; the first plays |
+| **Next** (mini player, CarPlay, Siri, lock screen) | The next station of that genre — wrapping, so a run never dead-ends |
+| **Previous** | The station before it |
+| **Pause** | Silences it and DROPS the stream (a paused live stream would keep burning cellular data); play re-tunes LIVE, because a broadcast has no "where you left off" |
+| Press play with nothing tuned | The stations on the air near the driver, as a queue |
+
+The queue walk (`TruckerRadio.advance`) is pure and pinned, including
+both wrap directions and the empty/one-station edges. Tapping any row in
+the AM/FM list makes THAT visible list the queue, so the on-screen list
+and the transport buttons always agree. Live radio has no shuffle or
+repeat, so the play-order button is hidden rather than lying.
+
+#### Signal drops mid-drive — the playback handoff
+
+`PlaybackFallback` (pure, pinned) decides what still plays, in the order
+of what actually survives:
+
+1. **Music saved on the phone** — the only thing that plays with NO
+   connection. The check deliberately EXCLUDES cloud items
+   (`MPMediaItemPropertyIsCloudItem == false`), because a cloud track is
+   exactly what stops working when the signal dies, and it never
+   triggers the media-library prompt (an un-granted library reads as
+   "nothing local").
+2. **Radio of the same kind** — matched to what they last asked for
+   ("rock" → rock stations). **Stated honestly:** an internet stream
+   still needs *some* signal, so this is the degraded-signal rung, not
+   the no-signal rung — a 32–64 kbps station survives a one-bar link
+   that a music service's high-bitrate stream and its API cannot.
+3. **Nothing** — said plainly rather than pretending.
+
+Playback that does NOT need the network is never touched (`keepPlaying`)
+— local files already playing keep going, because the best handoff is
+the one that doesn't happen. Every hand-off speaks what changed and why,
+and when signal returns FLOWS says so ONCE without yanking the driver
+mid-song back to a service — being dragged out of a song is not
+"seamless".
+
 #### Voice into the services — three verified routes (2026-08)
 
 1. **Native Siri** — services shipping SiriKit media intents answer

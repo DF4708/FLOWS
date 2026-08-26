@@ -289,6 +289,7 @@ targets:
       - path: FLOWS/Sources/Core/VoiceReply.swift
       - path: FLOWS/Sources/Core/TextScale.swift
       - path: FLOWS/Sources/Core/IntentClarifier.swift
+      - path: FLOWS/Sources/Core/PlaybackFallback.swift
       - path: FLOWSTests
     settings:
       base:

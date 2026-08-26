@@ -553,7 +553,35 @@ final class AppModel: ObservableObject {
     /// starts the best playlist remotely; every no-API service opens at
     /// its own search. The spoken confirmation says which of those
     /// actually happened.
+    /// What the driver last asked to hear ("rock") — the offline handoff
+    /// matches radio to it, and it survives a provider switch.
+    private(set) var lastMusicAsk: String?
+
+    /// Radio AS the music service: a genre ask becomes a station QUEUE —
+    /// the first station plays, next/previous walk the rest, exactly like
+    /// a playlist. No subscription, no account.
+    func playGenreRadio(_ genre: String, spokenPrefix: String? = nil) async {
+        await radioBrowser.search(text: genre)
+        let channels = radioBrowser.stations.map(\.channel)
+        guard !channels.isEmpty else {
+            VoiceAnnouncer.shared.announce(
+                "No \(genre) stations found right now.")
+            return
+        }
+        radio.playQueue(channels, label: genre)
+        let name = radio.lastPlayed?.name ?? "a station"
+        VoiceAnnouncer.shared.announce(
+            (spokenPrefix.map { $0 + " " } ?? "") + "Playing \(genre) — \(name). "
+            + "Say next for another \(genre) station.")
+    }
+
     func playMusicAsk(_ term: String) {
+        lastMusicAsk = term
+        // No streaming service: free public radio IS the music service.
+        if musicProvider == .radio {
+            Task { await playGenreRadio(term) }
+            return
+        }
         if musicProvider == .appleMusic {
             MusicController.shared.playSearchOrGenre(term)
             VoiceAnnouncer.shared.announce("Playing \(term).")
@@ -589,15 +617,80 @@ final class AppModel: ObservableObject {
             }
             return
         }
+        // Everything else becomes a station QUEUE (a callsign, a genre) so
+        // next/previous walk the results like a playlist.
         Task { [weak self] in
             guard let self else { return }
             await self.radioBrowser.search(text: term)
-            if let top = self.radioBrowser.stations.first {
-                self.radio.play(top.channel)
-                VoiceAnnouncer.shared.announce("Playing \(top.name).")
-            } else {
+            let channels = self.radioBrowser.stations.map(\.channel)
+            if channels.isEmpty {
                 VoiceAnnouncer.shared.announce("No station found for \(term).")
+            } else {
+                self.radio.playQueue(channels, label: term)
+                VoiceAnnouncer.shared.announce(
+                    "Playing \(self.radio.lastPlayed?.name ?? term).")
             }
+        }
+    }
+
+    /// True while playback was moved by an offline handoff — so the
+    /// return of signal is announced once, and never yanks the driver
+    /// mid-song back to a service.
+    private var handedOffOffline = false
+
+    /// The network path changed. On loss, hand playback to whatever still
+    /// works; on return, say so once and leave the choice to the driver.
+    private func handleConnectivity(offline: Bool) {
+        guard offline else {
+            if handedOffOffline {
+                handedOffOffline = false
+                VoiceAnnouncer.shared.announce(
+                    "Signal's back. Say play something in FLOWS to switch back.")
+            }
+            return
+        }
+        let music = MusicController.shared
+        let radioPlaying = radio.playingChannelID != nil
+        let genre = lastMusicAsk
+            ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel)
+        let source = PlaybackFallback.onConnectionLost(
+            isPlaying: music.isPlaying || radioPlaying,
+            // A station is a stream too — radio playing always needs the
+            // network, whatever the picked provider says.
+            needsNetwork: radioPlaying || music.currentPlaybackNeedsNetwork,
+            hasLocalMusic: music.hasLocalMusic,
+            lastGenre: genre)
+        if let line = PlaybackFallback.spokenLine(for: source) {
+            VoiceAnnouncer.shared.announce(line)
+        }
+        switch source {
+        case .localLibrary:
+            handedOffOffline = true
+            radio.stop()                      // a stalling stream helps nobody
+            music.playLocalLibrary()
+        case .radio(let genre):
+            handedOffOffline = true
+            Task { await playGenreRadio(genre) }
+        case .nothingAvailable, .keepPlaying:
+            break
+        }
+    }
+
+    /// Press play with radio as the service and no history: the stations
+    /// around here, as a queue.
+    private func playLocalStationsRadio() {
+        let code = currentStateCode
+        Task { [weak self] in
+            guard let self else { return }
+            await self.radioBrowser.searchNearby(stateCode: code)
+            let channels = self.radioBrowser.stations.map(\.channel)
+            guard !channels.isEmpty else {
+                VoiceAnnouncer.shared.announce("No stations found nearby yet.")
+                return
+            }
+            self.radio.playQueue(channels, label: "stations near you")
+            VoiceAnnouncer.shared.announce(
+                "Playing \(self.radio.lastPlayed?.name ?? "a nearby station").")
         }
     }
 
@@ -606,6 +699,12 @@ final class AppModel: ObservableObject {
     func playMusic() {
         guard musicProviderChosen else {
             showMusicProviderPrompt = true
+            return
+        }
+        // Radio with nothing tuned yet: start with what's on the air here.
+        if musicProvider == .radio, radio.playingChannelID == nil,
+           radio.lastPlayed == nil {
+            playLocalStationsRadio()
             return
         }
         if musicControllable {
@@ -1186,6 +1285,22 @@ final class AppModel: ObservableObject {
         navigation.$guidance
             .compactMap { $0 }
             .sink { [weak self] guidance in self?.speakTurn(guidance) }
+            .store(in: &serviceSubscriptions)
+        // Radio state feeds the mini player, Siri, and CarPlay when radio
+        // IS the picked service.
+        MusicController.shared.radioService = radio
+        radio.objectWillChange
+            .sink { _ in
+                Task { @MainActor in MusicController.shared.syncFromRadio() }
+            }
+            .store(in: &serviceSubscriptions)
+        // Offline handoff: the network path dropping must not end the
+        // music — hand off to what still plays (see PlaybackFallback).
+        breadcrumbs.$isOffline
+            .removeDuplicates()
+            .sink { [weak self] offline in
+                Task { @MainActor in self?.handleConnectivity(offline: offline) }
+            }
             .store(in: &serviceSubscriptions)
         // Location: on onboarded launches, request right away (a no-op once
         // granted). First launch waits for the welcome card's Get started.

@@ -1363,7 +1363,14 @@ struct NavigationHUD: View {
                 if model.radio.playingChannelID == station.channel.id {
                     model.radio.stop()
                 } else {
-                    model.radio.play(station.channel)
+                    // The visible list IS the queue — next/previous (and
+                    // the mini player's skip button) walk these stations.
+                    let channels = model.radioBrowser.stations.map(\.channel)
+                    let start = channels.firstIndex { $0.id == station.channel.id } ?? 0
+                    model.radio.playQueue(
+                        channels,
+                        label: stationSearch.isEmpty ? "these stations" : stationSearch,
+                        startAt: start)
                 }
             } label: {
                 Image(systemName: model.radio.playingChannelID == station.channel.id
@@ -1519,9 +1526,12 @@ struct NavigationHUD: View {
                     .frame(width: 30, height: Theme.tapMinimum)
             }
             .buttonStyle(.plain)
-            .help("Next track")
-            .accessibilityLabel("Next track")
-            // Cycles shuffle → in order → loop.
+            .help(model.musicProvider == .radio ? "Next station" : "Next track")
+            .accessibilityLabel(model.musicProvider == .radio
+                                ? "Next station" : "Next track")
+            // Cycles shuffle → in order → loop. Live radio has no play
+            // order, so the button doesn't appear for it.
+            if model.musicProvider != .radio {
             Button { music.cyclePlayOrder() } label: {
                 Image(systemName: music.playOrder.symbol)
                     .frame(width: 30, height: Theme.tapMinimum)
@@ -1530,6 +1540,7 @@ struct NavigationHUD: View {
             .buttonStyle(.plain)
             .help("Play order: \(music.playOrder.rawValue)")
             .accessibilityLabel("Play order: \(music.playOrder.rawValue)")
+            }
             }
         }
         .font(.system(size: 14, weight: .semibold))
@@ -1585,45 +1596,27 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(musicMicListening ? "Listening" : "Say what to play")
-            if !model.musicControllable {
-                // No control API exists for this service — the menu is
-                // honest deep links into ITS OWN app: open it, or jump
-                // straight to its search for a genre (universal links land
-                // in the installed app; the web player otherwise).
+            // Per-service rows — what THIS provider can actually do.
+            if model.musicProvider == .radio {
+                musicMenuRow("Stations near you",
+                             symbol: "antenna.radiowaves.left.and.right",
+                             detail: "What's on the air around here") {
+                    model.playMusic()
+                }
+                if !model.radio.queueLabel.isEmpty, model.radio.queue.count > 1 {
+                    Text("\(model.radio.queueLabel.capitalized) — station "
+                         + "\(model.radio.queueIndex + 1) of \(model.radio.queue.count). "
+                         + "Next plays another one.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else if !model.musicControllable {
+                // No control API exists for this service — one honest row
+                // into its own app (the genre chips below deep-link there).
                 musicMenuRow("Open \(model.musicProvider.displayName)",
                              symbol: "arrow.up.forward.app",
                              detail: "Playback controls live there") {
                     model.musicProvider.openApp()
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Genres").font(.caption.weight(.bold)).foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        ForEach(MusicController.genreRows, id: \.self) { genre in
-                            Button {
-                                model.musicProvider.openSearch(query: genre)
-                                showMusicMenu = false
-                            } label: {
-                                Text(genre)
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .padding(.horizontal, 10)
-                                    .frame(minHeight: 30)
-                                    .background(Color.black.opacity(0.05))
-                                    .clipShape(Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Search \(genre) in \(model.musicProvider.displayName)")
-                        }
-                    }
-                    Text("Each genre opens \(model.musicProvider.displayName)'s own search.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                // Native Siri route, where the service supports it — the
-                // phone can start playback there with no app-hopping.
-                if let tip = model.musicProvider.siriPlaybackTip {
-                    Text("Voice tip: \"\(tip)\" works directly — no FLOWS needed.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
             } else if model.musicProvider == .spotify {
                 // Spotify's remote has no library/genre queries — one
@@ -1636,20 +1629,25 @@ struct NavigationHUD: View {
                     music.resumeRecent()
                 }
             } else {
-            musicMenuRow("Recently played", symbol: "clock.arrow.circlepath",
-                         detail: "Keep playing your last songs") {
-                music.resumeRecent()
+                musicMenuRow("Recently played", symbol: "clock.arrow.circlepath",
+                             detail: "Keep playing your last songs") {
+                    music.resumeRecent()
+                }
+                musicMenuRow("My station", symbol: "dot.radiowaves.left.and.right",
+                             detail: "Your own song mix") {
+                    music.playMyStation()
+                }
             }
-            musicMenuRow("My station", symbol: "dot.radiowaves.left.and.right",
-                         detail: "Your own song mix") {
-                music.playMyStation()
-            }
+            // Genres, for EVERY provider — one router decides what a genre
+            // MEANS for the picked service: radio tunes a station of that
+            // kind, Apple Music plays it, a linked Spotify searches and
+            // starts it, and a no-API service opens at its own search.
             VStack(alignment: .leading, spacing: 4) {
                 Text("Genres").font(.caption.weight(.bold)).foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     ForEach(MusicController.genreRows, id: \.self) { genre in
                         Button {
-                            music.playGenre(genre)
+                            model.playMusicAsk(genre)
                             showMusicMenu = false
                         } label: {
                             Text(genre)
@@ -1660,13 +1658,36 @@ struct NavigationHUD: View {
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            "Play \(genre) on \(model.musicProvider.displayName)")
                     }
                 }
+                Text(genreDestinationNote)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
+            if let tip = model.musicProvider.siriPlaybackTip {
+                Text("Voice tip: \"\(tip)\"")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .floatingCard()
         .frame(maxWidth: isCompact ? .infinity : 380)
+    }
+
+    /// Where a genre chip actually takes the driver, in plain words.
+    private var genreDestinationNote: String {
+        switch model.musicProvider {
+        case .radio:
+            return "A genre tunes a station of that kind — next moves to another."
+        case .appleMusic:
+            return "A genre plays from Apple Music."
+        case .spotify where model.musicControllable:
+            return "A genre searches Spotify and starts it."
+        default:
+            return "A genre opens \(model.musicProvider.displayName)'s own search."
+        }
     }
 
     /// First play press: ask which service the driver uses, once. The pick

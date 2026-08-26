@@ -448,11 +448,90 @@ final class RadioAndSpotifyTests: XCTestCase {
             "https://www.siriusxm.com/search?activeTab=all&q=classic%20country")
     }
 
+    // MARK: radio as a music service — the station queue
+
+    func testQueueAdvanceWrapsBothWays() {
+        // Next past the end wraps to the first station, previous past the
+        // start wraps to the last — a genre run never dead-ends.
+        XCTAssertEqual(TruckerRadio.advance(index: 0, count: 3, by: 1), 1)
+        XCTAssertEqual(TruckerRadio.advance(index: 2, count: 3, by: 1), 0)
+        XCTAssertEqual(TruckerRadio.advance(index: 0, count: 3, by: -1), 2)
+        XCTAssertEqual(TruckerRadio.advance(index: 1, count: 3, by: -1), 0)
+        // One-station queue: next/previous stay put rather than crash.
+        XCTAssertEqual(TruckerRadio.advance(index: 0, count: 1, by: 1), 0)
+        XCTAssertEqual(TruckerRadio.advance(index: 0, count: 1, by: -1), 0)
+        // Empty queue is safe (no stations found yet).
+        XCTAssertEqual(TruckerRadio.advance(index: 0, count: 0, by: 1), 0)
+        XCTAssertEqual(TruckerRadio.advance(index: 5, count: 0, by: -1), 0)
+    }
+
+    // MARK: offline handoff — what still plays when the signal drops
+
+    func testHandoffPrefersLocalMusicThenLikeForLikeRadio() {
+        // Downloaded music is the only thing that plays with NO signal.
+        XCTAssertEqual(
+            PlaybackFallback.onConnectionLost(
+                isPlaying: true, needsNetwork: true,
+                hasLocalMusic: true, lastGenre: "rock"),
+            .localLibrary)
+        // Nothing saved on the phone → a station of the same kind (the
+        // degraded-signal rung: a low-bitrate stream may still flow).
+        XCTAssertEqual(
+            PlaybackFallback.onConnectionLost(
+                isPlaying: true, needsNetwork: true,
+                hasLocalMusic: false, lastGenre: "rock"),
+            .radio(genre: "rock"))
+        // No local music and nothing to match → say so, don't pretend.
+        XCTAssertEqual(
+            PlaybackFallback.onConnectionLost(
+                isPlaying: true, needsNetwork: true,
+                hasLocalMusic: false, lastGenre: nil),
+            .nothingAvailable)
+        XCTAssertEqual(
+            PlaybackFallback.onConnectionLost(
+                isPlaying: true, needsNetwork: true,
+                hasLocalMusic: false, lastGenre: "   "),
+            .nothingAvailable)
+    }
+
+    func testHandoffNeverInterruptsPlaybackThatSurvivesOffline() {
+        // Local files already playing: the best handoff is none at all.
+        XCTAssertEqual(
+            PlaybackFallback.onConnectionLost(
+                isPlaying: true, needsNetwork: false,
+                hasLocalMusic: true, lastGenre: "rock"),
+            .keepPlaying)
+        // Nothing playing: nothing to save.
+        XCTAssertEqual(
+            PlaybackFallback.onConnectionLost(
+                isPlaying: false, needsNetwork: true,
+                hasLocalMusic: true, lastGenre: "rock"),
+            .keepPlaying)
+        XCTAssertNil(PlaybackFallback.spokenLine(for: .keepPlaying))
+    }
+
+    func testHandoffSpeaksWhatChangedAndWhy() {
+        XCTAssertEqual(
+            PlaybackFallback.spokenLine(for: .localLibrary),
+            "Signal dropped — playing the music saved on your phone.")
+        XCTAssertEqual(
+            PlaybackFallback.spokenLine(for: .radio(genre: "rock")),
+            "Signal dropped and there's no music saved on your phone — "
+            + "trying rock radio.")
+        XCTAssertEqual(
+            PlaybackFallback.spokenLine(for: .nothingAvailable),
+            "Signal dropped, and there's no music saved on your phone "
+            + "to fall back on.")
+    }
+
     // MARK: in-place control — the truth table every surface consults
 
     func testInPlaceControlTruthTableCoversEveryProvider() {
         for provider in MusicProvider.allCases {
-            let keyless = provider == .appleMusic
+            // Radio is FLOWS's own player — controllable everywhere with
+            // no account, key, or other app. Apple Music is the other
+            // always-keyless one.
+            let keyless = provider == .appleMusic || provider == .radio
             // Keyless floor off-mac: Apple Music only.
             XCTAssertEqual(provider.controllable(onMac: false, spotifyLinked: false),
                            keyless, "\(provider.rawValue) keyless")
@@ -544,9 +623,11 @@ final class RadioAndSpotifyTests: XCTestCase {
     // MARK: native Siri playback tips — verified services only
 
     func testSiriPlaybackTipsExistOnlyForVerifiedServices() {
-        let verified: Set<MusicProvider> = [.appleMusic, .spotify, .youtubeMusic,
-                                            .amazonMusic, .pandora, .deezer,
-                                            .tidal, .iHeartRadio]
+        // Radio's phrase routes through FLOWS (it IS FLOWS's player).
+        let verified: Set<MusicProvider> = [.radio, .appleMusic, .spotify,
+                                            .youtubeMusic, .amazonMusic,
+                                            .pandora, .deezer, .tidal,
+                                            .iHeartRadio]
         for provider in MusicProvider.allCases {
             if verified.contains(provider) {
                 XCTAssertNotNil(provider.siriPlaybackTip, provider.rawValue)
