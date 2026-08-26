@@ -81,9 +81,14 @@ enum MexicoFuelParsing {
 actor MexicoFuelPrices {
     static let shared = MexicoFuelPrices()
 
+    /// Flat fields, not the parser's per-station dictionary: ~13k stations
+    /// resident for the session meant ~13k Dictionary allocations for two
+    /// values each. `premium` is parsed but deliberately not retained —
+    /// price(near:) maps every non-diesel fuel to "regular".
     struct Station {
         let coordinate: CLLocationCoordinate2D
-        let prices: [String: Double]   // "regular"/"premium"/"diesel", MXN/L
+        let regular: Double?   // MXN/L
+        let diesel: Double?    // MXN/L
     }
 
     private var grid: [Int: [Station]] = [:]
@@ -110,7 +115,8 @@ actor MexicoFuelPrices {
         var g: [Int: [Station]] = [:]
         for (id, coord) in places {
             guard let p = prices[id] else { continue }
-            g[cellKey(coord), default: []].append(Station(coordinate: coord, prices: p))
+            g[cellKey(coord), default: []].append(Station(
+                coordinate: coord, regular: p["regular"], diesel: p["diesel"]))
         }
         grid = g
         loaded = Date()
@@ -121,13 +127,13 @@ actor MexicoFuelPrices {
     func price(near point: CLLocationCoordinate2D, fuel: FuelType) async -> Double? {
         await ensureLoaded()
         guard fuel != .electric else { return nil }
-        let key = fuel == .diesel ? "diesel" : "regular"
+        let wantDiesel = fuel == .diesel
         let base = cellKey(point)
         var best: (Double, Double)?   // (distance, price)
         for dy in -1...1 {
             for dx in -1...1 {
                 for s in grid[base &+ dy &* 100_000 &+ dx] ?? [] {
-                    guard let p = s.prices[key] else { continue }
+                    guard let p = wantDiesel ? s.diesel : s.regular else { continue }
                     let d = POIRanking.meters(s.coordinate, point)
                     if d < 300, d < (best?.0 ?? .infinity) { best = (d, p) }
                 }
