@@ -25,11 +25,15 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
 
     private let manager = CLLocationManager()
 
+    // No permission request at init: the welcome card explains ALL of
+    // FLOWS's permissions in one message first, and AppModel triggers the
+    // location prompt when the driver taps Get started (immediately on
+    // later launches). A fresh install must never open with a stack of
+    // unexplained system dialogs.
     override init() {
         super.init()
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        requestAuthorization()
     }
 
     func requestAuthorization() {

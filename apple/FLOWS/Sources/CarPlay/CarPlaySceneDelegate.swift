@@ -6,9 +6,9 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
-// CarPlay surface: CPMapTemplate for navigation plus Apple Music transport
-// controls. Activates ONLY when Apple has granted the app the
-// com.apple.developer.carplay-maps entitlement (applied for via
+// CarPlay surface: CPMapTemplate for navigation plus transport controls for
+// the driver's PICKED music service. Activates ONLY when Apple has granted
+// the app the com.apple.developer.carplay-maps entitlement (applied for via
 // developer.apple.com/carplay — see docs/APPLE_APP.md §CarPlay). Without the
 // entitlement iOS simply never connects this scene; the phone/iPad app is
 // unaffected.
@@ -16,7 +16,6 @@
 #if canImport(CarPlay)
 import CarPlay
 import CoreLocation
-import MediaPlayer
 import UIKit
 
 final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
@@ -44,17 +43,38 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         }
         map.leadingNavigationBarButtons = [whereTo]
 
-        // Apple Music transport controls, right on the map template. Playback
-        // uses the system music player so whatever the driver had going in
-        // Music keeps playing — FLOWS just surfaces the controls.
-        let player = MPMusicPlayerController.systemMusicPlayer
-        let playPause = CPBarButton(title: "⏯") { _ in
-            if player.playbackState == .playing { player.pause() } else { player.play() }
+        // Transport controls for the PICKED service, through the same
+        // MusicController as the phone HUD (Apple Music always; radio
+        // always; Spotify with the user's token). A service FLOWS can't
+        // drive gets NO buttons here — CarPlay can't open another app, and
+        // buttons that silently played Apple Music over the driver's pick
+        // were the dishonest-controls bug, for every streaming option alike.
+        let music = MusicController.shared
+        var buttons: [CPBarButton] = []
+        if music.controlsInPlace {
+            buttons.append(CPBarButton(title: "⏯") { _ in
+                Task { @MainActor in MusicController.shared.playPause() }
+            })
+            buttons.append(CPBarButton(title: "⏭") { _ in
+                Task { @MainActor in MusicController.shared.skip() }
+            })
         }
-        let next = CPBarButton(title: "⏭") { _ in
-            player.skipToNextItem()
-        }
-        map.trailingNavigationBarButtons = [playPause, next]
+        // Weather radio on the car screen: tunes the nearest NOAA relay,
+        // press again to stop. Audio already routes through the car (the
+        // app's background-audio session); this button is the control.
+        buttons.append(CPBarButton(title: "WX") { _ in
+            Task { @MainActor in
+                guard let model = AppModel.shared else { return }
+                if model.radio.playingChannelID != nil {
+                    model.radio.stop()
+                } else if let channel = model.effectivePosition
+                    .flatMap({ model.radio.nearestChannel(to: $0)?.channel })
+                    ?? model.radio.nearestChannel(stateCode: model.currentStateCode) {
+                    model.radio.play(channel)
+                }
+            }
+        })
+        map.trailingNavigationBarButtons = buttons
 
         self.mapTemplate = map
         interfaceController.setRootTemplate(map, animated: true, completion: nil)

@@ -45,6 +45,8 @@ diagnosed, never assumed broken.
 | Work zones | US DOT WZDx | `data.transportation.gov` | — | `PrimarySources.swift` |
 | Vehicle economy DB | EPA | `fueleconomy.gov` | — | `EPAVehicleDatabase.swift` |
 | NOAA weather radio | WeatherUSA relays | `weatherusa.net` | — | `TruckerRadio.swift` |
+| AM/FM stations (US) | radio-browser.info (community) | `all.api.radio-browser.info` → runtime-picked mirror | — | `RadioBrowser.swift` |
+| Spotify remote control | Spotify Web API | `api.spotify.com` | user token (optional) | `SpotifyRemote.swift` |
 | POI discovery | Apple MapKit | (entitlement) | — | `POIService.swift` |
 | Amtrak stations (bundled) | Amtrak GTFS stops.txt, rail-served only | `content.amtrak.com` (bundled snapshot retrieved 2026-07-30, ships as `amtrak_stations.json`; no build-time fetch) | — | `AmtrakStations.swift` |
 | Fuel prices (US) | TomTom | `api.tomtom.com` | TomTom | `ZipBordersAndTransit.swift` |
@@ -514,6 +516,427 @@ The low-bridge clearance query (`clearances(inBoxes:)`) now has a bbox-keyed,
 6-hour TTL cache (device-stretched). Bridges are static infrastructure, so
 re-scoring the same route no longer re-queries the rate-limited Overpass API;
 only successes are cached (a failure stays retryable).
+
+---
+
+## 13. Radio + music expansion (2026-08) — AM/FM, scanner, Spotify remote
+
+### AM/FM stations — radio-browser.info (keyless, wired)
+
+The Emergency/Trucker radio card carried NOAA relays only; it now also
+searches the **radio-browser.info** community directory (`RadioBrowser.swift`).
+All endpoints probed live before wiring:
+
+- **Mirror discovery:** `https://all.api.radio-browser.info/json/servers`
+  returns the mirror list (one row per IP family). Per the project's API
+  etiquette, FLOWS fetches that list at runtime, shuffles it, and picks the
+  first mirror whose `/json/stats` answers `{"status":"OK"}` (verified:
+  `de1.api.radio-browser.info`, 57k stations). The all-servers name itself
+  (DNS round-robin over the same mirrors) is the fallback host — never a
+  hardcoded mirror.
+- **Search:** `/json/stations/search?countrycode=US&hidebroken=true&`
+  `is_https=true&order=votes&reverse=true` + `state=` (vehicle's state),
+  `name=`, or `tag=` (genre). US-only structurally satisfies the
+  no-RU/CN/IR/NK rule; `is_https` is re-checked client-side (probe: ~half
+  of a state's entries are cleartext — ATS would block them, so they're
+  filtered, not scheme-upgraded: unlike the NOAA relay hosts, arbitrary
+  station hosts don't all serve TLS). Free-text search runs `name` AND
+  `tag` and merges (name hits first) — the directory's name search never
+  matches genre tags, so "bluegrass" needs both.
+- **Playback** rides the existing TruckerRadio AVPlayer path (same
+  plain-words offline text, same one-stream-at-a-time rule as NOAA), now
+  with the iOS `audio` background mode + a lock-screen now-playing card
+  (play/stop remote commands retune the last station) so the stream
+  survives screen lock — radio that dies when the phone sleeps is no
+  radio at all.
+
+### Police/fire/EMS scanner — Broadcastify (link-out ONLY, diagnosed)
+
+Broadcastify's terms allow **no keyless stream API** — feeds are their
+product. Diagnosis of the public URL space (all probed live): county pages
+exist only as internal sequential ids (`/listen/ctid/2523` — NOT derivable
+from FIPS; mapping them would mean scraping every state page), state
+directories are `/listen/stid/<state FIPS>` (48 → Texas verified), and
+`/listen/near/` is their own "Feeds Near Me" player page, which locates the
+driver via the browser and lists that county's feeds. FLOWS therefore links
+OUT (`ScannerLinks`) — no in-app scanner audio, and the card says so in
+plain words, including that scanner-listening law varies by state and it
+must not be used while driving where prohibited. Two links are offered:
+"Near me" (`/listen/near/`, county-precise after one browser location
+prompt) and the driver's state directory (`/listen/stid/<FIPS>`, no
+prompt — the county is one tap inside).
+
+**OpenMHz** (openmhz.com) rides along as a third, clearly-labeled link:
+volunteer captures of trunked public-safety systems — RECORDINGS a few
+minutes behind, not live audio. Its API sits behind a bot check (probe:
+curl gets a challenge page), so in-app wiring fails the keyless-verified
+bar; the link-out passes the check in a real browser.
+
+### Hands-free voice loop (2026-08)
+
+Siri cannot start a conversation on its own, so FLOWS speaks FIRST
+through its own voice (`VoiceAnnouncer`, AVSpeechSynthesizer over the
+car's audio route; music/radio duck): a fresh faster-route offer, and
+each imminent warning entering the corridor — AMBER included, with the
+call-911 line. The driver answers through Siri: **"go ahead in FLOWS"**
+accepts whatever was just offered (faster route, or a voice-planned trip
+staged by "start a trip in FLOWS" — route choices land on screen, and
+NOTHING drives until the spoken yes). "Read the alert in FLOWS" reads the
+full official text back on demand. Announcement wording is pure
+(`SiriSummaries`) and pinned by tests; a Settings toggle silences the
+voice without losing any screen behavior.
+
+The loop closed further (same pass): after FLOWS asks a question out
+loud, it LISTENS for the plain spoken **yes/no** (`VoiceReply` — the
+crash check-in's guarded microphone pattern: wait out our own utterance,
+refuse a record-incapable session, bounded window, nothing guessed on
+silence), so a faster-route offer is a two-word conversation. Find-a-stop
+became a stepwise dialogue with unambiguous choices: "find food in
+FLOWS" → "what sounds good: fast food, pizza, Mexican…?" → "I want
+Mexican" → "Does Taco Bell or El Rays work for you?" → naming one (or a
+bare yes = the first) adds it to the route; a no leaves the list on
+screen (`VoicePick`, pure + pinned). Turn-by-turn is now SPOKEN
+(guidance stream → twice per maneuver: "In a quarter mile, turn left…",
+then close-in) with its own Settings switch, separate from the alert
+voice.
+
+Changes of mind are part of the dialogue (`VoicePick.placeReply`): at
+the place-offer step, naming another cuisine ("actually, Mexican")
+re-runs the search outright, "go back" / "something else" returns to the
+cuisine question, and a named place always wins over a stray back-word
+in the same sentence — bounded to three rounds so the conversation can't
+loop. Accessibility channels ride the same events: every spoken
+announcement also lands as a FELT haptic (always on — it's the
+hearing-parity alternative to the voice, not its companion), the
+escalation banner holds steady instead of flashing under Reduce Motion,
+and the icon-only controls (transport, radio play/stop per station, the
+stop buttons' compact row) carry VoiceOver labels.
+
+**Finding-the-right-words rescue (`IntentClarifier`)**: when the
+deterministic matchers read a dialogue reply as unclear, Apple's
+ON-DEVICE foundation model (Apple Intelligence, iOS 26+, a system
+framework — keyless, no dependency, nothing leaves the phone) gets one
+shot at mapping the utterance onto an offered option ("the one with the
+tacos" → Taco Bell) before the on-screen fallback. It never overrides a
+clear match, is never asked yes/no safety questions, and its reply is
+parsed defensively (first number, in range — `optionIndex`, pinned). On
+hardware without Apple Intelligence the dialogue behaves exactly as
+before.
+
+The same bounded pick-one-option shape now covers every fuzzy selection
+point (each a retry-once fallback, never the primary path, all gated by
+the Settings "Word-finding help" toggle): trip-start destination
+disambiguation (several map hits → the one matching the words as
+spoken; the go-ahead confirmation still stands before any driving),
+add-a-stop chain recovery (a misheard "book-ease place" → Buc-ee's →
+corridor search retries), and radio genre mapping ("play me some old
+country" → the `classic country` directory tag from a curated 26-tag
+vocabulary, `RadioBrowser.commonGenres`, pinned). Free-text generation
+is deliberately never requested — the model only ever picks from lists
+FLOWS built.
+
+**Apple accessibility tools surfaced** (Settings → Accessibility
+section): Personal Voice — FLOWS's announcements can speak with the
+user's OWN stored voice (AVSpeechSynthesizer personal-voice
+authorization; default OFF, the system asks once); haptic alert taps
+(default ON — the hearing-parity channel); word-finding help (default
+ON). Vocal Shortcuts, Type to Siri, and Live Speech need no code — they
+drive the App Intents that already exist — so the section explains them
+in plain words instead.
+
+**Text size (`TextScale`)**: a Settings slider sets the app's type size
+directly, and BOTH paths — the slider and the phone's own accessibility
+setting — are clamped at the app root to what the current window width
+can hold (phone-width caps before the giant accessibility tiers), so
+enormous type can never wrap cards into a smear or push words off an
+edge. −1 = follow the system; pure range math pinned by tests.
+
+### Spotify remote — optional user token (the Yelp/TomTom pattern)
+
+True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client
+key — a dependency this repo doesn't take. Instead (`SpotifyRemote.swift`):
+a **user-supplied Web API token** (Settings → Data sources, Keychain-stored
+via SecureStore — a bearer token is a credential) lights up play / pause /
+skip / shuffle against `api.spotify.com/v1/me/player/*` on the user's active
+Spotify device. Needs Premium; tokens expire ~hourly — every failure mode
+maps to one plain-words fix (`SpotifyWebAPI.plainWords`). Without a token
+the mini player keeps the honest "Open Spotify" button. macOS is untouched:
+Spotify.app is still scripted directly over Apple Events.
+
+#### Why only Spotify — the per-service control survey (2026-08)
+
+"Can FLOWS's transport buttons drive this service in place?" was checked
+for every provider the mini player offers, not extrapolated from Spotify's
+answer. The result: **Spotify is the only third-party service with a public
+remote-control API** — everything else publishes no API, froze it, or gates
+an in-app-playback SDK behind a partner agreement (a dependency + client
+key, exactly what the optional-token pattern exists to avoid).
+
+| Service | Diagnosis |
+|---|---|
+| Apple Music | In place everywhere, keyless (MPMusicPlayerController; Apple Events on macOS) |
+| Spotify | Web API player endpoints + user token (this pass); Apple Events on macOS |
+| YouTube Music | No official API of any kind — only cookie-scraping unofficial wrappers (ytmusicapi), a ToS violation FLOWS won't ship |
+| Amazon Music | Web/Device APIs are a closed partner beta: certification + Widevine DRM, in-app playback only — no remote control |
+| Pandora | Official GraphQL API exists but is partner-only, and Pandora states it is "not currently exploring new partnerships" — no public path |
+| SiriusXM | No public API ever; third-party stream access was deliberately shut off (their player tech changes lock out outside apps) — app/web-player deep link only |
+| Deezer | API frozen (no new tokens issued); player SDKs deprecated; no playback control |
+| Tidal | Public API is catalog/playlists only; playback means their SDK in your app (client key) — no remote endpoint |
+| SoundCloud | App registration closed since 2022; the API streams audio into YOUR app — no remote control |
+| Qobuz | Partner-agreement API only |
+| iHeartRadio | No public control API. BUT its broadcast stations are AM/FM simulcasts — many stream keylessly through the radio-browser.info directory, so the radio card already plays them (that's the honest keyless path to iHeart content) |
+| JioSaavn / Gaana / Apple Podcasts / Audible | No public control APIs |
+
+Pandora and SiriusXM joined the provider picker in this pass as honest
+deep-link options (`pandora://` / `sxm://` app schemes with the web player
+as fallback — `openApp()` degrades gracefully if a scheme changes). Both
+read as uncontrollable in the truth table like every other no-API
+service: transport buttons never appear for them.
+
+#### The no-API integration layer — search deep links (2026-08)
+
+Asked to integrate the no-API services anyway, the honest maximum was
+built and the dishonest routes stayed out. The boundary, stated once: on
+iOS there is NO mechanism to drive another app's playback without that
+app's own SDK — the sandbox withholds the capability (Apple's
+media-remote plumbing is private API), so this is not missing
+documentation. The known workarounds — cookie-scraping wrappers,
+credential-proxy stream servers, DRM circumvention — are ToS violations
+(DMCA §1201 territory where DRM is involved), risk the USER's account,
+and are App Store rejections. FLOWS ships none of them.
+
+#### Radio AS the music service — no subscription (2026-08)
+
+For a driver with no streaming account, free public radio now behaves
+like a streaming app. `MusicProvider.radio` is a first-class provider
+(and `controllable` everywhere — FLOWS owns the player), so every
+existing surface drives it with no new plumbing:
+
+| Ask | What happens |
+|---|---|
+| "play rock" (voice, mic, or genre chip) | The AM/FM directory is searched for that genre and the results become a station QUEUE; the first plays |
+| **Next** (mini player, CarPlay, Siri, lock screen) | The next station of that genre — wrapping, so a run never dead-ends |
+| **Previous** | The station before it |
+| **Pause** | Silences it and DROPS the stream (a paused live stream would keep burning cellular data); play re-tunes LIVE, because a broadcast has no "where you left off" |
+| Press play with nothing tuned | The stations on the air near the driver, as a queue |
+
+The queue walk (`TruckerRadio.advance`) is pure and pinned, including
+both wrap directions and the empty/one-station edges. Tapping any row in
+the AM/FM list makes THAT visible list the queue, so the on-screen list
+and the transport buttons always agree. Live radio has no shuffle or
+repeat, so the play-order button is hidden rather than lying.
+
+#### Signal drops mid-drive — the playback handoff
+
+**First: the signal dropping is NOT the music stopping** (`PlaybackGrace`,
+pure + pinned). Every player is already holding buffered audio and keeps
+playing from it, so handing off the instant the path fails would cut off
+sound that was going to play fine — and would turn a ten-second tunnel
+into a jarring source switch for nothing. FLOWS waits out the buffer and
+acts only if the link is still down when that audio would have run out.
+Two things end the wait early, and both beat the clock:
+
+* **the connection returns** — the buffer carried the music through, so
+  the pending handoff is simply cancelled and the driver never hears a
+  thing;
+* **playback actually stalls** — the buffer was shorter than expected,
+  so there's no reason to sit in silence waiting for a timer.
+
+**Per-service buffer depths were investigated and deliberately NOT
+used.** No streaming service publishes a read-ahead figure — a sweep
+across Spotify, YouTube Music, Amazon Music, Tidal, Deezer, and Pandora
+turned up only cache-troubleshooting advice, never a specification —
+and the real depth varies with bitrate, Data Saver, and signal quality
+anyway. A per-service table of guessed seconds would be fabrication
+that silently rots as each app ships an update. So FLOWS measures what
+it can own and, for everything else, **watches the audio itself**:
+
+| Source | Signal | Basis |
+|---|---|---|
+| FLOWS's radio | **Measured** `loadedTimeRanges` ahead of the play head, clamped 4–45 s, plus an `AVPlayerItemPlaybackStalled` observer | Our own AVPlayer — the real remaining audio, not an estimate |
+| Apple Music (cloud track) | System player reporting `.interrupted`, bounded by ≤30 s | Read-ahead isn't published; the player's own stop signal is the truth, the cap only bounds the wait |
+| Spotify | Its audio going quiet, bounded by ≤40 s | Plays on Spotify's own device, which reports nothing while the link is down |
+| **Every other service** (YouTube Music, Amazon, Pandora, SiriusXM, Tidal, Deezer, SoundCloud…) | `AVAudioSession.isOtherAudioPlaying` going quiet, watched up to 90 s | One signal covering all of them — no per-app table to maintain or get wrong |
+
+#### Learning the real delay, per service (`BufferLearning`)
+
+The priors above are a starting point, not the answer. Every outage
+hands FLOWS a free labeled sample: the link died at T, the audio went
+silent at T+d — and `d` is the actual buffer depth for **that service**,
+on **this driver's phone**, at that moment. Those samples accumulate
+into a decaying-weight mean (α = 0.35, matching `SeasonalRiskModel`'s
+house style: newest observations dominate), and once a context clears
+the trust gate (3 samples) the measurement REPLACES the documented
+guess outright.
+
+Context is **service × radio technology**, because both dimensions
+genuinely differ: services buffer differently from each other, and the
+same service behaves nothing alike on 5G versus EDGE — so LTE samples
+must never pollute the weak-signal estimate. Implausible samples are
+DISCARDED rather than clamped (sub-second = the driver hit stop as the
+signal died; minutes = the audio was local, or signal returned
+unnoticed): clamping would drag the estimate toward a value never
+actually observed.
+
+**Why an exponentially-weighted mean and not a neural model.** A driver
+sees a handful of outages per service. At that sample count an EWMA *is*
+the statistically appropriate estimator — a heavier model would fit
+noise, need a labeled corpus that doesn't exist, and cost the property
+that matters most here: when the music switches, FLOWS can say exactly
+why. If per-driver volume ever justifies more, these samples are already
+the training set, and the path to the ANE/Core ML work is the same one
+`SeasonalRiskModel` is on.
+
+#### Predicting the cut-off before it happens (`SignalQuality`)
+
+Waiting for silence is reactive; the switch is only truly seamless if
+the fallback is READY when the audio stops. **What iOS will and won't
+tell you:** there is no public signal-strength API (bars are private
+API — an App Store rejection), but the radio ACCESS TECHNOLOGY is
+public and permission-free via `CTTelephonyNetworkInfo`. A fallback to
+EDGE on a rural highway is the single most predictive public signal
+available, because it happens *before* the throughput collapse that
+starves a buffer.
+
+FLOWS blends that with two signals it owns outright and can trust
+completely: its own stream stalling, and its own buffer **draining**
+rather than filling. A draining buffer is a leading indicator no
+external API can beat — it is the actual mechanism by which the music
+will stop. When any of those fire while signal remains, FLOWS fetches
+the fallback's stations immediately, so the handoff plays instantly
+instead of starting a search into the silence (a search that would fail
+anyway — the directory needs the very link that just died).
+
+Two rules keep this from ever talking over someone's music:
+* **Audio still playing at the ceiling is left alone.** For a player
+  FLOWS doesn't own, the ceiling is a polling limit, not a deadline — a
+  deeper buffer than expected is no reason to interrupt.
+* **A deliberate pause never triggers a handoff.** Only `.interrupted`
+  (a buffer-starved cloud track) counts as the music dying, never
+  `.paused`.
+
+And on the way back, a service FLOWS can't drive is never force-opened:
+throwing the driver into another app's UI at 70 mph is worse than a
+moment of quiet, so FLOWS says it's ready and lets them choose.
+
+**Then** `PlaybackFallback` (pure, pinned) decides what still plays, in
+the order of what actually survives:
+
+1. **Music saved on the phone** — the only thing that plays with NO
+   connection. The check deliberately EXCLUDES cloud items
+   (`MPMediaItemPropertyIsCloudItem == false`), because a cloud track is
+   exactly what stops working when the signal dies, and it never
+   triggers the media-library prompt (an un-granted library reads as
+   "nothing local").
+2. **Radio of the same kind** — matched to what they last asked for
+   ("rock" → rock stations). **Stated honestly:** an internet stream
+   still needs *some* signal, so this is the degraded-signal rung, not
+   the no-signal rung — a 32–64 kbps station survives a one-bar link
+   that a music service's high-bitrate stream and its API cannot.
+3. **Nothing** — said plainly rather than pretending.
+
+Playback that does NOT need the network is never touched (`keepPlaying`)
+— local files already playing keep going, because the best handoff is
+the one that doesn't happen. Every hand-off speaks what changed and why.
+
+**The handoff also switches the PROVIDER to match what it started
+playing** (local music → Apple Music's system player, radio → radio).
+Without that, the transport buttons would keep routing to the service
+that just went dark — pressing pause would command a Spotify device
+that can't be reached while the phone's own library is the thing making
+the sound.
+
+**Coming back (`shouldRestore`, pinned).** FLOWS returns to the service
+on its own, gated three ways so it reads as seamless, not restless:
+1. **The connection must HOLD** — `restoreHoldSeconds` (25 s) of
+   continuous path, and every new drop cancels the pending switch-back.
+   A flapping rural link would otherwise ping-pong the driver between
+   sources every few seconds.
+2. **It lands between songs.** `atNextTrackBoundary` waits for the
+   current local track to END before switching (firing immediately when
+   nothing is playing, so a paused player never strands it). Cutting a
+   song off mid-chorus is exactly what "seamless" isn't.
+3. **A driver's choice outranks it.** Anything they pick during the
+   offline stretch — a genre, a station, a provider — cancels the
+   restore for good (`cancelOfflineHandoff`).
+On restore the previous provider comes back and the last ask replays,
+with one spoken line ("Signal's back — returning to Spotify.").
+
+#### Voice into the services — three verified routes (2026-08)
+
+1. **Native Siri** — services shipping SiriKit media intents answer
+   "Hey Siri, play country on <service>" DIRECTLY, no FLOWS in the loop.
+   Verified per service: Spotify, Pandora, Amazon Music, Deezer (its own
+   support doc), YouTube Music (iPhone; HomePod added 2023), Tidal
+   (iPhone since 2022), iHeartRadio — plus Apple Music natively. No
+   evidence found for SoundCloud, Qobuz, Gaana, JioSaavn, SiriusXM, or
+   Audible, so those get NO tip rather than a guessed one
+   (`siriPlaybackTip`, pinned to exactly the verified set). The mini
+   player's menu teaches the phrase for the picked service.
+2. **FLOWS voice, in place** — "play something in FLOWS" routes by the
+   picked provider: Apple Music plays the library genre in place;
+   token-linked Spotify SEARCHES the catalog (playlists, the playable
+   context for a genre/mood ask) and STARTS the best hit on the active
+   device (`SpotifyRemote.playSearch` — search + context-play with a
+   JSON body, both request shapes pinned).
+3. **FLOWS voice, deep link** — every no-API service opens directly at
+   its own search for the ask (`openAppWhenRun` foregrounds FLOWS first;
+   iOS forbids deep links from a background intent). The reply says
+   where the driver is being taken — never pretends playback started.
+
+Voice-slot note: this took the tenth App Shortcut slot from
+TakeFasterRouteIntent (still available in the Shortcuts app) — "go ahead
+in FLOWS" and the plain spoken yes already accept faster-route offers.
+
+4. **FLOWS's own microphone** — no "Hey Siri" at all: a mic row in the
+   music menu and a mic button in the radio card listen for a few
+   seconds and route what was said (`VoiceReply.listenForDictation` —
+   the same guarded pattern as the yes/no listener, in dictation mode:
+   it keeps the best partial and settles early on a FINAL result).
+   Music asks go through `AppModel.playMusicAsk` (the provider router
+   above); radio asks through `playRadioAsk`, where weather words
+   ("weather", "NOAA" — `VoiceCommands.wantsWeatherRadio`, pinned) tune
+   the nearest NOAA relay and anything else searches the AM/FM
+   directory and plays the top hit. FLOWS speaks the result back, so
+   the loop never needs the screen.
+
+**MusicKit full-catalog Apple Music — WIRED** (`MusicKitCatalog`): a
+spoken ask now searches the ENTIRE Apple Music catalog (playlists
+first — a genre/mood ask wants a running mix, not one song then
+silence) and queues it on `SystemMusicPlayer`, the same player the
+transport buttons and lock screen already drive. MusicKit is a system
+framework, so no dependency. It degrades honestly at every gate —
+authorization refused, no Apple Music subscription, offline, or the
+MusicKit app service not yet enabled for this bundle id in the
+developer portal (a signing task, not code) — each returns false and
+the library-genre path runs exactly as before. **Portal step to unlock
+it in production:** developer.apple.com → Identifiers → the FLOWS app
+id → enable the MusicKit app service; the automatic developer token
+then issues at runtime with no key in the repo.
+
+What every service DOES expose keylessly: its own search pages as https
+universal links — on a phone with the service's app installed, iOS
+routes the link INTO that app at its search results; otherwise the web
+player serves the same page. `MusicProvider.searchURL(query:)` carries
+one live-probed pattern per service (all 15 return 200 to a mobile-UA
+probe except Tidal, whose web player bot-gates curl — same diagnosis as
+OpenMHz; the path is its own search route). The mini player's menu now
+works for EVERY provider: controllable services keep transport rows;
+no-API services get "Open <service>" plus genre quick-picks that land
+directly in that service's search ("Country" → YouTube Music's country
+results, one tap). Simulator/CI can verify the web half only — the
+into-the-app routing is Apple's universal-link mechanism and needs the
+app installed on a device.
+
+Consequence in code: `MusicProvider.controllable(onMac:spotifyLinked:)` is
+the ONE truth table, and every transport surface consults it — the HUD mini
+player (`AppModel.musicControllable`), the Siri intents, and CarPlay
+(`MusicController.controlsInPlace`). A service that can't be driven in
+place shows transport controls NOWHERE: the HUD offers "Open <service>",
+Siri answers in plain words ("<service> can only be controlled in its own
+app"), and CarPlay shows no music buttons — closing the
+buttons-that-secretly-played-Apple-Music class of bug for all thirteen
+options at once, not per service.
 
 ---
 

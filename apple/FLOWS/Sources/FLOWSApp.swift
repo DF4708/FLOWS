@@ -78,6 +78,9 @@ final class AppModel: ObservableObject {
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
     let radio = TruckerRadio()
+    /// AM/FM station search (radio-browser.info community directory) —
+    /// plays through the same TruckerRadio AVPlayer path.
+    let radioBrowser = RadioBrowser()
     let crash = CrashDetectionService()
     /// Prior long-trip share recipients (on-device only) — suggestion ranking.
     let shareHistory = ShareHistoryStore()
@@ -308,6 +311,99 @@ final class AppModel: ObservableObject {
     @Published var notifyTraffic = UserDefaults.standard.object(forKey: "flows.notifyTraffic") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyTraffic, forKey: "flows.notifyTraffic") }
     }
+
+    /// Speak faster-route offers and corridor warnings out loud — the
+    /// hands-free loop: FLOWS announces, then listens for the plain yes/no
+    /// (and "go ahead in FLOWS" works via Siri). Off = screen-only.
+    @Published var voiceAlerts =
+        UserDefaults.standard.object(forKey: "flows.voiceAlerts") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(voiceAlerts, forKey: "flows.voiceAlerts") }
+    }
+
+    /// Turn-by-turn voice directions — its own switch, separate from the
+    /// alert voice: plenty of drivers want turns spoken but a quiet map,
+    /// or the reverse.
+    @Published var speakTurns =
+        UserDefaults.standard.object(forKey: "flows.speakTurns") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(speakTurns, forKey: "flows.speakTurns") }
+    }
+
+    /// First launch shows ONE welcome card naming every permission and why
+    /// (location now; the rest only when their feature is first used) —
+    /// instead of a stack of unexplained system dialogs.
+    @Published var onboarded = UserDefaults.standard.bool(forKey: "flows.onboarded")
+
+    /// Get-started press: remember it, then run the ONE up-front system
+    /// prompt (location — it powers navigation and the risk map).
+    func completeOnboarding() {
+        onboarded = true
+        UserDefaults.standard.set(true, forKey: "flows.onboarded")
+        location.requestAuthorization()
+    }
+
+    /// Word-finding help (on-device Apple Intelligence): when a spoken
+    /// dialogue reply can't be matched exactly, the phone's own model maps
+    /// it to the offered choices. Default ON — it only rescues replies
+    /// that would otherwise dead-end, and nothing leaves the phone.
+    @Published var wordFindingHelp =
+        UserDefaults.standard.object(forKey: "flows.wordFindingHelp") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(wordFindingHelp, forKey: "flows.wordFindingHelp") }
+    }
+
+    /// Speak FLOWS's announcements in the user's own Personal Voice
+    /// (Settings → Accessibility → Personal Voice). Default OFF — using
+    /// someone's voice is their call, and the system asks permission once.
+    @Published var personalVoiceAnnouncements =
+        UserDefaults.standard.bool(forKey: "flows.personalVoice") {
+        didSet {
+            UserDefaults.standard.set(personalVoiceAnnouncements, forKey: "flows.personalVoice")
+            VoiceAnnouncer.shared.setPersonalVoiceEnabled(personalVoiceAnnouncements)
+        }
+    }
+
+    /// Felt tap with every spoken alert/offer — the hearing-parity channel.
+    /// Default ON; a deaf driver relies on it, everyone else barely
+    /// notices it under road vibration.
+    @Published var hapticAlerts =
+        UserDefaults.standard.object(forKey: "flows.hapticAlerts") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(hapticAlerts, forKey: "flows.hapticAlerts") }
+    }
+
+    /// In-app text size (Settings slider): −1 follows the phone's setting;
+    /// otherwise an index into TextScale.steps. Both paths are clamped to
+    /// what the current screen holds (textSizeMaxIndex).
+    @Published var textSizeIndex: Int =
+        UserDefaults.standard.object(forKey: "flows.textSizeIndex") as? Int ?? -1 {
+        didSet { UserDefaults.standard.set(textSizeIndex, forKey: "flows.textSizeIndex") }
+    }
+    /// Highest slider step the current window width can hold — measured at
+    /// the app root, read by the Settings slider for its range.
+    @Published var textSizeMaxIndex: Int = TextScale.steps.count - 1
+
+    /// Guidance state for the spoken turns: last step announced, and
+    /// whether its close-in reminder has fired.
+    private var lastSpokenTurnStep = -1
+    private var turnNearSpoken = false
+
+    /// Speak each maneuver twice: once when its step becomes current
+    /// ("In a quarter mile, turn left…"), once close in (the instruction
+    /// alone). Guidance updates at 1 Hz; everything else is deduped away.
+    private func speakTurn(_ guidance: NavigationEngine.Guidance) {
+        guard speakTurns, mode == .navigating, !guidance.isOffRoute,
+              !guidance.instruction.isEmpty else { return }
+        if guidance.stepIndex != lastSpokenTurnStep {
+            lastSpokenTurnStep = guidance.stepIndex
+            turnNearSpoken = guidance.distanceToManeuver < 150
+            VoiceAnnouncer.shared.announce(
+                turnNearSpoken
+                    ? guidance.instruction
+                    : SiriSummaries.spokenTurnDistance(meters: guidance.distanceToManeuver)
+                        + ", " + guidance.instruction)
+        } else if !turnNearSpoken, guidance.distanceToManeuver < 150 {
+            turnNearSpoken = true
+            VoiceAnnouncer.shared.announce(guidance.instruction)
+        }
+    }
     @Published var notifyFuel = UserDefaults.standard.object(forKey: "flows.notifyFuel") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyFuel, forKey: "flows.notifyFuel") }
     }
@@ -428,9 +524,7 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
             musicProviderChosen = true
-            #if os(macOS)
             MusicController.shared.provider = musicProvider
-            #endif
         }
     }
     /// False until the driver picks a service (Settings picker, or the ask
@@ -440,6 +534,446 @@ final class AppModel: ObservableObject {
     /// First play press: the "what do you play music with?" card.
     @Published var showMusicProviderPrompt = false
 
+    /// OPTIONAL Spotify Web API token (Settings → Data sources) — in-app
+    /// play/pause/skip for Spotify on iOS. A bearer token is a credential,
+    /// so it lives in the Keychain (SecureStore), never UserDefaults.
+    @Published var spotifyWebToken: String =
+        SecureStore.get(SpotifyRemote.keychainKey) ?? "" {
+        didSet { SpotifyRemote.shared.setToken(spotifyWebToken) }
+    }
+
+    /// Can the transport buttons drive the picked service IN PLACE?
+    /// Delegates to the controller's gate so the HUD, Siri, and CarPlay
+    /// all read the SAME truth table (Apple Music always; Spotify on
+    /// macOS, or on iOS with a user token; nothing else — no other
+    /// service publishes a control API).
+    var musicControllable: Bool { MusicController.shared.controlsInPlace }
+
+    /// One spoken/typed music ask, routed by the picked provider — the
+    /// in-app mic and Siri share this: Apple Music tries the FULL catalog
+    /// (MusicKit) then the library; token-linked Spotify searches and
+    /// starts the best playlist remotely; every no-API service opens at
+    /// its own search. The spoken confirmation says which of those
+    /// actually happened.
+    /// What the driver last asked to hear ("rock") — the offline handoff
+    /// matches radio to it, and it survives a provider switch.
+    private(set) var lastMusicAsk: String?
+
+    /// Radio AS the music service: a genre ask becomes a station QUEUE —
+    /// the first station plays, next/previous walk the rest, exactly like
+    /// a playlist. No subscription, no account.
+    func playGenreRadio(_ genre: String, spokenPrefix: String? = nil) async {
+        await radioBrowser.search(text: genre)
+        let channels = radioBrowser.stations.map(\.channel)
+        guard !channels.isEmpty else {
+            VoiceAnnouncer.shared.announce(
+                "No \(genre) stations found right now.")
+            return
+        }
+        radio.playQueue(channels, label: genre)
+        let name = radio.lastPlayed?.name ?? "a station"
+        VoiceAnnouncer.shared.announce(
+            (spokenPrefix.map { $0 + " " } ?? "") + "Playing \(genre) — \(name). "
+            + "Say next for another \(genre) station.")
+    }
+
+    func playMusicAsk(_ term: String) {
+        // A driver-initiated ask outranks any pending switch-back. (The
+        // restore clears that state before calling here, so its own call
+        // is a no-op.)
+        cancelOfflineHandoff()
+        lastMusicAsk = term
+        // No streaming service: free public radio IS the music service.
+        if musicProvider == .radio {
+            Task { await playGenreRadio(term) }
+            return
+        }
+        if musicProvider == .appleMusic {
+            MusicController.shared.playSearchOrGenre(term)
+            VoiceAnnouncer.shared.announce("Playing \(term).")
+            return
+        }
+        if musicProvider == .spotify, SpotifyRemote.shared.linked {
+            Task { [weak self] in
+                if await SpotifyRemote.shared.playSearch(term) {
+                    VoiceAnnouncer.shared.announce("Playing \(term) on Spotify.")
+                } else if let self {
+                    self.musicProvider.openSearch(query: term)
+                    VoiceAnnouncer.shared.announce(
+                        "Opening Spotify's search for \(term).")
+                }
+            }
+            return
+        }
+        musicProvider.openSearch(query: term)
+        VoiceAnnouncer.shared.announce(
+            "Opening \(musicProvider.displayName) — \(term).")
+    }
+
+    /// One spoken radio ask: "weather" tunes the nearest NOAA relay;
+    /// anything else searches the AM/FM directory and plays the top hit.
+    func playRadioAsk(_ term: String) {
+        if VoiceCommands.wantsWeatherRadio(term) {
+            let channel = effectivePosition
+                .flatMap { radio.nearestChannel(to: $0)?.channel }
+                ?? radio.nearestChannel(stateCode: currentStateCode)
+            if let channel {
+                radio.play(channel)
+                VoiceAnnouncer.shared.announce("Playing \(channel.name).")
+            }
+            return
+        }
+        // Everything else becomes a station QUEUE (a callsign, a genre) so
+        // next/previous walk the results like a playlist.
+        Task { [weak self] in
+            guard let self else { return }
+            await self.radioBrowser.search(text: term)
+            let channels = self.radioBrowser.stations.map(\.channel)
+            if channels.isEmpty {
+                VoiceAnnouncer.shared.announce("No station found for \(term).")
+            } else {
+                self.radio.playQueue(channels, label: term)
+                VoiceAnnouncer.shared.announce(
+                    "Playing \(self.radio.lastPlayed?.name ?? term).")
+            }
+        }
+    }
+
+    /// True while playback was moved by an offline handoff — the signal
+    /// returning switches back only from this state.
+    private var handedOffOffline = false
+    /// The service the driver was on before the handoff, restored when
+    /// the connection holds. The handoff also SWITCHES the provider to
+    /// match what it started playing — otherwise the transport buttons
+    /// would keep routing to a service that isn't making the sound.
+    private var preHandoffProvider: MusicProvider?
+    /// Pending switch-back, cancelled by another drop or a driver choice.
+    private var restoreTask: Task<Void, Never>?
+
+    /// A choice of the driver's outranks any pending restore — once they
+    /// pick something themselves, FLOWS stops trying to switch back.
+    func cancelOfflineHandoff() {
+        guard handedOffOffline else { return }
+        handedOffOffline = false
+        preHandoffProvider = nil
+        restoreTask?.cancel()
+        restoreTask = nil
+    }
+
+    /// Signal held long enough: return to the service they were on,
+    /// resuming what they last asked for.
+    private func restoreAfterSignalReturn() {
+        guard let previous = preHandoffProvider else { return }
+        handedOffOffline = false
+        preHandoffProvider = nil
+        restoreTask = nil
+        musicProvider = previous
+        // A service FLOWS can drive resumes in place. A deep-linked one
+        // must NOT be force-opened mid-drive — throwing the driver into
+        // another app's UI at 70 mph is worse than a moment of quiet, so
+        // say it's available and let them choose.
+        FlowsDiag.log(.info, "audio",
+                      "signal held — returning to \(previous.rawValue) "
+                      + "(controllable=\(musicControllable))")
+        guard musicControllable else {
+            VoiceAnnouncer.shared.announce(
+                "Signal's back — \(previous.displayName) is ready when you are.")
+            return
+        }
+        VoiceAnnouncer.shared.announce(
+            PlaybackFallback.restoreLine(service: previous.displayName))
+        if let ask = lastMusicAsk {
+            playMusicAsk(ask)
+        } else {
+            MusicController.shared.resumeRecent()
+        }
+    }
+
+    /// Pending handoff while buffered audio is still playing.
+    private var handoffGraceTask: Task<Void, Never>?
+    /// Captured when the wait BEGINS: network-fed audio was playing. By
+    /// the time the buffer drains the player may already read as stopped,
+    /// and re-reading it then would cancel the very handoff it needs.
+    private var bufferedAudioWasPlaying = false
+    /// When the link dropped, and which service was playing — the two
+    /// halves of a learning sample (loss → silence, per service).
+    private var connectionLostAt: Date?
+    private var graceService: String?
+    private var graceRadioTechnology: String?
+    /// Stations fetched while signal remained, so a handoff can start
+    /// playing instantly instead of searching into the silence.
+    private var preStagedStations: [TruckerRadio.Channel] = []
+    private var preStagedLabel = ""
+    private var lastBufferReading: Double?
+
+    /// Learn from this outage: how long the audio really lasted after the
+    /// link died, filed under the service that was playing.
+    private func recordBufferSample() {
+        guard let lostAt = connectionLostAt, let service = graceService else { return }
+        let delay = Date().timeIntervalSince(lostAt)
+        let tech = graceRadioTechnology
+        BufferMemory.shared.record(seconds: delay, service: service,
+                                   radioTechnology: tech)
+        // The whole point of a trip log: this is the sample that teaches
+        // FLOWS the real buffer depth, and the line that lets a human
+        // check the learning afterwards.
+        FlowsDiag.log(.info, "audio",
+                      String(format: "buffer sample %.1fs service=%@ radio=%@ "
+                             + "samples=%d usable=%@",
+                             delay, service, tech ?? "unknown",
+                             BufferMemory.shared.sampleCount(
+                                service: service, radioTechnology: tech),
+                             BufferLearning.isUsable(sample: delay) ? "yes" : "no"))
+        connectionLostAt = nil
+    }
+
+    /// Signal is failing but hasn't died: fetch the fallback's stations
+    /// NOW, while there's still a link to fetch them with. This is what
+    /// makes the eventual switch instant rather than a search into silence.
+    private func preStageFallback() {
+        guard preStagedStations.isEmpty,
+              !MusicController.shared.hasLocalMusic,
+              let genre = lastMusicAsk
+                ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel) else { return }
+        preStagedLabel = genre
+        Task { [weak self] in
+            guard let self else { return }
+            await self.radioBrowser.search(text: genre)
+            self.preStagedStations = self.radioBrowser.stations.map(\.channel)
+        }
+    }
+
+    /// The path dropped — but the music didn't. Every player is holding
+    /// buffered audio, so wait it out instead of cutting off sound that
+    /// was going to play fine (a short tunnel then becomes a non-event).
+    /// Whichever comes first ends the wait: the audio actually stopping,
+    /// or the buffer running out.
+    private func beginHandoffGrace() {
+        guard handoffGraceTask == nil, !handedOffOffline else { return }
+        let music = MusicController.shared
+        let radioPlaying = radio.playingChannelID != nil
+        // Any OTHER app making sound (a deep-linked service playing in
+        // its own app) counts as music that's about to be in trouble.
+        let otherAppAudio = !radioPlaying && AudioActivity.isOtherAudioPlaying
+        guard radioPlaying || music.isPlaying || otherAppAudio,
+              radioPlaying || otherAppAudio
+                || music.currentPlaybackNeedsNetwork else { return }
+        bufferedAudioWasPlaying = true
+        let source: PlaybackGrace.Source
+        if radioPlaying {
+            source = .radio
+        } else if music.isPlaying, musicProvider == .appleMusic {
+            source = .appleMusicCloud
+        } else if musicProvider == .spotify {
+            source = .spotify
+        } else {
+            source = .otherApp
+        }
+        // Radio is OUR player, so its remaining audio is measured; for
+        // everything else this starts as a documented prior — and gets
+        // REPLACED by what this driver's phone has actually shown for
+        // this service once enough outages have been observed.
+        let prior = PlaybackGrace.graceSeconds(
+            for: source,
+            measuredBuffer: radioPlaying ? radio.bufferedSecondsAhead : nil)
+        graceService = musicProvider.rawValue
+        graceRadioTechnology = CellularRadio.currentTechnology
+        // The radio's own measurement is ground truth; never override it.
+        let grace = radioPlaying
+            ? prior
+            : BufferMemory.shared.waitSeconds(prior: prior,
+                                              service: musicProvider.rawValue,
+                                              radioTechnology: graceRadioTechnology)
+        FlowsDiag.log(.warn, "audio",
+                      String(format: "signal lost while playing — source=%@ "
+                             + "wait=%.1fs (prior %.1fs%@) radio=%@",
+                             "\(source)", grace, prior,
+                             grace == prior ? "" : ", LEARNED",
+                             graceRadioTechnology ?? "unknown"))
+        radio.onStall = { [weak self] in self?.applyOfflineHandoff() }
+        music.onPlaybackStopped = { [weak self] in self?.applyOfflineHandoff() }
+        handoffGraceTask = Task { [weak self] in
+            if radioPlaying {
+                // Our own measured buffer is authoritative.
+                try? await Task.sleep(for: .seconds(grace))
+                guard !Task.isCancelled else { return }
+            } else {
+                // Every other player: no published buffer figure exists,
+                // so watch the AUDIO ITSELF and act when it goes quiet.
+                var waited = 0.0
+                var wentQuiet = false
+                while waited < grace {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    waited += 1
+                    if !AudioActivity.isOtherAudioPlaying {
+                        wentQuiet = true
+                        break
+                    }
+                }
+                // Still making sound at the ceiling? Its buffer runs
+                // deeper than expected — leave it alone rather than talk
+                // over music that's playing perfectly well.
+                guard wentQuiet else {
+                    self?.endHandoffGrace()
+                    return
+                }
+            }
+            self?.applyOfflineHandoff()
+        }
+    }
+
+    /// Stop waiting — either the buffer carried the music through the
+    /// outage, or the handoff already happened.
+    private func endHandoffGrace() {
+        handoffGraceTask?.cancel()
+        handoffGraceTask = nil
+        radio.onStall = nil
+        MusicController.shared.onPlaybackStopped = nil
+    }
+
+    /// The buffer is spent and the link is still down: move playback to
+    /// whatever survives.
+    private func applyOfflineHandoff() {
+        guard breadcrumbs.isOffline, !handedOffOffline else {
+            endHandoffGrace()
+            return
+        }
+        endHandoffGrace()
+        recordBufferSample()   // the audio just died: that delay is the lesson
+        handleOfflineNow()
+    }
+
+    /// The network path changed. On loss, hand playback to whatever still
+    /// works; on a return that HOLDS, switch back at a song boundary.
+    private func handleConnectivity(offline: Bool) {
+        guard offline else {
+            // Signal back: whatever was buffered carried the music
+            // through, so a pending handoff is simply cancelled — the
+            // driver never hears a thing.
+            endHandoffGrace()
+            guard handedOffOffline else { return }
+            // Wait out the hold window before trusting the connection: a
+            // flapping link would otherwise ping-pong the driver. Each new
+            // drop cancels this, so only a steady signal switches back.
+            restoreTask?.cancel()
+            restoreTask = Task { [weak self] in
+                try? await Task.sleep(
+                    for: .seconds(PlaybackFallback.restoreHoldSeconds))
+                guard !Task.isCancelled, let self else { return }
+                guard PlaybackFallback.shouldRestore(
+                    handedOff: self.handedOffOffline,
+                    connectionHeld: !self.breadcrumbs.isOffline,
+                    driverChoseSince: self.preHandoffProvider == nil) else { return }
+                // Land the switch BETWEEN songs when local music is
+                // playing — cutting one off mid-chorus isn't seamless.
+                MusicController.shared.atNextTrackBoundary { [weak self] in
+                    self?.restoreAfterSignalReturn()
+                }
+            }
+            return
+        }
+        // Signal dropped (again): any pending switch-back is void, and
+        // the buffer wait begins — nothing changes until it's spent.
+        restoreTask?.cancel()
+        restoreTask = nil
+        connectionLostAt = Date()
+        beginHandoffGrace()
+    }
+
+    /// Called on each corridor tick while music plays: watch the link's
+    /// health and stage the fallback BEFORE the audio dies.
+    func checkPlaybackSignalHealth() {
+        guard !breadcrumbs.isOffline, handoffGraceTask == nil,
+              MusicController.shared.isPlaying || radio.playingChannelID != nil
+        else { return }
+        let buffer = radio.bufferedSecondsAhead
+        let draining = SignalQuality.isDraining(previous: lastBufferReading,
+                                                current: buffer)
+        lastBufferReading = buffer
+        let tier = SignalQuality.tier(
+            radioTechnology: CellularRadio.currentTechnology,
+            onWiFi: false, offline: false)
+        if SignalQuality.shouldPreStage(tier: tier, bufferDraining: draining,
+                                        recentStalls: 0) {
+            let hadStaged = !preStagedStations.isEmpty
+            preStageFallback()
+            if !hadStaged {
+                FlowsDiag.logThrottled(
+                    key: "audio.prestage", interval: 120, .info, "audio",
+                    "pre-staging fallback: tier=\(tier.rawValue) "
+                    + "draining=\(draining) radio=\(CellularRadio.currentTechnology ?? "n/a")")
+            }
+        }
+    }
+
+    /// The handoff itself, run only once the buffered audio is gone.
+    private func handleOfflineNow() {
+        let music = MusicController.shared
+        let genre = lastMusicAsk
+            ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel)
+        // Both facts were established when the wait began (a station is a
+        // stream too, so radio always counts as network-fed) — the player
+        // may have gone quiet since, which is exactly why we're here.
+        let source = PlaybackFallback.onConnectionLost(
+            isPlaying: bufferedAudioWasPlaying,
+            needsNetwork: bufferedAudioWasPlaying,
+            hasLocalMusic: music.hasLocalMusic,
+            lastGenre: genre)
+        FlowsDiag.log(.warn, "audio",
+                      "offline handoff: \(source) (was \(musicProvider.rawValue), "
+                      + "localMusic=\(music.hasLocalMusic), "
+                      + "preStaged=\(preStagedStations.count) stations)")
+        if let line = PlaybackFallback.spokenLine(for: source) {
+            VoiceAnnouncer.shared.announce(line)
+        }
+        switch source {
+        case .localLibrary:
+            handedOffOffline = true
+            preHandoffProvider = musicProvider
+            radio.stop()                      // a stalling stream helps nobody
+            // The provider must MATCH what's now making the sound, or the
+            // transport buttons would keep routing to the service that
+            // just went dark.
+            musicProvider = .appleMusic
+            music.playLocalLibrary()
+        case .radio(let genre):
+            handedOffOffline = true
+            preHandoffProvider = musicProvider
+            musicProvider = .radio
+            // Pre-staged while signal remained: play instantly instead of
+            // searching into the silence (the search would fail anyway —
+            // the directory needs the very link that just died).
+            if !preStagedStations.isEmpty {
+                radio.playQueue(preStagedStations,
+                                label: preStagedLabel.isEmpty ? genre : preStagedLabel)
+                preStagedStations = []
+            } else {
+                Task { await playGenreRadio(genre) }
+            }
+        case .nothingAvailable, .keepPlaying:
+            break
+        }
+    }
+
+    /// Press play with radio as the service and no history: the stations
+    /// around here, as a queue.
+    private func playLocalStationsRadio() {
+        let code = currentStateCode
+        Task { [weak self] in
+            guard let self else { return }
+            await self.radioBrowser.searchNearby(stateCode: code)
+            let channels = self.radioBrowser.stations.map(\.channel)
+            guard !channels.isEmpty else {
+                VoiceAnnouncer.shared.announce("No stations found nearby yet.")
+                return
+            }
+            self.radio.playQueue(channels, label: "stations near you")
+            VoiceAnnouncer.shared.announce(
+                "Playing \(self.radio.lastPlayed?.name ?? "a nearby station").")
+        }
+    }
+
     /// Play pressed: gate on the one-time provider ask, then play through
     /// the chosen service (Apple Music in-app; other services open their app).
     func playMusic() {
@@ -447,7 +981,13 @@ final class AppModel: ObservableObject {
             showMusicProviderPrompt = true
             return
         }
-        if musicProvider.controllable {
+        // Radio with nothing tuned yet: start with what's on the air here.
+        if musicProvider == .radio, radio.playingChannelID == nil,
+           radio.lastPlayed == nil {
+            playLocalStationsRadio()
+            return
+        }
+        if musicControllable {
             MusicController.shared.playPause()
         } else {
             musicProvider.openApp()
@@ -456,9 +996,10 @@ final class AppModel: ObservableObject {
 
     /// First-play choice: remember it, then do what play was about to do.
     func chooseMusicProvider(_ provider: MusicProvider) {
+        cancelOfflineHandoff()   // their pick outranks a pending switch-back
         musicProvider = provider
         showMusicProviderPrompt = false
-        if provider.controllable {
+        if musicControllable {
             MusicController.shared.playPause()
         } else {
             provider.openApp()
@@ -491,9 +1032,6 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(truckerUI, forKey: "flows.truckerUI")
             poi.truckerMode = truckerUI
-            #if os(macOS)
-            MusicController.shared.provider = musicProvider   // didSet skips the initial load
-            #endif
         }
     }
 
@@ -641,7 +1179,30 @@ final class AppModel: ObservableObject {
                 && lhs.incidentCoordinate?.longitude == rhs.incidentCoordinate?.longitude
         }
     }
-    @Published var imminentWarning: ImminentWarning?
+    @Published var imminentWarning: ImminentWarning? {
+        didSet {
+            // Announce each NEW warning once (never re-announce the same
+            // alert as its distance/reach fields refresh) — the hands-free
+            // half of the imminent banner, AMBER alerts included. The
+            // haptic fires regardless of the voice toggle: it's the
+            // hearing-parity channel, not a companion to the voice.
+            guard let warning = imminentWarning,
+                  warning.alertID != oldValue?.alertID else { return }
+            if hapticAlerts { Haptics.warning() }
+            guard voiceAlerts else { return }
+            VoiceAnnouncer.shared.announce(SiriSummaries.emergencyAnnouncement(
+                event: warning.event, headline: warning.headline,
+                action: warning.action))
+        }
+    }
+
+    /// What FLOWS last offered OUT LOUD and is waiting on a spoken yes
+    /// for — "go ahead in FLOWS" (GoAheadIntent) consumes it.
+    enum VoiceOffer {
+        case trip(route: PlannedRoute, name: String)   // voice trip-start staged
+        case fasterRoute                                // traffic reroute offer
+    }
+    var pendingVoiceOffer: VoiceOffer?
     /// Warnings the driver dismissed — never re-raised for the same alert.
     private var dismissedImminentIDs = Set<String>()
     /// Cached OSM escape speeds per alert (one Overpass probe each).
@@ -755,7 +1316,9 @@ final class AppModel: ObservableObject {
     /// The trip's final destination — survives added stops so leg 2 can
     /// resume automatically after a POI stop.
     private var finalDestination: (coordinate: CLLocationCoordinate2D, name: String)?
-    private var pendingStopName: String?
+    /// Read by the Siri add-a-stop intent to confirm the add actually took
+    /// (leg planning can fail) — write stays private to the chaining logic.
+    private(set) var pendingStopName: String?
     private var pendingStopKind: POIService.Kind?
 
     /// Choices surviving the active filters (cards render from this).
@@ -1018,7 +1581,8 @@ final class AppModel: ObservableObject {
         }
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
-            vehicle, radio, vehicleLink, smartcar, crash, breadcrumbs,
+            vehicle, radio, radioBrowser, vehicleLink, smartcar, crash,
+            breadcrumbs,
         ]
         for child in children {
             (child.objectWillChange as? ObservableObjectPublisher)?
@@ -1026,6 +1590,10 @@ final class AppModel: ObservableObject {
                 .store(in: &serviceSubscriptions)
         }
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
+        MusicController.shared.provider = musicProvider   // same didSet gap
+        if personalVoiceAnnouncements {                   // same didSet gap
+            VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
+        }
         vehicle.towingActive = towingActive
         checkTowingSignal()   // and at app start
         // Grade slider default follows the vehicle until the driver moves the
@@ -1038,7 +1606,43 @@ final class AppModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.applyVehicleMaxGradeDefault() }
             .store(in: &serviceSubscriptions)
-        vehicleLink.scanning = true   // Bluetooth vehicle link on by default
+        // Spoken turn-by-turn rides the guidance stream (1 Hz while
+        // navigating); speakTurn dedupes per step.
+        navigation.$guidance
+            .compactMap { $0 }
+            .sink { [weak self] guidance in self?.speakTurn(guidance) }
+            .store(in: &serviceSubscriptions)
+        // Radio state feeds the mini player, Siri, and CarPlay when radio
+        // IS the picked service.
+        MusicController.shared.radioService = radio
+        radio.objectWillChange
+            .sink { _ in
+                Task { @MainActor in MusicController.shared.syncFromRadio() }
+            }
+            .store(in: &serviceSubscriptions)
+        // Watch the link's health while music plays, so a failing signal
+        // stages the fallback before the audio dies (1 Hz is plenty —
+        // buffers drain over seconds, not milliseconds).
+        location.$latest
+            .compactMap { $0 }
+            .sink { [weak self] _ in self?.checkPlaybackSignalHealth() }
+            .store(in: &serviceSubscriptions)
+        // Offline handoff: the network path dropping must not end the
+        // music — hand off to what still plays (see PlaybackFallback).
+        breadcrumbs.$isOffline
+            .removeDuplicates()
+            .sink { [weak self] offline in
+                Task { @MainActor in self?.handleConnectivity(offline: offline) }
+            }
+            .store(in: &serviceSubscriptions)
+        // Location: on onboarded launches, request right away (a no-op once
+        // granted). First launch waits for the welcome card's Get started.
+        if onboarded { location.requestAuthorization() }
+        // Bluetooth vehicle link: OFF until the driver turns it on in
+        // Settings — creating the scanner at launch fired the Bluetooth
+        // permission dialog on first open, before any explanation.
+        vehicleLink.scanning =
+            UserDefaults.standard.bool(forKey: "flows.vehicleLinkScanning")
         // Populate the price column with state-average ESTIMATES (labeled
         // "est."); a licensed station feed replaces this same hook.
         poi.priceProvider = { item, fuel in
@@ -2105,6 +2709,7 @@ final class AppModel: ObservableObject {
                 })
         }
         routeChoices = []
+        pendingVoiceOffer = nil
         // Remember the trip's true endpoint so added stops can chain back.
         if finalDestination == nil, let end = Self.lastCoordinate(of: route) {
             finalDestination = (end, route.destinationName)
@@ -2138,6 +2743,7 @@ final class AppModel: ObservableObject {
     func endNavigation() {
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
+        pendingVoiceOffer = nil
         walkRefineTask?.cancel()
         walkingRefinedPath = []
         walkRefineAnchor = nil
@@ -2470,8 +3076,34 @@ final class AppModel: ObservableObject {
                 request.departureDate = Date()
                 guard let eta = try? await MKDirections(request: request).calculateETA() else { continue }
                 let delay = (eta.expectedTravelTime - scaledBaseline) / 60
-                self.trafficDelayMinutes = (delay >= 8 && self.notifyTraffic)
+                let newDelay = (delay >= 8 && self.notifyTraffic)
                     ? Int(delay.rounded()) : nil
+                // Announce a FRESH offer once (not every re-measure of the
+                // same jam), stage it for the spoken "go ahead" yes, and
+                // LISTEN for the plain yes/no right after asking. No clear
+                // answer = the chip stays on screen; nothing is guessed.
+                if let minutes = newDelay, self.trafficDelayMinutes == nil {
+                    self.pendingVoiceOffer = .fasterRoute
+                    if self.hapticAlerts { Haptics.offer() }   // chip just appeared
+                    if self.voiceAlerts {
+                        VoiceAnnouncer.shared.announce(
+                            SiriSummaries.fasterRouteOffer(minutes: minutes))
+                        VoiceReply.shared.listenAfterSpeech { [weak self] answer in
+                            guard let self,
+                                  case .fasterRoute? = self.pendingVoiceOffer
+                            else { return }
+                            if answer == true {
+                                Task { await self.rerouteForTraffic() }
+                            } else if answer == false {
+                                self.pendingVoiceOffer = nil
+                            }
+                        }
+                    }
+                } else if newDelay == nil,
+                          case .fasterRoute? = self.pendingVoiceOffer {
+                    self.pendingVoiceOffer = nil   // jam cleared on its own
+                }
+                self.trafficDelayMinutes = newDelay
             }
         }
     }
@@ -2480,6 +3112,7 @@ final class AppModel: ObservableObject {
     func rerouteForTraffic() async {
         guard let fix = location.coordinate, let dest = finalDestination else { return }
         trafficDelayMinutes = nil
+        pendingVoiceOffer = nil
         guard let planned = try? await router.planRoutes(
             from: fix, fromName: "Current location",
             to: dest.coordinate, toName: dest.name),
@@ -2696,14 +3329,38 @@ struct FLOWSApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(model)
-                .onOpenURL { url in
-                    // flows://smartcar?code=… — the OAuth callback.
-                    if url.host == "smartcar" || url.absoluteString.contains("smartcar") {
-                        Task { await model.smartcar.handleCallback(url: url) }
+            // Text size is applied (and CLAMPED) at the root: the window's
+            // width caps how large type may grow, so a giant system
+            // accessibility size can't wrap cards into a smear on a phone;
+            // the Settings slider picks a size inside the same cap.
+            GeometryReader { geometry in
+                ContentView()
+                    .environmentObject(model)
+                    .overlay {
+                        // First launch: the one-message permission explainer;
+                        // Get started fires the single up-front prompt.
+                        if !model.onboarded {
+                            WelcomeCard().environmentObject(model)
+                        }
                     }
-                }
+                    .dynamicTypeSize(TextScale.range(
+                        chosenIndex: model.textSizeIndex,
+                        maxIndex: model.textSizeMaxIndex))
+                    .onAppear {
+                        model.textSizeMaxIndex = TextScale.maxStepIndex(
+                            forWidthPoints: geometry.size.width)
+                    }
+                    .onChange(of: geometry.size.width) { _, width in
+                        model.textSizeMaxIndex = TextScale.maxStepIndex(
+                            forWidthPoints: width)
+                    }
+                    .onOpenURL { url in
+                        // flows://smartcar?code=… — the OAuth callback.
+                        if url.host == "smartcar" || url.absoluteString.contains("smartcar") {
+                            Task { await model.smartcar.handleCallback(url: url) }
+                        }
+                    }
+            }
         }
         #if os(macOS)
         .defaultSize(width: 1200, height: 800)

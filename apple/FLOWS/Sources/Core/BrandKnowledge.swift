@@ -47,6 +47,15 @@ enum BrandKnowledge {
         return false
     }
 
+    /// The spoken-request matcher (Siri add-a-stop): true when the asked-for
+    /// words appear contiguously, as standalone words, inside the place's
+    /// name — "Starbucks" in "Starbucks Coffee", "Yellowstone" in
+    /// "Yellowstone National Park", but never "Star" in "Starbucks". Same
+    /// word rules as brand matching (apostrophes vanish, hyphens split).
+    static func askedName(_ asked: String, matches name: String) -> Bool {
+        contains(words(asked), in: words(name))
+    }
+
     private struct Brand {
         let words: [String]
         let tier: Int
