@@ -212,6 +212,9 @@ actor HostBreaker {
     func recordSuccess(_ host: String) {
         probing.remove(host)
         failures[host] = 0
+        if openedAt[host] != nil {
+            FlowsDiag.log(.info, "net", "breaker closed for \(host) — probe succeeded")
+        }
         openedAt[host] = nil
     }
 
@@ -219,7 +222,13 @@ actor HostBreaker {
         probing.remove(host)
         let n = (failures[host] ?? 0) + 1
         failures[host] = n
-        if n >= trip { openedAt[host] = Date() }   // (re)open, restart cooldown
+        if n >= trip {
+            if openedAt[host] == nil {
+                FlowsDiag.log(.warn, "net",
+                              "breaker OPEN for \(host) after \(n) transport failures")
+            }
+            openedAt[host] = Date()   // (re)open, restart cooldown
+        }
     }
 
     /// A half-open probe was CANCELLED (not a real success or failure) — clear

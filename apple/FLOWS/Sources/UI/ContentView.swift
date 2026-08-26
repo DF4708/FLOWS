@@ -1835,6 +1835,8 @@ struct SettingsSheet: View {
     @EnvironmentObject private var model: AppModel
     @State private var showDemoGallery = false
     @State private var showContactPicker = false
+    /// Recent diagnostic-journal lines for the health log section.
+    @State private var healthLines: [String] = []
 
     var body: some View {
         ScrollView {
@@ -2229,6 +2231,35 @@ struct SettingsSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+
+            Divider()
+
+            // App health log: the rotating diagnostic journal's recent
+            // lines — which backup source kicked in, which feed was down —
+            // so a field report can carry the app's own account.
+            DisclosureGroup("App health log") {
+                ScrollView {
+                    Text(healthLines.isEmpty
+                         ? "No problems recorded — every weather and road source is answering."
+                         : healthLines.joined(separator: "\n"))
+                        .font(.system(size: 9, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 150)
+                Button("Copy log") {
+                    let text = healthLines.joined(separator: "\n")
+                    #if os(macOS)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    #else
+                    UIPasteboard.general.string = text
+                    #endif
+                }
+                .font(.caption)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .task { healthLines = await FlowsDiag.shared.recent(60) }
         }
         .padding(20)
         }

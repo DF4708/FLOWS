@@ -274,6 +274,7 @@ targets:
         buildPhase: resources
       - path: FLOWS/Sources/Core/AdaptiveTuning.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
+      - path: FLOWS/Sources/Core/FlowsDiag.swift
       - path: FLOWS/Sources/Core/WeatherAlertService.swift
       - path: FLOWS/Sources/Core/RouteService.swift
       - path: FLOWSTests

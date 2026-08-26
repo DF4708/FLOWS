@@ -272,14 +272,29 @@ final class RouteService: ObservableObject {
     private let geocoder = CLGeocoder()
 
     /// Geocode free text ("ZIP, county, or city" — same contract as the web
-    /// planner) into a coordinate.
+    /// planner) into a coordinate. REDUNDANT: CLGeocoder is rate-limited and
+    /// throttles bursts; when it fails, MKLocalSearch answers the same query
+    /// through a different Apple service, so planning survives a geocoder
+    /// throttle instead of dead-ending the destination field.
     func geocode(_ query: String) async throws -> (CLLocationCoordinate2D, String) {
-        let placemarks = try await geocoder.geocodeAddressString(query)
-        guard let pm = placemarks.first, let loc = pm.location else {
-            throw RouteError.notFound(query)
+        do {
+            let placemarks = try await geocoder.geocodeAddressString(query)
+            guard let pm = placemarks.first, let loc = pm.location else {
+                throw RouteError.notFound(query)
+            }
+            let name = pm.locality ?? pm.name ?? query
+            return (loc.coordinate, name)
+        } catch {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = query
+            guard let item = (try? await MKLocalSearch(request: request).start())?
+                .mapItems.first else { throw error }   // surface the ORIGINAL failure
+            FlowsDiag.logThrottled(
+                key: "geocode.fallback", .info, "geocode",
+                "CLGeocoder failed — MKLocalSearch answered the plan query")
+            let pm = item.placemark
+            return (pm.coordinate, pm.locality ?? item.name ?? query)
         }
-        let name = pm.locality ?? pm.name ?? query
-        return (loc.coordinate, name)
     }
 
     /// Plan DISTINCT route strategies with live traffic and return

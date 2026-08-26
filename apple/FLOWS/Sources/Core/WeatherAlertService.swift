@@ -219,6 +219,11 @@ final class WeatherAlertService: ObservableObject {
             return rings.map { AlertPolygon(coordinates: $0, severity: h.severityScore, event: h.event) }
         }.prefix(40).map { $0 }   // was 12 — clipped visible weather on long routes
 
+        if fetchFailures > 0 {
+            FlowsDiag.logThrottled(
+                key: "alerts.incomplete", .warn, "alerts",
+                "corridor score incomplete — \(fetchFailures) cell(s) unresolved; GO stays locked, retries continue")
+        }
         return CorridorScore(
             risk: normalized,
             worstSeverity: unique.first?.severityScore ?? 0,
@@ -407,6 +412,11 @@ final class WeatherAlertService: ObservableObject {
                 if let alerts { stateAlerts[st] = alerts } else { failedStates.insert(st) }
             }
         }
+        if !failedStates.isEmpty {
+            FlowsDiag.logThrottled(
+                key: "alerts.stateFail", .warn, "alerts",
+                "state alert list(s) failed \(failedStates.sorted()) — affected cells using per-point queries")
+        }
         var joinable: [(String, CLLocationCoordinate2D)] = []
         for (key, pt, states) in candidates {
             if states.contains(where: failedStates.contains) {
@@ -430,7 +440,12 @@ final class WeatherAlertService: ObservableObject {
         let zoneURLs = Set(union
             .filter { ($0.polygon?.count ?? 0) < 3 && !$0.extraRings.contains { $0.count >= 3 } }
             .flatMap(\.affectedZones))
-        guard zoneURLs.count <= Self.zoneFetchCap else { return ([:], fallback + joinable) }
+        guard zoneURLs.count <= Self.zoneFetchCap else {
+            FlowsDiag.logThrottled(
+                key: "alerts.zoneCap", .info, "alerts",
+                "\(zoneURLs.count) zone geometries needed (> cap \(Self.zoneFetchCap)) — per-point queries this pass")
+            return ([:], fallback + joinable)
+        }
         var zoneRings: [String: [[CLLocationCoordinate2D]]] = [:]
         var zoneFailed = false
         await withTaskGroup(of: (String, [[CLLocationCoordinate2D]]?).self) { group in
@@ -441,7 +456,12 @@ final class WeatherAlertService: ObservableObject {
                 if let rings { zoneRings[z] = rings } else { zoneFailed = true }
             }
         }
-        if zoneFailed { return ([:], fallback + joinable) }
+        if zoneFailed {
+            FlowsDiag.logThrottled(
+                key: "alerts.zoneFail", .warn, "alerts",
+                "zone geometry fetch failed — per-point queries this pass")
+            return ([:], fallback + joinable)
+        }
 
         let resolved = await Self.joinCells(joinable, alerts: union, zoneRings: zoneRings)
         for (key, hits) in resolved { await cache.put(key, hits) }
@@ -643,13 +663,23 @@ final class WeatherAlertService: ObservableObject {
         // Fall through to a foreign feed ONLY when NWS reports the point is
         // OUTSIDE its coverage (HTTP 400/404): US → Canada → Mexico/Central-
         // America/Caribbean (WMO Alert Hub). On a TRANSIENT NWS failure
-        // (5xx/timeout/network) for a point NWS does cover, return nil ("unknown")
-        // rather than substituting Canadian/WMO alerts — otherwise a driver in the
-        // northern US (lat > 41.5) could be shown another country's warnings, and
-        // cached for the whole TTL, on a single api.weather.gov blip.
+        // (5xx/timeout/network) for a point NWS does cover, try the BACKUP
+        // warning mirror (IEM's public national storm-based-warning GeoJSON)
+        // — it carries exactly the Red-capable realized primaries (tornado /
+        // severe-storm / flash-flood / flood / marine WARNINGS), so a driver
+        // still sees the life-threatening class during an api.weather.gov
+        // outage. Watches and advisories are unavailable in that mode
+        // (journaled); if the backup ALSO fails, the cell stays "unknown" —
+        // never substituting Canadian/WMO alerts for a covered US point, and
+        // never caching a blip as clear.
         switch await nwsAlerts(at: point) {
         case .alerts(let us): return us
-        case .failed: return nil
+        case .failed:
+            guard let national = await BackupWarningsCache.shared.warnings() else { return nil }
+            FlowsDiag.logThrottled(
+                key: "alerts.backup", .warn, "alerts",
+                "NWS point query failed — serving IEM warning mirror (warnings only)")
+            return Self.alertsCovering(point, alerts: national, zoneRings: [:])
         case .offRegion:
             if let ca = await ecccAlerts(at: point) { return ca }
             return await wmoAlerts(at: point)
@@ -874,6 +904,81 @@ actor AlertZoneCache {
         inFlight[key] = nil
         if let out { put(key, out) }
         return out
+    }
+}
+
+/// BACKUP warning source for api.weather.gov outages: Iowa State Mesonet's
+/// public national mirror of NWS STORM-BASED WARNINGS (sbw.geojson —
+/// keyless, US-operated, one small national file). It carries polygons for
+/// exactly the warning class the realized-risk model lets reach Red
+/// (tornado / severe thunderstorm / flash flood / flood / marine / squall
+/// WARNINGS), so the safety-critical signal survives an NWS API outage;
+/// watches and advisories do not ride this feed. One national fetch per
+/// 120 s, coalesced; failures uncached.
+actor BackupWarningsCache {
+    static let shared = BackupWarningsCache()
+    private var entry: (fetched: Date, alerts: [WeatherAlertService.NWSAlert])?
+    private var inFlight: Task<[WeatherAlertService.NWSAlert]?, Never>?
+
+    func warnings() async -> [WeatherAlertService.NWSAlert]? {
+        if let entry, Date().timeIntervalSince(entry.fetched) < 120 { return entry.alerts }
+        if let inFlight { return await inFlight.value }
+        let task = Task<[WeatherAlertService.NWSAlert]?, Never> { await Self.fetch() }
+        inFlight = task
+        let out = await task.value
+        inFlight = nil
+        if let out { entry = (Date(), out) }
+        return out
+    }
+
+    /// Severity by VTEC phenomena code — same scale the NWS severity field
+    /// maps to (tornado warnings run Extreme; the rest of the warning class
+    /// Severe; marine statements Moderate).
+    nonisolated static func severity(phenomena: String) -> Double {
+        switch phenomena {
+        case "TO": return 0.95
+        case "MA": return 0.72
+        default: return 0.88
+        }
+    }
+
+    /// Pure feature mapping (testable): IEM props → the app's alert shape.
+    /// `ps` is the spelled-out event ("Flood Warning"), identical wording to
+    /// NWS — so RiskEquations.alertFamily classifies it unchanged.
+    nonisolated static func parse(_ features: [[String: Any]]) -> [WeatherAlertService.NWSAlert] {
+        let iso: ISO8601DateFormatter = {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime]
+            return f
+        }()
+        return features.compactMap { f in
+            guard let props = f["properties"] as? [String: Any],
+                  let event = props["ps"] as? String,
+                  let phenomena = props["phenomena"] as? String else { return nil }
+            let rings = WeatherAlertService.allRings(of: f["geometry"] as? [String: Any])
+            guard let first = rings.first else { return nil }   // polygon feed: no ring, no area
+            let id = (props["product_id"] as? String)
+                ?? "\(phenomena)-\(props["wfo"] as? String ?? "")-\(props["eventid"] as? Int ?? 0)"
+            return WeatherAlertService.NWSAlert(
+                id: id, event: event, headline: event,
+                severityScore: severity(phenomena: phenomena),
+                polygon: first,
+                extraRings: Array(rings.dropFirst()),
+                expires: ((props["expire_utc"] as? String) ?? (props["expire"] as? String))
+                    .flatMap { iso.date(from: $0) },
+                sourceURL: (props["link"] as? String).flatMap(URL.init(string:))
+                    ?? URL(string: "https://www.weather.gov"))
+        }
+    }
+
+    private static func fetch() async -> [WeatherAlertService.NWSAlert]? {
+        guard let url = URL(string: "https://mesonet.agron.iastate.edu/geojson/sbw.geojson"),
+              let (data, resp) = try? await ThrottledNet.fetch(url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let features = json["features"] as? [[String: Any]]
+        else { return nil }
+        return parse(features)
     }
 }
 

@@ -100,10 +100,16 @@ actor NWSForecastFetcher {
     ///   2. Apple WeatherKit (all of NA — activates when the app is built
     ///      with a paid developer team + the WeatherKit entitlement; the
     ///      hook returns nil under ad-hoc/local signing)
-    ///   3. ECCC GeoMet SWOB real-time observations (Canada)
-    ///   4. SMN/CONAGUA municipal forecasts (Mexico)
+    ///   3. Open-Meteo hourly forecast (GLOBAL, keyless, already the app's
+    ///      air-quality and elevation provider) — the working REDUNDANCY
+    ///      for an NWS forecast outage, and full-fidelity coverage
+    ///      (temp/wind/PoP/QPF) for Canada and Mexico ahead of the
+    ///      observation-only regional feeds
+    ///   4. ECCC GeoMet SWOB real-time observations (Canada)
+    ///   5. SMN/CONAGUA municipal forecasts (Mexico)
     /// Each provider fails harmlessly to the next; nil only when nobody
-    /// covers the point.
+    /// covers the point. A non-primary provider serving is journaled
+    /// (throttled) so degraded runs are visible in the field.
     func conditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
         let k = key(c)
         if let e = cache[k], Date().timeIntervalSince(e.fetched) < AdaptiveTuning.shared.ttl(ttl) {
@@ -113,6 +119,12 @@ actor NWSForecastFetcher {
         let task = Task<ForecastConditions?, Never> {
             if let nws = await self.nwsConditions(at: c) { return nws }
             if let apple = await self.appleWeatherKitConditions(at: c) { return apple }
+            if let om = await self.openMeteoConditions(at: c) {
+                FlowsDiag.logThrottled(
+                    key: "forecast.open-meteo", .info, "forecast",
+                    "Open-Meteo serving conditions (NWS unavailable or off-region)")
+                return om
+            }
             if let eccc = await self.ecccConditions(at: c) { return eccc }
             if let smn = await self.smnConditions(at: c) { return smn }
             return nil
@@ -211,7 +223,61 @@ actor NWSForecastFetcher {
         nil
     }
 
-    // MARK: provider 3 — ECCC GeoMet SWOB (Canada)
+    // MARK: provider 3 — Open-Meteo hourly forecast (global redundancy)
+
+    private static let utcCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }()
+
+    private func openMeteoConditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
+        let url = String(
+            format: "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+                + "&hourly=temperature_2m,wind_speed_10m,precipitation_probability,precipitation"
+                + "&forecast_days=1&temperature_unit=fahrenheit&wind_speed_unit=mph"
+                + "&precipitation_unit=inch&timezone=GMT",
+            c.latitude, c.longitude)
+        guard let u = URL(string: url),
+              let (data, resp) = try? await ThrottledNet.fetch(u),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return Self.parseOpenMeteoConditions(
+            json, hourUTC: Self.utcCalendar.component(.hour, from: Date()))
+    }
+
+    /// Pure Open-Meteo hourly → ForecastConditions mapping (units already
+    /// requested app-native: °F, mph, %, inches; series starts at 00:00 UTC
+    /// so the current-hour index is the UTC hour). QPF sums the coming 6
+    /// hourly amounts — the same window the NWS path uses.
+    nonisolated static func parseOpenMeteoConditions(
+        _ json: [String: Any], hourUTC: Int
+    ) -> ForecastConditions? {
+        guard let hourly = json["hourly"] as? [String: Any] else { return nil }
+        func series(_ name: String) -> [Double]? {
+            // Arrays can carry NSNull for missing hours — map those to nan
+            // so indexing stays aligned, then filter at use.
+            (hourly[name] as? [Any])?.map { ($0 as? Double) ?? .nan }
+        }
+        guard let temps = series("temperature_2m"), !temps.isEmpty else { return nil }
+        let idx = min(max(hourUTC, 0), temps.count - 1)
+        var out = ForecastConditions()
+        if temps[idx].isFinite { out.temperatureF = temps[idx] }
+        if let winds = series("wind_speed_10m"), idx < winds.count, winds[idx].isFinite {
+            out.windMph = winds[idx]
+        }
+        if let pops = series("precipitation_probability"), idx < pops.count, pops[idx].isFinite {
+            out.popPercent = pops[idx]
+        }
+        if let qpf = series("precipitation"), idx < qpf.count {
+            let coming = qpf[idx..<min(idx + 6, qpf.count)].filter(\.isFinite)
+            if !coming.isEmpty { out.qpfInches = coming.reduce(0, +) }
+        }
+        return out.temperatureF == nil && out.windMph == nil ? nil : out
+    }
+
+    // MARK: provider 4 — ECCC GeoMet SWOB (Canada)
 
     private func ecccConditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
         let url = String(

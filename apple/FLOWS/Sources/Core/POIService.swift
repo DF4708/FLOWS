@@ -552,8 +552,13 @@ final class POIService: ObservableObject {
                 : unique.map { _ in nil }
         } else {
             var p: [Double?] = []
+            // Never a blank price column: before the driver has picked a
+            // fuel type, gas rows price as regular gasoline (the estimate is
+            // already labeled "est." in the UI); the pick refines, it does
+            // not reveal.
+            let pricingFuel = fuel ?? (kind == .gas ? .gas : nil)
             for item in unique {
-                var value = fuel.flatMap { self.priceProvider(item, $0) }
+                var value = pricingFuel.flatMap { self.priceProvider(item, $0) }
                 if let fuel, let live = await self.livePriceProvider(
                     item.placemark.coordinate, fuel) {
                     value = live   // real station price wins over the estimate

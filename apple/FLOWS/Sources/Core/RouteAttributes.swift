@@ -181,7 +181,12 @@ actor RouteAttributeFetcher {
                   (resp as? HTTPURLResponse)?.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let elevs = json["elevation"] as? [Double], elevs.count == chunk.count
-            else { continue }   // whole chunk rides the EPQS fallback below
+            else {
+                FlowsDiag.logThrottled(
+                    key: "elev.batchFail", .warn, "elevation",
+                    "Open-Meteo batch failed — \(chunk.count) points riding per-point EPQS")
+                continue   // whole chunk rides the EPQS fallback below
+            }
             for (j, (i, p)) in chunk.enumerated() {
                 out[i] = elevs[j]
                 elevationCache[key(p)] = elevs[j]
