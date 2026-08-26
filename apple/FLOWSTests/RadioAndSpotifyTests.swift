@@ -210,6 +210,42 @@ final class RadioAndSpotifyTests: XCTestCase {
                                         options: cuisines), .picked(0))
     }
 
+    func testPlaceReplyHandlesChangesOfMind() {
+        let places = ["Athens Gyro", "Olive Grove"]
+        let cuisines = ["Fast food", "Pizza", "American", "Mexican", "Greek"]
+        // Straight picks still work at this step.
+        XCTAssertEqual(VoicePick.placeReply("Olive Grove sounds good",
+                                            places: places, cuisines: cuisines),
+                       .picked(1))
+        XCTAssertEqual(VoicePick.placeReply("yes", places: places, cuisines: cuisines),
+                       .picked(0))
+        // The change of mind: picked Greek, now wants Mexican — naming the
+        // cuisine switches the earlier answer with no back-word needed.
+        XCTAssertEqual(VoicePick.placeReply("actually I want Mexican instead",
+                                            places: places, cuisines: cuisines),
+                       .switchCuisine(3))
+        // The explicit third option: back a step.
+        XCTAssertEqual(VoicePick.placeReply("go back",
+                                            places: places, cuisines: cuisines),
+                       .backToCuisine)
+        XCTAssertEqual(VoicePick.placeReply("something else",
+                                            places: places, cuisines: cuisines),
+                       .backToCuisine)
+        // A place hit beats everything — "Athens Gyro" wins even though
+        // the sentence also says "different".
+        XCTAssertEqual(VoicePick.placeReply("no wait, Athens Gyro is a different one, let's do that",
+                                            places: places, cuisines: cuisines),
+                       .picked(0))
+        XCTAssertEqual(VoicePick.placeReply("no", places: places, cuisines: cuisines),
+                       .declined)
+        XCTAssertEqual(VoicePick.placeReply("hmm", places: places, cuisines: cuisines),
+                       .unclear)
+        // Non-food dialogues pass no cuisines — back-words still back out.
+        XCTAssertEqual(VoicePick.placeReply("something different",
+                                            places: places, cuisines: []),
+                       .backToCuisine)
+    }
+
     func testSpokenTurnDistancesReadLikeANavigator() {
         XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 3 * 1609.344), "In 3 miles")
         XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 1609), "In a mile")

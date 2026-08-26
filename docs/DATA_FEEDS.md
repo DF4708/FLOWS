@@ -600,6 +600,18 @@ screen (`VoicePick`, pure + pinned). Turn-by-turn is now SPOKEN
 then close-in) with its own Settings switch, separate from the alert
 voice.
 
+Changes of mind are part of the dialogue (`VoicePick.placeReply`): at
+the place-offer step, naming another cuisine ("actually, Mexican")
+re-runs the search outright, "go back" / "something else" returns to the
+cuisine question, and a named place always wins over a stray back-word
+in the same sentence — bounded to three rounds so the conversation can't
+loop. Accessibility channels ride the same events: every spoken
+announcement also lands as a FELT haptic (always on — it's the
+hearing-parity alternative to the voice, not its companion), the
+escalation banner holds steady instead of flashing under Reduce Motion,
+and the icon-only controls (transport, radio play/stop per station, the
+stop buttons' compact row) carry VoiceOver labels.
+
 ### Spotify remote — optional user token (the Yelp/TomTom pattern)
 
 True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client

@@ -65,6 +65,55 @@ enum VoicePick {
         case nil: return .unclear
         }
     }
+
+    /// Words that mean "back up a step" mid-dialogue ("go back", "start
+    /// over", "something different") — checked as whole words/phrases.
+    static let backWords = ["go back", "back", "start over", "different",
+                           "something else", "change it", "other food"]
+
+    /// The place-offer step of the stop dialogue, which can also hear a
+    /// CHANGE OF MIND: naming one of the offered places picks it, naming a
+    /// cuisine switches the earlier answer outright ("actually, Mexican"),
+    /// back-words return to the cuisine question, yes takes the first
+    /// offer, no ends the dialogue with the list on screen.
+    enum PlaceOutcome: Equatable {
+        case picked(Int)          // index into the offered places
+        case switchCuisine(Int)   // index into the cuisine list
+        case backToCuisine
+        case declined
+        case unclear
+    }
+
+    static func placeReply(_ reply: String, places: [String],
+                           cuisines: [String]) -> PlaceOutcome {
+        let placeHits = places.enumerated().filter {
+            BrandKnowledge.askedName($0.element, matches: reply)
+        }
+        if let best = placeHits.max(by: { $0.element.count < $1.element.count }) {
+            return .picked(best.offset)
+        }
+        // A named cuisine is the clearest change-of-mind signal —
+        // "actually I want Mexican" needs no back-word.
+        let cuisineHits = cuisines.enumerated().filter {
+            BrandKnowledge.askedName($0.element, matches: reply)
+        }
+        if let best = cuisineHits.max(by: { $0.element.count < $1.element.count }) {
+            return .switchCuisine(best.offset)
+        }
+        let lower = reply.lowercased()
+        let words = Set(lower.split(whereSeparator: { !$0.isLetter && $0 != "'" })
+            .map(String.init))
+        if backWords.contains(where: { entry in
+            entry.contains(" ") ? lower.contains(entry) : words.contains(entry)
+        }) {
+            return .backToCuisine
+        }
+        switch YesNoWords.interpret(reply) {
+        case true?: return .picked(0)
+        case false?: return .declined
+        case nil: return .unclear
+        }
+    }
 }
 
 #if os(iOS)

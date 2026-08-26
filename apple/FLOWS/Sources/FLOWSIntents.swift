@@ -149,6 +149,8 @@ struct FindStopIntent: AppIntent {
         // FOOD gets the extra step the picker gives on screen: "do you
         // prefer Mexican, Greek, or fast food?" — the reply can name a
         // cuisine in any sentence ("I want Mexican").
+        let categories = FoodCategory.allCases
+        let cuisineNames = categories.map(\.rawValue)
         if kind == .food {
             var cuisineReply = cuisine ?? ""
             if cuisineReply.isEmpty {
@@ -156,9 +158,8 @@ struct FindStopIntent: AppIntent {
                     "Yes — what sounds good: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?")
                 cuisineReply = asked ?? ""
             }
-            let categories = FoodCategory.allCases
             guard case .picked(let index) = VoicePick.choose(
-                reply: cuisineReply, options: categories.map(\.rawValue)) else {
+                reply: cuisineReply, options: cuisineNames) else {
                 await model.poi.request(.food, aheadOf: position)
                 return .result(dialog: "Okay — the food picker is on screen.")
             }
@@ -172,46 +173,67 @@ struct FindStopIntent: AppIntent {
             }
         }
 
-        let ranked = Array(model.poi.results.prefix(3))
-        guard !ranked.isEmpty else {
-            return .result(dialog: "Nothing found ahead on this route.")
-        }
-        // Not navigating: nothing to add a stop TO — the list on screen is
-        // the deliverable.
-        guard model.mode == .navigating else {
-            return .result(dialog: IntentDialog(
-                "Found \(model.poi.results.count) options — they're on screen."))
-        }
-
-        // Offer the top names and take the answer in ANY form: naming one
-        // picks it ("let's go to Taco Bell"), a bare yes takes the first,
-        // a no leaves the on-screen list.
-        let names = ranked.map { $0.item.name ?? "Unnamed stop" }
-        var choiceReply = choice ?? ""
-        if choiceReply.isEmpty {
-            let question = names.count == 1
-                ? "Does \(names[0]) work for you?"
-                : "Does \(names.dropLast().joined(separator: ", ")) or \(names.last ?? "") work for you?"
-            let asked: String? = try await $choice.requestValue(IntentDialog("\(question)"))
-            choiceReply = asked ?? ""
-        }
-        switch VoicePick.choose(reply: choiceReply, options: names) {
-        case .picked(let index):
-            let pick = ranked[index]
-            let name = pick.item.name ?? names[index]
-            let meters = position.map {
-                POIRanking.meters($0, pick.item.placemark.coordinate)
+        // The place-offer step loops so a CHANGE OF MIND works mid-dialogue:
+        // naming another cuisine ("actually, Mexican") or saying "go back"
+        // re-runs the food search; three rounds bound the conversation.
+        for round in 0..<3 {
+            let ranked = Array(model.poi.results.prefix(3))
+            guard !ranked.isEmpty else {
+                return .result(dialog: "Nothing found ahead on this route.")
             }
-            await model.addStop(pick.item)
-            guard model.pendingStopName == name else {
+            // Not navigating: nothing to add a stop TO — the list on screen
+            // is the deliverable.
+            guard model.mode == .navigating else {
                 return .result(dialog: IntentDialog(
-                    "Couldn't route to \(name) right now. Try again in a moment."))
+                    "Found \(model.poi.results.count) options — they're on screen."))
             }
-            return .result(dialog: IntentDialog(
-                "\(SiriSummaries.addedStop(name: name, meters: meters))"))
-        case .declined, .unclear:
-            return .result(dialog: "Okay — the list is on screen.")
+            // Offer the top names and take the answer in ANY form: naming
+            // one picks it ("let's go to Taco Bell"), a bare yes takes the
+            // first, a no leaves the on-screen list.
+            let names = ranked.map { $0.item.name ?? "Unnamed stop" }
+            var reply = round == 0 ? (choice ?? "") : ""
+            if reply.isEmpty {
+                let question = names.count == 1
+                    ? "Does \(names[0]) work for you?"
+                    : "Does \(names.dropLast().joined(separator: ", ")) or \(names.last ?? "") work for you?"
+                let asked: String? = try await $choice.requestValue(IntentDialog("\(question)"))
+                reply = asked ?? ""
+            }
+            let onlyFoodCuisines = kind == .food ? cuisineNames : []
+            switch VoicePick.placeReply(reply, places: names, cuisines: onlyFoodCuisines) {
+            case .picked(let index):
+                let pick = ranked[index]
+                let name = pick.item.name ?? names[index]
+                let meters = position.map {
+                    POIRanking.meters($0, pick.item.placemark.coordinate)
+                }
+                await model.addStop(pick.item)
+                guard model.pendingStopName == name else {
+                    return .result(dialog: IntentDialog(
+                        "Couldn't route to \(name) right now. Try again in a moment."))
+                }
+                return .result(dialog: IntentDialog(
+                    "\(SiriSummaries.addedStop(name: name, meters: meters))"))
+            case .switchCuisine(let index):
+                await model.poi.chooseFood(categories[index], aheadOf: position)
+                continue
+            case .backToCuisine:
+                guard kind == .food else {
+                    return .result(dialog: "Okay — the list is on screen.")
+                }
+                let asked: String? = try await $cuisine.requestValue(
+                    "What sounds good instead: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?")
+                guard case .picked(let index) = VoicePick.choose(
+                    reply: asked ?? "", options: cuisineNames) else {
+                    return .result(dialog: "Okay — the list is on screen.")
+                }
+                await model.poi.chooseFood(categories[index], aheadOf: position)
+                continue
+            case .declined, .unclear:
+                return .result(dialog: "Okay — the list is on screen.")
+            }
         }
+        return .result(dialog: "Okay — the list is on screen.")
     }
 }
 

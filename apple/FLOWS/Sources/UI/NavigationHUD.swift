@@ -18,6 +18,7 @@ struct NavigationHUD: View {
     @EnvironmentObject private var model: AppModel
     let isCompact: Bool
     @State private var escalationPulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @Environment(\.openURL) private var openURL
     @StateObject private var music = MusicController.shared
@@ -785,8 +786,14 @@ struct NavigationHUD: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+            // Reduce Motion (and photosensitivity): hold the banner at its
+            // strong opacity instead of flashing it.
+            if reduceMotion {
                 escalationPulse = true
+            } else {
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    escalationPulse = true
+                }
             }
         }
         .onDisappear { escalationPulse = false }
@@ -985,6 +992,7 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
                 .help(model.truckerUI ? "Trucker radio" : "Emergency radio")
+                .accessibilityLabel(model.truckerUI ? "Trucker radio" : "Emergency radio")
                 SettingsGear()
                 Button("End") { model.endNavigation() }
                     .buttonStyle(PillCTAStyle())
@@ -1042,6 +1050,9 @@ struct NavigationHUD: View {
                             }
                         }
                     }
+                    // The icon-only variant loses its text — VoiceOver
+                    // must not lose the button's name with it.
+                    .accessibilityLabel("Find \(kind.rawValue)")
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .frame(minHeight: 46)
@@ -1117,6 +1128,7 @@ struct NavigationHUD: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close the radio")
             }
             // NOAA Weather Radio: ONE dynamically-tuned relay — defaults to the
             // transmitter closest to the GPS position and auto-switches as you
@@ -1144,6 +1156,8 @@ struct NavigationHUD: View {
                         .foregroundStyle(Color.brown)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(model.radio.playingChannelID != nil
+                    ? "Stop the radio" : "Play the weather radio")
             }
             .onAppear { preselectNearestStation() }
             .onChange(of: model.currentStateCode) { _, _ in preselectNearestStation() }
@@ -1182,6 +1196,8 @@ struct NavigationHUD: View {
                                 .foregroundStyle(Color.brown)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(model.radio.playingChannelID == stream.id
+                            ? "Stop \(channel)" : "Play \(channel)")
                     } else {
                         Image(systemName: "play.slash")
                             .font(.system(size: 13))
@@ -1335,6 +1351,8 @@ struct NavigationHUD: View {
                     .foregroundStyle(Color.brown)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(model.radio.playingChannelID == station.channel.id
+                ? "Stop \(station.name)" : "Play \(station.name)")
         }
     }
 
@@ -1444,6 +1462,9 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help(music.trackName.isEmpty ? model.musicProvider.rawValue : music.trackName)
+            .accessibilityLabel(model.musicControllable
+                ? "Music menu — \(music.trackName.isEmpty ? model.musicProvider.displayName : music.trackName)"
+                : "Open \(model.musicProvider.displayName)")
             if model.musicControllable {
             Button { music.back() } label: {
                 Image(systemName: "backward.fill")
@@ -1451,6 +1472,7 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help("Previous track")
+            .accessibilityLabel("Previous track")
             // Shows PAUSE while playing (press to stop), PLAY while paused.
             Button { model.playMusic() } label: {
                 Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
@@ -1458,6 +1480,7 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help(music.isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(music.isPlaying ? "Pause" : "Play")
             } else {
             // HONEST CONTROLS: this service can't be driven from inside
             // FLOWS on this platform (it needs the service's own kit and
@@ -1480,6 +1503,7 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help("Next track")
+            .accessibilityLabel("Next track")
             // Cycles shuffle → in order → loop.
             Button { music.cyclePlayOrder() } label: {
                 Image(systemName: music.playOrder.symbol)
@@ -1488,6 +1512,7 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help("Play order: \(music.playOrder.rawValue)")
+            .accessibilityLabel("Play order: \(music.playOrder.rawValue)")
             }
         }
         .font(.system(size: 14, weight: .semibold))

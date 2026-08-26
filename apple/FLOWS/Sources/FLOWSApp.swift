@@ -671,11 +671,15 @@ final class AppModel: ObservableObject {
     }
     @Published var imminentWarning: ImminentWarning? {
         didSet {
-            // Speak each NEW warning once (never re-announce the same alert
-            // as its distance/reach fields refresh) — the hands-free half of
-            // the imminent banner, AMBER alerts included.
-            guard voiceAlerts, let warning = imminentWarning,
+            // Announce each NEW warning once (never re-announce the same
+            // alert as its distance/reach fields refresh) — the hands-free
+            // half of the imminent banner, AMBER alerts included. The
+            // haptic fires regardless of the voice toggle: it's the
+            // hearing-parity channel, not a companion to the voice.
+            guard let warning = imminentWarning,
                   warning.alertID != oldValue?.alertID else { return }
+            Haptics.warning()
+            guard voiceAlerts else { return }
             VoiceAnnouncer.shared.announce(SiriSummaries.emergencyAnnouncement(
                 event: warning.event, headline: warning.headline,
                 action: warning.action))
@@ -2331,6 +2335,7 @@ final class AppModel: ObservableObject {
                 // answer = the chip stays on screen; nothing is guessed.
                 if let minutes = newDelay, self.trafficDelayMinutes == nil {
                     self.pendingVoiceOffer = .fasterRoute
+                    Haptics.offer()   // hearing-parity: the chip just appeared
                     if self.voiceAlerts {
                         VoiceAnnouncer.shared.announce(
                             SiriSummaries.fasterRouteOffer(minutes: minutes))
