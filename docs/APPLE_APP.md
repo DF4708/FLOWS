@@ -133,8 +133,31 @@ CarPlay navigation apps require the **`com.apple.developer.carplay-maps`**
 entitlement, granted per-app by Apple: apply at
 <https://developer.apple.com/contact/carplay/> with the app's bundle ID and
 use-case description, then add the entitlement + provisioning profile in
-`project.yml`. Until granted, the scene simply never connects — phone and
-iPad builds are unaffected.
+`project.yml`. Until granted, the scene never connects on a real head unit —
+the app simply does not appear on the CarPlay home screen. Phone and iPad
+builds are unaffected.
+
+**Testing CarPlay before the entitlement is granted.** The Simulator does
+not validate entitlements against a provisioning profile, so the whole
+CarPlay surface is developable today. `project.yml` sets
+`CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]` to
+`FLOWS/Generated/FLOWS-iOS-Simulator.entitlements`, which declares
+`com.apple.developer.carplay-maps` for **simulator builds only** — device
+builds get no entitlements file, because requesting an entitlement the
+profile lacks fails code signing and would make the app un-installable
+rather than merely CarPlay-less.
+
+To use it:
+
+1. Build and run the `FLOWS-iOS` scheme to any iOS Simulator.
+2. In Simulator.app choose **I/O ▸ External Displays ▸ CarPlay**.
+3. A second window opens with the CarPlay home screen; FLOWS appears there
+   and launches into `CarPlaySceneDelegate`'s `CPMapTemplate`.
+
+Verified working on the iPhone 17 / iOS 26.4 simulator. Note the CarPlay
+window renders the templates only — it is not a substitute for a real head
+unit for touch ergonomics, driver-distraction review, or the entitlement
+itself.
 
 ## Risk equations — what is ported vs exported vs approximated
 
