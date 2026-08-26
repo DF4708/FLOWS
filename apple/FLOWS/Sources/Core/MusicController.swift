@@ -174,10 +174,30 @@ final class MusicController: ObservableObject {
     }
 
     private func updateNowPlaying() {
+        // Fire the one-shot boundary hook even for Spotify (the track
+        // change is the seam a switch-back should land on).
+        if let action = trackBoundaryAction {
+            trackBoundaryAction = nil
+            action()
+        }
         guard !spotifyActive else { return }
         trackName = player.nowPlayingItem?.title ?? ""
         artwork = player.nowPlayingItem?.artwork?
             .image(at: CGSize(width: 64, height: 64))?.cgImage
+    }
+
+    private var trackBoundaryAction: (() -> Void)?
+
+    /// Run `action` when the current song ENDS — the seam where switching
+    /// back to a streaming service goes unnoticed, instead of cutting a
+    /// song off mid-chorus. Runs immediately when nothing is playing, so
+    /// a paused or silent player never strands the caller.
+    func atNextTrackBoundary(_ action: @escaping () -> Void) {
+        guard isPlaying, player.nowPlayingItem != nil else {
+            action()
+            return
+        }
+        trackBoundaryAction = action
     }
 
     func playPause() {
@@ -480,6 +500,10 @@ final class MusicController: ObservableObject {
 
     func playLocalLibrary() { playLibraryShuffled() }
 
+    /// macOS can't observe Music.app track boundaries over Apple Events —
+    /// switch back right away rather than never.
+    func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
+
     /// One-tap genre play from the library; shuffled library when no track
     /// carries the genre (genre strings come from the fixed genreRows list,
     /// so no AppleScript quoting is needed).
@@ -548,6 +572,7 @@ final class MusicController: ObservableObject {
     var hasLocalMusic: Bool { false }
     var currentPlaybackNeedsNetwork: Bool { false }
     func playLocalLibrary() {}
+    func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
     var artwork: CGImage? { nil }
     #endif
 }

@@ -510,6 +510,28 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertNil(PlaybackFallback.spokenLine(for: .keepPlaying))
     }
 
+    func testSwitchBackNeedsAHeldConnectionAndNoDriverChoice() {
+        // The happy path: FLOWS moved it, signal held, driver stayed put.
+        XCTAssertTrue(PlaybackFallback.shouldRestore(
+            handedOff: true, connectionHeld: true, driverChoseSince: false))
+        // A blink that didn't hold must NOT ping-pong the driver back.
+        XCTAssertFalse(PlaybackFallback.shouldRestore(
+            handedOff: true, connectionHeld: false, driverChoseSince: false))
+        // The driver's own pick outranks anything FLOWS wants to restore.
+        XCTAssertFalse(PlaybackFallback.shouldRestore(
+            handedOff: true, connectionHeld: true, driverChoseSince: true))
+        // Never switch anything FLOWS didn't move in the first place.
+        XCTAssertFalse(PlaybackFallback.shouldRestore(
+            handedOff: false, connectionHeld: true, driverChoseSince: false))
+        // The hold window is long enough to outlast a flicker.
+        XCTAssertGreaterThanOrEqual(PlaybackFallback.restoreHoldSeconds, 15)
+    }
+
+    func testRestoreLineNamesTheServiceComingBack() {
+        XCTAssertEqual(PlaybackFallback.restoreLine(service: "Spotify"),
+                       "Signal's back — returning to Spotify.")
+    }
+
     func testHandoffSpeaksWhatChangedAndWhy() {
         XCTAssertEqual(
             PlaybackFallback.spokenLine(for: .localLibrary),

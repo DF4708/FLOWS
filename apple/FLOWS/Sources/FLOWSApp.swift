@@ -576,6 +576,10 @@ final class AppModel: ObservableObject {
     }
 
     func playMusicAsk(_ term: String) {
+        // A driver-initiated ask outranks any pending switch-back. (The
+        // restore clears that state before calling here, so its own call
+        // is a no-op.)
+        cancelOfflineHandoff()
         lastMusicAsk = term
         // No streaming service: free public radio IS the music service.
         if musicProvider == .radio {
@@ -633,22 +637,72 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// True while playback was moved by an offline handoff — so the
-    /// return of signal is announced once, and never yanks the driver
-    /// mid-song back to a service.
+    /// True while playback was moved by an offline handoff — the signal
+    /// returning switches back only from this state.
     private var handedOffOffline = false
+    /// The service the driver was on before the handoff, restored when
+    /// the connection holds. The handoff also SWITCHES the provider to
+    /// match what it started playing — otherwise the transport buttons
+    /// would keep routing to a service that isn't making the sound.
+    private var preHandoffProvider: MusicProvider?
+    /// Pending switch-back, cancelled by another drop or a driver choice.
+    private var restoreTask: Task<Void, Never>?
+
+    /// A choice of the driver's outranks any pending restore — once they
+    /// pick something themselves, FLOWS stops trying to switch back.
+    func cancelOfflineHandoff() {
+        guard handedOffOffline else { return }
+        handedOffOffline = false
+        preHandoffProvider = nil
+        restoreTask?.cancel()
+        restoreTask = nil
+    }
+
+    /// Signal held long enough: return to the service they were on,
+    /// resuming what they last asked for.
+    private func restoreAfterSignalReturn() {
+        guard let previous = preHandoffProvider else { return }
+        handedOffOffline = false
+        preHandoffProvider = nil
+        restoreTask = nil
+        musicProvider = previous
+        VoiceAnnouncer.shared.announce(
+            PlaybackFallback.restoreLine(service: previous.displayName))
+        if let ask = lastMusicAsk {
+            playMusicAsk(ask)
+        } else {
+            MusicController.shared.resumeRecent()
+        }
+    }
 
     /// The network path changed. On loss, hand playback to whatever still
-    /// works; on return, say so once and leave the choice to the driver.
+    /// works; on a return that HOLDS, switch back at a song boundary.
     private func handleConnectivity(offline: Bool) {
         guard offline else {
-            if handedOffOffline {
-                handedOffOffline = false
-                VoiceAnnouncer.shared.announce(
-                    "Signal's back. Say play something in FLOWS to switch back.")
+            guard handedOffOffline else { return }
+            // Wait out the hold window before trusting the connection: a
+            // flapping link would otherwise ping-pong the driver. Each new
+            // drop cancels this, so only a steady signal switches back.
+            restoreTask?.cancel()
+            restoreTask = Task { [weak self] in
+                try? await Task.sleep(
+                    for: .seconds(PlaybackFallback.restoreHoldSeconds))
+                guard !Task.isCancelled, let self else { return }
+                guard PlaybackFallback.shouldRestore(
+                    handedOff: self.handedOffOffline,
+                    connectionHeld: !self.breadcrumbs.isOffline,
+                    driverChoseSince: self.preHandoffProvider == nil) else { return }
+                // Land the switch BETWEEN songs when local music is
+                // playing — cutting one off mid-chorus isn't seamless.
+                MusicController.shared.atNextTrackBoundary { [weak self] in
+                    self?.restoreAfterSignalReturn()
+                }
             }
             return
         }
+        // Signal dropped (again): any pending switch-back is void.
+        restoreTask?.cancel()
+        restoreTask = nil
         let music = MusicController.shared
         let radioPlaying = radio.playingChannelID != nil
         let genre = lastMusicAsk
@@ -666,10 +720,17 @@ final class AppModel: ObservableObject {
         switch source {
         case .localLibrary:
             handedOffOffline = true
+            preHandoffProvider = musicProvider
             radio.stop()                      // a stalling stream helps nobody
+            // The provider must MATCH what's now making the sound, or the
+            // transport buttons would keep routing to the service that
+            // just went dark.
+            musicProvider = .appleMusic
             music.playLocalLibrary()
         case .radio(let genre):
             handedOffOffline = true
+            preHandoffProvider = musicProvider
+            musicProvider = .radio
             Task { await playGenreRadio(genre) }
         case .nothingAvailable, .keepPlaying:
             break
@@ -716,6 +777,7 @@ final class AppModel: ObservableObject {
 
     /// First-play choice: remember it, then do what play was about to do.
     func chooseMusicProvider(_ provider: MusicProvider) {
+        cancelOfflineHandoff()   // their pick outranks a pending switch-back
         musicProvider = provider
         showMusicProviderPrompt = false
         if musicControllable {

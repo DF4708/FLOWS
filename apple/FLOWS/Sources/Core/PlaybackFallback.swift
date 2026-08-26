@@ -49,6 +49,25 @@ enum PlaybackFallback {
         return genre.isEmpty ? .nothingAvailable : .radio(genre: genre)
     }
 
+    /// Come back only when FLOWS moved the playback itself, the
+    /// connection has HELD (not just blinked back — a flapping rural
+    /// link would otherwise ping-pong the driver every few seconds), and
+    /// the driver hasn't since chosen something of their own. A choice
+    /// they made outranks anything FLOWS wants to restore.
+    static func shouldRestore(handedOff: Bool, connectionHeld: Bool,
+                              driverChoseSince: Bool) -> Bool {
+        handedOff && connectionHeld && !driverChoseSince
+    }
+
+    /// How long the connection must hold before switching back — long
+    /// enough that a one-bar flicker doesn't trigger it, short enough
+    /// that a real recovery feels prompt.
+    static let restoreHoldSeconds: Double = 25
+
+    static func restoreLine(service: String) -> String {
+        "Signal's back — returning to \(service)."
+    }
+
     /// Plain-words line spoken as the handoff happens — it always names
     /// what changed and why, so silence is never a mystery.
     static func spokenLine(for source: Source) -> String? {

@@ -746,10 +746,30 @@ of what actually survives:
 
 Playback that does NOT need the network is never touched (`keepPlaying`)
 — local files already playing keep going, because the best handoff is
-the one that doesn't happen. Every hand-off speaks what changed and why,
-and when signal returns FLOWS says so ONCE without yanking the driver
-mid-song back to a service — being dragged out of a song is not
-"seamless".
+the one that doesn't happen. Every hand-off speaks what changed and why.
+
+**The handoff also switches the PROVIDER to match what it started
+playing** (local music → Apple Music's system player, radio → radio).
+Without that, the transport buttons would keep routing to the service
+that just went dark — pressing pause would command a Spotify device
+that can't be reached while the phone's own library is the thing making
+the sound.
+
+**Coming back (`shouldRestore`, pinned).** FLOWS returns to the service
+on its own, gated three ways so it reads as seamless, not restless:
+1. **The connection must HOLD** — `restoreHoldSeconds` (25 s) of
+   continuous path, and every new drop cancels the pending switch-back.
+   A flapping rural link would otherwise ping-pong the driver between
+   sources every few seconds.
+2. **It lands between songs.** `atNextTrackBoundary` waits for the
+   current local track to END before switching (firing immediately when
+   nothing is playing, so a paused player never strands it). Cutting a
+   song off mid-chorus is exactly what "seamless" isn't.
+3. **A driver's choice outranks it.** Anything they pick during the
+   offline stretch — a genre, a station, a provider — cancels the
+   restore for good (`cancelOfflineHandoff`).
+On restore the previous provider comes back and the last ask replays,
+with one spoken line ("Signal's back — returning to Spotify.").
 
 #### Voice into the services — three verified routes (2026-08)
 
