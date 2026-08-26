@@ -326,6 +326,34 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(speakTurns, forKey: "flows.speakTurns") }
     }
 
+    /// Word-finding help (on-device Apple Intelligence): when a spoken
+    /// dialogue reply can't be matched exactly, the phone's own model maps
+    /// it to the offered choices. Default ON — it only rescues replies
+    /// that would otherwise dead-end, and nothing leaves the phone.
+    @Published var wordFindingHelp =
+        UserDefaults.standard.object(forKey: "flows.wordFindingHelp") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(wordFindingHelp, forKey: "flows.wordFindingHelp") }
+    }
+
+    /// Speak FLOWS's announcements in the user's own Personal Voice
+    /// (Settings → Accessibility → Personal Voice). Default OFF — using
+    /// someone's voice is their call, and the system asks permission once.
+    @Published var personalVoiceAnnouncements =
+        UserDefaults.standard.bool(forKey: "flows.personalVoice") {
+        didSet {
+            UserDefaults.standard.set(personalVoiceAnnouncements, forKey: "flows.personalVoice")
+            VoiceAnnouncer.shared.setPersonalVoiceEnabled(personalVoiceAnnouncements)
+        }
+    }
+
+    /// Felt tap with every spoken alert/offer — the hearing-parity channel.
+    /// Default ON; a deaf driver relies on it, everyone else barely
+    /// notices it under road vibration.
+    @Published var hapticAlerts =
+        UserDefaults.standard.object(forKey: "flows.hapticAlerts") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(hapticAlerts, forKey: "flows.hapticAlerts") }
+    }
+
     /// In-app text size (Settings slider): −1 follows the phone's setting;
     /// otherwise an index into TextScale.steps. Both paths are clamped to
     /// what the current screen holds (textSizeMaxIndex).
@@ -689,7 +717,7 @@ final class AppModel: ObservableObject {
             // hearing-parity channel, not a companion to the voice.
             guard let warning = imminentWarning,
                   warning.alertID != oldValue?.alertID else { return }
-            Haptics.warning()
+            if hapticAlerts { Haptics.warning() }
             guard voiceAlerts else { return }
             VoiceAnnouncer.shared.announce(SiriSummaries.emergencyAnnouncement(
                 event: warning.event, headline: warning.headline,
@@ -1071,6 +1099,9 @@ final class AppModel: ObservableObject {
         }
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
         MusicController.shared.provider = musicProvider   // same didSet gap
+        if personalVoiceAnnouncements {                   // same didSet gap
+            VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
+        }
         vehicle.towingActive = towingActive
         checkTowingSignal()   // and at app start
         // Grade slider default follows the vehicle until the driver moves the
@@ -2346,7 +2377,7 @@ final class AppModel: ObservableObject {
                 // answer = the chip stays on screen; nothing is guessed.
                 if let minutes = newDelay, self.trafficDelayMinutes == nil {
                     self.pendingVoiceOffer = .fasterRoute
-                    Haptics.offer()   // hearing-parity: the chip just appeared
+                    if self.hapticAlerts { Haptics.offer() }   // chip just appeared
                     if self.voiceAlerts {
                         VoiceAnnouncer.shared.announce(
                             SiriSummaries.fasterRouteOffer(minutes: minutes))

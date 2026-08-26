@@ -623,6 +623,27 @@ parsed defensively (first number, in range — `optionIndex`, pinned). On
 hardware without Apple Intelligence the dialogue behaves exactly as
 before.
 
+The same bounded pick-one-option shape now covers every fuzzy selection
+point (each a retry-once fallback, never the primary path, all gated by
+the Settings "Word-finding help" toggle): trip-start destination
+disambiguation (several map hits → the one matching the words as
+spoken; the go-ahead confirmation still stands before any driving),
+add-a-stop chain recovery (a misheard "book-ease place" → Buc-ee's →
+corridor search retries), and radio genre mapping ("play me some old
+country" → the `classic country` directory tag from a curated 26-tag
+vocabulary, `RadioBrowser.commonGenres`, pinned). Free-text generation
+is deliberately never requested — the model only ever picks from lists
+FLOWS built.
+
+**Apple accessibility tools surfaced** (Settings → Accessibility
+section): Personal Voice — FLOWS's announcements can speak with the
+user's OWN stored voice (AVSpeechSynthesizer personal-voice
+authorization; default OFF, the system asks once); haptic alert taps
+(default ON — the hearing-parity channel); word-finding help (default
+ON). Vocal Shortcuts, Type to Siri, and Live Speech need no code — they
+drive the App Intents that already exist — so the section explains them
+in plain words instead.
+
 **Text size (`TextScale`)**: a Settings slider sets the app's type size
 directly, and BOTH paths — the slider and the phone's own accessibility
 setting — are clamped at the app root to what the current window width

@@ -221,6 +221,18 @@ final class RadioBrowser: ObservableObject {
             .joined(separator: " · ")
     }
 
+    /// The directory's common US genre tags — the word-finding helper's
+    /// vocabulary when a spoken ask ("play me some old country") matches
+    /// no station directly: the on-device model maps the ask onto ONE of
+    /// these, and the search retries with that tag.
+    static let commonGenres = [
+        "country", "classic country", "bluegrass", "folk",
+        "rock", "classic rock", "metal", "pop", "top 40",
+        "oldies", "80s", "90s", "jazz", "blues", "classical",
+        "hip-hop", "r&b", "soul", "dance", "gospel", "christian",
+        "spanish", "regional mexican", "news", "talk", "sports",
+    ]
+
     /// Two-letter state code → the full name the directory indexes by.
     nonisolated static func stateName(_ code: String) -> String? {
         let names: [String: String] = [

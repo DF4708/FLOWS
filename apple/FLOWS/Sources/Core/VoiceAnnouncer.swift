@@ -25,9 +25,35 @@ final class VoiceAnnouncer {
 
     private let synthesizer = AVSpeechSynthesizer()
 
+    #if os(iOS)
+    /// The user's own Personal Voice (Settings → Accessibility), used for
+    /// FLOWS's speech when the toggle is on and the system granted access.
+    /// nil = the default system voice.
+    private var personalVoice: AVSpeechSynthesisVoice?
+    #endif
+
     /// The reply listener waits for this before opening the microphone —
     /// otherwise it would transcribe FLOWS's own question.
     var isSpeaking: Bool { synthesizer.isSpeaking }
+
+    /// Toggle from Settings: speak with the user's Personal Voice. The
+    /// system shows its own one-time permission alert; if none is granted
+    /// (or no Personal Voice exists), the default voice keeps speaking.
+    func setPersonalVoiceEnabled(_ enabled: Bool) {
+        #if os(iOS)
+        guard enabled else {
+            personalVoice = nil
+            return
+        }
+        AVSpeechSynthesizer.requestPersonalVoiceAuthorization { [weak self] status in
+            Task { @MainActor in
+                guard status == .authorized else { return }
+                self?.personalVoice = AVSpeechSynthesisVoice.speechVoices()
+                    .first { $0.voiceTraits.contains(.isPersonalVoice) }
+            }
+        }
+        #endif
+    }
 
     /// Speak one announcement (utterances queue). Callers gate on their own
     /// Settings toggle — alerts and turn-by-turn are separate switches.
@@ -40,6 +66,9 @@ final class VoiceAnnouncer {
         #endif
         let utterance = AVSpeechUtterance(string: text)
         utterance.rate = 0.5
+        #if os(iOS)
+        if let personalVoice { utterance.voice = personalVoice }
+        #endif
         synthesizer.speak(utterance)
     }
 

@@ -2015,6 +2015,45 @@ struct SettingsSheet: View {
                  + "phone's own text-size setting.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+            Divider()
+            Text("Accessibility")
+                .font(.system(size: 14, weight: .semibold))
+            Toggle(isOn: $model.wordFindingHelp) {
+                Text("Word-finding help (on-device)").font(.caption)
+            }
+            Text("When FLOWS can't make out an answer, the phone's own "
+                 + "on-device helper matches your words to the choices — "
+                 + "\"the one with the tacos\" finds Taco Bell. Nothing you "
+                 + "say leaves the phone. Needs a phone with Apple "
+                 + "Intelligence; off or unsupported, FLOWS just asks again.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Toggle(isOn: $model.personalVoiceAnnouncements) {
+                Text("Speak with your Personal Voice").font(.caption)
+            }
+            Text("If you've made a Personal Voice (phone Settings → "
+                 + "Accessibility → Personal Voice), FLOWS can speak its "
+                 + "alerts and directions with it. The phone asks once for "
+                 + "permission.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Toggle(isOn: $model.hapticAlerts) {
+                Text("Vibration tap with every spoken alert").font(.caption)
+            }
+            Text("A felt tap lands with each alert and faster-route offer — "
+                 + "for drivers who can't hear the voice, the tap IS the "
+                 + "announcement, and the banner carries the words.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text("More help from the phone itself: Vocal Shortcuts (phone "
+                 + "Settings → Accessibility) can trigger any FLOWS Siri "
+                 + "command with any sound you can make — built for speech "
+                 + "impediments. Type to Siri types those same commands. "
+                 + "Live Speech can speak a typed reply out loud when FLOWS "
+                 + "asks a question.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             Button {
                 showDemoGallery = true
             } label: {

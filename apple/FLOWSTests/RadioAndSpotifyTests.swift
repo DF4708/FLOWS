@@ -246,6 +246,20 @@ final class RadioAndSpotifyTests: XCTestCase {
                        .backToCuisine)
     }
 
+    func testCommonGenresAreCleanDirectoryTags() {
+        // The word-finding vocabulary must be directory-shaped: lowercase
+        // tags, unique, no stray whitespace — and broad enough to be useful.
+        let genres = RadioBrowser.commonGenres
+        XCTAssertGreaterThanOrEqual(genres.count, 20)
+        XCTAssertEqual(Set(genres).count, genres.count)
+        for genre in genres {
+            XCTAssertEqual(genre, genre.lowercased(), genre)
+            XCTAssertEqual(genre, genre.trimmingCharacters(in: .whitespaces), genre)
+            XCTAssertFalse(genre.isEmpty)
+        }
+        XCTAssertTrue(genres.contains("classic country"))
+    }
+
     // MARK: on-device clarifier — the model's reply parses safely
 
     func testClarifierParsesTheModelsNumberSafely() {

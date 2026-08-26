@@ -164,8 +164,9 @@ struct FindStopIntent: AppIntent {
             // the finding-the-right-words accessibility path.
             var cuisineOutcome = VoicePick.choose(reply: cuisineReply,
                                                   options: cuisineNames)
-            if case .picked = cuisineOutcome {} else if let idx =
-                await IntentClarifier.pick(reply: cuisineReply, options: cuisineNames) {
+            if case .picked = cuisineOutcome {} else if model.wordFindingHelp,
+                let idx = await IntentClarifier.pick(reply: cuisineReply,
+                                                     options: cuisineNames) {
                 cuisineOutcome = .picked(idx)
             }
             guard case .picked(let index) = cuisineOutcome else {
@@ -213,7 +214,7 @@ struct FindStopIntent: AppIntent {
                                                cuisines: onlyFoodCuisines)
             // Same on-device rescue as the cuisine step: "the one with the
             // tacos" should reach Taco Bell, not dead-end at the list.
-            if outcome == .unclear,
+            if outcome == .unclear, model.wordFindingHelp,
                let idx = await IntentClarifier.pick(reply: reply, options: names) {
                 outcome = .picked(idx)
             }
@@ -340,7 +341,17 @@ private func addRouteStop(named term: String) async -> IntentDialog {
     guard model.mode == .navigating, let position = model.effectivePosition else {
         return IntentDialog("Start a route first — then I can add \(term) to it.")
     }
-    guard let best = await model.poi.namedStops(term, aheadOf: position).first else {
+    var candidates = await model.poi.namedStops(term, aheadOf: position)
+    // Nothing matched the words as spoken (misheard or half-remembered
+    // chain names — "the book-ease place"): the on-device model maps the
+    // ask onto the chain vocabulary and the corridor search retries once.
+    if candidates.isEmpty, model.wordFindingHelp,
+       let idx = await IntentClarifier.pick(
+           reply: term, options: ChainOption.allCases.map(\.rawValue)) {
+        candidates = await model.poi.namedStops(
+            ChainOption.allCases[idx].rawValue, aheadOf: position)
+    }
+    guard let best = candidates.first else {
         return IntentDialog("No \(term) found ahead on this route.")
     }
     let name = best.name ?? term
@@ -463,6 +474,14 @@ struct RadioControlIntent: AppIntent {
                 return .result(dialog: "Tell me a station name or a kind of music.")
             }
             await model.radioBrowser.search(text: term)
+            // Nothing matched the words as spoken — the on-device model
+            // maps the ask onto a known genre tag ("play me some old
+            // country" → classic country) and the search retries once.
+            if model.radioBrowser.stations.isEmpty, model.wordFindingHelp,
+               let idx = await IntentClarifier.pick(
+                   reply: term, options: RadioBrowser.commonGenres) {
+                await model.radioBrowser.search(text: RadioBrowser.commonGenres[idx])
+            }
             guard let top = model.radioBrowser.stations.first else {
                 return .result(dialog: IntentDialog("No station found for \(term)."))
             }
@@ -548,8 +567,18 @@ struct StartTripIntent: AppIntent {
             center: from,
             latitudinalMeters: 400_000, longitudinalMeters: 400_000)
         let hits = (try? await MKLocalSearch(request: request).start())?.mapItems ?? []
-        guard let place = hits.first else {
+        guard var place = hits.first else {
             return .result(dialog: IntentDialog("Couldn't find \(destination)."))
+        }
+        // Several distinct hits: the on-device model picks the one that
+        // best matches the words as SPOKEN ("the big park near Bozeman"),
+        // instead of blindly taking the top result. The spoken go-ahead
+        // confirmation still stands between this pick and any driving.
+        let hitNames = hits.prefix(5).map { $0.name ?? "" }
+        if Set(hitNames).count > 1, model.wordFindingHelp,
+           let idx = await IntentClarifier.pick(reply: destination,
+                                                options: hitNames) {
+            place = hits[idx]
         }
         let name = place.name ?? destination
         guard let routes = try? await model.plan(
