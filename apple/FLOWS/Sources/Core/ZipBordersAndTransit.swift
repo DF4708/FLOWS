@@ -69,6 +69,10 @@ actor ZCTAFetcher {
         byCode[code] = z
         cache[key] = z
         if cache.count > 400 { CacheEviction.dropHalf(&cache) }
+        // byCode must be capped ALONGSIDE cache: the two dictionaries share
+        // ring buffers (COW), so evicting cache alone freed nothing — byCode
+        // kept every ring a whole browsing session ever decoded alive.
+        if byCode.count > 400 { CacheEviction.dropHalf(&byCode) }
         return z
     }
 }

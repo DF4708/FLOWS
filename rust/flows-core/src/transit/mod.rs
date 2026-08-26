@@ -159,12 +159,6 @@ impl Timetable {
         self.routes[r as usize].n_stops
     }
 
-    /// Number of trips on route `r`.
-    #[inline]
-    fn route_n_trips(&self, r: u32) -> u32 {
-        self.routes[r as usize].n_trips
-    }
-
     /// Vehicle mode of route `r`.
     #[inline]
     fn route_mode(&self, r: u32) -> Mode {
@@ -203,11 +197,17 @@ impl Timetable {
     /// (RAPTOR calls this at every stop of every scanned route, per round).
     #[inline]
     fn earliest_trip(&self, r: u32, pos: u32, after: Time) -> Option<u32> {
-        let n_trips = self.route_n_trips(r);
+        // RouteMeta hoisted out of the search: `event()` re-indexed
+        // `routes[r]` (bounds check + struct load) on every probe, though
+        // `event_start`/`n_stops` are invariant across the whole search.
+        let m = self.routes[r as usize];
+        let stride = m.n_stops as usize;
+        let base = m.event_start as usize + pos as usize;
+        let n_trips = m.n_trips;
         let (mut lo, mut hi) = (0u32, n_trips);
         while lo < hi {
             let mid = lo + (hi - lo) / 2;
-            if self.event(r, mid, pos).dep >= after {
+            if self.stop_events[base + mid as usize * stride].dep >= after {
                 hi = mid;
             } else {
                 lo = mid + 1;

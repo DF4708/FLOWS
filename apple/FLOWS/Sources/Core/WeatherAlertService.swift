@@ -110,11 +110,31 @@ final class WeatherAlertService: ObservableObject {
                 fresh.append((key, pt))
             }
         }
+        var fetchFailures = 0
+        // STATE-LEVEL PASS first: cells resolve from per-state alert lists
+        // plus a client-side spatial join — 1-5 requests where the loop
+        // below used to pay one per cell (~129 on a 950-mile plan).
+        // Anything the state path can't answer completely (off-table cells,
+        // a failed state fetch, an unplaceable zone alert) lands in
+        // `pointCells` and rides the original per-point oracle unchanged.
+        var pointCells = fresh
+        if !fresh.isEmpty {
+            let (resolved, remaining) = await resolveViaStates(fresh)
+            for (key, hits) in resolved { cellAlerts[key] = hits }
+            pointCells = remaining
+            if let onProgress, !resolved.isEmpty {
+                let attempted = Double(cellAlerts.count + fetchFailures)
+                onProgress(
+                    min(attempted / Double(max(cells.count, 1)), 1),
+                    Self.provisionalSamples(
+                        samples: samples, cellAlerts: cellAlerts,
+                        arrivalOffsets: arrivalOffsets, now: now))
+            }
+        }
         let maxInFlight = AdaptiveTuning.shared.maxInFlight
         var idx = 0
-        var fetchFailures = 0
-        while idx < fresh.count {
-            let batch = Array(fresh[idx..<min(idx + maxInFlight, fresh.count)])
+        while idx < pointCells.count {
+            let batch = Array(pointCells[idx..<min(idx + maxInFlight, pointCells.count)])
             idx += batch.count
             // Review finding: `?? []` here poisoned the cache — a transient
             // network failure was stored as "no alerts" for the TTL and the
@@ -199,6 +219,11 @@ final class WeatherAlertService: ObservableObject {
             return rings.map { AlertPolygon(coordinates: $0, severity: h.severityScore, event: h.event) }
         }.prefix(40).map { $0 }   // was 12 — clipped visible weather on long routes
 
+        if fetchFailures > 0 {
+            FlowsDiag.logThrottled(
+                key: "alerts.incomplete", .warn, "alerts",
+                "corridor score incomplete — \(fetchFailures) cell(s) unresolved; GO stays locked, retries continue")
+        }
         return CorridorScore(
             risk: normalized,
             worstSeverity: unique.first?.severityScore ?? 0,
@@ -248,6 +273,201 @@ final class WeatherAlertService: ObservableObject {
         }
     }
 
+    // MARK: state-level cell resolution (client-side spatial join)
+
+    /// Two-letter codes of every state whose rough bbox contains the point —
+    /// the states whose alert lists could cover a cell. Bboxes overlap at
+    /// borders, so border cells list several states (good: that is exactly
+    /// where a neighboring state's polygon can reach across). Empty for
+    /// points off the table (Canada/Mexico/offshore) — those cells ride the
+    /// per-point path with its foreign-feed chain.
+    nonisolated static func statesContaining(_ pt: CLLocationCoordinate2D) -> [String] {
+        LiveHazardFeedFetcher.stateBBoxes.compactMap { code, b in
+            (pt.latitude >= b.s && pt.latitude <= b.n
+             && pt.longitude >= b.w && pt.longitude <= b.e) ? code : nil
+        }
+    }
+
+    /// Marine REGION lists a cell near the water must also union — state
+    /// lists carry land zones only, but the per-point oracle includes marine
+    /// zones, and route samples DO sit over water on long bridges
+    /// (Chesapeake, Mackinac, the Keys), where a gale warning is exactly the
+    /// high-profile-vehicle hazard FLOWS warns about. Verified live: the
+    /// parity harness's only mismatches were offshore cells whose marine
+    /// alerts area= queries never carry. Generous rough boxes — an extra
+    /// region is one cached request.
+    /// Source keys carry a "marine:" prefix so a marine REGION code can
+    /// never collide with a state code ("AL" is both Alabama and Alaska
+    /// waters); the fetcher maps the prefix to the `region=` query.
+    nonisolated static func marineRegionsContaining(_ pt: CLLocationCoordinate2D) -> [String] {
+        var out: [String] = []
+        if pt.longitude <= -115, (30...50).contains(pt.latitude) { out.append("marine:PA") }
+        if pt.longitude >= -83, (24...46).contains(pt.latitude) { out.append("marine:AT") }
+        if pt.latitude <= 31.5, (-98...(-80)).contains(pt.longitude) { out.append("marine:GM") }
+        if (40.5...49.5).contains(pt.latitude), (-93...(-75.5)).contains(pt.longitude) {
+            out.append("marine:GL")
+        }
+        return out
+    }
+
+    /// Bbox pre-reject, then ray-cast — most alerts are nowhere near a cell.
+    nonisolated private static func ringContains(
+        _ p: CLLocationCoordinate2D, _ ring: [CLLocationCoordinate2D]
+    ) -> Bool {
+        guard ring.count >= 3 else { return false }
+        var minLat = ring[0].latitude, maxLat = minLat
+        var minLon = ring[0].longitude, maxLon = minLon
+        for c in ring {
+            minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
+            minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+        }
+        guard p.latitude >= minLat, p.latitude <= maxLat,
+              p.longitude >= minLon, p.longitude <= maxLon else { return false }
+        return HazardFeedScores.pointInPolygon(p, ring)
+    }
+
+    /// The client-side replacement for the server's per-point spatial join:
+    /// which of a state's alerts cover this point. Polygon alerts match by
+    /// ring containment (the polygon IS the affected area — more precise
+    /// than the zones it also lists); zone-referenced alerts (geometry:
+    /// null) match if any of their zones' rings contain the point. An alert
+    /// whose zones are absent from `zoneRings` cannot match — the RESOLVER
+    /// guarantees every needed zone geometry is present before this runs,
+    /// falling back to per-point queries otherwise.
+    nonisolated static func alertsCovering(
+        _ point: CLLocationCoordinate2D,
+        alerts: [NWSAlert],
+        zoneRings: [String: [[CLLocationCoordinate2D]]]
+    ) -> [NWSAlert] {
+        alerts.filter { a in
+            var rings = (a.polygon?.count ?? 0) >= 3 ? [a.polygon!] : []
+            rings += a.extraRings.filter { $0.count >= 3 }
+            if !rings.isEmpty {
+                return rings.contains { ringContains(point, $0) }
+            }
+            return a.affectedZones.contains { z in
+                (zoneRings[z] ?? []).contains { ringContains(point, $0) }
+            }
+        }
+    }
+
+    /// Join every cell against the union of state alerts — nonisolated so
+    /// the ring tests run off the main actor.
+    nonisolated private static func joinCells(
+        _ cells: [(String, CLLocationCoordinate2D)],
+        alerts: [NWSAlert],
+        zoneRings: [String: [[CLLocationCoordinate2D]]]
+    ) async -> [String: [NWSAlert]] {
+        var out: [String: [NWSAlert]] = [:]
+        for (key, pt) in cells {
+            out[key] = alertsCovering(pt, alerts: alerts, zoneRings: zoneRings)
+        }
+        return out
+    }
+
+    /// Outbreak guard: past this many distinct zone geometries the state
+    /// path stops being cheaper than per-point queries — bail out to the
+    /// oracle rather than fan out. Zone shapes are static and cache for a
+    /// day (plus the disk URLCache across launches), so this burst is paid
+    /// once per region, not per plan — the live harness measured an active
+    /// state (CA, 32 alerts) needing 114, so the cap sits above that.
+    private static let zoneFetchCap = 160
+
+    /// Resolve fresh cells via per-STATE alert lists + the client-side join.
+    /// Returns the resolved cell→alerts map (already written to the cell
+    /// cache) plus the cells that must ride the per-point path instead:
+    /// off-table cells, cells touching a state whose fetch failed, and — if
+    /// any needed zone geometry is unavailable — every cell this pass would
+    /// have judged, because an unplaceable alert must not silently vanish
+    /// from the corridor. Failure can only ever mean "fall back to the
+    /// per-point oracle", never "fewer alerts".
+    private func resolveViaStates(
+        _ fresh: [(String, CLLocationCoordinate2D)]
+    ) async -> (resolved: [String: [NWSAlert]], pointFallback: [(String, CLLocationCoordinate2D)]) {
+        var fallback: [(String, CLLocationCoordinate2D)] = []
+        var candidates: [(String, CLLocationCoordinate2D, [String])] = []
+        var stateSet = Set<String>()
+        for (key, pt) in fresh {
+            let states = Self.statesContaining(pt)
+            if states.isEmpty {
+                fallback.append((key, pt))
+            } else {
+                // Cells near water require their marine region lists too —
+                // treated exactly like states: a failed source sends the
+                // cell to the per-point oracle.
+                let sources = states + Self.marineRegionsContaining(pt)
+                candidates.append((key, pt, sources))
+                stateSet.formUnion(sources)
+            }
+        }
+        guard !candidates.isEmpty else { return ([:], fallback) }
+
+        var stateAlerts: [String: [NWSAlert]] = [:]
+        var failedStates = Set<String>()
+        await withTaskGroup(of: (String, [NWSAlert]?).self) { group in
+            for st in stateSet {
+                group.addTask { (st, await StateAlertCache.shared.alerts(area: st)) }
+            }
+            for await (st, alerts) in group {
+                if let alerts { stateAlerts[st] = alerts } else { failedStates.insert(st) }
+            }
+        }
+        if !failedStates.isEmpty {
+            FlowsDiag.logThrottled(
+                key: "alerts.stateFail", .warn, "alerts",
+                "state alert list(s) failed \(failedStates.sorted()) — affected cells using per-point queries")
+        }
+        var joinable: [(String, CLLocationCoordinate2D)] = []
+        for (key, pt, states) in candidates {
+            if states.contains(where: failedStates.contains) {
+                fallback.append((key, pt))
+            } else {
+                joinable.append((key, pt))
+            }
+        }
+        guard !joinable.isEmpty else { return ([:], fallback) }
+
+        // Union of the successful states' alerts, deduped by id (a
+        // cross-border alert appears in both states' lists).
+        var seen = Set<String>()
+        var union: [NWSAlert] = []
+        for st in stateAlerts.keys.sorted() {
+            for a in stateAlerts[st] ?? [] where seen.insert(a.id).inserted {
+                union.append(a)
+            }
+        }
+        // Zone geometries for the alerts that ship with no polygon at all.
+        let zoneURLs = Set(union
+            .filter { ($0.polygon?.count ?? 0) < 3 && !$0.extraRings.contains { $0.count >= 3 } }
+            .flatMap(\.affectedZones))
+        guard zoneURLs.count <= Self.zoneFetchCap else {
+            FlowsDiag.logThrottled(
+                key: "alerts.zoneCap", .info, "alerts",
+                "\(zoneURLs.count) zone geometries needed (> cap \(Self.zoneFetchCap)) — per-point queries this pass")
+            return ([:], fallback + joinable)
+        }
+        var zoneRings: [String: [[CLLocationCoordinate2D]]] = [:]
+        var zoneFailed = false
+        await withTaskGroup(of: (String, [[CLLocationCoordinate2D]]?).self) { group in
+            for z in zoneURLs {
+                group.addTask { (z, await ZoneGeometryCache.shared.rings(zoneURL: z)) }
+            }
+            for await (z, rings) in group {
+                if let rings { zoneRings[z] = rings } else { zoneFailed = true }
+            }
+        }
+        if zoneFailed {
+            FlowsDiag.logThrottled(
+                key: "alerts.zoneFail", .warn, "alerts",
+                "zone geometry fetch failed — per-point queries this pass")
+            return ([:], fallback + joinable)
+        }
+
+        let resolved = await Self.joinCells(joinable, alerts: union, zoneRings: zoneRings)
+        for (key, hits) in resolved { await cache.put(key, hits) }
+        return (resolved, fallback)
+    }
+
     // MARK: geocode-time prefetch
 
     private var prefetchTask: Task<Void, Never>?
@@ -264,21 +484,31 @@ final class WeatherAlertService: ObservableObject {
         guard !points.isEmpty else { return }
         prefetchTask?.cancel()
         prefetchTask = Task {
-            await RequestGate.shared.beginPlanningBurst()
-            await withTaskGroup(of: Void.self) { group in
+            await RequestGate.shared.withPlanningBurst {
+                // Same resolution path scoring uses: state-level lists cover
+                // most cells in 1-2 requests; the rest ride per-point.
+                var fresh: [(String, CLLocationCoordinate2D)] = []
                 for pt in points {
-                    group.addTask {
-                        // A superseded prefetch (new destination typed) stops
-                        // starting cells; ones already fetching run out in the
-                        // cache actor's coalesced tasks and stay useful.
-                        guard !Task.isCancelled else { return }
-                        _ = await self.cache.fetch(Self.cellKey(pt)) {
-                            await self.activeAlerts(at: pt)
+                    let key = Self.cellKey(pt)
+                    if await self.cache.get(key) == nil { fresh.append((key, pt)) }
+                }
+                guard !fresh.isEmpty, !Task.isCancelled else { return }
+                let (_, fallback) = await self.resolveViaStates(fresh)
+                await withTaskGroup(of: Void.self) { group in
+                    for (key, pt) in fallback {
+                        group.addTask {
+                            // A superseded prefetch (new destination typed)
+                            // stops starting cells; ones already fetching run
+                            // out in the cache actor's coalesced tasks and
+                            // stay useful.
+                            guard !Task.isCancelled else { return }
+                            _ = await self.cache.fetch(key) {
+                                await self.activeAlerts(at: pt)
+                            }
                         }
                     }
                 }
             }
-            await RequestGate.shared.endPlanningBurst()
         }
     }
 
@@ -330,7 +560,11 @@ final class WeatherAlertService: ObservableObject {
         watchTask?.cancel()
         let polyline = route.route.polyline
         let spacing = 40_000.0
-        let allSamples = RouteService.samplePoints(of: polyline, everyMeters: spacing)
+        // A hydrated route's riskSamples sit on the same 40 km boundaries —
+        // reuse them rather than re-walking the whole polyline.
+        let allSamples = route.riskSamples.isEmpty
+            ? RouteService.samplePoints(of: polyline, everyMeters: spacing)
+            : route.riskSamples.map(\.coordinate)
         // Route pace for time-aware scoring while driving: window sample i
         // is ~i*spacing ahead of the vehicle.
         let secondsPerMeter = route.eta / max(route.distanceMeters, 1)
@@ -405,6 +639,10 @@ final class WeatherAlertService: ObservableObject {
         var sourceURL: URL? = nil
         /// First lines of the official description (the on-screen summary).
         var detail: String? = nil
+        /// NWS zone URLs this alert covers (properties.affectedZones) —
+        /// the containable area for alerts the feed ships with
+        /// `geometry: null`. Empty for non-NWS providers.
+        var affectedZones: [String] = []
     }
 
     // ISO8601DateFormatter is thread-safe (Foundation guarantees it post-iOS
@@ -425,13 +663,23 @@ final class WeatherAlertService: ObservableObject {
         // Fall through to a foreign feed ONLY when NWS reports the point is
         // OUTSIDE its coverage (HTTP 400/404): US → Canada → Mexico/Central-
         // America/Caribbean (WMO Alert Hub). On a TRANSIENT NWS failure
-        // (5xx/timeout/network) for a point NWS does cover, return nil ("unknown")
-        // rather than substituting Canadian/WMO alerts — otherwise a driver in the
-        // northern US (lat > 41.5) could be shown another country's warnings, and
-        // cached for the whole TTL, on a single api.weather.gov blip.
+        // (5xx/timeout/network) for a point NWS does cover, try the BACKUP
+        // warning mirror (IEM's public national storm-based-warning GeoJSON)
+        // — it carries exactly the Red-capable realized primaries (tornado /
+        // severe-storm / flash-flood / flood / marine WARNINGS), so a driver
+        // still sees the life-threatening class during an api.weather.gov
+        // outage. Watches and advisories are unavailable in that mode
+        // (journaled); if the backup ALSO fails, the cell stays "unknown" —
+        // never substituting Canadian/WMO alerts for a covered US point, and
+        // never caching a blip as clear.
         switch await nwsAlerts(at: point) {
         case .alerts(let us): return us
-        case .failed: return nil
+        case .failed:
+            guard let national = await BackupWarningsCache.shared.warnings() else { return nil }
+            FlowsDiag.logThrottled(
+                key: "alerts.backup", .warn, "alerts",
+                "NWS point query failed — serving IEM warning mirror (warnings only)")
+            return Self.alertsCovering(point, alerts: national, zoneRings: [:])
         case .offRegion:
             if let ca = await ecccAlerts(at: point) { return ca }
             return await wmoAlerts(at: point)
@@ -537,8 +785,13 @@ final class WeatherAlertService: ObservableObject {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let features = json["features"] as? [[String: Any]]
         else { return .failed }
+        return .alerts(Self.parseAlertFeatures(features))
+    }
 
-        return .alerts(features.compactMap { feature in
+    /// One parser for every api.weather.gov alert list — the per-point
+    /// query and the per-state query return the same feature shape.
+    nonisolated static func parseAlertFeatures(_ features: [[String: Any]]) -> [NWSAlert] {
+        features.compactMap { feature in
             guard let props = feature["properties"] as? [String: Any],
                   let id = props["id"] as? String ?? feature["id"] as? String,
                   let headline = (props["headline"] as? String) ?? (props["event"] as? String)
@@ -566,15 +819,21 @@ final class WeatherAlertService: ObservableObject {
                 expires: expires,
                 onset: onset,
                 sourceURL: source,
-                detail: detail)
-        })
+                detail: detail,
+                affectedZones: (props["affectedZones"] as? [String]) ?? [])
+        }
     }
 
     /// Extract every drawable outer ring from GeoJSON Polygon/MultiPolygon
     /// (one per part — a MultiPolygon's later parts are warned areas too),
-    /// each decimated to <= 150 points (alert rings can carry thousands; the
-    /// map fill doesn't need them).
-    nonisolated private static func allRings(of geometry: [String: Any]?) -> [[CLLocationCoordinate2D]] {
+    /// each decimated to <= `maxPoints` (alert rings can carry thousands;
+    /// the map fill doesn't need them at 150). Zone-geometry CONTAINMENT
+    /// callers pass a higher cap — a county ring decimated for display gets
+    /// fuzzy near its boundary, which is exactly where a corridor cell test
+    /// must not be.
+    nonisolated static func allRings(
+        of geometry: [String: Any]?, maxPoints: Int = 150
+    ) -> [[CLLocationCoordinate2D]] {
         guard let geometry, let type = geometry["type"] as? String else { return [] }
         let raws: [[[Double]]]
         switch type {
@@ -588,8 +847,8 @@ final class WeatherAlertService: ObservableObject {
         return raws.compactMap { raw in
             var pts = raw
             guard pts.count >= 3 else { return nil }
-            if pts.count > 150 {
-                let step = pts.count / 150 + 1
+            if pts.count > maxPoints {
+                let step = pts.count / maxPoints + 1
                 pts = stride(from: 0, to: pts.count, by: step).map { pts[$0] }
             }
             let ring = pts.compactMap { c in
@@ -620,6 +879,13 @@ actor AlertZoneCache {
 
     func put(_ key: String, _ hits: [WeatherAlertService.NWSAlert]) {
         store[key] = Entry(hits: hits, fetched: Date())
+        // Cells only ever accumulated: a cross-country drive with the 4-min
+        // corridor watch plus viewport sweeps touches thousands of cells, and
+        // during active weather each carries full alert geometry (rings up to
+        // 150 points) — tens of MB by the end of a long day on a 2 GB device.
+        // 300 live cells comfortably covers a whole plan's corridor plus the
+        // viewport; beyond that the stalest half goes.
+        if store.count > 300 { CacheEviction.dropOldestHalf(&store) { $0.fetched } }
     }
 
     /// Coalesced fetch-or-join: alternate routes score concurrently and share
@@ -638,6 +904,163 @@ actor AlertZoneCache {
         inFlight[key] = nil
         if let out { put(key, out) }
         return out
+    }
+}
+
+/// BACKUP warning source for api.weather.gov outages: Iowa State Mesonet's
+/// public national mirror of NWS STORM-BASED WARNINGS (sbw.geojson —
+/// keyless, US-operated, one small national file). It carries polygons for
+/// exactly the warning class the realized-risk model lets reach Red
+/// (tornado / severe thunderstorm / flash flood / flood / marine / squall
+/// WARNINGS), so the safety-critical signal survives an NWS API outage;
+/// watches and advisories do not ride this feed. One national fetch per
+/// 120 s, coalesced; failures uncached.
+actor BackupWarningsCache {
+    static let shared = BackupWarningsCache()
+    private var entry: (fetched: Date, alerts: [WeatherAlertService.NWSAlert])?
+    private var inFlight: Task<[WeatherAlertService.NWSAlert]?, Never>?
+
+    func warnings() async -> [WeatherAlertService.NWSAlert]? {
+        if let entry, Date().timeIntervalSince(entry.fetched) < 120 { return entry.alerts }
+        if let inFlight { return await inFlight.value }
+        let task = Task<[WeatherAlertService.NWSAlert]?, Never> { await Self.fetch() }
+        inFlight = task
+        let out = await task.value
+        inFlight = nil
+        if let out { entry = (Date(), out) }
+        return out
+    }
+
+    /// Severity by VTEC phenomena code — same scale the NWS severity field
+    /// maps to (tornado warnings run Extreme; the rest of the warning class
+    /// Severe; marine statements Moderate).
+    nonisolated static func severity(phenomena: String) -> Double {
+        switch phenomena {
+        case "TO": return 0.95
+        case "MA": return 0.72
+        default: return 0.88
+        }
+    }
+
+    /// Pure feature mapping (testable): IEM props → the app's alert shape.
+    /// `ps` is the spelled-out event ("Flood Warning"), identical wording to
+    /// NWS — so RiskEquations.alertFamily classifies it unchanged.
+    nonisolated static func parse(_ features: [[String: Any]]) -> [WeatherAlertService.NWSAlert] {
+        let iso: ISO8601DateFormatter = {
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime]
+            return f
+        }()
+        return features.compactMap { f in
+            guard let props = f["properties"] as? [String: Any],
+                  let event = props["ps"] as? String,
+                  let phenomena = props["phenomena"] as? String else { return nil }
+            let rings = WeatherAlertService.allRings(of: f["geometry"] as? [String: Any])
+            guard let first = rings.first else { return nil }   // polygon feed: no ring, no area
+            let id = (props["product_id"] as? String)
+                ?? "\(phenomena)-\(props["wfo"] as? String ?? "")-\(props["eventid"] as? Int ?? 0)"
+            return WeatherAlertService.NWSAlert(
+                id: id, event: event, headline: event,
+                severityScore: severity(phenomena: phenomena),
+                polygon: first,
+                extraRings: Array(rings.dropFirst()),
+                expires: ((props["expire_utc"] as? String) ?? (props["expire"] as? String))
+                    .flatMap { iso.date(from: $0) },
+                sourceURL: (props["link"] as? String).flatMap(URL.init(string:))
+                    ?? URL(string: "https://www.weather.gov"))
+        }
+    }
+
+    private static func fetch() async -> [WeatherAlertService.NWSAlert]? {
+        guard let url = URL(string: "https://mesonet.agron.iastate.edu/geojson/sbw.geojson"),
+              let (data, resp) = try? await ThrottledNet.fetch(url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let features = json["features"] as? [[String: Any]]
+        else { return nil }
+        return parse(features)
+    }
+}
+
+/// Per-STATE active-alert lists (/alerts/active?area=XX): one fetch covers
+/// every corridor cell in that state, where the per-point design paid one
+/// query per 0.25° cell (~129 on a 950-mile plan). Same freshness as the
+/// cell cache (180 s × device multiplier), coalesced, failures NOT cached —
+/// a failed state falls the affected cells back to per-point queries, so a
+/// blip can never read as "no alerts statewide".
+actor StateAlertCache {
+    static let shared = StateAlertCache()
+    private var store: [String: (fetched: Date, alerts: [WeatherAlertService.NWSAlert])] = [:]
+    private var inFlight: [String: Task<[WeatherAlertService.NWSAlert]?, Never>] = [:]
+
+    func alerts(area: String) async -> [WeatherAlertService.NWSAlert]? {
+        if let hit = store[area],
+           Date().timeIntervalSince(hit.fetched) < AdaptiveTuning.shared.ttl(180) {
+            return hit.alerts
+        }
+        if let running = inFlight[area] { return await running.value }
+        let task = Task<[WeatherAlertService.NWSAlert]?, Never> { await Self.fetch(area: area) }
+        inFlight[area] = task
+        let out = await task.value
+        inFlight[area] = nil
+        if let out {
+            store[area] = (Date(), out)
+            if store.count > 60 { CacheEviction.dropOldestHalf(&store) { $0.fetched } }
+        }
+        return out
+    }
+
+    private static func fetch(area: String) async -> [WeatherAlertService.NWSAlert]? {
+        // "marine:XX" sources query via `region=`; states via `area=`.
+        let isMarine = area.hasPrefix("marine:")
+        let param = isMarine ? "region" : "area"
+        let code = isMarine ? String(area.dropFirst("marine:".count)) : area
+        guard let url = URL(string: "https://api.weather.gov/alerts/active?\(param)=\(code)"),
+              let (data, resp) = try? await ThrottledNet.fetch(url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let features = json["features"] as? [[String: Any]]
+        else { return nil }
+        return WeatherAlertService.parseAlertFeatures(features)
+    }
+}
+
+/// NWS zone geometries (forecast/county/fire zone outlines) for the alerts
+/// the feed ships with `geometry: null`. Zone shapes are effectively static,
+/// so they cache for a day (and persist in the protocol URLCache across
+/// launches); rings keep up to 1,500 points for faithful containment.
+/// Failures are not cached.
+actor ZoneGeometryCache {
+    static let shared = ZoneGeometryCache()
+    private var store: [String: (fetched: Date, rings: [[CLLocationCoordinate2D]])] = [:]
+    private var inFlight: [String: Task<[[CLLocationCoordinate2D]]?, Never>] = [:]
+
+    func rings(zoneURL: String) async -> [[CLLocationCoordinate2D]]? {
+        if let hit = store[zoneURL], Date().timeIntervalSince(hit.fetched) < 86_400 {
+            return hit.rings
+        }
+        if let running = inFlight[zoneURL] { return await running.value }
+        let task = Task<[[CLLocationCoordinate2D]]?, Never> { await Self.fetch(zoneURL: zoneURL) }
+        inFlight[zoneURL] = task
+        let out = await task.value
+        inFlight[zoneURL] = nil
+        if let out {
+            store[zoneURL] = (Date(), out)
+            if store.count > 240 { CacheEviction.dropOldestHalf(&store) { $0.fetched } }
+        }
+        return out
+    }
+
+    private static func fetch(zoneURL: String) async -> [[CLLocationCoordinate2D]]? {
+        guard let url = URL(string: zoneURL),
+              url.host == "api.weather.gov",   // zone refs come from alert payloads
+              let (data, resp) = try? await ThrottledNet.fetch(url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        let rings = WeatherAlertService.allRings(
+            of: json["geometry"] as? [String: Any], maxPoints: 1_500)
+        return rings.isEmpty ? nil : rings
     }
 }
 

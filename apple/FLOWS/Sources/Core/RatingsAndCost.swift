@@ -96,6 +96,21 @@ enum RatingsAndCost {
         costTier(averageCheck: averageCheckUSD, country: .us)
     }
 
+    /// Typical US nightly rate for a hotel's cost tier — the "no blank
+    /// data" fallback when no live nightly exists for a property. Clearly an
+    /// estimate (the UI labels it "est."); a live rate always replaces it.
+    /// Unknown tier reads as the mid-market median.
+    static func estimatedNightly(costTier: Int?) -> Double {
+        switch costTier {
+        case 1: return 75
+        case 2: return 120
+        case 3: return 190
+        case 4: return 320
+        case 5: return 500
+        default: return 120
+        }
+    }
+
     /// Yelp "price" string ("$"…"$$$$") → tier; Yelp's top band spans our
     /// 4 and 5, splitting on rating-weighted prestige (4.5★+ $$$$ reads
     /// as luxury).

@@ -66,9 +66,11 @@ enum AmtrakStations {
         within maxMeters: CLLocationDistance,
         in stations: [AmtrakStation] = all
     ) -> AmtrakStation? {
+        // Decorate-then-min: the comparator form computed each station's
+        // distance twice per comparison (plus once more for the radius gate).
         stations
-            .min { POIRanking.meters($0.coordinate, point)
-                 < POIRanking.meters($1.coordinate, point) }
-            .flatMap { POIRanking.meters($0.coordinate, point) <= maxMeters ? $0 : nil }
+            .map { ($0, POIRanking.meters($0.coordinate, point)) }
+            .min { $0.1 < $1.1 }
+            .flatMap { $0.1 <= maxMeters ? $0.0 : nil }
     }
 }

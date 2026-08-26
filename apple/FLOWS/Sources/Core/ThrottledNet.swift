@@ -21,6 +21,18 @@ import Foundation
 ///      instead of hammering the network and the CPU. Excess work queues, it
 ///      doesn't pile on — which is exactly what an old iPhone needs.
 enum ThrottledNet {
+    #if os(iOS)
+    /// Multipath TCP for Wi-Fi ↔ cellular HANDOVER — exactly the moment a
+    /// driver pulls out of their driveway mid-plan and the phone walks off
+    /// home Wi-Fi. Requires the paid-team
+    /// com.apple.developer.networking.multipath entitlement, which
+    /// ad-hoc/local signing cannot carry (same situation as the WeatherKit
+    /// hook): WITHOUT the entitlement iOS refuses multipath sockets, so the
+    /// default stays .none. When the app is provisioned for it, set this to
+    /// .handover — the session below picks it up with no other changes.
+    static let multipathService: URLSessionConfiguration.MultipathServiceType = .none
+    #endif
+
     static let session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 10
@@ -28,6 +40,21 @@ enum ThrottledNet {
         cfg.httpMaximumConnectionsPerHost = 3
         cfg.waitsForConnectivity = true
         cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
+        #if os(iOS)
+        cfg.multipathServiceType = Self.multipathService
+        #endif
+        // Real protocol-level HTTP cache (probed 2026-08: api.weather.gov
+        // sends ETag/Last-Modified on alerts and forecasts, and marks /points
+        // grid metadata fresh for HOURS). With capacity to actually hold this
+        // app's bodies, URLSession then serves still-fresh responses with no
+        // request at all and turns TTL-expiry refetches into ~200-byte 304
+        // revalidations instead of full bodies — the corridor watch re-checks
+        // ~25 alert cells every 4 min on a drive, and during active weather
+        // each unchanged body it no longer re-downloads is tens of KB.
+        // Disk-backed, so the cache is warm across launches. App-level parsed
+        // caches (AlertZoneCache etc.) sit above this unchanged; failures
+        // still surface as errors, never as cached bodies.
+        cfg.urlCache = URLCache(memoryCapacity: 4 << 20, diskCapacity: 50 << 20)
         return URLSession(configuration: cfg)
     }()
 
@@ -185,6 +212,9 @@ actor HostBreaker {
     func recordSuccess(_ host: String) {
         probing.remove(host)
         failures[host] = 0
+        if openedAt[host] != nil {
+            FlowsDiag.log(.info, "net", "breaker closed for \(host) — probe succeeded")
+        }
         openedAt[host] = nil
     }
 
@@ -192,7 +222,13 @@ actor HostBreaker {
         probing.remove(host)
         let n = (failures[host] ?? 0) + 1
         failures[host] = n
-        if n >= trip { openedAt[host] = Date() }   // (re)open, restart cooldown
+        if n >= trip {
+            if openedAt[host] == nil {
+                FlowsDiag.log(.warn, "net",
+                              "breaker OPEN for \(host) after \(n) transport failures")
+            }
+            openedAt[host] = Date()   // (re)open, restart cooldown
+        }
     }
 
     /// A half-open probe was CANCELLED (not a real success or failure) — clear
@@ -260,6 +296,18 @@ actor RequestGate {
     /// stops handing permits to waiters until `active` sinks back under).
     func endPlanningBurst() {
         burstDepth = max(0, burstDepth - 1)
+    }
+
+    /// Run `op` inside one planning burst: begin/end are paired by the SCOPE,
+    /// not by call-site discipline, so a new burst site can't leak the
+    /// elevated ceiling on an early return. `op` is @MainActor because every
+    /// burst site in the app is (scoring, hydration, prefetch); the refcount
+    /// and safety window still backstop the shared instance.
+    nonisolated func withPlanningBurst<T>(_ op: @MainActor () async -> T) async -> T {
+        await beginPlanningBurst()
+        let out = await op()
+        await endPlanningBurst()
+        return out
     }
 
     private func acquire() async {

@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import XCTest
 
 /// The FLHH harmonic-climatology reader: format parse, binary zip search, and
@@ -150,5 +151,97 @@ final class HarmonicClimatologyTests: XCTestCase {
         var badMagic = shard
         badMagic.replaceSubrange(0..<4, with: "XXXX".utf8)
         XCTAssertNil(RiskFieldService.parseFRB1(badMagic))
+    }
+}
+
+/// The bulk launch rescore: whatever its internals (the zip map replaced a
+/// per-zip binary search; a multi-core variant was measured and rejected),
+/// it must produce exactly the scores of the brute-force serial loop — and
+/// the O(1) zip map must agree with the binary search it replaced.
+final class HarmonicRescoreTests: XCTestCase {
+
+    /// FLHH fixture with `n` sorted zips × 2 families, deterministic coeffs.
+    private func bulkFixture(nZips: Int) -> Data {
+        var d = Data("FLHH".utf8)
+        func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        u32(1)
+        u32(UInt32(nZips))
+        u32(2)
+        for fam in ["winter", "heat"] {
+            d.append(UInt8(fam.utf8.count))
+            d.append(contentsOf: fam.utf8)
+        }
+        for z in 0..<nZips { d.append(contentsOf: String(format: "%05d", z).utf8) }
+        for z in 0..<nZips {
+            for f in 0..<2 {
+                let coeffs: [Float] = [
+                    0.1 + Float(z % 7) * 0.03, 0.05 * Float(f + 1),
+                    -0.02, 0.01, Float(z % 3) * 0.005,
+                ]
+                for c in coeffs {
+                    withUnsafeBytes(of: c.bitPattern.littleEndian) { d.append(contentsOf: $0) }
+                }
+            }
+        }
+        return d
+    }
+
+    func testZipIndexMapMatchesBinarySearch() throws {
+        let table = try XCTUnwrap(HarmonicClimatology(data: bulkFixture(nZips: 200)))
+        let map = table.zipIndexMap()
+        for z in 0..<200 {
+            let zip = String(format: "%05d", z)
+            XCTAssertEqual(map[zip], table.zipIndex(zip))
+        }
+        XCTAssertNil(map["99999"])
+        XCTAssertNil(table.zipIndex("99999"))
+    }
+
+    func testParallelRescoreMatchesSerial() throws {
+        let table = try XCTUnwrap(HarmonicClimatology(data: bulkFixture(nZips: 500)))
+        let trig = HarmonicClimatology.WeekTrig(week: 10)
+        let famIdx = [(bundle: 0, harmonic: 0), (bundle: 1, harmonic: 1)]
+        let ring = [CLLocationCoordinate2D(latitude: 43, longitude: -89),
+                    .init(latitude: 43.1, longitude: -89), .init(latitude: 43, longitude: -88.9)]
+        // 600 entries: every 5th carries a ring (R-engine entry — must be
+        // untouched), every 7th references a zip the table doesn't know
+        // (skipped), the rest are national entries due a rescore.
+        let base = (0..<600).map { i in
+            RiskFieldService.ZipEntry(
+                zip: i % 7 == 0 ? "abcde" : String(format: "%05d", i % 500),
+                centroid: CLLocationCoordinate2D(latitude: 40, longitude: -90),
+                scores: [0.9, 0.9],
+                summary: nil,
+                ring: i % 5 == 0 ? ring : nil)
+        }
+
+        // Serial oracle — the loop shape harmonicRescore replaced.
+        var expected = base
+        var expectedCount = 0
+        for e in 0..<expected.count where expected[e].ring == nil {
+            guard let zi = table.zipIndex(expected[e].zip) else { continue }
+            var scores = expected[e].scores
+            for (bi, hi) in famIdx where bi < scores.count {
+                scores[bi] = table.score(zipIndex: zi, familyIndex: hi, trig: trig)
+            }
+            expected[e] = RiskFieldService.ZipEntry(
+                zip: expected[e].zip, centroid: expected[e].centroid,
+                scores: scores, summary: expected[e].summary, ring: nil)
+            expectedCount += 1
+        }
+
+        var got = base
+        let gotCount = RiskFieldService.harmonicRescore(
+            entries: &got, table: table, trig: trig, famIdx: famIdx)
+
+        XCTAssertEqual(gotCount, expectedCount)
+        XCTAssertEqual(got.count, expected.count)
+        for (g, e) in zip(got, expected) {
+            XCTAssertEqual(g.zip, e.zip)
+            XCTAssertEqual(g.scores, e.scores)   // exact — same eval, same order
+            XCTAssertEqual(g.ring == nil, e.ring == nil)
+        }
+        // Ringed entries kept their pre-rescore scores untouched.
+        XCTAssertEqual(got[5].scores, [0.9, 0.9])
     }
 }
