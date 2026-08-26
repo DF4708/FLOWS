@@ -35,6 +35,37 @@ import Foundation
 /// storage keys; renaming one orphans that category's saved entries.
 enum EverydayCategory: String, Codable, CaseIterable {
     case food, fuel, stores, rest, shelter, medical, hotels, gyms
+    // Appended 2026-08: repeat-visit stop types that were being discarded.
+    // A trucker returns to the same shower and the same overnight parking;
+    // a commuter parks in the same garage. Those are habits by any
+    // definition, and their taps were silently dropped.
+    case parking, showers
+
+    /// STABLE ordinal for the learning feature vector. Deliberately NOT
+    /// `allCases.firstIndex` — that renumbers every category the moment a
+    /// case is added (and shifts the normalisation denominator too), so
+    /// appending `parking`/`showers` would have silently changed what
+    /// "fuel" means to anything trained on the old encoding. These numbers
+    /// are frozen: give a NEW case the next unused value, never reuse or
+    /// renumber.
+    var featureIndex: Int {
+        switch self {
+        case .food: return 0
+        case .fuel: return 1
+        case .stores: return 2
+        case .rest: return 3
+        case .shelter: return 4
+        case .medical: return 5
+        case .hotels: return 6
+        case .gyms: return 7
+        case .parking: return 8
+        case .showers: return 9
+        }
+    }
+
+    /// Fixed divisor for the normalised feature — frozen alongside
+    /// `featureIndex` so the encoding is stable as cases are appended.
+    static let featureIndexSpace = 16
 }
 
 /// One remembered stop inside the everyday circle. `id` is the stable
@@ -259,9 +290,8 @@ struct EverydayStore: Codable, Equatable {
     func trainingRows() -> [[String: Double]] {
         var rows: [[String: Double]] = []
         for (raw, places) in categories {
-            guard let category = EverydayCategory(rawValue: raw),
-                  let catIndex = EverydayCategory.allCases.firstIndex(of: category)
-            else { continue }
+            guard let category = EverydayCategory(rawValue: raw) else { continue }
+            let catIndex = category.featureIndex   // frozen; see featureIndex
             for place in places {
                 for (ctx, count) in place.contexts {
                     guard let c = Self.parseContext(ctx) else { continue }
@@ -290,10 +320,12 @@ enum EverydayFeatures {
                        placeLat: Double, placeLon: Double,
                        category: EverydayCategory) -> [Double] {
         let a = 2 * Double.pi * Double(hourBucket) / 6
-        let c = Double(EverydayCategory.allCases.firstIndex(of: category) ?? 0)
+        // Frozen ordinal + fixed divisor: appending a category must never
+        // change what an existing one encodes to.
+        let c = Double(category.featureIndex)
         return [sin(a), cos(a), weekend ? 1 : 0,
                 startLat / 90, startLon / 180, placeLat / 90, placeLon / 180,
-                c / Double(EverydayCategory.allCases.count)]
+                c / Double(EverydayCategory.featureIndexSpace)]
     }
     static let count = 8
 }

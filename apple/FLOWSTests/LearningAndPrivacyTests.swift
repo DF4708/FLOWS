@@ -226,6 +226,63 @@ final class LearningAndPrivacyTests: XCTestCase {
         XCTAssertEqual(log.events.last?.t, Double(ChoiceLog.cap + 49))   // newest kept
     }
 
+    // MARK: habit-cache coverage + stable feature encoding
+
+    /// (The POI-kind → habit-category mapping itself lives on `POIService`,
+    /// which is outside this test target. It needs no test: the mapping is
+    /// an EXHAUSTIVE switch, so the compiler already refuses to build if a
+    /// new POI kind is added without an explicit learn-or-exclude decision —
+    /// a stronger guarantee than an assertion, and the reason the five
+    /// dropped kinds were a deliberate-looking `nil` rather than an
+    /// oversight the type system could have caught.)
+
+    /// The learning feature encoding must be FROZEN: appending a category
+    /// cannot be allowed to renumber existing ones (which `allCases
+    /// .firstIndex` did, silently changing what "fuel" meant).
+    func testCategoryFeatureIndexIsStable() {
+        XCTAssertEqual(EverydayCategory.food.featureIndex, 0)
+        XCTAssertEqual(EverydayCategory.fuel.featureIndex, 1)
+        XCTAssertEqual(EverydayCategory.gyms.featureIndex, 7)
+        // Appended cases take NEW values, never reusing an existing one.
+        XCTAssertEqual(EverydayCategory.parking.featureIndex, 8)
+        XCTAssertEqual(EverydayCategory.showers.featureIndex, 9)
+        let indices = EverydayCategory.allCases.map(\.featureIndex)
+        XCTAssertEqual(Set(indices).count, indices.count, "feature indices must be unique")
+        XCTAssertTrue(indices.allSatisfy { $0 < EverydayCategory.featureIndexSpace })
+        // The normalised feature for an existing category is unchanged by
+        // the append, because the divisor is fixed rather than allCases.count.
+        let v = EverydayFeatures.vector(
+            hourBucket: 2, weekend: false, startLat: 43, startLon: -89,
+            placeLat: 43.1, placeLon: -89.1, category: .fuel)
+        XCTAssertEqual(v.count, EverydayFeatures.count)
+        XCTAssertEqual(v.last ?? 0, 1.0 / 16.0, accuracy: 1e-12)
+    }
+
+    // MARK: driver shower reports (the crowd-correction path)
+
+    /// A driver standing in the building outranks a spreadsheet about it.
+    /// `disprove` was implemented and persisted with nothing able to call
+    /// it, and the brand city-table short-circuited ahead of the report even
+    /// when one existed.
+    func testDriverShowerReportOutranksTheBrandTable() {
+        let lat = 41.1234, lon = -95.4321
+        XCTAssertFalse(ShowerAvailability.isDisproved(lat: lat, lon: lon))
+        // Brand knowledge alone claims showers at a big-chain truck stop.
+        XCTAssertEqual(
+            ShowerAvailability.forStop(named: "Love's Travel Stop"), .standard)
+        // After a driver reports otherwise, the ladder returns .disproven.
+        ShowerAvailability.disprove(lat: lat, lon: lon)
+        XCTAssertTrue(ShowerAvailability.isDisproved(lat: lat, lon: lon))
+        XCTAssertEqual(
+            ShowerAvailability.forStop(named: "Love's Travel Stop", lat: lat, lon: lon),
+            .disproven)
+        // A different stop is unaffected — the report is location-scoped.
+        XCTAssertNotEqual(
+            ShowerAvailability.forStop(named: "Love's Travel Stop",
+                                       lat: lat + 1, lon: lon + 1),
+            .disproven)
+    }
+
     // MARK: on-device fine-tune
 
     private func flatHead() -> LearnedHead {

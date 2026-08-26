@@ -129,7 +129,17 @@ final class POIService: ObservableObject {
         case .medical: return .medical
         case .hotel: return .hotels
         case .gyms: return .gyms
-        case .tourist, .shower, .truckParking, .parking, .weighStation: return nil
+        // Repeat-visit stop types ARE habits: a trucker returns to the same
+        // shower and the same overnight parking, a commuter to the same
+        // garage. Their taps used to be dropped on the floor.
+        case .shower: return .showers
+        case .truckParking, .parking: return .parking
+        // Genuinely not habits, and deliberately still excluded: an
+        // attraction is somewhere you go ONCE (frequency would rank the
+        // place you've already seen above the one you haven't), and a weigh
+        // station is a legal obligation, not a preference — "learning" it
+        // would just re-suggest a mandatory stop as if it were a choice.
+        case .tourist, .weighStation: return nil
         }
     }
 
@@ -625,10 +635,19 @@ final class POIService: ObservableObject {
                        || lower.contains("ta travel") || lower.contains("petro ")
                        || lower.hasSuffix("petro")) ? Self.taShowers
                     : nil
-                if let table = brandTable,
-                   let count = table.showers(
-                        state: row.item.placemark.administrativeArea,
-                        city: row.item.placemark.locality) {
+                // DRIVER REPORT OUTRANKS EVERYTHING — including the verified
+                // brand table. The ladder is documented as "driver report →
+                // table tag → brand", but the brand-city branch below
+                // short-circuited before the report was ever consulted, so a
+                // trucker reporting "no showers" at a Pilot was silently
+                // overruled by the chain's own data. Someone standing in the
+                // building beats a spreadsheet about it.
+                if ShowerAvailability.isDisproved(lat: c.latitude, lon: c.longitude) {
+                    r.showers = .disproven
+                } else if let table = brandTable,
+                          let count = table.showers(
+                            state: row.item.placemark.administrativeArea,
+                            city: row.item.placemark.locality) {
                     r.showers = count > 0 ? .standard : .none
                 } else {
                     r.showers = ShowerAvailability.forStop(
@@ -765,6 +784,20 @@ final class POIService: ObservableObject {
     /// Row tap: select the stop on the map AND count the lookup — the
     /// everyday cache ranks by how often each stop is actually used, and the
     /// context (time of day, weekday, start cell) feeds the habit patterns.
+    /// Re-apply driver shower reports to the rows on screen, so tapping
+    /// "no showers?" updates the list immediately instead of waiting for the
+    /// next search.
+    func refreshShowerResolution() {
+        results = results.map { row in
+            var r = row
+            let c = row.item.placemark.coordinate
+            if ShowerAvailability.isDisproved(lat: c.latitude, lon: c.longitude) {
+                r.showers = .disproven
+            }
+            return r
+        }
+    }
+
     func choose(_ ranked: RankedPOI) {
         selected = ranked
         // The CHOICE SET, not just the winner: the rows that were on screen

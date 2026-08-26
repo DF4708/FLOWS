@@ -490,6 +490,25 @@ struct NavigationHUD: View {
                         Label(ranked.showers.rawValue, systemImage: "shower.fill")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.blue)
+                        // Driver correction. The shower claim here is a brand
+                        // assumption ("Love's has showers"), and a trucker who
+                        // detours for one and finds none has earned the right
+                        // to say so — `ShowerAvailability.disprove` has been
+                        // implemented and persisted all along with nothing
+                        // able to call it, so the top rung of the resolution
+                        // ladder (.disproven) was unreachable.
+                        Button {
+                            let c = ranked.item.placemark.coordinate
+                            ShowerAvailability.disprove(lat: c.latitude, lon: c.longitude)
+                            model.poi.refreshShowerResolution()
+                        } label: {
+                            Text("· no showers?")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .underline()
+                        }
+                        .buttonStyle(.plain)
+                        .help("Report that this stop has no showers — FLOWS will stop claiming it does")
                     }
                     if let fee = ranked.parkingFee {
                         Text(fee ? "· Paid" : "· Free")

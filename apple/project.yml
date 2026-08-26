@@ -111,7 +111,7 @@ targets:
         # profile lacks fails code signing, which would make the app
         # un-installable rather than merely CarPlay-less.
         # Test with: Simulator.app ▸ I/O ▸ External Displays ▸ CarPlay.
-        CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]: FLOWS/Generated/FLOWS-iOS-Simulator.entitlements
+        CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]: FLOWS/Entitlements/FLOWS-iOS-Simulator.entitlements
         # Static-link the Rust core per SDK — the device and
         # simulator need their own cross-compiled slices. `-u` force-keeps the
         # C symbol so FlowsCore's loader resolves it (Swift fallback otherwise).

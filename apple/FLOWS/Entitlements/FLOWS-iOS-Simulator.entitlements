@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  SIMULATOR-ONLY entitlements.
+
+	  The CarPlay entitlement (com.apple.developer.carplay-maps) is granted
+	  per-app by Apple after an application at
+	  developer.apple.com/contact/carplay. Until that is granted, a DEVICE
+	  build must NOT request it: code signing fails when a binary asks for an
+	  entitlement its provisioning profile does not carry, which would trade
+	  "no CarPlay" for "the app will not install at all".
+
+	  The Simulator does not validate entitlements against a profile, so it
+	  will happily connect the CarPlay scene with this declared. That makes
+	  the entire CarPlay surface — templates, the destination list, the
+	  handlers — developable and testable NOW, months before the entitlement
+	  arrives.
+
+	  This file is wired in project.yml as
+	  CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*], so it applies to
+	  simulator builds ONLY and device builds are untouched. When Apple
+	  grants the entitlement, add it to a device entitlements file and a
+	  matching profile; this file can stay as-is.
+
+	  To use it: build/run to a simulator, then in Simulator.app choose
+	  I/O ▸ External Displays ▸ CarPlay.
+	-->
+	<key>com.apple.developer.carplay-maps</key>
+	<true/>
+</dict>
+</plist>
