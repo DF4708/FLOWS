@@ -1432,14 +1432,10 @@ struct NavigationHUD: View {
         HStack(spacing: 4) {
             // Album art (real artwork on iOS; placeholder tile on macOS,
             // track name in the tooltip). Tapping opens the quick music
-            // menu when FLOWS can control the service in place — otherwise
-            // it opens the service's app (the menu rows would be lies).
+            // menu — its rows match what the picked service can actually
+            // do (in-place transport, or deep links into its own app).
             Button {
-                if model.musicControllable {
-                    showMusicMenu.toggle()
-                } else {
-                    model.playMusic()
-                }
+                showMusicMenu.toggle()
             } label: {
                 Group {
                     if model.musicControllable, let art = music.artwork {
@@ -1534,7 +1530,40 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
             }
-            if model.musicProvider == .spotify {
+            if !model.musicControllable {
+                // No control API exists for this service — the menu is
+                // honest deep links into ITS OWN app: open it, or jump
+                // straight to its search for a genre (universal links land
+                // in the installed app; the web player otherwise).
+                musicMenuRow("Open \(model.musicProvider.displayName)",
+                             symbol: "arrow.up.forward.app",
+                             detail: "Playback controls live there") {
+                    model.musicProvider.openApp()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Genres").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        ForEach(MusicController.genreRows, id: \.self) { genre in
+                            Button {
+                                model.musicProvider.openSearch(query: genre)
+                                showMusicMenu = false
+                            } label: {
+                                Text(genre)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 10)
+                                    .frame(minHeight: 30)
+                                    .background(Color.black.opacity(0.05))
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Search \(genre) in \(model.musicProvider.displayName)")
+                        }
+                    }
+                    Text("Each genre opens \(model.musicProvider.displayName)'s own search.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else if model.musicProvider == .spotify {
                 // Spotify's remote has no library/genre queries — one
                 // honest resume row, plus its plain-words status line.
                 if let note = spotify.status {

@@ -417,6 +417,29 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertFalse(BrandKnowledge.askedName("Starbucks", matches: "Joe's Coffee"))
     }
 
+    // MARK: search deep links — the no-API integration layer
+
+    func testEveryProviderHasAnEncodedHTTPSSearchLink() {
+        for provider in MusicProvider.allCases {
+            let url = provider.searchURL(query: "classic country & hits")
+            XCTAssertEqual(url.scheme, "https", provider.rawValue)
+            XCTAssertFalse(url.absoluteString.contains(" "), provider.rawValue)
+            // "&" inside the TERM must encode — it would split the query
+            // string (the same Yelp lesson as everywhere else).
+            XCTAssertFalse(url.absoluteString.contains("&hits"), provider.rawValue)
+        }
+        // Patterns pinned to what the live probes verified.
+        XCTAssertEqual(
+            MusicProvider.youtubeMusic.searchURL(query: "road songs").absoluteString,
+            "https://music.youtube.com/search?q=road%20songs")
+        XCTAssertEqual(
+            MusicProvider.jioSaavn.searchURL(query: "hindi").absoluteString,
+            "https://www.jiosaavn.com/search/song/hindi")
+        XCTAssertEqual(
+            MusicProvider.siriusXM.searchURL(query: "classic country").absoluteString,
+            "https://www.siriusxm.com/search?activeTab=all&q=classic%20country")
+    }
+
     // MARK: in-place control — the truth table every surface consults
 
     func testInPlaceControlTruthTableCoversEveryProvider() {

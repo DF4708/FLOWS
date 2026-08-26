@@ -189,6 +189,52 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         return URL(string: address)!
     }
 
+    /// The service's own search page for a term — the deep-integration
+    /// layer that needs NO key and NO SDK: these are https universal
+    /// links, so on a phone with the service's app installed the link
+    /// opens IN that app at its search results; otherwise the web player
+    /// serves the same page. Every pattern probed live (2026-08); Tidal
+    /// answers 403 to curl (bot gate) but the path is its web player's
+    /// own search route.
+    func searchURL(query: String) -> URL {
+        // Strict encoding — & = + ? in a genre/search term must not split
+        // the query (the Yelp lesson).
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?")
+        let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
+        let address: String
+        switch self {
+        case .appleMusic: address = "https://music.apple.com/us/search?term=\(q)"
+        case .spotify: address = "https://open.spotify.com/search/\(q)"
+        case .youtubeMusic: address = "https://music.youtube.com/search?q=\(q)"
+        case .amazonMusic: address = "https://music.amazon.com/search/\(q)"
+        case .pandora: address = "https://www.pandora.com/search/\(q)"
+        case .siriusXM: address = "https://www.siriusxm.com/search?activeTab=all&q=\(q)"
+        case .jioSaavn: address = "https://www.jiosaavn.com/search/song/\(q)"
+        case .gaana: address = "https://gaana.com/search/\(q)"
+        case .soundCloud: address = "https://soundcloud.com/search?q=\(q)"
+        case .deezer: address = "https://www.deezer.com/search/\(q)"
+        case .qobuz: address = "https://play.qobuz.com/search?q=\(q)"
+        case .tidal: address = "https://listen.tidal.com/search?q=\(q)"
+        case .applePodcasts: address = "https://podcasts.apple.com/us/search?term=\(q)"
+        case .iHeartRadio: address = "https://www.iheart.com/search/?q=\(q)"
+        case .audible: address = "https://www.audible.com/search?keywords=\(q)"
+        }
+        return URL(string: address) ?? webURL
+    }
+
+    /// Open the service AT a search — its app when installed (iOS routes
+    /// the universal link), its web player otherwise. No scheme needed.
+    @MainActor
+    func openSearch(query: String) {
+        let url = searchURL(query: query)
+        #if os(iOS)
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
     /// Open the service: its app when installed, its web player otherwise.
     @MainActor
     func openApp() {

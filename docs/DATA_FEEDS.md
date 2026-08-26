@@ -693,6 +693,32 @@ as fallback — `openApp()` degrades gracefully if a scheme changes). Both
 read as uncontrollable in the truth table like every other no-API
 service: transport buttons never appear for them.
 
+#### The no-API integration layer — search deep links (2026-08)
+
+Asked to integrate the no-API services anyway, the honest maximum was
+built and the dishonest routes stayed out. The boundary, stated once: on
+iOS there is NO mechanism to drive another app's playback without that
+app's own SDK — the sandbox withholds the capability (Apple's
+media-remote plumbing is private API), so this is not missing
+documentation. The known workarounds — cookie-scraping wrappers,
+credential-proxy stream servers, DRM circumvention — are ToS violations
+(DMCA §1201 territory where DRM is involved), risk the USER's account,
+and are App Store rejections. FLOWS ships none of them.
+
+What every service DOES expose keylessly: its own search pages as https
+universal links — on a phone with the service's app installed, iOS
+routes the link INTO that app at its search results; otherwise the web
+player serves the same page. `MusicProvider.searchURL(query:)` carries
+one live-probed pattern per service (all 15 return 200 to a mobile-UA
+probe except Tidal, whose web player bot-gates curl — same diagnosis as
+OpenMHz; the path is its own search route). The mini player's menu now
+works for EVERY provider: controllable services keep transport rows;
+no-API services get "Open <service>" plus genre quick-picks that land
+directly in that service's search ("Country" → YouTube Music's country
+results, one tap). Simulator/CI can verify the web half only — the
+into-the-app routing is Apple's universal-link mechanism and needs the
+app installed on a device.
+
 Consequence in code: `MusicProvider.controllable(onMac:spotifyLinked:)` is
 the ONE truth table, and every transport surface consults it — the HUD mini
 player (`AppModel.musicControllable`), the Siri intents, and CarPlay
