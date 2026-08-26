@@ -28,6 +28,18 @@ enum ThrottledNet {
         cfg.httpMaximumConnectionsPerHost = 3
         cfg.waitsForConnectivity = true
         cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
+        // Real protocol-level HTTP cache (probed 2026-08: api.weather.gov
+        // sends ETag/Last-Modified on alerts and forecasts, and marks /points
+        // grid metadata fresh for HOURS). With capacity to actually hold this
+        // app's bodies, URLSession then serves still-fresh responses with no
+        // request at all and turns TTL-expiry refetches into ~200-byte 304
+        // revalidations instead of full bodies — the corridor watch re-checks
+        // ~25 alert cells every 4 min on a drive, and during active weather
+        // each unchanged body it no longer re-downloads is tens of KB.
+        // Disk-backed, so the cache is warm across launches. App-level parsed
+        // caches (AlertZoneCache etc.) sit above this unchanged; failures
+        // still surface as errors, never as cached bodies.
+        cfg.urlCache = URLCache(memoryCapacity: 4 << 20, diskCapacity: 50 << 20)
         return URLSession(configuration: cfg)
     }()
 

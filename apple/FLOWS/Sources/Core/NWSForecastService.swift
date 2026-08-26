@@ -133,7 +133,19 @@ actor NWSForecastFetcher {
 
     // MARK: provider 1 — NWS (US)
 
-    private func nwsConditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
+    /// 0.1°-cell → hourly-forecast URL. The /points grid metadata is
+    /// effectively static — a coordinate's NWS grid square never moves, and
+    /// the server itself marks the response fresh for hours — yet every
+    /// conditions() refresh paid a full round trip for it before fetching
+    /// the forecast, DOUBLING the NWS request count of the forecast path.
+    /// One resolution per cell per day now; failures are not cached.
+    private var gridURLCache: [String: (fetched: Date, url: URL)] = [:]
+
+    private func hourlyForecastURL(at c: CLLocationCoordinate2D) async -> URL? {
+        let k = key(c)
+        if let hit = gridURLCache[k], Date().timeIntervalSince(hit.fetched) < 86_400 {
+            return hit.url
+        }
         guard let pointURL = URL(string: String(
             format: "https://api.weather.gov/points/%.4f,%.4f", c.latitude, c.longitude)),
             let (pd, pr) = try? await ThrottledNet.fetch(pointURL),
@@ -141,7 +153,15 @@ actor NWSForecastFetcher {
             let pjson = try? JSONSerialization.jsonObject(with: pd) as? [String: Any],
             let props = pjson["properties"] as? [String: Any],
             let hourlyURLString = props["forecastHourly"] as? String,
-            let hourlyURL = URL(string: hourlyURLString),
+            let hourlyURL = URL(string: hourlyURLString)
+        else { return nil }
+        gridURLCache[k] = (Date(), hourlyURL)
+        if gridURLCache.count > 400 { CacheEviction.dropOldestHalf(&gridURLCache) { $0.fetched } }
+        return hourlyURL
+    }
+
+    private func nwsConditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
+        guard let hourlyURL = await hourlyForecastURL(at: c),
             let (hd, hr) = try? await ThrottledNet.fetch(hourlyURL),
             (hr as? HTTPURLResponse)?.statusCode == 200,
             let hjson = try? JSONSerialization.jsonObject(with: hd) as? [String: Any],
