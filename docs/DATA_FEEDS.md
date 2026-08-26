@@ -742,17 +742,33 @@ Two things end the wait early, and both beat the clock:
 * **playback actually stalls** — the buffer was shorter than expected,
   so there's no reason to sit in silence waiting for a timer.
 
-How long to wait depends on what can be *known*, not guessed:
+**Per-service buffer depths were investigated and deliberately NOT
+used.** No streaming service publishes a read-ahead figure — a sweep
+across Spotify, YouTube Music, Amazon Music, Tidal, Deezer, and Pandora
+turned up only cache-troubleshooting advice, never a specification —
+and the real depth varies with bitrate, Data Saver, and signal quality
+anyway. A per-service table of guessed seconds would be fabrication
+that silently rots as each app ships an update. So FLOWS measures what
+it can own and, for everything else, **watches the audio itself**:
 
-| Source | Wait | Basis |
+| Source | Signal | Basis |
 |---|---|---|
-| FLOWS's radio | **measured** `loadedTimeRanges` ahead of the play head, clamped 4–45 s | our own AVPlayer — the real buffer, not an estimate |
-| Apple Music (cloud track) | ≤30 s | read-ahead isn't published, so this only BOUNDS the wait — `.interrupted` on the system player is the real trigger |
-| Spotify | ≤40 s | plays on Spotify's own device and reports nothing while the link is down, so the cap is the only signal |
+| FLOWS's radio | **Measured** `loadedTimeRanges` ahead of the play head, clamped 4–45 s, plus an `AVPlayerItemPlaybackStalled` observer | Our own AVPlayer — the real remaining audio, not an estimate |
+| Apple Music (cloud track) | System player reporting `.interrupted`, bounded by ≤30 s | Read-ahead isn't published; the player's own stop signal is the truth, the cap only bounds the wait |
+| Spotify | Its audio going quiet, bounded by ≤40 s | Plays on Spotify's own device, which reports nothing while the link is down |
+| **Every other service** (YouTube Music, Amazon, Pandora, SiriusXM, Tidal, Deezer, SoundCloud…) | `AVAudioSession.isOtherAudioPlaying` going quiet, watched up to 90 s | One signal covering all of them — no per-app table to maintain or get wrong |
 
-A deliberate **pause** never triggers a handoff: only `.interrupted`
-(what a buffer-starved cloud track looks like) counts as the music
-dying, never `.paused`.
+Two rules keep this from ever talking over someone's music:
+* **Audio still playing at the ceiling is left alone.** For a player
+  FLOWS doesn't own, the ceiling is a polling limit, not a deadline — a
+  deeper buffer than expected is no reason to interrupt.
+* **A deliberate pause never triggers a handoff.** Only `.interrupted`
+  (a buffer-starved cloud track) counts as the music dying, never
+  `.paused`.
+
+And on the way back, a service FLOWS can't drive is never force-opened:
+throwing the driver into another app's UI at 70 mph is worse than a
+moment of quiet, so FLOWS says it's ready and lets them choose.
 
 **Then** `PlaybackFallback` (pure, pinned) decides what still plays, in
 the order of what actually survives:

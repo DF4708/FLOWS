@@ -7,6 +7,30 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+#if os(iOS)
+import AVFoundation
+#endif
+
+/// Is another app making sound right now?
+///
+/// This is the answer to "how much does each service buffer?" — you
+/// cannot know. NONE of them publish a read-ahead figure (checked across
+/// Spotify, YouTube Music, Amazon Music, Tidal, Deezer, Pandora: all
+/// that exists publicly is cache-troubleshooting advice), and every
+/// number varies with bitrate, Data Saver, and signal quality anyway.
+/// So FLOWS stops guessing buffer depths for players it doesn't own and
+/// measures the thing it actually cares about instead: whether audio is
+/// still coming out of the speakers. One signal, every service, no
+/// per-app table to rot.
+enum AudioActivity {
+    static var isOtherAudioPlaying: Bool {
+        #if os(iOS)
+        return AVAudioSession.sharedInstance().isOtherAudioPlaying
+        #else
+        return false
+        #endif
+    }
+}
 
 /// How long to WAIT before assuming a dropped connection killed the music.
 ///
@@ -32,6 +56,12 @@ enum PlaybackGrace {
         case appleMusicCloud
         /// Playing on Spotify's own device; its buffer is invisible to us.
         case spotify
+        /// Any other service, playing in its OWN app (deep-linked:
+        /// YouTube Music, Amazon Music, Pandora, SiriusXM, Tidal, Deezer,
+        /// SoundCloud…). Its buffer is unknowable AND unpublished, so the
+        /// cap here is only a polling ceiling — the real signal is
+        /// `AudioActivity.isOtherAudioPlaying` going quiet.
+        case otherApp
     }
 
     /// Live streams keep small buffers — a few seconds is normal, and the
@@ -47,6 +77,11 @@ enum PlaybackGrace {
     /// is down, so this cap is the only signal available there. Waiting
     /// costs nothing while its buffer is still producing sound.
     static let spotifyCapSeconds: Double = 40
+    /// How long to keep WATCHING another app's audio. Not a buffer
+    /// estimate — audio still playing at this ceiling is simply left
+    /// alone (a deeper buffer than expected is no reason to talk over
+    /// someone's music).
+    static let otherAppWatchSeconds: Double = 90
 
     /// - Parameter measuredBuffer: seconds of audio already loaded, when
     ///   the player is ours and can be asked. nil for players that can't.
@@ -62,6 +97,8 @@ enum PlaybackGrace {
             return appleMusicCapSeconds
         case .spotify:
             return spotifyCapSeconds
+        case .otherApp:
+            return otherAppWatchSeconds
         }
     }
 }

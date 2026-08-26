@@ -666,6 +666,15 @@ final class AppModel: ObservableObject {
         preHandoffProvider = nil
         restoreTask = nil
         musicProvider = previous
+        // A service FLOWS can drive resumes in place. A deep-linked one
+        // must NOT be force-opened mid-drive — throwing the driver into
+        // another app's UI at 70 mph is worse than a moment of quiet, so
+        // say it's available and let them choose.
+        guard musicControllable else {
+            VoiceAnnouncer.shared.announce(
+                "Signal's back — \(previous.displayName) is ready when you are.")
+            return
+        }
         VoiceAnnouncer.shared.announce(
             PlaybackFallback.restoreLine(service: previous.displayName))
         if let ask = lastMusicAsk {
@@ -691,22 +700,57 @@ final class AppModel: ObservableObject {
         guard handoffGraceTask == nil, !handedOffOffline else { return }
         let music = MusicController.shared
         let radioPlaying = radio.playingChannelID != nil
-        guard music.isPlaying || radioPlaying,
-              radioPlaying || music.currentPlaybackNeedsNetwork else { return }
+        // Any OTHER app making sound (a deep-linked service playing in
+        // its own app) counts as music that's about to be in trouble.
+        let otherAppAudio = !radioPlaying && AudioActivity.isOtherAudioPlaying
+        guard radioPlaying || music.isPlaying || otherAppAudio,
+              radioPlaying || otherAppAudio
+                || music.currentPlaybackNeedsNetwork else { return }
         bufferedAudioWasPlaying = true
-        let source: PlaybackGrace.Source = radioPlaying
-            ? .radio
-            : (musicProvider == .spotify ? .spotify : .appleMusicCloud)
-        // Radio is OUR player, so its remaining audio is measured, not
-        // estimated; the others only expose a conservative bound.
+        let source: PlaybackGrace.Source
+        if radioPlaying {
+            source = .radio
+        } else if music.isPlaying, musicProvider == .appleMusic {
+            source = .appleMusicCloud
+        } else if musicProvider == .spotify {
+            source = .spotify
+        } else {
+            source = .otherApp
+        }
+        // Radio is OUR player, so its remaining audio is measured; for
+        // everything else this is only a ceiling on how long we watch.
         let grace = PlaybackGrace.graceSeconds(
             for: source,
             measuredBuffer: radioPlaying ? radio.bufferedSecondsAhead : nil)
         radio.onStall = { [weak self] in self?.applyOfflineHandoff() }
         music.onPlaybackStopped = { [weak self] in self?.applyOfflineHandoff() }
         handoffGraceTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(grace))
-            guard !Task.isCancelled else { return }
+            if radioPlaying {
+                // Our own measured buffer is authoritative.
+                try? await Task.sleep(for: .seconds(grace))
+                guard !Task.isCancelled else { return }
+            } else {
+                // Every other player: no published buffer figure exists,
+                // so watch the AUDIO ITSELF and act when it goes quiet.
+                var waited = 0.0
+                var wentQuiet = false
+                while waited < grace {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                    waited += 1
+                    if !AudioActivity.isOtherAudioPlaying {
+                        wentQuiet = true
+                        break
+                    }
+                }
+                // Still making sound at the ceiling? Its buffer runs
+                // deeper than expected — leave it alone rather than talk
+                // over music that's playing perfectly well.
+                guard wentQuiet else {
+                    self?.endHandoffGrace()
+                    return
+                }
+            }
             self?.applyOfflineHandoff()
         }
     }

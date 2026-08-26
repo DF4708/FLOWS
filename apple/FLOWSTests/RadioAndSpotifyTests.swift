@@ -500,13 +500,27 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertEqual(
             PlaybackGrace.graceSeconds(for: .appleMusicCloud, measuredBuffer: 3),
             PlaybackGrace.appleMusicCapSeconds)
-        // Every wait is long enough to ride out a short tunnel, and none
-        // is so long the driver sits in silence.
+        // Every wait rides out a short tunnel without stranding anyone.
         for source: PlaybackGrace.Source in [.radio, .appleMusicCloud, .spotify] {
             let grace = PlaybackGrace.graceSeconds(for: source, measuredBuffer: 20)
             XCTAssertGreaterThanOrEqual(grace, 4, "\(source)")
             XCTAssertLessThanOrEqual(grace, 45, "\(source)")
         }
+    }
+
+    func testOtherAppsAreWatchedNotGuessed() {
+        // No service publishes a read-ahead figure, so this is a WATCH
+        // ceiling, not a buffer estimate: it must outlast the others,
+        // because audio still playing at the ceiling is left alone.
+        XCTAssertEqual(PlaybackGrace.graceSeconds(for: .otherApp),
+                       PlaybackGrace.otherAppWatchSeconds)
+        XCTAssertGreaterThan(PlaybackGrace.otherAppWatchSeconds,
+                             PlaybackGrace.spotifyCapSeconds)
+        // A measured buffer is meaningless for a player we don't own —
+        // it must never shorten the watch.
+        XCTAssertEqual(
+            PlaybackGrace.graceSeconds(for: .otherApp, measuredBuffer: 2),
+            PlaybackGrace.otherAppWatchSeconds)
     }
 
     // MARK: offline handoff — what still plays when the signal drops
