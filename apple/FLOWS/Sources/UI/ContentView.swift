@@ -265,6 +265,7 @@ struct ContentView: View {
 
     private var legendHasRoom: Bool {
         guard model.mode != .navigating else { return false }
+        guard !model.collapsedPanels.contains("legend") else { return false }
         guard isCompact else { return true }
         if model.needsVehicleOnboarding { return false }
         if model.mode == .choosing {
@@ -2065,6 +2066,7 @@ struct CollapsedPanelTray: View {
                    name: "Route choices"),
         PanelBadge(id: "sliders", symbol: "slider.horizontal.3", name: "Vehicle limits"),
         PanelBadge(id: "stops", symbol: "list.bullet", name: "Stop list"),
+        PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
     ]
 
     var body: some View {
@@ -2640,14 +2642,40 @@ private struct LegendCard: View {
             .padding(anchorsBottom ? .bottom : .top, golden.pad)
             if !anchorsBottom { Spacer() }
         }
-        .allowsHitTesting(false)
     }
 
+    /// The key itself: everything but the X is BACKGROUND (map taps pass
+    /// straight through), so the button is overlaid rather than nested —
+    /// hit testing disabled on a parent can't be re-enabled by a child.
     private var legendBox: some View {
+        legendContent
+            .allowsHitTesting(false)
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = model.collapsedPanels.insert("legend")
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        // A fingertip target around the small glyph.
+                        .frame(width: Theme.tapMinimum, height: Theme.tapMinimum)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Tuck the key away")
+            }
+    }
+
+    private var legendContent: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("Risk")
-                .font(.caption2.weight(.bold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text("Risk")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
             // Continuous gradient — risk is a 0…1 scale, not four
             // discrete buckets.
             VStack(alignment: .leading, spacing: 2) {
@@ -2689,6 +2717,9 @@ private struct LegendCard: View {
                 .frame(width: golden.legendWidth * 1.1)
             }
         }
+        // The key hugs its own content — without a width the header's
+        // spacer would stretch the whole card across the window.
+        .frame(width: golden.legendWidth * 1.1)
         .padding(golden.padCard)
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

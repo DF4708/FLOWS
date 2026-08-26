@@ -1099,6 +1099,7 @@ final class AppModel: ObservableObject {
                 self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
                 self.updateFuelRecommendation()
                 self.updateFuelWarning()   // last-chance matching-fuel stops
+                self.updatePostedSpeedLimit(fix)   // the HUD speed sign
                 self.updateDrivingClocks(fix: fix)
                 self.updateSteepGrade()
                 // Towing is live during the trip, not a trip-start snapshot:
@@ -1383,6 +1384,49 @@ final class AppModel: ObservableObject {
     /// Set while range is low enough to plan a fuel stop NOW (HUD chip).
     @Published var fuelRecommendation: String?
     private var lastHabitFix: CLLocation?
+
+    // MARK: posted speed limit (the HUD's live speed pair)
+
+    /// The limit posted on the road being driven (mph), when OSM has one.
+    @Published private(set) var postedSpeedLimitMph: Double?
+    private var limitLookupTask: Task<Void, Never>?
+    private var lastLimitLookup = Date.distantPast
+    private var lastLimitPoint: CLLocationCoordinate2D?
+
+    /// True while the traveler is a PASSENGER (plane, bus, train) rather
+    /// than driving — no speed sign for them.
+    var isPassengerTransit: Bool {
+        guard let mode = transitItinerary?.mode else { return false }
+        return mode != "Walk + ride"
+    }
+
+    /// Refresh the posted limit as the vehicle moves onto new road. Cheap:
+    /// only while driving, only every ~15 s, and only once the vehicle has
+    /// actually covered ground since the last lookup.
+    private func updatePostedSpeedLimit(_ fix: CLLocation) {
+        guard SpeedSign.shouldShow(isNavigating: mode == .navigating,
+                                   isWalking: walkingMode
+                                       || navigation.route?.isWalkingEstimate == true,
+                                   isPassengerTransit: isPassengerTransit) else {
+            if postedSpeedLimitMph != nil { postedSpeedLimitMph = nil }
+            return
+        }
+        let moved = lastLimitPoint.map {
+            POIRanking.meters($0, fix.coordinate) > 150
+        } ?? true
+        guard moved, Date().timeIntervalSince(lastLimitLookup) > 15 else { return }
+        lastLimitLookup = Date()
+        lastLimitPoint = fix.coordinate
+        let point = fix.coordinate
+        limitLookupTask?.cancel()
+        limitLookupTask = Task { [weak self] in
+            let limit = await LiveHazardFeedFetcher.shared.postedLimitMph(at: point)
+            guard let self, !Task.isCancelled, self.mode == .navigating else { return }
+            // Keep the last known limit when this stretch has no tag —
+            // blanking the sign every unmapped block would flicker.
+            if limit != nil { self.postedSpeedLimitMph = limit }
+        }
+    }
 
     // MARK: recent speed (crash corroboration)
 
@@ -2163,6 +2207,9 @@ final class AppModel: ObservableObject {
         towingWarning = nil
         fuelRecommendation = nil
         clearFuelWarning()
+        limitLookupTask?.cancel()
+        postedSpeedLimitMph = nil
+        lastLimitPoint = nil
         refuelPrompt = false
         refuelPromptShownAt = nil
         upcomingSteepGrade = nil

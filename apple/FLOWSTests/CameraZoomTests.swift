@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import MapKit
 import XCTest
 
 /// The navigation camera's zoom policy: distance shown follows the distance
@@ -67,6 +68,51 @@ final class CameraZoomTests: XCTestCase {
             XCTAssertGreaterThanOrEqual(alt, last)
             last = alt
         }
+    }
+
+    // MARK: framing the route clear of the panel
+
+    /// A typical trip: wide east-west, thin north-south (Madison→Milwaukee
+    /// shaped). This is the case that breaks naive "grow the rect" framing.
+    private var wideRoute: MKMapRect {
+        MKMapRect(x: 1_000_000, y: 2_000_000, width: 40_000, height: 900)
+    }
+
+    func testTopPanelPushesTheRouteDownIntoTheOpenMap() {
+        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: true,
+                                           windowAspect: 2.17)
+        // The camera centers NORTH of the route (smaller y), so the route
+        // draws lower on screen — below the panel.
+        XCTAssertLessThan(framed.midY, wideRoute.midY)
+        // …and the zoom is untouched: shifting, not growing.
+        XCTAssertEqual(framed.size.width,
+                       wideRoute.insetBy(dx: -wideRoute.width * 0.2,
+                                         dy: -wideRoute.height * 0.2).size.width,
+                       accuracy: 1)
+    }
+
+    func testTheShiftIsBigEnoughToMatterOnAWideRoute() {
+        // The bug this replaces: growing a width-constrained rect's height
+        // moved the route by nothing. The shift must scale with the FITTED
+        // span (width × aspect), not the route's own hairline height.
+        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: true,
+                                           windowAspect: 2.17)
+        let shift = wideRoute.midY - framed.midY
+        XCTAssertGreaterThan(shift, wideRoute.size.height * 10,
+                             "shift must come from the fitted span, not route height")
+    }
+
+    func testSidePanelPushesTheRouteRight() {
+        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: false,
+                                           windowAspect: 2.17)
+        XCTAssertLessThan(framed.midX, wideRoute.midX)
+        XCTAssertEqual(framed.midY, wideRoute.midY, accuracy: 1)
+    }
+
+    func testNoPanelNoShift() {
+        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: true,
+                                           windowAspect: 2.17, panelFraction: 0)
+        XCTAssertEqual(framed.midY, wideRoute.midY, accuracy: 1)
     }
 
     func testFlightPhasesWalkCruiseAndGlide() {

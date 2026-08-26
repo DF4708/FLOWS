@@ -16,7 +16,17 @@ import SwiftUI
 /// for web-app parity (find a place on the map without routing to it).
 struct PlannerPanel: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     @Binding var camera: MapCameraPosition
+    /// Compact layouts stack the choices panel ACROSS THE TOP, so a framed
+    /// route has to sit in the map below it; regular layouts put the panel
+    /// down the left side instead.
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var panelOnTop: Bool { sizeClass == .compact }
+    #else
+    private let panelOnTop = false
+    #endif
 
     @State private var searchQuery = ""
     @StateObject private var destSearch = DestinationSearch()
@@ -261,14 +271,13 @@ struct PlannerPanel: View {
         }
     }
 
-    /// Frame a route for the choosing layout: pad, then grow the rect
-    /// LEFTWARD so the route centers in the map area right of the Routes
-    /// panel instead of hiding behind it.
-    static func choicesCameraRect(_ rect: MKMapRect) -> MKMapRect {
-        var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
-        fit.origin.x -= fit.size.width * 0.35
-        fit.size.width *= 1.35
-        return fit
+    /// Frame a route for the choosing layout — the geometry lives in
+    /// CameraZoom.framedRect (pure, tested).
+    static func choicesCameraRect(_ rect: MKMapRect,
+                                  panelOnTop: Bool = false,
+                                  windowAspect: Double = 2.0) -> MKMapRect {
+        CameraZoom.framedRect(rect, panelOnTop: panelOnTop,
+                              windowAspect: windowAspect)
     }
 
     /// Plain-words error text — never surface raw framework errors like
@@ -301,7 +310,10 @@ struct PlannerPanel: View {
                 defer { isWorking = false }
                 if let planned = await model.planToFavorite(fav), let first = planned.first {
                     withAnimation {
-                        camera = .rect(Self.choicesCameraRect(first.route.polyline.boundingMapRect))
+                        camera = .rect(Self.choicesCameraRect(
+                        first.route.polyline.boundingMapRect,
+                        panelOnTop: panelOnTop,
+                        windowAspect: golden.size.height / max(golden.size.width, 1)))
                     }
                 } else {
                     errorMessage = "Couldn't plan to \(fav.name) — no GPS fix or no route."
@@ -376,7 +388,10 @@ struct PlannerPanel: View {
             // Frame the full corridor while choosing.
             if let first = planned.first {
                 withAnimation {
-                    camera = .rect(Self.choicesCameraRect(first.route.polyline.boundingMapRect))
+                    camera = .rect(Self.choicesCameraRect(
+                        first.route.polyline.boundingMapRect,
+                        panelOnTop: panelOnTop,
+                        windowAspect: golden.size.height / max(golden.size.width, 1)))
                 }
             }
         } catch {

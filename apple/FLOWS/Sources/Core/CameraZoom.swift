@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+import MapKit
 
 /// The navigation camera's zoom policy — how far the map floats above the
 /// traveler. Pure math, pinned by FLOWSTests.
@@ -48,6 +49,40 @@ enum CameraZoom {
         let base = cityAltitude + (highwayAltitude - cityAltitude) * t
         let speedStretch = min(max(speedMps / 31.0, 1.0), 1.5)   // 31 m/s ≈ 70 mph
         return base * (t > 0.5 ? speedStretch : 1.0)
+    }
+
+    // MARK: framing a route around the chrome
+
+    /// How much of the window the choices panel covers — the trip pill, the
+    /// filter grid, and the route list (itself capped at height/φ²).
+    static let choicesPanelFraction = 0.5
+
+    /// Frame a route so it lands in the map the driver can actually SEE,
+    /// rather than behind the choices panel.
+    ///
+    /// This SHIFTS the camera rather than growing the rect. Growing doesn't
+    /// work: MapKit fits a rect by its constraining dimension, and a typical
+    /// route (wide east-west, thin north-south) is width-constrained — extra
+    /// height changes nothing until it dwarfs the width, which would zoom the
+    /// route into uselessness. Shifting the rect's center by a slice of the
+    /// FITTED span keeps the zoom exactly as it was and simply slides the
+    /// route out from under the panel: north for a top panel (MKMapRect y
+    /// runs southward, so north is a smaller origin.y), west for a side one.
+    static func framedRect(_ rect: MKMapRect,
+                           panelOnTop: Bool,
+                           windowAspect: Double,
+                           panelFraction: Double = choicesPanelFraction) -> MKMapRect {
+        var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
+        guard windowAspect > 0, panelFraction > 0 else { return fit }
+        if panelOnTop {
+            // The north-south span actually on screen once fitted.
+            let visibleHeight = max(fit.size.height, fit.size.width * windowAspect)
+            fit.origin.y -= visibleHeight * panelFraction / 2
+        } else {
+            let visibleWidth = max(fit.size.width, fit.size.height / windowAspect)
+            fit.origin.x -= visibleWidth * panelFraction / 2
+        }
+        return fit
     }
 
     /// Flight altitude by phase, from the distance to the NEAREST of the two

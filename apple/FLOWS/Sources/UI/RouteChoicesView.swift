@@ -19,6 +19,14 @@ struct RouteChoicesView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
     @Binding var camera: MapCameraPosition
+    /// Compact stacks this panel across the top (map below it); regular
+    /// puts it down the left side. Decides which way a framed route grows.
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var panelOnTop: Bool { sizeClass == .compact }
+    #else
+    private let panelOnTop = false
+    #endif
 
     private var choices: [PlannedRoute] { model.filteredChoices }
 
@@ -1079,14 +1087,14 @@ struct RouteChoicesView: View {
 
     private func highlight(_ route: PlannedRoute) {
         model.highlightedRouteID = route.id
-        let rect = route.route.polyline.boundingMapRect
+        // Same framing rule as the first plan: grow the rect on whichever
+        // side the panel covers, so the route lands in the map the driver
+        // can actually see (PlannerPanel.choicesCameraRect).
         withAnimation {
-            var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
-            // The Routes panel covers the map's left edge — grow the rect
-            // leftward so the route itself centers in the VISIBLE map area.
-            fit.origin.x -= fit.size.width * 0.35
-            fit.size.width *= 1.35
-            camera = .rect(fit)
+            camera = .rect(PlannerPanel.choicesCameraRect(
+                route.route.polyline.boundingMapRect,
+                panelOnTop: panelOnTop,
+                windowAspect: golden.size.height / max(golden.size.width, 1)))
         }
     }
 }

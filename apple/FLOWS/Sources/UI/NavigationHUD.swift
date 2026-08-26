@@ -61,10 +61,11 @@ struct NavigationHUD: View {
             // In a SHORT window an open floating card takes the cluster's
             // room — the driver just asked for that card, and the gauge
             // returns the moment it closes.
-            if isCompact, showsFuelCluster, !(isShort && floatingCardOpen) {
-                HStack {
+            if isCompact, !(isShort && floatingCardOpen) {
+                HStack(alignment: .top, spacing: 8) {
+                    if showsSpeedSign { speedSign }
                     Spacer()
-                    fuelCluster
+                    if showsFuelCluster { fuelCluster }
                 }
             }
             if let warning = model.imminentWarning {
@@ -231,6 +232,13 @@ struct NavigationHUD: View {
                 fuelCluster
             }
         }
+        // Regular layouts pin the speed pair to the opposite corner, so it
+        // never crowds the gauge.
+        .overlay(alignment: .topLeading) {
+            if !isCompact, showsSpeedSign {
+                speedSign
+            }
+        }
         .padding(golden.pad)
         .onReceive(model.location.$latest) { fix in
             guard let fix else { return }
@@ -275,26 +283,65 @@ struct NavigationHUD: View {
             idleFraction: model.vehicle.idleFraction) / profile.tankCapacityUnits
     }
 
-    /// Live economy vs the vehicle's baseline, from signals GPS already
-    /// supplies (speed + smoothed acceleration — no new sensors): the
-    /// speed-matched economy curve, divided for throttle (burn rises
-    /// roughly with a·v) and credited a little for coasting. Thirds of the
-    /// plausible band [0.4×, 1.3×] of rated economy: green at or above the
-    /// rated figure, yellow above 0.7×, red below. Under ~2 mph the bar is
-    /// neutral gray — idling always scores worst-third, and a constant red
-    /// at every stoplight is noise, not information.
-    private var liveEconomyColor: Color {
-        guard let profile = model.vehicle.profile, liveMph >= 2 else {
-            return Color.gray.opacity(0.35)
+    // MARK: live speed pair — posted limit beside actual speed
+
+    /// A driving instrument, so it hides for a walker and for a passenger
+    /// on a plane, bus, or train (SpeedSign.shouldShow).
+    private var showsSpeedSign: Bool {
+        SpeedSign.shouldShow(
+            isNavigating: model.mode == .navigating,
+            isWalking: model.walkingMode
+                || model.navigation.route?.isWalkingEstimate == true,
+            isPassengerTransit: model.isPassengerTransit)
+    }
+
+    /// The posted limit and the speedometer, side by side: a US-style
+    /// speed-limit plate next to the live reading, which turns yellow a few
+    /// mph over the limit and red well over it (SpeedSign.judge).
+    private var speedSign: some View {
+        let limit = model.postedSpeedLimitMph
+        let judgment = SpeedSign.judge(speedMph: liveMph, limitMph: limit)
+        let speedColor: Color = switch judgment {
+        case .under: .primary
+        case .slightlyOver: Theme.riskYellow
+        case .over: Theme.riskRed
         }
-        let speedMatched = profile.milesPerUnit(atSpeedMph: liveMph)
-        let accelFactor = accelMphPerSec > 0
-            ? 1 / (1 + accelMphPerSec * 0.35)
-            : min(1 + min(-accelMphPerSec, 2) * 0.1, 1.2)
-        let ratio = speedMatched * accelFactor / max(profile.ratedMilesPerUnit, 0.1)
-        if ratio >= 1.0 { return Theme.riskGreen }
-        if ratio >= 0.7 { return Theme.riskYellow }
-        return Theme.riskRed
+        return HStack(spacing: 6) {
+            // The posted plate — white, black border, the shape a driver
+            // already reads at a glance. Blank while OSM has no limit here.
+            VStack(spacing: 0) {
+                Text("SPEED")
+                    .font(.system(size: golden.iconSmall * 0.24, weight: .bold))
+                Text("LIMIT")
+                    .font(.system(size: golden.iconSmall * 0.24, weight: .bold))
+                Text(limit.map { String(format: "%.0f", $0) } ?? "–")
+                    .font(.system(size: golden.iconSmall * 0.62, weight: .heavy))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(.black)
+            .frame(width: golden.iconCircle, height: golden.iconCircle * 1.28)
+            .background(Color.white)
+            .overlay(RoundedRectangle(cornerRadius: 5)
+                .stroke(Color.black, lineWidth: 2))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            // The speedometer.
+            VStack(spacing: 0) {
+                Text(String(format: "%.0f", max(liveMph, 0)))
+                    .font(.system(size: golden.iconCircle * 0.55, weight: .heavy,
+                                  design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(speedColor)
+                Text("mph")
+                    .font(.system(size: golden.iconSmall * 0.28, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(minWidth: golden.iconCircle)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
     private var fuelCluster: some View {
@@ -318,10 +365,6 @@ struct NavigationHUD: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
-            Capsule()
-                .fill(liveEconomyColor)
-                .frame(width: golden.step(2) * 0.9, height: 4)
-                .padding(.top, 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
