@@ -74,9 +74,13 @@ struct HarmonicClimatology {
         guard off + want == data.count else { return nil }
         let bodyOff = off
         var c = [Float](repeating: 0, count: nZips * nFams * 5)
+        // One bulk copy instead of ~1.8M scalar unaligned loads: FLHH floats
+        // are little-endian IEEE-754, same as every Apple target, so memcpy
+        // (NEON-vectorized in libsystem) produces identical bytes.
         data.withUnsafeBytes { raw in
-            for i in 0..<c.count {
-                c[i] = raw.loadUnaligned(fromByteOffset: bodyOff + i * 4, as: Float.self)
+            c.withUnsafeMutableBytes { dst in
+                dst.copyMemory(from: UnsafeRawBufferPointer(
+                    rebasing: raw[bodyOff..<(bodyOff + want)]))
             }
         }
         families = fams
@@ -101,6 +105,15 @@ struct HarmonicClimatology {
             if zips[mid] < zip { lo = mid + 1 } else { hi = mid - 1 }
         }
         return nil
+    }
+
+    /// O(1) zip → row map for BULK consumers: the 33k-zip launch rescore did
+    /// a `zipIndex` binary search per zip — ~half a million Unicode String
+    /// comparisons — where one build of this map plus a hash per zip does.
+    /// Point lookups should keep using `zipIndex` (no map to build or hold).
+    func zipIndexMap() -> [String: Int] {
+        Dictionary(zips.enumerated().map { ($1, $0) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     /// The four trig factors for a week, computed once. `score` needs only

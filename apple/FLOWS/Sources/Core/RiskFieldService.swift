@@ -383,18 +383,8 @@ final class RiskFieldService: ObservableObject {
                 let famIdx: [(bundle: Int, harmonic: Int)] = fams.enumerated().compactMap {
                     (i, name) in table.families.firstIndex(of: name).map { (i, $0) }
                 }
-                var rebuilt = 0
-                for e in 0..<final.count where final[e].ring == nil {
-                    guard let zi = table.zipIndex(final[e].zip) else { continue }
-                    var scores = final[e].scores
-                    for (bi, hi) in famIdx where bi < scores.count {
-                        scores[bi] = table.score(zipIndex: zi, familyIndex: hi, trig: trig)
-                    }
-                    final[e] = ZipEntry(zip: final[e].zip, centroid: final[e].centroid,
-                                        scores: scores, summary: final[e].summary,
-                                        ring: nil)
-                    rebuilt += 1
-                }
+                let rebuilt = Self.harmonicRescore(
+                    entries: &final, table: table, trig: trig, famIdx: famIdx)
                 riskLog.info("harmonic climatology: \(rebuilt) national zips rescored for week \(week)")
             }
             return (final, Self.buildGrid(final))
@@ -408,6 +398,35 @@ final class RiskFieldService: ObservableObject {
         zipsMemo = [:]
         grid = builtGrid
         loaded = true
+    }
+
+    /// The week-correct rescore of every national (ring-less) entry.
+    /// DELIBERATELY SERIAL — measured before shipping, on the real
+    /// 33,613-zip × 8-family table (M-series): per-zip binary search 10.3 ms,
+    /// O(1) zip map 8.2 ms, zip map + concurrentPerform chunks 10.3 ms — the
+    /// chunk-buffer/merge overhead eats the whole multi-core gain at this
+    /// size, and a 2-core A10 would only lose more. So the one real win is
+    /// the zip map, and the loop stays a plain pass. Runs inside load()'s
+    /// detached utility task, never on the main actor. Factored out so the
+    /// equivalence test pins it against a brute-force binary-search rescore.
+    nonisolated static func harmonicRescore(
+        entries: inout [ZipEntry], table: HarmonicClimatology,
+        trig: HarmonicClimatology.WeekTrig, famIdx: [(bundle: Int, harmonic: Int)]
+    ) -> Int {
+        let zipRow = table.zipIndexMap()
+        var rebuilt = 0
+        for e in 0..<entries.count where entries[e].ring == nil {
+            guard let zi = zipRow[entries[e].zip] else { continue }
+            var scores = entries[e].scores
+            for (bi, hi) in famIdx where bi < scores.count {
+                scores[bi] = table.score(zipIndex: zi, familyIndex: hi, trig: trig)
+            }
+            entries[e] = ZipEntry(zip: entries[e].zip, centroid: entries[e].centroid,
+                                  scores: scores, summary: entries[e].summary,
+                                  ring: nil)
+            rebuilt += 1
+        }
+        return rebuilt
     }
 
     nonisolated private static func cell(_ c: CLLocationCoordinate2D) -> (Int, Int) {
