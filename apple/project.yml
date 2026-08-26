@@ -291,6 +291,8 @@ targets:
       - path: FLOWS/Sources/Core/IntentClarifier.swift
       - path: FLOWS/Sources/Core/PlaybackFallback.swift
       - path: FLOWS/Sources/Core/PlaybackGrace.swift
+      - path: FLOWS/Sources/Core/BufferLearning.swift
+      - path: FLOWS/Sources/Core/SignalQuality.swift
       - path: FLOWSTests
     settings:
       base:

@@ -523,6 +523,110 @@ final class RadioAndSpotifyTests: XCTestCase {
             PlaybackGrace.otherAppWatchSeconds)
     }
 
+    // MARK: learned buffer depth — measurement replacing the guess
+
+    func testLearnedMeanTracksTheNewestObservations() {
+        // First sample seeds the mean outright.
+        XCTAssertEqual(BufferLearning.updated(mean: nil, sample: 20), 20)
+        // Then it moves toward each new sample by alpha.
+        let second = try! XCTUnwrap(BufferLearning.updated(mean: 20, sample: 30))
+        XCTAssertEqual(second, 20 * 0.65 + 30 * 0.35, accuracy: 0.0001)
+        // A service that consistently buffers ~10 s converges there from
+        // a bad starting estimate, rather than averaging forever.
+        var mean: Double? = 40
+        for _ in 0..<12 { mean = BufferLearning.updated(mean: mean, sample: 10) }
+        XCTAssertEqual(try XCTUnwrap(mean), 10, accuracy: 0.5)
+    }
+
+    func testImplausibleSamplesAreDiscardedNotClamped() {
+        // Sub-second: the driver hit stop as the signal died.
+        XCTAssertEqual(BufferLearning.updated(mean: 20, sample: 0.2), 20)
+        // Minutes: the audio was local, or signal returned unnoticed.
+        XCTAssertEqual(BufferLearning.updated(mean: 20, sample: 600), 20)
+        XCTAssertEqual(BufferLearning.updated(mean: 20, sample: .nan), 20)
+        // Discarded, never folded in — a clamp would drag the estimate
+        // toward a value that was never actually observed.
+        XCTAssertFalse(BufferLearning.isUsable(sample: 0.2))
+        XCTAssertFalse(BufferLearning.isUsable(sample: 600))
+        XCTAssertTrue(BufferLearning.isUsable(sample: 12))
+    }
+
+    func testPriorLeadsUntilEnoughSamplesExist() {
+        // One or two outages is an anecdote — keep the documented prior.
+        XCTAssertEqual(
+            BufferLearning.waitSeconds(prior: 30, learnedMean: 9, samples: 2), 30)
+        XCTAssertEqual(
+            BufferLearning.waitSeconds(prior: 30, learnedMean: nil, samples: 9), 30)
+        // Past the gate, this driver's own measurement wins outright.
+        XCTAssertEqual(
+            BufferLearning.waitSeconds(
+                prior: 30, learnedMean: 9,
+                samples: BufferLearning.minSamplesToTrust), 9)
+    }
+
+    func testLearningIsKeyedPerServiceAndRadioTechnology() {
+        // Each service buffers differently — their samples must not mix.
+        XCTAssertNotEqual(
+            BufferLearning.contextKey(service: "spotify", radioTechnology: "LTE"),
+            BufferLearning.contextKey(service: "appleMusic", radioTechnology: "LTE"))
+        // And the same service behaves differently on 5G vs EDGE, so LTE
+        // samples must not pollute the weak-signal estimate.
+        XCTAssertNotEqual(
+            BufferLearning.contextKey(service: "spotify", radioTechnology: "LTE"),
+            BufferLearning.contextKey(service: "spotify", radioTechnology: "EDGE"))
+        XCTAssertEqual(
+            BufferLearning.contextKey(service: "spotify", radioTechnology: nil),
+            BufferLearning.contextKey(service: "spotify", radioTechnology: nil))
+    }
+
+    // MARK: signal quality — staging the switch before the music dies
+
+    func testRadioTechnologyMapsToTheRightTier() {
+        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyLTE",
+                                          onWiFi: false, offline: false), .strong)
+        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyNRNSA",
+                                          onWiFi: false, offline: false), .strong)
+        // The classic dead-zone approach: a fallback to EDGE happens
+        // BEFORE the throughput collapse that starves a buffer.
+        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyEdge",
+                                          onWiFi: false, offline: false), .weak)
+        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyGPRS",
+                                          onWiFi: false, offline: false), .weak)
+        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyHSDPA",
+                                          onWiFi: false, offline: false), .fair)
+        XCTAssertEqual(SignalQuality.tier(radioTechnology: nil,
+                                          onWiFi: true, offline: false), .strong)
+        XCTAssertEqual(SignalQuality.tier(radioTechnology: "CTRadioAccessTechnologyLTE",
+                                          onWiFi: false, offline: true), .offline)
+    }
+
+    func testPreStagingFiresOnFailureSignsButNotWhenAlreadyTooLate() {
+        // A weak radio technology alone is enough to get ready.
+        XCTAssertTrue(SignalQuality.shouldPreStage(
+            tier: .weak, bufferDraining: false, recentStalls: 0))
+        // So is the actual mechanism of failure, observed on our own
+        // player: the buffer being consumed faster than it refills.
+        XCTAssertTrue(SignalQuality.shouldPreStage(
+            tier: .strong, bufferDraining: true, recentStalls: 0))
+        XCTAssertTrue(SignalQuality.shouldPreStage(
+            tier: .strong, bufferDraining: false, recentStalls: 1))
+        // A healthy link stages nothing.
+        XCTAssertFalse(SignalQuality.shouldPreStage(
+            tier: .strong, bufferDraining: false, recentStalls: 0))
+        // Already offline: too late to fetch anything, so don't try.
+        XCTAssertFalse(SignalQuality.shouldPreStage(
+            tier: .offline, bufferDraining: true, recentStalls: 3))
+    }
+
+    func testBufferDrainingNeedsARealDrop() {
+        XCTAssertTrue(SignalQuality.isDraining(previous: 20, current: 12))
+        // Normal jitter around a steady buffer isn't a failure sign.
+        XCTAssertFalse(SignalQuality.isDraining(previous: 20, current: 19.5))
+        XCTAssertFalse(SignalQuality.isDraining(previous: 12, current: 20))
+        XCTAssertFalse(SignalQuality.isDraining(previous: nil, current: 12))
+        XCTAssertFalse(SignalQuality.isDraining(previous: 20, current: nil))
+    }
+
     // MARK: offline handoff — what still plays when the signal drops
 
     func testHandoffPrefersLocalMusicThenLikeForLikeRadio() {

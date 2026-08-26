@@ -690,6 +690,43 @@ final class AppModel: ObservableObject {
     /// the time the buffer drains the player may already read as stopped,
     /// and re-reading it then would cancel the very handoff it needs.
     private var bufferedAudioWasPlaying = false
+    /// When the link dropped, and which service was playing — the two
+    /// halves of a learning sample (loss → silence, per service).
+    private var connectionLostAt: Date?
+    private var graceService: String?
+    private var graceRadioTechnology: String?
+    /// Stations fetched while signal remained, so a handoff can start
+    /// playing instantly instead of searching into the silence.
+    private var preStagedStations: [TruckerRadio.Channel] = []
+    private var preStagedLabel = ""
+    private var lastBufferReading: Double?
+
+    /// Learn from this outage: how long the audio really lasted after the
+    /// link died, filed under the service that was playing.
+    private func recordBufferSample() {
+        guard let lostAt = connectionLostAt, let service = graceService else { return }
+        BufferMemory.shared.record(
+            seconds: Date().timeIntervalSince(lostAt),
+            service: service,
+            radioTechnology: graceRadioTechnology)
+        connectionLostAt = nil
+    }
+
+    /// Signal is failing but hasn't died: fetch the fallback's stations
+    /// NOW, while there's still a link to fetch them with. This is what
+    /// makes the eventual switch instant rather than a search into silence.
+    private func preStageFallback() {
+        guard preStagedStations.isEmpty,
+              !MusicController.shared.hasLocalMusic,
+              let genre = lastMusicAsk
+                ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel) else { return }
+        preStagedLabel = genre
+        Task { [weak self] in
+            guard let self else { return }
+            await self.radioBrowser.search(text: genre)
+            self.preStagedStations = self.radioBrowser.stations.map(\.channel)
+        }
+    }
 
     /// The path dropped — but the music didn't. Every player is holding
     /// buffered audio, so wait it out instead of cutting off sound that
@@ -718,10 +755,20 @@ final class AppModel: ObservableObject {
             source = .otherApp
         }
         // Radio is OUR player, so its remaining audio is measured; for
-        // everything else this is only a ceiling on how long we watch.
-        let grace = PlaybackGrace.graceSeconds(
+        // everything else this starts as a documented prior — and gets
+        // REPLACED by what this driver's phone has actually shown for
+        // this service once enough outages have been observed.
+        let prior = PlaybackGrace.graceSeconds(
             for: source,
             measuredBuffer: radioPlaying ? radio.bufferedSecondsAhead : nil)
+        graceService = musicProvider.rawValue
+        graceRadioTechnology = CellularRadio.currentTechnology
+        // The radio's own measurement is ground truth; never override it.
+        let grace = radioPlaying
+            ? prior
+            : BufferMemory.shared.waitSeconds(prior: prior,
+                                              service: musicProvider.rawValue,
+                                              radioTechnology: graceRadioTechnology)
         radio.onStall = { [weak self] in self?.applyOfflineHandoff() }
         music.onPlaybackStopped = { [weak self] in self?.applyOfflineHandoff() }
         handoffGraceTask = Task { [weak self] in
@@ -772,6 +819,7 @@ final class AppModel: ObservableObject {
             return
         }
         endHandoffGrace()
+        recordBufferSample()   // the audio just died: that delay is the lesson
         handleOfflineNow()
     }
 
@@ -808,7 +856,27 @@ final class AppModel: ObservableObject {
         // the buffer wait begins — nothing changes until it's spent.
         restoreTask?.cancel()
         restoreTask = nil
+        connectionLostAt = Date()
         beginHandoffGrace()
+    }
+
+    /// Called on each corridor tick while music plays: watch the link's
+    /// health and stage the fallback BEFORE the audio dies.
+    func checkPlaybackSignalHealth() {
+        guard !breadcrumbs.isOffline, handoffGraceTask == nil,
+              MusicController.shared.isPlaying || radio.playingChannelID != nil
+        else { return }
+        let buffer = radio.bufferedSecondsAhead
+        let draining = SignalQuality.isDraining(previous: lastBufferReading,
+                                                current: buffer)
+        lastBufferReading = buffer
+        let tier = SignalQuality.tier(
+            radioTechnology: CellularRadio.currentTechnology,
+            onWiFi: false, offline: false)
+        if SignalQuality.shouldPreStage(tier: tier, bufferDraining: draining,
+                                        recentStalls: 0) {
+            preStageFallback()
+        }
     }
 
     /// The handoff itself, run only once the buffered audio is gone.
@@ -841,7 +909,16 @@ final class AppModel: ObservableObject {
             handedOffOffline = true
             preHandoffProvider = musicProvider
             musicProvider = .radio
-            Task { await playGenreRadio(genre) }
+            // Pre-staged while signal remained: play instantly instead of
+            // searching into the silence (the search would fail anyway —
+            // the directory needs the very link that just died).
+            if !preStagedStations.isEmpty {
+                radio.playQueue(preStagedStations,
+                                label: preStagedLabel.isEmpty ? genre : preStagedLabel)
+                preStagedStations = []
+            } else {
+                Task { await playGenreRadio(genre) }
+            }
         case .nothingAvailable, .keepPlaying:
             break
         }
@@ -1465,6 +1542,13 @@ final class AppModel: ObservableObject {
             .sink { _ in
                 Task { @MainActor in MusicController.shared.syncFromRadio() }
             }
+            .store(in: &serviceSubscriptions)
+        // Watch the link's health while music plays, so a failing signal
+        // stages the fallback before the audio dies (1 Hz is plenty —
+        // buffers drain over seconds, not milliseconds).
+        location.$latest
+            .compactMap { $0 }
+            .sink { [weak self] _ in self?.checkPlaybackSignalHealth() }
             .store(in: &serviceSubscriptions)
         // Offline handoff: the network path dropping must not end the
         // music — hand off to what still plays (see PlaybackFallback).

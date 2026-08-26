@@ -758,6 +758,55 @@ it can own and, for everything else, **watches the audio itself**:
 | Spotify | Its audio going quiet, bounded by ≤40 s | Plays on Spotify's own device, which reports nothing while the link is down |
 | **Every other service** (YouTube Music, Amazon, Pandora, SiriusXM, Tidal, Deezer, SoundCloud…) | `AVAudioSession.isOtherAudioPlaying` going quiet, watched up to 90 s | One signal covering all of them — no per-app table to maintain or get wrong |
 
+#### Learning the real delay, per service (`BufferLearning`)
+
+The priors above are a starting point, not the answer. Every outage
+hands FLOWS a free labeled sample: the link died at T, the audio went
+silent at T+d — and `d` is the actual buffer depth for **that service**,
+on **this driver's phone**, at that moment. Those samples accumulate
+into a decaying-weight mean (α = 0.35, matching `SeasonalRiskModel`'s
+house style: newest observations dominate), and once a context clears
+the trust gate (3 samples) the measurement REPLACES the documented
+guess outright.
+
+Context is **service × radio technology**, because both dimensions
+genuinely differ: services buffer differently from each other, and the
+same service behaves nothing alike on 5G versus EDGE — so LTE samples
+must never pollute the weak-signal estimate. Implausible samples are
+DISCARDED rather than clamped (sub-second = the driver hit stop as the
+signal died; minutes = the audio was local, or signal returned
+unnoticed): clamping would drag the estimate toward a value never
+actually observed.
+
+**Why an exponentially-weighted mean and not a neural model.** A driver
+sees a handful of outages per service. At that sample count an EWMA *is*
+the statistically appropriate estimator — a heavier model would fit
+noise, need a labeled corpus that doesn't exist, and cost the property
+that matters most here: when the music switches, FLOWS can say exactly
+why. If per-driver volume ever justifies more, these samples are already
+the training set, and the path to the ANE/Core ML work is the same one
+`SeasonalRiskModel` is on.
+
+#### Predicting the cut-off before it happens (`SignalQuality`)
+
+Waiting for silence is reactive; the switch is only truly seamless if
+the fallback is READY when the audio stops. **What iOS will and won't
+tell you:** there is no public signal-strength API (bars are private
+API — an App Store rejection), but the radio ACCESS TECHNOLOGY is
+public and permission-free via `CTTelephonyNetworkInfo`. A fallback to
+EDGE on a rural highway is the single most predictive public signal
+available, because it happens *before* the throughput collapse that
+starves a buffer.
+
+FLOWS blends that with two signals it owns outright and can trust
+completely: its own stream stalling, and its own buffer **draining**
+rather than filling. A draining buffer is a leading indicator no
+external API can beat — it is the actual mechanism by which the music
+will stop. When any of those fire while signal remains, FLOWS fetches
+the fallback's stations immediately, so the handoff plays instantly
+instead of starting a search into the silence (a search that would fail
+anyway — the directory needs the very link that just died).
+
 Two rules keep this from ever talking over someone's music:
 * **Audio still playing at the ceiling is left alone.** For a player
   FLOWS doesn't own, the ceiling is a polling limit, not a deadline — a
