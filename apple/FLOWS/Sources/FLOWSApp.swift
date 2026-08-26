@@ -510,10 +510,19 @@ final class AppModel: ObservableObject {
     var truckerRouteID: UUID? {
         let semi = FilterLimits(vehicleHeightMeters: 13.5 * 0.3048,
                                 maxGradePercent: FilterLimits.degreesToPercent(6))
+        // A KNOWN low bridge DISQUALIFIES a route from the trucker badge — it
+        // is not a 3-point penalty to be outweighed by highways and gentle
+        // grades. Review finding: a route failing a 13'6" clearance check
+        // scored 6 (highways + grade + wind) and could tie or beat a
+        // clearance-PASSING route, i.e. the badge could point a semi at a
+        // bridge it cannot clear. Unknown clearance data still passes (the
+        // app-wide "unknown never excludes" rule), so on corridors without
+        // OSM height tags — the common case — every candidate remains
+        // eligible and the badge behaves as before.
+        func clears(_ r: PlannedRoute) -> Bool { semi.passesClearances(r.clearancesMeters) }
         func score(_ r: PlannedRoute) -> Double {
             var s = 0.0
             if r.hasHighways && r.planKind != .avoidHighways { s += 3 }
-            if semi.passesClearances(r.clearancesMeters) { s += 3 }
             if semi.passesGrade(r.maxGradePercent) { s += 2 }
             if (r.familyPeaks["wind"] ?? 0) < FlowsCore.riskYellowMin { s += 1 }
             return s
@@ -527,7 +536,16 @@ final class AppModel: ObservableObject {
         // the comparator re-running it 4× per comparison was the cost.
         let filtered = filteredChoices
         let pool = filtered.isEmpty ? routeChoices : filtered
-        return pool
+        // Disqualify known-impassable routes BEFORE scoring. If every
+        // candidate has a known low bridge, no route earns the badge —
+        // silence is honest; badging an impassable route is not.
+        let eligible = pool.filter(clears)
+        if eligible.isEmpty, !pool.isEmpty {
+            FlowsDiag.logThrottled(
+                key: "trucker.noClearance", .warn, "routing",
+                "no candidate clears 13'6\" — trucker badge withheld")
+        }
+        return eligible
             .map { (id: $0.id, score: score($0), eta: $0.eta) }
             .min { $0.score != $1.score ? $0.score > $1.score : $0.eta < $1.eta }?
             .id
@@ -1046,6 +1064,11 @@ final class AppModel: ObservableObject {
         }
         let tomtomKey = tomtomAPIKey
         Task { await TomTomFuel.shared.setKey(tomtomKey) }
+        // Resume the learned driving shape (speed/idle) from the encrypted
+        // profile — these feed range and refuel prediction.
+        let learned = DrivingProfileStore.shared.profile
+        vehicle.restoreDriving(averageSpeedMph: learned.averageSpeedMph,
+                               idleFraction: learned.idleFraction)
         // Driving-habit + tank-odometer tracking: every navigation GPS fix
         // feeds the vehicle range model (speed/idling shape efficiency),
         // the FMCSA hours-of-service clock, the refuel-dwell detector, and
@@ -1062,6 +1085,12 @@ final class AppModel: ObservableObject {
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),
                                        deltaMeters: min(delta, 500))   // GPS jump guard
+                // Persist the speed/idle shape (coalesced to ~1/min inside
+                // the store): these EWMAs drive range and refuel prediction
+                // and used to reset to a 55 mph stranger on every launch.
+                DrivingProfileStore.shared.updateDriving(
+                    averageSpeedMph: self.vehicle.averageSpeedMph,
+                    idleFraction: self.vehicle.idleFraction)
                 self.recordDailyDriving(deltaMeters: min(delta, 500))
                 self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
                 self.updateFuelRecommendation()
@@ -1391,7 +1420,13 @@ final class AppModel: ObservableObject {
     private var riskHydrationTask: Task<Void, Never>?
 
     func present(routes: [PlannedRoute]) {
-        routeChoices = routes
+        // Apply the driver's learned pace to every ETA before anything reads
+        // them — so the correction reaches the cards, the cost estimates
+        // derived from ETA, the ranking, AND the arrival-time reasoning that
+        // decides whether a hazard will still be active on arrival. Walking
+        // estimates already carry their own override and are left alone.
+        routeChoices = RouteService.applyPersonalPace(
+            routes, multiplier: DrivingProfileStore.shared.etaMultiplier)
         transitItinerary = nil   // drive routes replace any transit overlay
         highlightedRouteID = routes.first?.id
         mode = .choosing
@@ -1476,7 +1511,12 @@ final class AppModel: ObservableObject {
             routeChoices.sort {
                 // Near-equal ETA → prefer the lower balanced risk (band + identified
                 // ZIP exposure), not the band alone.
-                if abs($0.eta - $1.eta) < 300 { return $0.rankingRisk < $1.rankingRisk }
+                // Near-equal ETA is PROPORTIONAL to the trip (RouteService
+                // .etaTieTolerance) — a flat 5 minutes meant safety could
+                // never win a short trip and almost always won a long one.
+                let tolerance = RouteService.etaTieTolerance(
+                    shorterETA: Swift.min($0.eta, $1.eta))
+                if abs($0.eta - $1.eta) < tolerance { return $0.rankingRisk < $1.rankingRisk }
                 return $0.eta < $1.eta
             }
             ensureHighlightValid()
@@ -2041,6 +2081,29 @@ final class AppModel: ObservableObject {
     /// Route selection is the mode flip: planning is continent-wide and lazy,
     /// navigation is local and eager (camera follows GPS, updates every fix).
     func select(route: PlannedRoute) {
+        // The strongest preference signal the app can observe: the driver saw
+        // N ranked options with ETAs, risk bands, and costs, and picked one.
+        // This method used to clear `routeChoices` on the next line and keep
+        // nothing — the comparison set, and with it the ability to learn any
+        // time-versus-risk exchange rate, was thrown away every trip.
+        if routeChoices.count > 1 {
+            let fastest = routeChoices.map(\.eta).min() ?? route.eta
+            ChoiceLogStore.shared.record(
+                kind: "route",
+                options: routeChoices.enumerated().map { i, r in
+                    ChoiceLog.Option(
+                        aheadMiles: r.distanceMeters / 1609.344,
+                        // For a route, "detour" is the time it costs against
+                        // the fastest option — the quantity the driver is
+                        // actually trading risk against.
+                        detourMiles: (r.eta - fastest) / 60,
+                        price: r.weatherRisk,
+                        rating: r.rankingRisk,
+                        costTier: nil,
+                        shownRank: i,
+                        chosen: r.id == route.id)
+                })
+        }
         routeChoices = []
         // Remember the trip's true endpoint so added stops can chain back.
         if finalDestination == nil, let end = Self.lastCoordinate(of: route) {
@@ -2322,8 +2385,15 @@ final class AppModel: ObservableObject {
     /// Common leg-swap: hydrated route into the engine + fresh corridor
     /// services, arrival chaining preserved. (Also the tail of select() —
     /// the two had drifted into near-identical copies.)
+    /// When the current leg began and what it was predicted to take — the
+    /// two halves of the personal ETA correction (DrivingProfile).
+    private var legStartedAt: Date?
+    private var legPredictedSeconds: TimeInterval = 0
+
     private func startLeg(_ leg: PlannedRoute) {
         lastRouteRect = leg.route.polyline.boundingMapRect
+        legStartedAt = Date()
+        legPredictedSeconds = leg.eta
         // Rebaseline escalation on every leg swap — and ALWAYS defer to the
         // first complete corridor score (sentinel -1) rather than seeding from
         // leg.weatherRisk: the plan-time number blends forecast predictors,
@@ -2538,7 +2608,22 @@ final class AppModel: ObservableObject {
             // start→end miles) — AFTER the seasonal record above, so the home
             // anchor it refreshes from already includes this trip.
             EverydayPlaces.shared.recordTrip(origin: origin, dest: dest)
+            // Refit the route-risk head on this driver's own history when
+            // enough new trips have accrued (warm-started from the shipped
+            // baseline and anchored to it — see RouteHeadTrainer).
+            SeasonalRiskModel.shared.fineTuneHeadIfDue()
         }
+        // PERSONAL ETA CORRECTION: what the app promised vs what the drive
+        // actually took, with chosen stops discounted. The app knew both
+        // numbers and compared them nowhere.
+        if let started = legStartedAt, legPredictedSeconds > 0 {
+            DrivingProfileStore.shared.recordArrival(
+                predicted: legPredictedSeconds,
+                actual: Date().timeIntervalSince(started),
+                stoppedSeconds: stopDelaySeconds)
+        }
+        legStartedAt = nil
+        legPredictedSeconds = 0
         // Final destination reached: stop the background polling loops (corridor
         // NWS + traffic MKDirections) so a completed trip doesn't keep them
         // running — and draining battery/data — until the driver manually ends

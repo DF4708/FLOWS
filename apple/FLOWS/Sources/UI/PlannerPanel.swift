@@ -82,6 +82,14 @@ struct PlannerPanel: View {
                     sourceSearch.recentsProvider = { [weak model] fragment in
                         model?.recents.matching(fragment) ?? []
                     }
+                    // Contextual predictions on the destination field only —
+                    // the START is where the driver already is.
+                    destSearch.predictionProvider = { [weak model] in
+                        guard let model else { return [] }
+                        return EverydayPlaces.shared.predictions(
+                            from: model.effectivePosition ?? model.location.coordinate,
+                            limit: 3)
+                    }
                 }
             HStack(spacing: 6) {
                 TextField("Address, place, city, or ZIP", text: $model.plannerDestination)
@@ -277,6 +285,7 @@ struct PlannerPanel: View {
     private func icon(for kind: DestinationSearch.Suggestion.Kind) -> String {
         switch kind {
         case .recent: return "clock.arrow.circlepath"
+        case .predicted: return "sparkles"
         case .coordinate: return "mappin.and.ellipse"
         case .completion: return "magnifyingglass"
         }

@@ -1837,6 +1837,17 @@ struct SettingsSheet: View {
     @State private var showContactPicker = false
     /// Recent diagnostic-journal lines for the health log section.
     @State private var healthLines: [String] = []
+    /// Shown after the driver erases what the app has learned.
+    @State private var erasedConfirmation = false
+
+    /// One "label … value" line in the learned-about-you section.
+    private func learnedRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.caption)
+            Spacer()
+            Text(value).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -2231,6 +2242,58 @@ struct SettingsSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+
+            Divider()
+
+            // WHAT FLOWS HAS LEARNED — the driver can see everything the app
+            // has inferred about them, and erase it in one press. Learning
+            // about someone without showing them what you learned, or
+            // letting them take it back, isn't a feature.
+            DisclosureGroup("What FLOWS has learned about you") {
+                let summary = SeasonalRiskModel.shared.learningSummary
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("All of this is stored on this device only, encrypted "
+                         + "with a key that never leaves it. None of it is sent anywhere.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    learnedRow("Trips remembered", "\(summary.trips)")
+                    learnedRow("Routes recognized", "\(summary.routes)")
+                    learnedRow("Everyday area",
+                               String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles))
+                    learnedRow("Places remembered", "\(EverydayPlaces.shared.allPlaces.count)")
+                    learnedRow("Destinations kept", "\(model.recents.entries.count)")
+                    learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
+                    learnedRow("Your pace", DrivingProfileStore.shared.profile.etaDescription)
+                    if let cal = summary.calibration {
+                        learnedRow("Risk prediction error",
+                                   String(format: "%.3f typical", cal))
+                    }
+                    if summary.tuned {
+                        Text("The risk model has been fine-tuned on your own trips.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Button(role: .destructive) {
+                        SeasonalRiskModel.shared.eraseLearnedHistory()
+                        EverydayPlaces.shared.erase()
+                        model.recents.erase()
+                        ChoiceLogStore.shared.erase()
+                        DrivingProfileStore.shared.erase()
+                        erasedConfirmation = true
+                    } label: {
+                        Label("Erase everything FLOWS has learned",
+                              systemImage: "trash")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .padding(.top, 4)
+                    if erasedConfirmation {
+                        Text("Erased. The app is back to knowing nothing about your travel.")
+                            .font(.caption)
+                            .foregroundStyle(Theme.riskGreen)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.system(size: 13, weight: .semibold))
 
             Divider()
 

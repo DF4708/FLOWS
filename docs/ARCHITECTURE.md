@@ -383,14 +383,43 @@ the map, the route scorer, and the live corridor monitor):
   cross-country ≥2), a hub/edge trip graph, and `learnedHome` /
   `homeAnchor` inference.
 - **Learned head** — `LearnedHead`, a small MLP over the
-  `RouteFeatures` 6-vector, trained off-device by `rust/flows-train`
-  (pure std, zero crates) via `ml/route-gnn/run_worker.sh` (weekly
-  launchd template `com.flows.routegnn.plist.template`); the app loads
-  the JSON weights when present (`Resources/baseline_route_head.json`
-  seeds it), nil until the worker produces one.
+  `RouteFeatures` 8-vector. `Resources/baseline_route_head.json` ships it
+  trained on 20 years of NOAA Storm Events by `rust/flows-train` (pure
+  std, zero crates), and `Core/RouteHeadTrainer.swift` **fine-tunes it
+  on-device** from the driver's own completed trips: warm-started from
+  the baseline, anchored to it (so a dozen trips refine the national
+  model and cannot overwrite it), and discarded unless it scores better
+  on the driver's own rows. Training moved on-device for two reasons —
+  the Rust worker read the *macOS* Application Support directory while
+  the driving happens in the *iOS* sandbox, so the loop could never
+  close on the device that drives; and trip history is now sealed with a
+  device-only key, which no external process can read by design.
+- **Refine, not replace** — `priorForRanking` blends the head's
+  prediction with the driver's own decaying-weighted observations of
+  that exact route, weighted by confidence. (It previously returned the
+  head's number and discarded the observation, so a driver's real
+  experience never reached the ranking value.)
+- **Behavioral learning** — `Core/EverydayRadius.swift` (learned
+  everyday radius as an observed quantile that grows *and* shrinks, plus
+  relocation-aware home anchoring with hysteresis),
+  `Core/DestinationPrediction.swift` (time-of-day × day-type ×
+  origin-cell → likely destination, surfaced in the planner and the
+  CarPlay "Where to" list), `Core/DrivingProfile.swift` (persisted
+  speed/idle EWMA and a personal ETA correction), and
+  `Core/ChoiceLog.swift` (choice sets — the chosen option *and* the
+  rejected alternatives, recorded passively so ranking weights become
+  identifiable; nothing reads it to steer the app yet).
+- **Encryption at rest** — every behavioral store goes through
+  `Core/SecureBehaviorStore.swift`: AES-GCM sealed with a 256-bit key in
+  the Keychain, `AfterFirstUnlockThisDeviceOnly` (background training
+  works; never synced, never in a backup). Plaintext stores from earlier
+  builds are upgraded in place. Settings exposes the full inventory and
+  a one-press erase that also destroys the key.
 - **Phase 2b (future, documented not built)** — a GNN over the trip
   graph, Rust-trained, executed in Swift via MLTensor/BNNS on the ANE
-  (see [`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md)).
+  (see [`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md)). The trip
+  graph substrate (`SeasonalStore.edges`) is written but read by
+  nothing, so it is capped and decay-evicted until a consumer exists.
 
 ### 7.6 POI layer
 

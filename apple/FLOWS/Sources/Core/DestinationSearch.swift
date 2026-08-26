@@ -120,7 +120,10 @@ final class RecentDestinations: ObservableObject {
                 appropriateFor: nil, create: true))
             ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_recent_destinations.json")
-        if let data = try? Data(contentsOf: url),
+        // ENCRYPTED AT REST: a destination history is a map of someone's
+        // life. Sealed with the device-only key; upgraded in place from any
+        // plaintext file an earlier build left behind.
+        if let data = SecureBehaviorStore.readMigrating(url),
            let loaded = try? JSONDecoder().decode([Entry].self, from: data) {
             entries = loaded
         }
@@ -134,9 +137,7 @@ final class RecentDestinations: ObservableObject {
         entries = Self.merged(entries, adding: Entry(
             name: trimmed, latitude: coordinate.latitude, longitude: coordinate.longitude,
             lastUsed: now, uses: 1), now: now)
-        if let data = try? JSONEncoder().encode(entries) {
-            try? data.write(to: url, options: .atomic)
-        }
+        SecureBehaviorStore.save(entries, to: url)
     }
 
     /// Pure merge (tested): dedupe by case-insensitive name (uses
@@ -164,6 +165,12 @@ final class RecentDestinations: ObservableObject {
         return Double(e.uses) * pow(0.5, ageDays / 14)
     }
 
+    /// Forget every recorded destination.
+    func erase() {
+        entries = []
+        SecureBehaviorStore.shred(url)
+    }
+
     /// Entries matching a typed fragment (empty fragment = the top of the
     /// list), best first.
     func matching(_ fragment: String, limit: Int = 3) -> [Entry] {
@@ -186,6 +193,7 @@ final class DestinationSearch: NSObject, ObservableObject {
         enum Kind: Equatable {
             case completion   // Apple completer row
             case recent       // a place this driver has planned before
+            case predicted    // where they usually go at this hour, from here
             case coordinate   // pasted lat/lon
         }
         let id = UUID()
@@ -213,6 +221,11 @@ final class DestinationSearch: NSObject, ObservableObject {
     /// Recents source, injected by the owner (keeps this type free of any
     /// store dependency): fragment → matching entries.
     var recentsProvider: (String) -> [RecentDestinations.Entry] = { _ in [] }
+    /// Contextual predictions for an EMPTY field — "where are you going
+    /// right now", from the time, the day, and where the driver is standing.
+    /// Only offered before they start typing: once they type, they have told
+    /// us where they're going and guessing is just noise.
+    var predictionProvider: () -> [DestinationPrediction.Candidate] = { [] }
 
     private let completer = MKLocalSearchCompleter()
     /// Set while programmatically filling the field from a tapped suggestion,
@@ -251,13 +264,25 @@ final class DestinationSearch: NSObject, ObservableObject {
                 title: CoordinateInput.displayName(point), subtitle: "Exact map point",
                 kind: .coordinate, coordinate: point, distanceMeters: distance(point)))
         }
+        // Empty field: lead with where this driver usually goes at this hour,
+        // on this kind of day, from about here. Each row carries its own
+        // reason, so a suggestion about someone's own movements is never
+        // unexplained.
+        if trimmed.isEmpty {
+            for p in predictionProvider() {
+                pinned.append(Suggestion(
+                    title: p.name, subtitle: p.reason,
+                    kind: .predicted, coordinate: p.coordinate,
+                    distanceMeters: distance(p.coordinate)))
+            }
+        }
         for r in recentsProvider(trimmed) {
             pinned.append(Suggestion(
                 title: r.name, subtitle: "Recent",
                 kind: .recent, coordinate: r.coordinate,
                 distanceMeters: distance(r.coordinate)))
         }
-        pinnedRows = pinned
+        pinnedRows = Self.blend(pinned: [], completions: pinned, cap: 8)
 
         guard trimmed.count >= 2 else {
             // Short fragment: no completer round trip — but a focused empty

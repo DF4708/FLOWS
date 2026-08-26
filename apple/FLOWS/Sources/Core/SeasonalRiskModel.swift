@@ -111,6 +111,10 @@ struct SeasonalStore: Codable {
     static let decayHalfLifeWeeks = 52.0     // weight halves each year
     static let homeMinTrips = 15             // origin trips before "home" is inferred
 
+    /// Total recorded trips across every route — the gate for on-device
+    /// fine-tuning (a head must not be re-fit from three trips).
+    var totalTrips: Int { routes.values.reduce(0) { $0 + $1.tripCount } }
+
     /// A route is "modeled" (allowed to steer ranking) only past its frequency
     /// gate — one-offs accrue history but don't yet influence routing.
     func isModeled(_ key: RouteKey) -> Bool {
@@ -128,11 +132,21 @@ struct SeasonalStore: Codable {
                halfLifeWeeks: Self.decayHalfLifeWeeks)
         rec.weeks[obs.week] = ws
         routes[obs.key] = rec
+        // Recency-decayed origin history — how a relocation becomes visible.
+        recordOrigin(lat: obs.key.oLat, lon: obs.key.oLon, t: obs.t)
     }
 
     /// Accumulate a driven route's per-edge observed risk into the hub/edge
     /// graph (the GNN's training substrate). `hubPath` is the ordered sequence
     /// of hub coordinates the route traversed.
+    /// Upper bound on the edge graph. It is written on every arrival and
+    /// read by nothing yet (the phase-2b GNN substrate), so it MUST NOT grow
+    /// without limit: at 3 km hub spacing a single 950-mile trip appends
+    /// ~500 records, and the whole store is re-encoded and re-sealed on each
+    /// arrival. Capped and decay-evicted, it stays a usable substrate at a
+    /// bounded cost; uncapped it was a pure write-amplifier.
+    static let maxEdges = 4_000
+
     mutating func recordEdges(hubPath: [CLLocationCoordinate2D], week: Int,
                               observed: Double, t: Double) {
         guard hubPath.count >= 2 else { return }
@@ -146,6 +160,15 @@ struct SeasonalStore: Codable {
             er.weeks[week] = ws
             edges[s] = er
         }
+        guard edges.count > Self.maxEdges else { return }
+        // Evict the least-recently-reinforced half — roads the driver has
+        // stopped using decay out, corridors they still drive survive.
+        func freshness(_ r: EdgeRecord) -> Double {
+            r.weeks.values.map(\.lastT).max() ?? 0
+        }
+        let doomed = edges.sorted { freshness($0.value) < freshness($1.value) }
+            .prefix(edges.count - Self.maxEdges / 2)
+        for (key, _) in doomed { edges.removeValue(forKey: key) }
     }
 
     /// The learned seasonal prior for a route at a week: the decaying-weighted
@@ -190,7 +213,98 @@ struct SeasonalStore: Codable {
     /// worth caching; and a large, well-established shift from the saved "Home"
     /// favorite means the driver probably moved without updating settings. `nil`
     /// until an origin clears `homeMinTrips`.
-    func learnedHome() -> (lat: Double, lon: Double, trips: Int)? {
+    /// Per-origin-cell trip history with RECENCY DECAY — the substrate for
+    /// detecting that a driver has moved. All-time counts alone can never
+    /// notice a relocation: a driver with three years at the old address
+    /// carries hundreds of trips there, so a new city would need years to
+    /// out-count it and "home" would stay wrong the entire time.
+    struct OriginStat: Codable {
+        /// Trips decayed toward the present (30-day half-life), so the last
+        /// month or two dominates.
+        var weighted: Double = 0
+        var lastSeen: Double = 0
+        var firstSeen: Double = 0
+        var trips: Int = 0
+    }
+
+    /// Keyed "lat|lon" in 0.1° cell units (JSON dictionaries need String keys).
+    var origins: [String: OriginStat] = [:]
+
+    static let originHalfLifeDays = 30.0
+    /// A challenger must beat the incumbent by this factor to take over as
+    /// home — hysteresis, so the anchor doesn't oscillate week to week.
+    static let relocationMargin = 1.5
+    /// …and must have been in use at least this long, so a month-long job,
+    /// a hospital stay, or a summer at the lake does not become "home".
+    static let relocationMinDays = 30.0
+
+    mutating func recordOrigin(lat: Int, lon: Int, t: Double) {
+        let key = "\(lat)|\(lon)"
+        var stat = origins[key] ?? OriginStat(firstSeen: t)
+        // Decay what was there to `t`, then add this trip at full weight.
+        if stat.lastSeen > 0 {
+            let days = max(t - stat.lastSeen, 0) / 86_400
+            stat.weighted *= pow(0.5, days / Self.originHalfLifeDays)
+        }
+        stat.weighted += 1
+        stat.trips += 1
+        stat.lastSeen = t
+        if stat.firstSeen == 0 { stat.firstSeen = t }
+        origins[key] = stat
+        // Bound the map: cells the driver has genuinely left decay to noise.
+        if origins.count > 200 {
+            let doomed = origins.sorted { decayed($0.value, now: t) < decayed($1.value, now: t) }
+                .prefix(origins.count / 2)
+            for (k, _) in doomed { origins.removeValue(forKey: k) }
+        }
+    }
+
+    private func decayed(_ s: OriginStat, now: Double) -> Double {
+        let days = max(now - s.lastSeen, 0) / 86_400
+        return s.weighted * pow(0.5, days / Self.originHalfLifeDays)
+    }
+
+    /// The learned home anchor: the origin cell the driver actually departs
+    /// from THESE DAYS. Recency-decayed, gated on total trips, and — once an
+    /// anchor exists — protected by hysteresis so only a sustained move
+    /// (dominant for over a month, by a clear margin) shifts it.
+    /// `currentHome` is the anchor in force; pass nil on first inference.
+    func learnedHome(
+        now: Double = Date().timeIntervalSince1970,
+        currentHome: (lat: Int, lon: Int)? = nil
+    ) -> (lat: Double, lon: Double, trips: Int)? {
+        // Fall back to the all-time origin scan for stores written before
+        // origin tracking existed, so an upgrading driver keeps their anchor.
+        guard !origins.isEmpty else { return legacyLearnedHome() }
+        let scored = origins.compactMap { key, stat -> (lat: Int, lon: Int, w: Double, s: OriginStat)? in
+            let parts = key.split(separator: "|")
+            guard parts.count == 2, let la = Int(parts[0]), let lo = Int(parts[1]) else { return nil }
+            return (la, lo, decayed(stat, now: now), stat)
+        }
+        guard let best = scored.max(by: { $0.w < $1.w }) else { return nil }
+        let totalTrips = origins.values.reduce(0) { $0 + $1.trips }
+        guard totalTrips >= Self.homeMinTrips else { return nil }
+
+        guard let currentHome,
+              let incumbent = scored.first(where: { $0.lat == currentHome.lat && $0.lon == currentHome.lon })
+        else {
+            return (Double(best.lat) / 10, Double(best.lon) / 10, best.s.trips)
+        }
+        if best.lat == incumbent.lat, best.lon == incumbent.lon {
+            return (Double(incumbent.lat) / 10, Double(incumbent.lon) / 10, incumbent.s.trips)
+        }
+        // A different cell now leads. Only a SUSTAINED, clearly-dominant one
+        // takes over — otherwise the incumbent stands.
+        let establishedDays = max(now - best.s.firstSeen, 0) / 86_400
+        if best.w >= incumbent.w * Self.relocationMargin,
+           establishedDays >= Self.relocationMinDays {
+            return (Double(best.lat) / 10, Double(best.lon) / 10, best.s.trips)
+        }
+        return (Double(incumbent.lat) / 10, Double(incumbent.lon) / 10, incumbent.s.trips)
+    }
+
+    /// Pre-origin-tracking behavior, kept for stores that predate it.
+    private func legacyLearnedHome() -> (lat: Double, lon: Double, trips: Int)? {
         struct OriginCell: Hashable { let lat: Int; let lon: Int }
         var byOrigin: [OriginCell: Int] = [:]
         for (key, rec) in routes {
@@ -262,8 +376,15 @@ struct LearnedHead: Codable {
     let w2: [Double]     // [hidden] → single output
     let b2: Double
     let version: Int
-    /// Training-set size (absent in old heads) — the richer model wins.
+    /// Training-set size (absent in old heads). INFORMATIONAL ONLY now: it
+    /// used to select between a device head and the bundled baseline, but a
+    /// device head can never reach the baseline's 1,164,376 rows, so the
+    /// weekly worker's output was always discarded. Device training is now a
+    /// warm-started fine-tune OF the baseline (RouteHeadTrainer), so there
+    /// is one head, not two competing ones.
     var rows: Int? = nil
+    /// True when this head has been fine-tuned on THIS driver's trips.
+    var tunedOnDevice: Bool? = nil
 
     /// Input width this head was trained for — must equal RouteFeatures.count
     /// or the head is stale (feature-contract change) and is not used.
@@ -327,10 +448,12 @@ final class SeasonalRiskModel: ObservableObject {
         let storeURL = url
         let headFileURL = headURL
         diskLoad = Task.detached(priority: .utility) { [weak self] in
-            let loadedStore = (try? Data(contentsOf: storeURL)).flatMap {
+            // Sealed store, upgrading in place from any plaintext file an
+            // earlier build left at this path.
+            let loadedStore = SecureBehaviorStore.readMigrating(storeURL).flatMap {
                 try? JSONDecoder().decode(SeasonalStore.self, from: $0)
             }
-            let local = Self.decodeHead(try? Data(contentsOf: headFileURL))
+            let local = Self.decodeHead(SecureBehaviorStore.readMigrating(headFileURL))
             let bundled = Self.decodeHead(Bundle.main.url(
                 forResource: "baseline_route_head", withExtension: "json")
                 .flatMap { try? Data(contentsOf: $0) })
@@ -350,22 +473,32 @@ final class SeasonalRiskModel: ObservableObject {
         return h
     }
 
-    /// Choose between the worker's local head and the shipped baseline
-    /// (trained on 20 years of NOAA Storm Events, 2005–2024, so a fresh
-    /// install predicts from history, not zero).
+    /// Choose between the on-device head and the shipped baseline (trained
+    /// on 20 years of NOAA Storm Events, 2005–2024, so a fresh install
+    /// predicts from history, not zero).
+    ///
+    /// The local head is a warm-started FINE-TUNE of that baseline, anchored
+    /// to it (RouteHeadTrainer) — so preferring it is refinement, not
+    /// replacement, and the feature contract is identical by construction. A
+    /// local head whose feature width is stale was already rejected at
+    /// decode. The previous rule compared raw row counts, which a device
+    /// head could never win against a 1.16M-row baseline; that made every
+    /// locally-trained head dead on arrival.
     private func applyHead(local: LearnedHead?, bundled: LearnedHead?) {
+        baselineHead = bundled
         switch (local, bundled) {
         case let (l?, b?):
-            // The model trained on MORE data wins: a local head from a few
-            // hundred of the driver's trips must refine, not replace, the
-            // 20-year historical baseline. (The weekly worker folds history
-            // rows in over time, at which point local overtakes honestly.)
-            head = (l.rows ?? 0) >= (b.rows ?? 0) ? l : b
+            head = (l.tunedOnDevice ?? false) ? l : ((l.rows ?? 0) >= (b.rows ?? 0) ? l : b)
         case let (l?, nil): head = l
         case let (nil, b?): head = b
         default: head = nil
         }
     }
+
+    /// The untuned baseline, kept so a fine-tune always warm-starts from the
+    /// national model rather than from the previous fine-tune (which would
+    /// let drift compound across sessions).
+    private var baselineHead: LearnedHead?
 
     /// Shared calendar: `Calendar(identifier:)` resolves locale/timezone on
     /// every construction, and week() runs twice per route ranking plus per
@@ -393,15 +526,90 @@ final class SeasonalRiskModel: ObservableObject {
             oLat: Double(key.oLat) / 10, oLon: Double(key.oLon) / 10,
             dLat: Double(key.dLat) / 10, dLon: Double(key.dLon) / 10,
             week: Self.week(), crossCountry: store.routes[key]?.crossCountry ?? false)
-        return (head.predict(x), stat.confidence)
+        // REFINE, don't replace. This returned `head.predict(x)` and threw
+        // `stat.risk` away, so the driver's own decaying-weighted
+        // observations of THIS route never reached the ranking number —
+        // they only gated its confidence. The model generalizes across
+        // corridors; the direct observation is the ground truth for this
+        // one, so confidence (which rises with the count of week-samples
+        // for this exact route) decides how far to move from the model
+        // toward what the driver actually met.
+        let modeled = head.predict(x)
+        let c = min(max(stat.confidence, 0), 1)
+        return (modeled * (1 - c) + stat.risk * c, stat.confidence)
+    }
+
+    /// Fine-tune the head on this driver's history, warm-started from the
+    /// shipped baseline and anchored to it. Runs OFF the main actor after an
+    /// arrival, gated so it is a rare background cost: at least a day since
+    /// the last tune and at least 5 new trips. A tune that scores WORSE than
+    /// the baseline on the driver's own rows is discarded.
+    func fineTuneHeadIfDue(now: Date = Date()) {
+        guard let baseline = baselineHead else { return }
+        let trips = store.totalTrips
+        guard trips >= 12 else { return }   // too little to learn from
+        if let last = lastTunedAt, now.timeIntervalSince(last) < 86_400 { return }
+        guard trips - tunedAtTripCount >= 5 else { return }
+        lastTunedAt = now
+        tunedAtTripCount = trips
+        let rows = store.trainingRows(now: now.timeIntervalSince1970)
+        let headURL = self.headURL
+        Task.detached(priority: .utility) { [weak self] in
+            guard let tuned = RouteHeadTrainer.fineTune(base: baseline, rows: rows),
+                  let tunedError = RouteHeadTrainer.meanSquaredError(tuned, rows: rows),
+                  let baseError = RouteHeadTrainer.meanSquaredError(baseline, rows: rows),
+                  tunedError <= baseError
+            else {
+                FlowsDiag.log(.info, "learning",
+                              "route head fine-tune discarded — no improvement on own trips")
+                return
+            }
+            SecureBehaviorStore.save(tuned, to: headURL)
+            FlowsDiag.log(.info, "learning", String(
+                format: "route head fine-tuned on %d rows (MSE %.4f → %.4f)",
+                rows.count, baseError, tunedError))
+            await MainActor.run { [weak self] in self?.head = tuned }
+        }
+    }
+
+    private var lastTunedAt: Date?
+    private var tunedAtTripCount = 0
+
+    /// Plain-words summary of what the model has learned, for the Settings
+    /// "What FLOWS has learned" section. Also the first consumer of the
+    /// per-route calibration (`accuracy(for:)` and the `wSqErr` accumulator
+    /// behind it), which was computed into storage and read by nothing.
+    var learningSummary: (trips: Int, routes: Int, calibration: Double?, tuned: Bool) {
+        let now = Date().timeIntervalSince1970
+        let errors = store.routes.keys.compactMap { store.accuracy(for: $0, now: now) }
+        let mean = errors.isEmpty ? nil : errors.reduce(0, +) / Double(errors.count)
+        return (store.totalTrips, store.routes.count, mean, head?.tunedOnDevice ?? false)
+    }
+
+    /// Erase everything learned about the driver and destroy the file.
+    func eraseLearnedHistory() {
+        store = SeasonalStore()
+        lastTunedAt = nil
+        tunedAtTripCount = 0
+        SecureBehaviorStore.shred(url)
+        SecureBehaviorStore.shred(exportURL)
+        SecureBehaviorStore.shred(headURL)
+        head = baselineHead   // back to the shipped national model
     }
 
 
     /// The learned home anchor (the most-frequent trip-origin cell) — the
     /// everyday POI cache centers its circle here. `nil` until an origin
     /// clears `homeMinTrips`.
-    func learnedHomeCoordinate() -> CLLocationCoordinate2D? {
-        store.learnedHome().map {
+    /// The learned home anchor, hysteresis-aware: the anchor currently in
+    /// force is passed in so only a sustained relocation displaces it.
+    func learnedHomeCoordinate(
+        current: CLLocationCoordinate2D? = nil
+    ) -> CLLocationCoordinate2D? {
+        let incumbent = current.map {
+            (lat: Int(($0.latitude * 10).rounded()), lon: Int(($0.longitude * 10).rounded()))
+        }
+        return store.learnedHome(currentHome: incumbent).map {
             CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
         }
     }
@@ -440,10 +648,14 @@ final class SeasonalRiskModel: ObservableObject {
         let url = self.url, exportURL = self.exportURL
         let now = Date().timeIntervalSince1970
         persistQueue.async {
+            // ENCRYPTED AT REST: a trip history is a map of someone's life.
+            // Sealed with the device-only Keychain key (SecureBehaviorStore);
+            // decrypted only into memory, only while reading or training.
             if let data = try? JSONEncoder().encode(snapshot) {
-                try? data.write(to: url, options: .atomic)
+                SecureBehaviorStore.write(data, to: url)
             }
-            // Flat CSV training view for the Rust trainer (rust/flows-train).
+            // Flat CSV training view for the trainer — the rawest rows the
+            // app holds, so it is sealed too.
             let rows = snapshot.trainingRows(now: now)
             var csv = "oLat,oLon,dLat,dLon,week,target,weight,crossCountry\n"
             for r in rows {
@@ -451,7 +663,9 @@ final class SeasonalRiskModel: ObservableObject {
                 csv += "\(Int(r["week"] ?? 0)),\(r["target"] ?? 0),\(r["weight"] ?? 0),"
                 csv += "\(Int(r["crossCountry"] ?? 0))\n"
             }
-            try? csv.write(to: exportURL, atomically: true, encoding: .utf8)
+            if let csvData = csv.data(using: .utf8) {
+                SecureBehaviorStore.write(csvData, to: exportURL)
+            }
         }
     }
 }

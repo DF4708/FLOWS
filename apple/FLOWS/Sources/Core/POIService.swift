@@ -767,6 +767,23 @@ final class POIService: ObservableObject {
     /// context (time of day, weekday, start cell) feeds the habit patterns.
     func choose(_ ranked: RankedPOI) {
         selected = ranked
+        // The CHOICE SET, not just the winner: the rows that were on screen
+        // and lost are what make a ranking weight identifiable at all. See
+        // ChoiceLog — recorded passively, read by nothing yet.
+        if let kind = activeKind {
+            ChoiceLogStore.shared.record(
+                kind: kind.rawValue,
+                options: results.prefix(ChoiceLog.optionsPerEvent).enumerated().map { i, row in
+                    ChoiceLog.Option(
+                        aheadMiles: row.aheadMeters / 1609.344,
+                        detourMiles: row.detourMeters / 1609.344,
+                        price: row.pricePerUnit,
+                        rating: row.rating,
+                        costTier: row.costTier,
+                        shownRank: i,
+                        chosen: row.id == ranked.id)
+                })
+        }
         guard let kind = activeKind,
               let category = Self.everydayCategory(for: kind) else { return }
         let c = ranked.item.placemark.coordinate

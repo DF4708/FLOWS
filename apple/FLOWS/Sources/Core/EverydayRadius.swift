@@ -80,9 +80,14 @@ struct EverydayStore: Codable, Equatable {
     // Tunables (documented so phase-2 training can reference them).
     /// The default AND the ceiling: a 20-mile radius (40-mile diameter) from
     /// home. Evidence can shrink the circle, never widen it.
-    static let hardCapMiles = 20.0
-    /// Trips before mean + SD is statistically meaningful enough to shrink
-    /// the circle below the default.
+    /// Radius before enough trips have been seen to learn one.
+    static let defaultMiles = 20.0
+    /// Sanity rails on the learned quantile — a circle smaller than this is
+    /// useless, larger than this stops meaning "everyday".
+    static let floorMiles = 3.0
+    static let hardCapMiles = 150.0
+    /// Trips before the observed quantile is meaningful enough to replace
+    /// the default (in EITHER direction).
     static let minTripsForRadius = 30
     static let tripWindow = 200
     static let maxPlacesPerCategory = 50
@@ -115,10 +120,33 @@ struct EverydayStore: Codable, Equatable {
 
     /// The everyday radius in miles: the 20-mile default until the sample is
     /// significant, then mean + SD — still capped at 20.
+    /// The learned everyday radius — free to GROW as well as shrink.
+    ///
+    /// This used to be `min(20, mean + sd)`: capped at the 20-mile default
+    /// and, because the default was also the ceiling, able only to shrink.
+    /// A rural driver whose genuine everyday range is 45 miles therefore got
+    /// NO instant results, permanently, by construction — and experienced it
+    /// as "the app doesn't remember my places" rather than as a capped
+    /// radius. It is now an observed QUANTILE (p85 of recent trip lengths),
+    /// which adapts in both directions: a city driver's circle tightens, a
+    /// rural one's widens to match how far they actually go. The remaining
+    /// bounds are sanity rails, not policy — the cache is really bounded by
+    /// `maxPlacesPerCategory`.
     var radiusMiles: Double {
         guard tripMiles.count >= Self.minTripsForRadius,
-              let mean = meanTripMiles, let sd = tripMilesSD else { return Self.hardCapMiles }
-        return min(Self.hardCapMiles, mean + sd)
+              let q = Self.quantile(tripMiles, 0.85) else { return Self.defaultMiles }
+        return min(max(q, Self.floorMiles), Self.hardCapMiles)
+    }
+
+    /// Inclusive-rank quantile over the trip-length window. Pure, tested.
+    static func quantile(_ values: [Double], _ q: Double) -> Double? {
+        let clean = values.filter { $0.isFinite && $0 >= 0 }.sorted()
+        guard !clean.isEmpty else { return nil }
+        let position = min(max(q, 0), 1) * Double(clean.count - 1)
+        let lower = Int(position.rounded(.down))
+        let upper = min(lower + 1, clean.count - 1)
+        let fraction = position - Double(lower)
+        return clean[lower] * (1 - fraction) + clean[upper] * fraction
     }
 
     mutating func recordTrip(miles: Double) {
@@ -296,7 +324,7 @@ final class EverydayPlaces: ObservableObject {
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_everyday_places.json")
-        if let data = try? Data(contentsOf: url),
+        if let data = SecureBehaviorStore.readMigrating(url),
            let loaded = try? JSONDecoder().decode(EverydayStore.self, from: data) {
             store = loaded
         }
@@ -306,13 +334,75 @@ final class EverydayPlaces: ObservableObject {
     /// "Your everyday area".
     var radiusMiles: Double { store.radiusMiles }
 
+    /// Every remembered place across categories — the evidence base for
+    /// destination prediction (DestinationPrediction).
+    var allPlaces: [EverydayPlace] {
+        store.categories.values.flatMap { $0 }
+    }
+
+    /// Forget every remembered place, context, and the learned circle.
+    func erase() {
+        store = EverydayStore()
+        SecureBehaviorStore.shred(url)
+    }
+
+    /// Likely destinations for the driver's current moment, built from the
+    /// context histogram this app has been writing and never reading.
+    /// `position` is where they're setting out from; nil falls back to
+    /// time-of-day evidence alone.
+    func predictions(
+        from position: CLLocationCoordinate2D?, now: Date = Date(), limit: Int = 4
+    ) -> [DestinationPrediction.Candidate] {
+        let cal = Self.gregorian
+        let bucket = EverydayStore.hourBucket(cal.component(.hour, from: now))
+        let weekday = cal.component(.weekday, from: now)
+        let weekend = weekday == 1 || weekday == 7
+        let contextKey = position.map {
+            EverydayStore.contextID(hourBucket: bucket, weekend: weekend,
+                                    startLat: $0.latitude, startLon: $0.longitude)
+        }
+        let timePrefix = "h\(bucket)|\(weekend ? "we" : "wd")"
+        let evidence = allPlaces.map { p -> DestinationPrediction.Evidence in
+            var e = DestinationPrediction.Evidence(
+                id: p.id, name: p.name,
+                coordinate: CLLocationCoordinate2D(latitude: p.latitude,
+                                                   longitude: p.longitude))
+            if let contextKey { e.contextHits = p.contexts[contextKey] ?? 0 }
+            // Back-off tier: same hour + day type, any starting point.
+            e.timeHits = p.contexts
+                .filter { $0.key.hasPrefix(timePrefix) }
+                .reduce(0) { $0 + $1.value }
+            e.totalHits = p.uses
+            e.lastUsed = p.lastUsedT
+            return e
+        }
+        return DestinationPrediction.rank(
+            evidence, now: now.timeIntervalSince1970, limit: limit)
+    }
+
     /// Learn from a completed trip: the straight-line start→end miles feed
     /// the radius estimate, and the home anchor refreshes from the seasonal
     /// model's learned home (which just absorbed the same trip).
     func recordTrip(origin: CLLocationCoordinate2D, dest: CLLocationCoordinate2D) {
         store.recordTrip(miles: EverydayStore.miles(from: origin, to: dest))
-        if let home = SeasonalRiskModel.shared.learnedHomeCoordinate() {
+        // The anchor in force is passed back in so the seasonal model can
+        // apply relocation hysteresis: only a cell that has dominated recent
+        // departures for over a month, by a clear margin, displaces it. A
+        // long assignment or a summer away does not move home; an actual
+        // move does — and the circle travels with the driver.
+        let current = store.home.map {
+            CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon)
+        }
+        if let home = SeasonalRiskModel.shared.learnedHomeCoordinate(current: current) {
+            let moved = current.map {
+                EverydayStore.miles(from: $0, to: home) > 15
+            } ?? false
             store.setHome(lat: home.latitude, lon: home.longitude)
+            if moved {
+                FlowsDiag.log(.info, "learning", String(
+                    format: "everyday center moved to %.2f, %.2f — sustained new origin",
+                    home.latitude, home.longitude))
+            }
         }
         persist()
     }
@@ -367,8 +457,11 @@ final class EverydayPlaces: ObservableObject {
         let snapshot = store
         let url = self.url
         persistQueue.async {
+            // ENCRYPTED AT REST — the places someone visits every day (home,
+            // work, clinic, place of worship) are exactly the set that must
+            // not be readable off a lost or seized device.
             if let data = try? JSONEncoder().encode(snapshot) {
-                try? data.write(to: url, options: .atomic)
+                SecureBehaviorStore.write(data, to: url)
             }
         }
     }

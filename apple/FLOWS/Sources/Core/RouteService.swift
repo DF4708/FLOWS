@@ -425,6 +425,39 @@ final class RouteService: ObservableObject {
         "\(Int(route.distance / 400))|\(Int(route.expectedTravelTime / 45))"
     }
 
+    /// How much slower a route may be and still win the top card on lower
+    /// risk — PROPORTIONAL to the trip, not a flat number.
+    ///
+    /// Review finding: this was a fixed 300 s, which is a 25% swing on a
+    /// 20-minute errand and 0.8% on a ten-hour haul. That made safety
+    /// essentially unable to win a short trip and almost unable to lose a
+    /// long one — an inversion nobody chose. 8% of the shorter ETA matches
+    /// how people actually talk about detours ("ten minutes out of my way"
+    /// means something different on a cross-country run), with a 2-minute
+    /// floor so short trips still have a real tolerance, and a 15-minute
+    /// ceiling so a marginally-calmer corridor can't cost three quarters of
+    /// an hour on a long haul.
+    nonisolated static func etaTieTolerance(shorterETA: TimeInterval) -> TimeInterval {
+        let proportional = max(shorterETA, 0) * 0.08
+        return min(max(proportional, 120), 900)
+    }
+
+    /// Scale routing ETAs by the driver's learned pace (DrivingProfile). A
+    /// multiplier of 1 — not yet earned, or a driver who matches the router
+    /// — returns the routes untouched, and a route that already carries an
+    /// `etaOverride` (the long-walk estimate) keeps its own number.
+    nonisolated static func applyPersonalPace(
+        _ routes: [PlannedRoute], multiplier: Double
+    ) -> [PlannedRoute] {
+        guard multiplier != 1, multiplier.isFinite, multiplier > 0 else { return routes }
+        return routes.map { r in
+            guard r.etaOverride == nil, !r.isWalkingEstimate else { return r }
+            var out = r
+            out.etaOverride = r.route.expectedTravelTime * multiplier
+            return out
+        }
+    }
+
     /// Precomputed draw geometry for the 3D-terrain grade overlay: the
     /// ribbon's per-segment polyline slices and the steep-marker (≥6%, first
     /// 12) midpoints. One pass extracts the coordinates and their cumulative
