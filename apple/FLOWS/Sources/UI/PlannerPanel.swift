@@ -20,6 +20,9 @@ struct PlannerPanel: View {
 
     @State private var searchQuery = ""
     @StateObject private var destSearch = DestinationSearch()
+    /// The start field gets the SAME live suggestions as the destination —
+    /// a typed "from" deserves addresses, places, and recents too.
+    @StateObject private var sourceSearch = DestinationSearch()
     @State private var overrideSource = false
     @State private var isWorking = false
     @State private var errorMessage: String?
@@ -54,6 +57,31 @@ struct PlannerPanel: View {
                 .font(.system(size: 15, weight: .bold))
                 .onChange(of: model.plannerDestination) { _, text in
                     destSearch.update(fragment: text, near: model.location.coordinate)
+                }
+                .onChange(of: model.plannerSource) { _, text in
+                    sourceSearch.update(fragment: text, near: model.location.coordinate)
+                }
+                // Focusing an empty field offers the driver's RECENT places
+                // before a single character is typed (works offline).
+                .onChange(of: focusedField) { _, field in
+                    switch field {
+                    case .destination:
+                        destSearch.update(fragment: model.plannerDestination,
+                                          near: model.location.coordinate)
+                    case .source:
+                        sourceSearch.update(fragment: model.plannerSource,
+                                            near: model.location.coordinate)
+                    case nil:
+                        break
+                    }
+                }
+                .onAppear {
+                    destSearch.recentsProvider = { [weak model] fragment in
+                        model?.recents.matching(fragment) ?? []
+                    }
+                    sourceSearch.recentsProvider = { [weak model] fragment in
+                        model?.recents.matching(fragment) ?? []
+                    }
                 }
             HStack(spacing: 6) {
                 TextField("Address, place, city, or ZIP", text: $model.plannerDestination)
@@ -103,39 +131,15 @@ struct PlannerPanel: View {
                 .help("Save this destination as a favorite")
             }
             // Live lookup while typing: closest matches first (addresses,
-            // places, partial words like "pharma"). Tapping one plans it.
+            // places, partial words like "pharma"), the driver's recent
+            // destinations, and pasted coordinates. Tapping one plans it.
             if focusedField == .destination, !destSearch.suggestions.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(destSearch.suggestions) { sug in
-                        Button {
-                            destSearch.accept()
-                            model.plannerDestination = sug.searchText
-                            focusedField = nil
-                            Task { await plan() }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(sug.title)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.primary)
-                                if !sug.subtitle.isEmpty {
-                                    Text(sug.subtitle)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 6)
-                            .padding(.horizontal, 12)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        if sug.id != destSearch.suggestions.last?.id {
-                            Divider()
-                        }
-                    }
+                suggestionList(destSearch.suggestions) { sug in
+                    destSearch.accept()
+                    model.plannerDestination = sug.searchText
+                    focusedField = nil
+                    Task { await plan() }
                 }
-                .background(Color.black.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
             // Source row: GPS by default, tap to override. When there's no
@@ -172,6 +176,21 @@ struct PlannerPanel: View {
                     .focused($focusedField, equals: .source)
                     .autocorrectionDisabled()
                     .onSubmit { Task { await plan() } }
+                // The start field completes like the destination does.
+                if focusedField == .source, !sourceSearch.suggestions.isEmpty {
+                    suggestionList(sourceSearch.suggestions) { sug in
+                        sourceSearch.accept()
+                        model.plannerSource = sug.searchText
+                        // A filled start + a filled destination = ready; jump
+                        // straight to planning. Otherwise walk to Where to?.
+                        if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
+                            focusedField = .destination
+                        } else {
+                            focusedField = nil
+                            Task { await plan() }
+                        }
+                    }
+                }
             }
 
             Button(isWorking ? "Planning…" : "Plan route") {
@@ -206,6 +225,71 @@ struct PlannerPanel: View {
         .floatingCard()
     }
 
+    /// One suggestion list for both fields: icon says WHAT each row is
+    /// (recent / exact point / lookup), distance says how far when known —
+    /// recents and coordinates resolve locally, so those rows work offline.
+    private func suggestionList(
+        _ suggestions: [DestinationSearch.Suggestion],
+        onPick: @escaping (DestinationSearch.Suggestion) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(suggestions) { sug in
+                Button {
+                    onPick(sug)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: icon(for: sug.kind))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(sug.kind == .completion ? Color.secondary : Theme.cta)
+                            .frame(width: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(sug.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            if !sug.subtitle.isEmpty {
+                                Text(sug.subtitle)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 4)
+                        if let meters = sug.distanceMeters {
+                            Text(Self.milesText(meters))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if sug.id != suggestions.last?.id {
+                    Divider()
+                }
+            }
+        }
+        .background(Color.black.opacity(0.03))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func icon(for kind: DestinationSearch.Suggestion.Kind) -> String {
+        switch kind {
+        case .recent: return "clock.arrow.circlepath"
+        case .coordinate: return "mappin.and.ellipse"
+        case .completion: return "magnifyingglass"
+        }
+    }
+
+    /// "0.4 mi" under ten miles, whole miles beyond.
+    static func milesText(_ meters: Double) -> String {
+        let miles = meters / 1609.344
+        return miles < 10
+            ? String(format: "%.1f mi", miles)
+            : String(format: "%.0f mi", miles)
+    }
+
     /// One truth for "can Plan fire": the button's disabled state and its
     /// click-swallow fallback gesture must always agree.
     private var planEnabled: Bool {
@@ -217,7 +301,8 @@ struct PlannerPanel: View {
         guard !searchQuery.isEmpty else { return }
         errorMessage = nil
         do {
-            let (coord, _) = try await model.router.geocode(searchQuery)
+            let (coord, _) = try await model.router.geocode(
+                searchQuery, near: model.location.coordinate)
             withAnimation {
                 camera = .region(MKCoordinateRegion(
                     center: coord,
@@ -298,7 +383,8 @@ struct PlannerPanel: View {
         guard !text.isEmpty else { return }
         errorMessage = nil
         do {
-            let (coord, name) = try await model.router.geocode(text)
+            let (coord, name) = try await model.router.geocode(
+                text, near: model.location.coordinate)
             model.favorites.add(FavoriteAddress(
                 name: name, symbol: symbol,
                 latitude: coord.latitude, longitude: coord.longitude))
@@ -315,6 +401,7 @@ struct PlannerPanel: View {
 
     private func plan() async {
         destSearch.clear()   // suggestions down once a plan starts
+        sourceSearch.clear()
         // Reentry guard: the button's action AND its simultaneous tap gesture
         // can both fire on one click — the second call must be a no-op.
         guard !isWorking else { return }
@@ -332,10 +419,12 @@ struct PlannerPanel: View {
                     throw RouteError.notFound("current location (no GPS fix yet)")
                 }
                 from = (here, "Current location")
-                to = try await model.router.geocode(model.plannerDestination)
+                to = try await model.router.geocode(
+                    model.plannerDestination, near: model.location.coordinate)
             } else {
-                async let fromF = model.router.geocode(source)
-                to = try await model.router.geocode(model.plannerDestination)
+                async let fromF = model.router.geocode(source, near: model.location.coordinate)
+                to = try await model.router.geocode(
+                    model.plannerDestination, near: model.location.coordinate)
                 from = try await fromF
             }
             // Routes appear as soon as directions return; weather badges

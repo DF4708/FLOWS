@@ -68,6 +68,8 @@ final class AppModel: ObservableObject {
 
     let location = LocationService()
     let router = RouteService()
+    /// Recently planned destinations — one tap re-plans, works offline.
+    let recents = RecentDestinations()
     let poi = POIService()
     let alerts = WeatherAlertService()
     /// Offline lifeline: GPS breadcrumb trail + network-path monitor.
@@ -899,11 +901,17 @@ final class AppModel: ObservableObject {
                 : "Beyond the pedestrian router's range — WALKING ESTIMATE along "
                     + "LOCAL ROADS only (3.1 mph pace): verify sidewalk/shoulder "
                     + "availability before setting out."
-            if !estimates.isEmpty { lastPlanEndpoints = (from, fromName, to, toName) }
+            if !estimates.isEmpty {
+                lastPlanEndpoints = (from, fromName, to, toName)
+                recents.record(name: toName, coordinate: to)
+            }
             return estimates
         }
         plannerNotice = nil
-        if !routes.isEmpty { lastPlanEndpoints = (from, fromName, to, toName) }
+        if !routes.isEmpty {
+            lastPlanEndpoints = (from, fromName, to, toName)
+            recents.record(name: toName, coordinate: to)
+        }
         return routes
     }
 

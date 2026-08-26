@@ -272,14 +272,35 @@ final class RouteService: ObservableObject {
     private let geocoder = CLGeocoder()
 
     /// Geocode free text ("ZIP, county, or city" — same contract as the web
-    /// planner) into a coordinate. REDUNDANT: CLGeocoder is rate-limited and
-    /// throttles bursts; when it fails, MKLocalSearch answers the same query
-    /// through a different Apple service, so planning survives a geocoder
-    /// throttle instead of dead-ending the destination field.
-    func geocode(_ query: String) async throws -> (CLLocationCoordinate2D, String) {
+    /// planner) into a coordinate.
+    ///   * Raw coordinates ("43.0731, -89.4012") plan directly — no
+    ///     geocoder, no network.
+    ///   * Ambiguous names resolve NEAREST-FIRST when the driver's position
+    ///     is known: "Springfield" should mean the one down the road, not
+    ///     whichever of the dozen Apple lists first.
+    ///   * REDUNDANT: CLGeocoder is rate-limited and throttles bursts; when
+    ///     it fails, MKLocalSearch answers the same query through a
+    ///     different Apple service, so planning survives a geocoder throttle
+    ///     instead of dead-ending the destination field.
+    func geocode(
+        _ query: String, near: CLLocationCoordinate2D? = nil
+    ) async throws -> (CLLocationCoordinate2D, String) {
+        if let point = CoordinateInput.parse(query) {
+            return (point, CoordinateInput.displayName(point))
+        }
         do {
             let placemarks = try await geocoder.geocodeAddressString(query)
-            guard let pm = placemarks.first, let loc = pm.location else {
+                .filter { $0.location != nil }
+            let pm: CLPlacemark?
+            if let near {
+                pm = placemarks.min {
+                    POIRanking.meters($0.location!.coordinate, near)
+                        < POIRanking.meters($1.location!.coordinate, near)
+                }
+            } else {
+                pm = placemarks.first
+            }
+            guard let pm, let loc = pm.location else {
                 throw RouteError.notFound(query)
             }
             let name = pm.locality ?? pm.name ?? query
@@ -287,6 +308,10 @@ final class RouteService: ObservableObject {
         } catch {
             let request = MKLocalSearch.Request()
             request.naturalLanguageQuery = query
+            if let near {
+                request.region = MKCoordinateRegion(
+                    center: near, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
+            }
             guard let item = (try? await MKLocalSearch(request: request).start())?
                 .mapItems.first else { throw error }   // surface the ORIGINAL failure
             FlowsDiag.logThrottled(
