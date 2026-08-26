@@ -1594,19 +1594,27 @@ final class AppModel: ObservableObject {
     nonisolated private static func corridorForecasts(
         at samples: [CLLocationCoordinate2D]
     ) async -> [Int: (ForecastConditions, Double?)] {
-        await withTaskGroup(of: (Int, ForecastConditions?, Double?).self) { group in
-            for i in stride(from: 0, to: samples.count, by: 2).prefix(15) {
+        let idx = Array(stride(from: 0, to: samples.count, by: 2).prefix(15))
+        // Elevations ride ONE batched request for all forecast samples,
+        // concurrent with the per-point conditions fetches.
+        async let elevsF = RouteAttributeFetcher.shared.elevations(at: idx.map { samples[$0] })
+        let conditions: [Int: ForecastConditions] = await withTaskGroup(
+            of: (Int, ForecastConditions?).self
+        ) { group in
+            for i in idx {
                 let pt = samples[i]
-                group.addTask {
-                    async let c = NWSForecastFetcher.shared.conditions(at: pt)
-                    async let e = RouteAttributeFetcher.shared.elevation(at: pt)
-                    return (i, await c, await e)
-                }
+                group.addTask { (i, await NWSForecastFetcher.shared.conditions(at: pt)) }
             }
-            var out: [Int: (ForecastConditions, Double?)] = [:]
-            for await (i, c, e) in group { if let c { out[i] = (c, e) } }
+            var out: [Int: ForecastConditions] = [:]
+            for await (i, c) in group { if let c { out[i] = c } }
             return out
         }
+        let elevs = await elevsF
+        var out: [Int: (ForecastConditions, Double?)] = [:]
+        for (k, i) in idx.enumerated() {
+            if let c = conditions[i] { out[i] = (c, elevs[k]) }
+        }
+        return out
     }
 
     /// `scored` on the planning-burst lane: for the single-route scorings a
@@ -1856,14 +1864,9 @@ final class AppModel: ObservableObject {
             .prefix(25)
         let boxes = Self.corridorBoxes(corridorSamples)
 
-        async let elevations: [Double?] = withTaskGroup(of: (Int, Double?).self) { group in
-            for (i, pt) in gradeSamples.enumerated() {
-                group.addTask { (i, await RouteAttributeFetcher.shared.elevation(at: pt)) }
-            }
-            var out = [Double?](repeating: nil, count: gradeSamples.count)
-            for await (i, v) in group { out[i] = v }
-            return out
-        }
+        // One batched request for the whole coarse profile (was one EPQS
+        // request per sample).
+        async let elevations = RouteAttributeFetcher.shared.elevations(at: gradeSamples)
         async let femaHits: [Bool?] = withTaskGroup(of: Bool?.self) { group in
             for pt in femaSamples {
                 group.addTask { await RouteAttributeFetcher.shared.highRiskFloodZone(at: pt) }
@@ -1967,21 +1970,23 @@ final class AppModel: ObservableObject {
             .sorted { $0.delta > $1.delta }.prefix(5)
         guard !worst.isEmpty else { return nil }
         let fine = RouteService.samplePoints(of: polyline, everyMeters: spacing / 8)
-        var best: Double = 0
-        var fineSegments: [GradeSegment] = []
+        // Gather every refined stretch's points into ONE batched elevation
+        // request (was one EPQS request per fine point, ~45 per route).
+        var combined: [CLLocationCoordinate2D] = []
+        var stretches: [(seg: (idx: Int, delta: Double), lo: Int, range: Range<Int>)] = []
         for seg in worst {
             let lo = seg.idx * 8
             let hi = min(lo + 8, fine.count - 1)
             guard lo < hi else { continue }
             let pts = Array(fine[lo...hi])
-            let elevs: [Double?] = await withTaskGroup(of: (Int, Double?).self) { group in
-                for (i, pt) in pts.enumerated() {
-                    group.addTask { (i, await RouteAttributeFetcher.shared.elevation(at: pt)) }
-                }
-                var out = [Double?](repeating: nil, count: pts.count)
-                for await (i, v) in group { out[i] = v }
-                return out
-            }
+            stretches.append((seg, lo, combined.count..<(combined.count + pts.count)))
+            combined.append(contentsOf: pts)
+        }
+        let allElevs = await RouteAttributeFetcher.shared.elevations(at: combined)
+        var best: Double = 0
+        var fineSegments: [GradeSegment] = []
+        for (_, lo, range) in stretches {
+            let elevs = Array(allElevs[range])
             let startMile = Double(lo) * (spacing / 8) / 1609.344
             let segs = GradeProfile.segments(
                 elevations: elevs, spacingMeters: spacing / 8, startMile: startMile)

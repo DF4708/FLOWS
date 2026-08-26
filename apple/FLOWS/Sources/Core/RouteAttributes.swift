@@ -148,6 +148,57 @@ actor RouteAttributeFetcher {
     private var elevationInFlight: [String: Task<Double?, Never>] = [:]
     private var floodZoneInFlight: [String: Task<Bool?, Never>] = [:]
 
+    /// BATCHED elevations, order-aligned with `points` — ONE Open-Meteo
+    /// request per 100 points (keyless, already an app provider for
+    /// air-quality; Copernicus GLO-90 DEM) with the per-point EPQS fetcher
+    /// as the fallback for anything the batch can't answer. A route's
+    /// attribute pass asked EPQS ~105 separate questions; this asks 1-2.
+    /// Bonus: GLO-90 is continent-wide, so grades now resolve on Canadian
+    /// and Mexican corridors where EPQS has no coverage. Grade sampling at
+    /// ≥1.2 km spacing is insensitive to the DEMs' vertical-accuracy
+    /// difference (a few m RMSE over ≥1.2 km is <0.4% grade). Same
+    /// contracts as elevation(at:): per-cell cache, failures never cached.
+    func elevations(at points: [CLLocationCoordinate2D]) async -> [Double?] {
+        var out = [Double?](repeating: nil, count: points.count)
+        var missing: [(Int, CLLocationCoordinate2D)] = []
+        for (i, p) in points.enumerated() {
+            if let cached = elevationCache[key(p)] {
+                out[i] = cached
+            } else {
+                missing.append((i, p))
+            }
+        }
+        guard !missing.isEmpty else { return out }
+        var start = 0
+        while start < missing.count {
+            let chunk = Array(missing[start..<min(start + 100, missing.count)])
+            start += chunk.count
+            let lats = chunk.map { String(format: "%.5f", $0.1.latitude) }.joined(separator: ",")
+            let lons = chunk.map { String(format: "%.5f", $0.1.longitude) }.joined(separator: ",")
+            guard let url = URL(string:
+                "https://api.open-meteo.com/v1/elevation?latitude=\(lats)&longitude=\(lons)"),
+                  let (data, resp) = try? await ThrottledNet.fetch(url),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let elevs = json["elevation"] as? [Double], elevs.count == chunk.count
+            else { continue }   // whole chunk rides the EPQS fallback below
+            for (j, (i, p)) in chunk.enumerated() {
+                out[i] = elevs[j]
+                elevationCache[key(p)] = elevs[j]
+            }
+        }
+        if elevationCache.count > 4000 { CacheEviction.dropHalf(&elevationCache) }
+        // Anything the batch couldn't answer: the per-point EPQS path, with
+        // its own cache/coalescing/no-failure-caching semantics.
+        await withTaskGroup(of: (Int, Double?).self) { group in
+            for (i, p) in missing where out[i] == nil {
+                group.addTask { (i, await self.elevation(at: p)) }
+            }
+            for await (i, v) in group { out[i] = v }
+        }
+        return out
+    }
+
     /// USGS EPQS point elevation (meters); nil on failure/no-coverage.
     /// Failures are NOT cached — an outage tonight must not read as
     /// "no elevation here" forever once the service recovers. (Dead-host

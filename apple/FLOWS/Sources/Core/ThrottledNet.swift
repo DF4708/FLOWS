@@ -21,6 +21,18 @@ import Foundation
 ///      instead of hammering the network and the CPU. Excess work queues, it
 ///      doesn't pile on — which is exactly what an old iPhone needs.
 enum ThrottledNet {
+    #if os(iOS)
+    /// Multipath TCP for Wi-Fi ↔ cellular HANDOVER — exactly the moment a
+    /// driver pulls out of their driveway mid-plan and the phone walks off
+    /// home Wi-Fi. Requires the paid-team
+    /// com.apple.developer.networking.multipath entitlement, which
+    /// ad-hoc/local signing cannot carry (same situation as the WeatherKit
+    /// hook): WITHOUT the entitlement iOS refuses multipath sockets, so the
+    /// default stays .none. When the app is provisioned for it, set this to
+    /// .handover — the session below picks it up with no other changes.
+    static let multipathService: URLSessionConfiguration.MultipathServiceType = .none
+    #endif
+
     static let session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 10
@@ -28,6 +40,9 @@ enum ThrottledNet {
         cfg.httpMaximumConnectionsPerHost = 3
         cfg.waitsForConnectivity = true
         cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
+        #if os(iOS)
+        cfg.multipathServiceType = Self.multipathService
+        #endif
         // Real protocol-level HTTP cache (probed 2026-08: api.weather.gov
         // sends ETag/Last-Modified on alerts and forecasts, and marks /points
         // grid metadata fresh for HOURS). With capacity to actually hold this
