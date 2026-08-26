@@ -323,16 +323,24 @@ struct PlannerPanel: View {
         errorMessage = nil
         do {
             // GPS is the source unless a start was typed (or GPS is absent).
+            // Source and destination geocode CONCURRENTLY so the destination
+            // never queues behind a typed start.
             let from: (CLLocationCoordinate2D, String)
+            let to: (CLLocationCoordinate2D, String)
             if usingGPSSource {
                 guard let here = model.location.coordinate else {
                     throw RouteError.notFound("current location (no GPS fix yet)")
                 }
                 from = (here, "Current location")
+                to = try await model.router.geocode(model.plannerDestination)
             } else {
-                from = try await model.router.geocode(source)
+                async let fromF = model.router.geocode(source)
+                to = try await model.router.geocode(model.plannerDestination)
+                from = try await fromF
             }
-            let to = try await model.router.geocode(model.plannerDestination)
+            // Both endpoints known, geometry not yet: start warming the
+            // corridor's alert cells while MKDirections works.
+            model.prefetchDestinationCorridor(from: from.0, to: to.0)
             // Routes appear as soon as directions return; weather badges
             // hydrate asynchronously inside present(routes:). Planning goes
             // through the model so filter toggles can replan variants later.

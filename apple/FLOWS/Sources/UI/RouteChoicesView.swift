@@ -1273,6 +1273,8 @@ private struct RouteCard: View {
                 }
                 if route.weatherScored && !route.riskFractions.isEmpty {
                     riskStrip
+                } else if !route.weatherScored, !route.provisionalFractions.isEmpty {
+                    provisionalStrip
                 }
                 if route.weatherScored, showDetails {
                     riskDescription
@@ -1309,11 +1311,18 @@ private struct RouteCard: View {
                     } else {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
-                            Text("Scoring…")
+                            // Percent of corridor cells already checked — the
+                            // driver sees scoring MOVE on a slow connection.
+                            Text(route.scoringProgress > 0
+                                 ? "Scoring… \(Int((route.scoringProgress * 100).rounded()))%"
+                                 : "Scoring…")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
+                                .monospacedDigit()
                         }
-                        .frame(width: 92, height: 36)
+                        .frame(minWidth: 92)
+                        .frame(height: 36)
+                        .padding(.horizontal, 8)
                         .background(Color.black.opacity(0.06))
                         .clipShape(Capsule())
                         .help("GO unlocks when weather risk scoring completes")
@@ -1341,6 +1350,25 @@ private struct RouteCard: View {
                 ForEach(Array(route.riskFractions.enumerated()), id: \.offset) { _, item in
                     Rectangle()
                         .fill(item.band.color.opacity(item.band == .clear ? 0.35 : 0.9))
+                        .frame(width: geo.size.width * item.fraction)
+                }
+            }
+        }
+        .frame(height: 5)
+        .clipShape(Capsule())
+    }
+
+    /// Mid-scoring strip: the checked share of the corridor in band colors,
+    /// the still-checking share in neutral gray — on a slow connection risk
+    /// appears as cells land instead of the whole card spinning. A gray
+    /// stretch means "not checked yet", never "clear".
+    private var provisionalStrip: some View {
+        GeometryReader { geo in
+            HStack(spacing: 0) {
+                ForEach(Array(route.provisionalFractions.enumerated()), id: \.offset) { _, item in
+                    Rectangle()
+                        .fill(item.band.map { $0.color.opacity($0 == .clear ? 0.35 : 0.9) }
+                              ?? Color.secondary.opacity(0.15))
                         .frame(width: geo.size.width * item.fraction)
                 }
             }
@@ -1564,18 +1592,36 @@ private struct RouteCard: View {
     @ViewBuilder
     private var riskBadge: some View {
         if !route.weatherScored {
-            // Routes render before their corridor weather has been scored;
-            // the badge hydrates in place a few seconds later.
-            HStack(spacing: 5) {
-                ProgressView().controlSize(.mini)
-                Text("Weather…")
+            if let worst = route.provisionalWorstRisk {
+                // Cells are landing: show the worst band seen SO FAR, still
+                // clearly in progress (spinner stays). Never a final claim —
+                // GO stays locked until the full verdict.
+                let band = FlowsCore.riskBand(score: worst)
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text(band == .clear ? "Clear so far" : "\(band.rawValue) so far")
+                }
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background((band == .clear ? Color.secondary : band.color)
+                    .opacity(band == .clear ? 0.12 : 0.2))
+                .foregroundStyle(band == .clear ? Color.secondary : band.color)
+                .clipShape(Capsule())
+            } else {
+                // Routes render before their corridor weather has been scored;
+                // the badge hydrates in place a few seconds later.
+                HStack(spacing: 5) {
+                    ProgressView().controlSize(.mini)
+                    Text("Weather…")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(Color.black.opacity(0.06))
+                .clipShape(Capsule())
             }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(Color.black.opacity(0.06))
-            .clipShape(Capsule())
         } else {
             // Labeled so it can't be misread against the peak line: this is
             // the whole-route normalized band, peaks can be worse.
