@@ -399,9 +399,15 @@ final class EverydayPlaces: ObservableObject {
             } ?? false
             store.setHome(lat: home.latitude, lon: home.longitude)
             if moved {
-                FlowsDiag.log(.info, "learning", String(
-                    format: "everyday center moved to %.2f, %.2f — sustained new origin",
-                    home.latitude, home.longitude))
+                // NO COORDINATES IN THE JOURNAL. The diagnostic log is
+                // plaintext in Caches and copyable from Settings, so it must
+                // never carry the very data the encrypted store exists to
+                // protect — logging a home location at 2 decimal places
+                // (~1.1 km) names the driver's neighbourhood in a file the
+                // encryption does not cover. The event is what's useful for
+                // support; the position is not.
+                FlowsDiag.log(.info, "learning",
+                              "everyday center moved — sustained new origin")
             }
         }
         persist()

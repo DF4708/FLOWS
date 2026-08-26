@@ -336,6 +336,63 @@ final class PlanningBurstTests: XCTestCase {
             inEast, alerts: [multi], zoneRings: [:]).map(\.id), ["multi"])
     }
 
+    // MARK: ETA tie tolerance (route ordering)
+
+    /// The tie window must be PROPORTIONAL to the trip. It was a flat 300 s,
+    /// which is 25% of a twenty-minute errand and 0.8% of a ten-hour haul —
+    /// so a calmer route could essentially never win a short trip and almost
+    /// always won a long one, an inversion nobody chose.
+    func testETATieToleranceScalesWithTripLength() {
+        // Short errand: the floor applies, so safety still has a real window.
+        XCTAssertEqual(RouteService.etaTieTolerance(shorterETA: 20 * 60), 120, accuracy: 1e-9)
+        // Two-hour drive: 8% ≈ 9.6 min.
+        XCTAssertEqual(RouteService.etaTieTolerance(shorterETA: 2 * 3600), 576, accuracy: 1e-9)
+        // Ten-hour haul: capped at 15 min rather than 48.
+        XCTAssertEqual(RouteService.etaTieTolerance(shorterETA: 10 * 3600), 900, accuracy: 1e-9)
+        // Monotone, and always inside the rails.
+        var previous = 0.0
+        for minutes in stride(from: 5.0, through: 900.0, by: 5) {
+            let t = RouteService.etaTieTolerance(shorterETA: minutes * 60)
+            XCTAssertGreaterThanOrEqual(t, 120)
+            XCTAssertLessThanOrEqual(t, 900)
+            XCTAssertGreaterThanOrEqual(t, previous)
+            previous = t
+        }
+        // Degenerate input can't produce a negative or NaN window.
+        XCTAssertEqual(RouteService.etaTieTolerance(shorterETA: 0), 120, accuracy: 1e-9)
+        XCTAssertEqual(RouteService.etaTieTolerance(shorterETA: -500), 120, accuracy: 1e-9)
+    }
+
+    /// The old flat window is what this replaced — assert the new behaviour
+    /// actually differs where it mattered, so a regression to a constant is
+    /// caught rather than silently accepted.
+    func testETATieToleranceDiffersFromTheOldFlatWindow() {
+        XCTAssertNotEqual(RouteService.etaTieTolerance(shorterETA: 20 * 60), 300)
+        XCTAssertNotEqual(RouteService.etaTieTolerance(shorterETA: 10 * 3600), 300)
+    }
+
+    // MARK: trucker clearance gate
+
+    /// A KNOWN low bridge must DISQUALIFY a route for a semi, not cost it
+    /// points. Under the old additive scoring a clearance-failing route
+    /// scored 6 (highways + grade + wind) and could tie or beat a
+    /// clearance-PASSING one — the badge could point a truck at a bridge it
+    /// cannot clear. Unknown data must still pass, or corridors without OSM
+    /// height tags would lose the badge entirely.
+    func testSemiClearanceIsADisqualifierNotAPenalty() {
+        let semi = FilterLimits(vehicleHeightMeters: 13.5 * 0.3048,
+                                maxGradePercent: FilterLimits.degreesToPercent(6))
+        // 12'6" bridge — below a 13'6" semi plus its safety margin.
+        let tooLow = [12.5 * 0.3048]
+        XCTAssertFalse(semi.passesClearances(tooLow), "a 12'6\" bridge must fail a semi")
+        // Generous clearance passes.
+        XCTAssertTrue(semi.passesClearances([16.0 * 0.3048]))
+        // UNKNOWN clearance data still passes — the app-wide rule that
+        // missing data never excludes a route.
+        XCTAssertTrue(semi.passesClearances(nil))
+        XCTAssertTrue(semi.passesClearances([]))
+    }
+
     // MARK: grade display geometry
 
     /// Precomputed 3D grade-overlay geometry: slices must carry the vertices

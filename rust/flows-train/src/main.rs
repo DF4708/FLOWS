@@ -13,7 +13,7 @@
 //! writes the weights the Swift `LearnedHead` runs, in a plain-JSON contract:
 //!
 //!   { "w1": [[in]*hidden], "b1": [hidden], "w2": [hidden], "b2": f,
-//!     "version": n, "in": 6, "hidden": 16 }
+//!     "version": n, "in": 8, "hidden": 16 }
 //!
 //! The FEATURE ORDER is identical to Swift `RouteFeatures.vector` — change one,
 //! change both:

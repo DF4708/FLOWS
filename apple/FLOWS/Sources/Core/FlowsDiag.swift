@@ -24,6 +24,14 @@ import Foundation
 /// [net] breaker OPEN epqs.nationalmap.gov after 5 failures`. Owned code,
 /// no dependencies (os.Logger feeds Console live; this journal is the
 /// persistent, exportable complement).
+///
+/// RULE — NO PERSONAL LOCATION IN HERE. This file is PLAINTEXT, lives in
+/// Caches, and is copyable from Settings, so it is explicitly outside the
+/// encrypted-at-rest envelope that protects the driver's travel history
+/// (SecureBehaviorStore). Log the EVENT, never the place: "everyday center
+/// moved", not the coordinates it moved to; "state alert list failed",
+/// not the corridor. If a diagnostic genuinely needs a position to be
+/// actionable, it belongs in the encrypted store, not the journal.
 actor FlowsDiag {
     static let shared = FlowsDiag()
 

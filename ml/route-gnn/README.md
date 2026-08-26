@@ -8,10 +8,27 @@
 
 # FLOWS route-risk trainer (`ml/route-gnn`)
 
-A **local, background worker** that builds up the on-device route-risk model from
-the driver's own trips. It is self-contained in this folder and you launch it —
-nothing in the app depends on it running (the app falls back to its statistical
-seasonal prior when no trained model is present).
+A **local, background worker** that trains the route-risk model. Self-contained
+in this folder; you launch it, and nothing in the app depends on it running.
+
+> **Its role changed (2026-08).** Per-driver training now happens **on the
+> device**, in `Core/RouteHeadTrainer.swift`: the app fine-tunes the shipped
+> baseline on the driver's own completed trips, warm-started and anchored so a
+> handful of trips refines the national model without overwriting it.
+>
+> That move was forced by two facts. This worker reads and writes the **macOS**
+> user's Application Support directory, while the driving — and therefore the
+> data — happens inside the **iOS** sandbox, so the loop could never close on
+> the device that actually drives. And trip history is now sealed with a
+> device-only Keychain key (`Core/SecureBehaviorStore.swift`), which no external
+> process can read by design.
+>
+> What this worker is still **for**: building the **shipped baseline** from
+> public NOAA Storm Events data (`bin/history-baseline.rs` →
+> `Resources/baseline_route_head.json`), which is a release-time step on a
+> developer's Mac, not something a driver runs. Running `run_worker.sh` against
+> a personal export still works on macOS, but its output no longer reaches an
+> iOS device, and the app no longer needs it to learn.
 
 The trainer is **pure Rust, zero external crates** (`rust/flows-train`) — same
 discipline as `flows-core`. The whole program stays **Rust + Swift**
@@ -33,7 +50,7 @@ in the pipeline.
    how much *real* data backs each route, so a fresh model never overreaches.
 
 The forward pass runs **in Swift** (`LearnedHead`) — this net is deliberately
-tiny (6 features → 16 hidden → 1), where the ANE gives no benefit. The ANE/NPU
+tiny (8 features → 16 hidden → 1), where the ANE gives no benefit. The ANE/NPU
 comes in at **phase 2b** (the graph net over hubs/edges).
 
 ## Feature contract (keep both sides in sync)
