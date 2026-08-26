@@ -1213,7 +1213,7 @@ struct ContentView: View {
                 .padding(.horizontal, 14).padding(.vertical, 8)
                 .background(.ultraThinMaterial)
                 .clipShape(Capsule())
-                .padding(.top, 10)
+                .padding(.top, golden.pad)
             }
         }
         .mapScope(mapScope)
@@ -1476,8 +1476,8 @@ struct ContentView: View {
             HStack {
                 Spacer()
                 SettingsSheet()
-                    .frame(width: 460)
-                    .frame(maxHeight: 620)
+                    .frame(width: golden.sidePanel)
+                    .frame(maxHeight: golden.size.height / Theme.phi)
                     .background(Theme.cardBackground)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius,
                                                 style: .continuous))
@@ -1485,8 +1485,9 @@ struct ContentView: View {
             }
             Spacer()
         }
-        .padding(.top, 52)   // clear of the gear button
-        .padding(.trailing, 12)
+        // One pad below the gear, same trailing inset — the top-right column.
+        .padding(.top, golden.pad * 2 + golden.iconCircle)
+        .padding(.trailing, golden.pad)
     }
     #endif
 
@@ -1984,8 +1985,12 @@ struct CollapsedPanelTray: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        // Below the gear and compass (two golden steps down the window).
-        .padding(.top, golden.step(2))
+        // Stacked right under the gear, one pad apart, in the same
+        // top-right column — no dead gap. While navigating the gear lives
+        // in the bottom bar, so the tray takes the corner itself.
+        .padding(.top, model.mode == .navigating
+                 ? golden.pad
+                 : golden.pad * 2 + golden.iconCircle)
         .padding(.trailing, golden.pad)
     }
 
@@ -2945,14 +2950,14 @@ struct CrashCheckInCard: View {
                         .clipShape(Capsule())
                 }
             }
-            .padding(16)
+            .padding(golden.padCard)
             .frame(maxWidth: golden.cardMax)
             .background(Theme.riskRed.opacity(0.97))
             .foregroundStyle(.white)
             .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .shadow(color: Theme.cardShadow, radius: 18, y: 6)
-            .padding(.bottom, 40)
+            .padding(.bottom, golden.step(5))
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, golden.padCard)
     }
 }

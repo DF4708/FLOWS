@@ -300,7 +300,7 @@ struct NavigationHUD: View {
         let electric = vehicle.profile?.fuelType == .electric
         return VStack(spacing: 3) {
             GaugeDial(fraction: .constant(fraction))
-                .frame(width: 140, height: 84)
+                .frame(width: golden.step(2), height: golden.step(2) * 0.6)
                 .allowsHitTesting(false)
             if let economy = averageEconomy {
                 Text(electric
@@ -317,7 +317,7 @@ struct NavigationHUD: View {
             }
             Capsule()
                 .fill(liveEconomyColor)
-                .frame(width: 132, height: 4)
+                .frame(width: golden.step(2) * 0.9, height: 4)
                 .padding(.top, 1)
         }
         .padding(.horizontal, 10)
@@ -1306,12 +1306,20 @@ struct NavigationHUD: View {
             let overAir = TruckerRadio.frequencyGuide.filter {
                 model.radio.cabStream(for: $0.0) == nil
             }
-            if !overAir.isEmpty {
-                // One tight line per channel: what to tune and why you would.
-                Text("Car radio only: "
-                     + overAir.map {
-                         "\($0.0) — \(TruckerRadio.shortPurpose($0.0))"
-                     }.joined(separator: " · "))
+            // One tight line per channel: what to tune and what it reports.
+            // Trucker mode lists every cab channel (CB needs a CB set);
+            // everyone else sees only what a normal car radio can tune —
+            // the band, the dial position, and what that station reports.
+            let tunable: [String] = model.truckerUI
+                ? overAir.map { "\($0.0) — \(TruckerRadio.shortPurpose($0.0))" }
+                : overAir.compactMap { entry in
+                    TruckerRadio.carBandLabel(entry.0).map {
+                        "\($0) — \(TruckerRadio.shortPurpose(entry.0))"
+                    }
+                }
+            if !tunable.isEmpty {
+                Text((model.truckerUI ? "Car radio only: " : "Car radio: ")
+                     + tunable.joined(separator: " · "))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

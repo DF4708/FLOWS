@@ -188,7 +188,7 @@ struct GasGaugeCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             GaugeDial(fraction: $fraction)
-                .frame(width: 220, height: 130)
+                .frame(width: golden.step(1), height: golden.step(1) * 0.6)
             HStack(spacing: 8) {
                 Button("Didn't refuel") { onNoRefuel() }
                     .font(.system(size: 13, weight: .semibold))
