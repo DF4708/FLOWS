@@ -173,14 +173,24 @@ enum RiskEquations {
     /// double-counting the temp/wind/pop signals their constituents already hold.
     static func realizedRisk(_ families: [String: Double]) -> Double {
         func clamp(_ x: Double) -> Double { x.isFinite ? min(max(x, 0), 1) : 0 }
-        // Primary base: a maxed primary stays maxed (weight 1).
-        var keep = 1.0
-        for (f, s) in families where primaryFamilies.contains(f) { keep *= 1 - clamp(s) }
+        // One pass, no intermediate collections: this runs per corridor
+        // sample per route (and per progress tick while scoring) — the old
+        // filter+map into noisyOr allocated a Dictionary and an Array of
+        // String tuples per call. Both products accumulate in the SAME
+        // dictionary-iteration order the two-pass form used, so results are
+        // bit-identical.
+        var keep = 1.0            // primaries: a maxed primary stays maxed (weight 1)
+        var secondaryKeep = 1.0   // predictors: weighted noisy-OR (R combine shape)
+        for (f, s) in families {
+            if primaryFamilies.contains(f) {
+                keep *= 1 - clamp(s)
+            } else if secondaryFamilies.contains(f) {
+                let w = min(max(familyWeights[f] ?? 1, 0), 1)
+                secondaryKeep *= 1 - w * clamp(s)
+            }
+        }
         let primaryBase = 1 - keep
-        // Predictor strength: weighted noisy-OR by life-threat weight.
-        let secondary = noisyOr(
-            families.filter { secondaryFamilies.contains($0.key) }
-                .map { (family: $0.key, score: $0.value) })
+        let secondary = 1 - secondaryKeep
         // Predictors spike a realized primary (∝ primaryBase → 0 with no primary).
         let primaryAmplified = primaryBase * (1 + (1 - primaryBase) * secondary)
         // Secondaries alone: a capped advisory, never Red.

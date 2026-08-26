@@ -538,6 +538,16 @@ struct NavigationHUD: View {
                             ?? (model.tomtomAPIKey.isEmpty ? "add TomTom key" : "$ —"))
                             .font(.system(size: 10, weight: .semibold))
                             .foregroundStyle(.secondary)
+                    } else if model.poi.activeKind == .hotel, ranked.pricePerUnit == nil {
+                        // No live nightly: a tier-anchored typical rate,
+                        // clearly an estimate — never a blank "$ —".
+                        Text(String(format: "~$%.0f est.",
+                                    RatingsAndCost.estimatedNightly(costTier: ranked.costTier)))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("per night")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
                     } else {
                         Text(ranked.pricePerUnit.map { String(format: "$%.2f", $0) } ?? "$ —")
                             .font(.system(size: 19, weight: .heavy, design: .rounded))

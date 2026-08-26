@@ -29,6 +29,34 @@ device and stored only on your device:
   sent to that host — the app only downloads the audio stream.
 - **Vehicle profile, favorites, trip settings, emergency contact** —
   stored in the app's local preferences on your device only.
+- **What FLOWS learns about your travel — ENCRYPTED ON YOUR DEVICE.** To
+  make the app useful without asking you to retype what you do every day,
+  FLOWS keeps a record of:
+  - the destinations you plan, and when;
+  - the places you pick from result lists, with the time of day, whether
+    it was a weekday or weekend, and roughly where you set out from;
+  - which route you chose when you were offered several, and what the
+    alternatives were;
+  - the trips you complete — start and end areas, week of year, and the
+    weather risk actually encountered versus what was predicted;
+  - how you drive: your typical speed and idling, and how your real
+    arrival times compare to the estimate.
+
+  This is the most personal data in the app — over time it is a map of
+  your life — so it is treated that way. **All of it is encrypted at rest
+  (AES-GCM) with a key generated on your device, held in the device
+  Keychain, marked device-only: it is never synced to iCloud and never
+  included in a backup.** If your phone is lost, stolen, or resold, these
+  files are unreadable without that key. They are decrypted only into
+  memory, only while the app is using them, and are never uploaded — FLOWS
+  has no server to upload them to.
+
+  The risk model that learns from this is refined **on your device**; no
+  training data and no learned model ever leaves it.
+
+  Settings → **"What FLOWS has learned about you"** shows exactly what is
+  stored and erases all of it in one press. Erasing also destroys the
+  encryption key, so any copy that escaped stays unreadable.
 - **Medical notes and connected-account secrets** — stored in the device
   Keychain (never synced, never included in backups). Medical notes appear
   only in the crash-report message YOU send.
@@ -57,8 +85,10 @@ silently.
 ## Your controls
 
 Every notification type, crash detection, Bluetooth scanning, and each
-connected account can be turned off in Settings. Deleting the app deletes
-all locally stored data.
+connected account can be turned off in Settings. Settings →
+"What FLOWS has learned about you" lists everything the app has inferred
+about your travel and erases it — along with its encryption key — in one
+press. Deleting the app deletes all locally stored data.
 
 ## Changes
 

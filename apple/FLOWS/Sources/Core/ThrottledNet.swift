@@ -21,6 +21,18 @@ import Foundation
 ///      instead of hammering the network and the CPU. Excess work queues, it
 ///      doesn't pile on — which is exactly what an old iPhone needs.
 enum ThrottledNet {
+    #if os(iOS)
+    /// Multipath TCP for Wi-Fi ↔ cellular HANDOVER — exactly the moment a
+    /// driver pulls out of their driveway mid-plan and the phone walks off
+    /// home Wi-Fi. Requires the paid-team
+    /// com.apple.developer.networking.multipath entitlement, which
+    /// ad-hoc/local signing cannot carry (same situation as the WeatherKit
+    /// hook): WITHOUT the entitlement iOS refuses multipath sockets, so the
+    /// default stays .none. When the app is provisioned for it, set this to
+    /// .handover — the session below picks it up with no other changes.
+    static let multipathService: URLSessionConfiguration.MultipathServiceType = .none
+    #endif
+
     static let session: URLSession = {
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 10
@@ -28,6 +40,21 @@ enum ThrottledNet {
         cfg.httpMaximumConnectionsPerHost = 3
         cfg.waitsForConnectivity = true
         cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
+        #if os(iOS)
+        cfg.multipathServiceType = Self.multipathService
+        #endif
+        // Real protocol-level HTTP cache (probed 2026-08: api.weather.gov
+        // sends ETag/Last-Modified on alerts and forecasts, and marks /points
+        // grid metadata fresh for HOURS). With capacity to actually hold this
+        // app's bodies, URLSession then serves still-fresh responses with no
+        // request at all and turns TTL-expiry refetches into ~200-byte 304
+        // revalidations instead of full bodies — the corridor watch re-checks
+        // ~25 alert cells every 4 min on a drive, and during active weather
+        // each unchanged body it no longer re-downloads is tens of KB.
+        // Disk-backed, so the cache is warm across launches. App-level parsed
+        // caches (AlertZoneCache etc.) sit above this unchanged; failures
+        // still surface as errors, never as cached bodies.
+        cfg.urlCache = URLCache(memoryCapacity: 4 << 20, diskCapacity: 50 << 20)
         return URLSession(configuration: cfg)
     }()
 
@@ -185,6 +212,9 @@ actor HostBreaker {
     func recordSuccess(_ host: String) {
         probing.remove(host)
         failures[host] = 0
+        if openedAt[host] != nil {
+            FlowsDiag.log(.info, "net", "breaker closed for \(host) — probe succeeded")
+        }
         openedAt[host] = nil
     }
 
@@ -192,7 +222,13 @@ actor HostBreaker {
         probing.remove(host)
         let n = (failures[host] ?? 0) + 1
         failures[host] = n
-        if n >= trip { openedAt[host] = Date() }   // (re)open, restart cooldown
+        if n >= trip {
+            if openedAt[host] == nil {
+                FlowsDiag.log(.warn, "net",
+                              "breaker OPEN for \(host) after \(n) transport failures")
+            }
+            openedAt[host] = Date()   // (re)open, restart cooldown
+        }
     }
 
     /// A half-open probe was CANCELLED (not a real success or failure) — clear
@@ -208,14 +244,74 @@ actor HostBreaker {
 /// live from `AdaptiveTuning`, so it tightens automatically when the device is
 /// weak, hot, or in Low Power Mode. Callers waiting for a slot are resumed
 /// FIFO as slots free.
+///
+/// Two ceilings, one pool: the BACKGROUND ceiling (`maxInFlight`) applies at
+/// rest; while at least one PLANNING BURST is open (`beginPlanningBurst` /
+/// `endPlanningBurst`, refcounted) the elevated `planningMaxInFlight` ceiling
+/// applies instead. The burst lane exists for user-initiated route scoring —
+/// the driver is watching a spinner until GO unlocks — and every request
+/// still passes through this one gate, so the fan-out stays bounded either
+/// way. A safety window expires a leaked burst so a lost `end` can't pin the
+/// elevated ceiling for the rest of the session.
 actor RequestGate {
     static let shared = RequestGate()
 
     private var active = 0
     private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var burstDepth = 0
+    private var burstExpiry = Date.distantPast
+    private let baseCeiling: @Sendable () -> Int
+    private let burstCeiling: @Sendable () -> Int
+    private let burstSafetyWindow: TimeInterval
+
+    /// Ceiling providers are injectable so gate behavior is testable with
+    /// fixed numbers; the app's shared instance reads AdaptiveTuning live.
+    init(baseCeiling: @escaping @Sendable () -> Int = { AdaptiveTuning.shared.maxInFlight },
+         burstCeiling: @escaping @Sendable () -> Int = { AdaptiveTuning.shared.settings.planningMaxInFlight },
+         burstSafetyWindow: TimeInterval = 90) {
+        self.baseCeiling = baseCeiling
+        self.burstCeiling = burstCeiling
+        self.burstSafetyWindow = burstSafetyWindow
+    }
+
+    private var ceiling: Int {
+        burstDepth > 0 && Date() < burstExpiry
+            ? max(baseCeiling(), burstCeiling()) : baseCeiling()
+    }
+
+    /// Open the elevated planning lane. Waiters already parked are admitted
+    /// up to the new ceiling immediately — the queued corridor fetches of the
+    /// plan that just began must not trickle out at the background pace.
+    func beginPlanningBurst() {
+        burstDepth += 1
+        burstExpiry = Date().addingTimeInterval(burstSafetyWindow)
+        while !waiters.isEmpty, active < ceiling {
+            active += 1
+            waiters.removeFirst().resume()
+        }
+    }
+
+    /// Close one planning burst. The ceiling drops when the last one closes;
+    /// in-flight requests above the lower ceiling drain naturally (release
+    /// stops handing permits to waiters until `active` sinks back under).
+    func endPlanningBurst() {
+        burstDepth = max(0, burstDepth - 1)
+    }
+
+    /// Run `op` inside one planning burst: begin/end are paired by the SCOPE,
+    /// not by call-site discipline, so a new burst site can't leak the
+    /// elevated ceiling on an early return. `op` is @MainActor because every
+    /// burst site in the app is (scoring, hydration, prefetch); the refcount
+    /// and safety window still backstop the shared instance.
+    nonisolated func withPlanningBurst<T>(_ op: @MainActor () async -> T) async -> T {
+        await beginPlanningBurst()
+        let out = await op()
+        await endPlanningBurst()
+        return out
+    }
 
     private func acquire() async {
-        if active < AdaptiveTuning.shared.maxInFlight {
+        if active < ceiling {
             active += 1
             return
         }
@@ -225,10 +321,13 @@ actor RequestGate {
     }
 
     private func release() {
-        if waiters.isEmpty {
-            active = max(0, active - 1)
-        } else {
+        // Hand the permit to the next waiter ONLY while within the current
+        // ceiling — after a burst ends (or the device heats up) the pool must
+        // shrink to the lower ceiling before waiters run again.
+        if !waiters.isEmpty, active <= ceiling {
             waiters.removeFirst().resume()   // transfer the permit directly
+        } else {
+            active = max(0, active - 1)
         }
     }
 

@@ -172,6 +172,11 @@ impl<'a> Raptor<'a> {
                 let hop = route_hop[route as usize];
                 let len = tt.route_len(route);
                 let route_stops = tt.route_stop_ids(route);
+                // Event-table geometry hoisted for the whole scan:
+                // `tt.event(route, t, pos)` re-loaded RouteMeta (bounds
+                // check + struct load) at every stop of the innermost loop.
+                let ev_base = tt.routes[route as usize].event_start as usize;
+                let ev_stride = tt.routes[route as usize].n_stops as usize;
                 let mut cur_trip: Option<u32> = None;
                 let mut board_stop = 0u32;
                 let mut board_pos = 0u32;
@@ -187,7 +192,7 @@ impl<'a> Raptor<'a> {
                     let stop_id = route_stops[pos as usize];
                     // (1) Alight: if riding a trip, try to improve this stop.
                     if let Some(t) = cur_trip {
-                        let arr = tt.event(route, t, pos).arr;
+                        let arr = tt.stop_events[ev_base + t as usize * ev_stride + pos as usize].arr;
                         let bound = r.best_arr[stop_id as usize].min(target_bound);
                         if arr < bound {
                             cur_row[stop_id as usize] = arr;

@@ -239,11 +239,11 @@ final class PlacesStore: ObservableObject {
     /// 6=transit 7=rest/truckstop; the POIService.Kind mapping lives with
     /// POIService so this reader stays dependency-free.)
     func places(near center: CLLocationCoordinate2D, groups: Set<UInt8>,
-                radiusMeters: CLLocationDistance, limit: Int = 12) -> [PlacesShard.Place] {
+                radiusMeters: CLLocationDistance, limit: Int = 12) async -> [PlacesShard.Place] {
         guard !groups.isEmpty else { return [] }
         var out: [PlacesShard.Place] = []
         for state in Self.states(containing: center) {
-            guard let shard = shard(for: state) else { continue }
+            guard let shard = await shard(for: state) else { continue }
             out.append(contentsOf: shard.places(
                 near: center, groups: groups, radiusMeters: radiusMeters, limit: limit))
         }
@@ -251,21 +251,39 @@ final class PlacesStore: ObservableObject {
         return Array(out.prefix(limit))
     }
 
-    private func shard(for state: String) -> PlacesShard? {
+    /// One in-flight parse per state — concurrent corridor queries join it.
+    private var shardLoads: [String: Task<PlacesShard?, Never>] = [:]
+
+    private func shard(for state: String) async -> PlacesShard? {
         if let hit = cache[state] { return hit }
-        for root in Self.candidateRoots() {
-            let path = "\(root)/\(state).fps"
-            // Map, don't copy: shards are 10 MB+ each and queries touch only
-            // a few cells after the one-time validation pass. Mapped pages
-            // are clean and file-backed, so memory pressure evicts them
-            // instead of jetsamming the app; .mappedIfSafe falls back to a
-            // read on filesystems where mapping is unsafe.
-            let sp = flowsSignposter.beginInterval("shard-parse")
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path),
-                                       options: .mappedIfSafe),
-                  let shard = PlacesShard(data: data)
-            else { flowsSignposter.endInterval("shard-parse", sp); continue }
-            flowsSignposter.endInterval("shard-parse", sp)
+        if let running = shardLoads[state] { return await running.value }
+        // Construction runs DETACHED: PlacesShard.init hashes every byte of
+        // the 10 MB+ file and builds an offset per record (~1M for a big
+        // state) — that ran synchronously on the main actor on the first POI
+        // query in each new state, a visible hitch mid-drive.
+        let task = Task<PlacesShard?, Never>.detached(priority: .utility) {
+            for root in Self.candidateRoots() {
+                let path = "\(root)/\(state).fps"
+                // Map, don't copy: shards are 10 MB+ each and queries touch
+                // only a few cells after the one-time validation pass. Mapped
+                // pages are clean and file-backed, so memory pressure evicts
+                // them instead of jetsamming the app; .mappedIfSafe falls
+                // back to a read on filesystems where mapping is unsafe.
+                let sp = flowsSignposter.beginInterval("shard-parse")
+                guard let data = try? Data(contentsOf: URL(fileURLWithPath: path),
+                                           options: .mappedIfSafe),
+                      let shard = PlacesShard(data: data)
+                else { flowsSignposter.endInterval("shard-parse", sp); continue }
+                flowsSignposter.endInterval("shard-parse", sp)
+                return shard
+            }
+            return nil
+        }
+        shardLoads[state] = task
+        let shard = await task.value
+        shardLoads[state] = nil
+        guard let shard else { return nil }
+        if cache[state] == nil {
             cache[state] = shard
             lru.append(state)
             if lru.count > 3 {                    // LRU cap: 3 parsed states
@@ -276,9 +294,8 @@ final class PlacesStore: ObservableObject {
                     lru.removeFirst()
                 }
             }
-            return shard
         }
-        return nil
+        return shard
     }
 
     nonisolated private static func candidateRoots() -> [String] {

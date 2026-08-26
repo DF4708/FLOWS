@@ -125,9 +125,11 @@ enum RouteAttributes {
 actor RouteAttributeFetcher {
     static let shared = RouteAttributeFetcher()
 
-    // DELIBERATELY unbounded: terrain elevation and FEMA zone membership are
-    // static facts — refetching them is pure waste, and the ~0.01° key
-    // rounding bounds growth to the corridors actually driven this session.
+    // Elevation and FEMA zone membership are static facts, so entries never
+    // go stale — but "bounded by corridors driven this session" is a weaker
+    // bound than it sounds at a 0.01° key (a heavy replanning session
+    // reaches five figures), so both carry the same overflow cap as
+    // restrictionCache below. Undated caches → dropHalf.
     private var elevationCache: [String: Double?] = [:]
     private var floodZoneCache: [String: Bool?] = [:]   // key -> high-risk?
     private var restrictionCache: [String:
@@ -145,6 +147,62 @@ actor RouteAttributeFetcher {
     /// actor's reentrancy window.
     private var elevationInFlight: [String: Task<Double?, Never>] = [:]
     private var floodZoneInFlight: [String: Task<Bool?, Never>] = [:]
+
+    /// BATCHED elevations, order-aligned with `points` — ONE Open-Meteo
+    /// request per 100 points (keyless, already an app provider for
+    /// air-quality; Copernicus GLO-90 DEM) with the per-point EPQS fetcher
+    /// as the fallback for anything the batch can't answer. A route's
+    /// attribute pass asked EPQS ~105 separate questions; this asks 1-2.
+    /// Bonus: GLO-90 is continent-wide, so grades now resolve on Canadian
+    /// and Mexican corridors where EPQS has no coverage. Grade sampling at
+    /// ≥1.2 km spacing is insensitive to the DEMs' vertical-accuracy
+    /// difference (a few m RMSE over ≥1.2 km is <0.4% grade). Same
+    /// contracts as elevation(at:): per-cell cache, failures never cached.
+    func elevations(at points: [CLLocationCoordinate2D]) async -> [Double?] {
+        var out = [Double?](repeating: nil, count: points.count)
+        var missing: [(Int, CLLocationCoordinate2D)] = []
+        for (i, p) in points.enumerated() {
+            if let cached = elevationCache[key(p)] {
+                out[i] = cached
+            } else {
+                missing.append((i, p))
+            }
+        }
+        guard !missing.isEmpty else { return out }
+        var start = 0
+        while start < missing.count {
+            let chunk = Array(missing[start..<min(start + 100, missing.count)])
+            start += chunk.count
+            let lats = chunk.map { String(format: "%.5f", $0.1.latitude) }.joined(separator: ",")
+            let lons = chunk.map { String(format: "%.5f", $0.1.longitude) }.joined(separator: ",")
+            guard let url = URL(string:
+                "https://api.open-meteo.com/v1/elevation?latitude=\(lats)&longitude=\(lons)"),
+                  let (data, resp) = try? await ThrottledNet.fetch(url),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let elevs = json["elevation"] as? [Double], elevs.count == chunk.count
+            else {
+                FlowsDiag.logThrottled(
+                    key: "elev.batchFail", .warn, "elevation",
+                    "Open-Meteo batch failed — \(chunk.count) points riding per-point EPQS")
+                continue   // whole chunk rides the EPQS fallback below
+            }
+            for (j, (i, p)) in chunk.enumerated() {
+                out[i] = elevs[j]
+                elevationCache[key(p)] = elevs[j]
+            }
+        }
+        if elevationCache.count > 4000 { CacheEviction.dropHalf(&elevationCache) }
+        // Anything the batch couldn't answer: the per-point EPQS path, with
+        // its own cache/coalescing/no-failure-caching semantics.
+        await withTaskGroup(of: (Int, Double?).self) { group in
+            for (i, p) in missing where out[i] == nil {
+                group.addTask { (i, await self.elevation(at: p)) }
+            }
+            for await (i, v) in group { out[i] = v }
+        }
+        return out
+    }
 
     /// USGS EPQS point elevation (meters); nil on failure/no-coverage.
     /// Failures are NOT cached — an outage tonight must not read as
@@ -172,6 +230,7 @@ actor RouteAttributeFetcher {
         elevationInFlight[k] = nil
         guard let value else { return nil }
         elevationCache[k] = value
+        if elevationCache.count > 4000 { CacheEviction.dropHalf(&elevationCache) }
         return value
     }
 
@@ -203,7 +262,10 @@ actor RouteAttributeFetcher {
         floodZoneInFlight[k] = nil
         // Cache real answers (true/false), never failures — a FEMA hiccup
         // must not pin "unknown" on this cell for the app's lifetime.
-        if result != nil { floodZoneCache[k] = result }
+        if result != nil {
+            floodZoneCache[k] = result
+            if floodZoneCache.count > 4000 { CacheEviction.dropHalf(&floodZoneCache) }
+        }
         return result
     }
 

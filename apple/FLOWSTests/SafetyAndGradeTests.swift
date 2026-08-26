@@ -511,6 +511,22 @@ final class PrimaryHazardFeedTests: XCTestCase {
         let away = CLLocationCoordinate2D(latitude: 44.0, longitude: -89.0)
         XCTAssertFalse(HazardFeedScores.pointInPolygon(away, ring))
         XCTAssertEqual(HazardFeedScores.firePerimeterScore(perimeters: [ring], at: away), 0)
+        // Inside the smoke buffer but outside the ring: a graded value from
+        // the EDGE distance — pins the fused parity+distance pass and that
+        // the bounding-box reject doesn't skip a ring whose edge is in reach.
+        // ~5.6 km north of the ring's top edge (43.1°): (1 - 5.56/12) * 0.7.
+        let fringe = CLLocationCoordinate2D(latitude: 43.15, longitude: -89.0)
+        let expected = (1 - 5_566.0 / 12_000) * 0.7   // 0.05° lat ≈ 5,566 m
+        XCTAssertEqual(
+            HazardFeedScores.firePerimeterScore(perimeters: [ring], at: fringe),
+            expected, accuracy: 0.02)
+        // A second ring far away must not disturb the graded value.
+        let farRing = ring.map {
+            CLLocationCoordinate2D(latitude: $0.latitude + 5, longitude: $0.longitude + 5)
+        }
+        XCTAssertEqual(
+            HazardFeedScores.firePerimeterScore(perimeters: [farRing, ring], at: fringe),
+            expected, accuracy: 0.02)
     }
 
     func testSpaceWeatherScaleAndLatitude() {
@@ -713,6 +729,32 @@ final class AdaptiveTuningTests: XCTestCase {
         XCTAssertLessThanOrEqual(saving.maxInFlight, 5)
         // ttl() stretches a base interval by the multiplier.
         XCTAssertEqual(hot.ttlMultiplier * 1800, 5400, accuracy: 1e-6)
+    }
+
+    /// The planning-burst lane: double the background ceiling for the moments
+    /// a driver is actively waiting on route scoring, bounded by device
+    /// state — and NEVER below the background ceiling or boosted at all on a
+    /// critically hot device.
+    func testPlanningBurstCeiling() {
+        let low = AdaptiveTuning.settings(tier: .low, thermal: .nominal, lowPower: false)
+        let std = AdaptiveTuning.settings(tier: .standard, thermal: .nominal, lowPower: false)
+        let high = AdaptiveTuning.settings(tier: .high, thermal: .nominal, lowPower: false)
+        XCTAssertEqual(low.planningMaxInFlight, 6)     // 2 × base 3
+        XCTAssertEqual(std.planningMaxInFlight, 12)    // 2 × base 6
+        XCTAssertEqual(high.planningMaxInFlight, 16)   // 2 × 10, capped at 16
+        for s in [low, std, high] {
+            XCTAssertGreaterThanOrEqual(s.planningMaxInFlight, s.maxInFlight)
+        }
+        // Critical thermal: the burst ceiling IS the background ceiling.
+        let hot = AdaptiveTuning.settings(tier: .high, thermal: .critical, lowPower: false)
+        XCTAssertEqual(hot.planningMaxInFlight, hot.maxInFlight)
+        // Low Power Mode: bursts stay modest even on a high-tier device.
+        let saving = AdaptiveTuning.settings(tier: .high, thermal: .nominal, lowPower: true)
+        XCTAssertLessThanOrEqual(saving.planningMaxInFlight, 8)
+        // A warming device gets a smaller burst than a cool one.
+        let warm = AdaptiveTuning.settings(tier: .standard, thermal: .serious, lowPower: false)
+        XCTAssertLessThanOrEqual(warm.planningMaxInFlight, 6)
+        XCTAssertGreaterThanOrEqual(warm.planningMaxInFlight, warm.maxInFlight)
     }
 
     /// The gate must never let more than the device cap run at once, no matter

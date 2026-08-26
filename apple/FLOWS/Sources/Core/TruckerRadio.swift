@@ -347,7 +347,11 @@ final class TruckerRadio: ObservableObject {
                 case .readyToPlay: self?.status = "Playing \(channel.name)"
                 case .failed:
                     // Raw AVFoundation error text is jargon — the driver
-                    // only needs to know the station can't be reached.
+                    // only needs to know the station can't be reached. The
+                    // journal keeps the detail for a post-trip look.
+                    FlowsDiag.log(.fail, "radio",
+                                  "stream failed: \(channel.name) — "
+                                  + "\(item.error?.localizedDescription ?? "no detail")")
                     self?.status = "Station is offline right now."
                     self?.playingChannelID = nil
                 default: break
@@ -360,7 +364,11 @@ final class TruckerRadio: ObservableObject {
         stallObserver = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemPlaybackStalled, object: item, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.onStall?() }
+            Task { @MainActor in
+                FlowsDiag.logThrottled(key: "radio.stall", interval: 60, .warn,
+                                       "radio", "stream stalled: \(channel.name)")
+                self?.onStall?()
+            }
         }
         if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
         failureObserver = NotificationCenter.default.addObserver(

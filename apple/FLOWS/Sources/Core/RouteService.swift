@@ -59,6 +59,15 @@ struct PlannedRoute: Identifiable {
     var alertEvents: [String] = []
     var alertPolygons: [WeatherAlertService.AlertPolygon] = []
     var weatherScored = false
+    /// 0…1 fraction of this route's corridor alert cells already resolved —
+    /// fills the card's "Checking weather" progress while scoring runs.
+    var scoringProgress: Double = 0
+    /// Mid-scoring per-sample view: realized risk where the cell has landed,
+    /// nil where the fetch is still in flight (or failed — unknown is never
+    /// shown as clear). Display-only: the card colors what is known so a slow
+    /// cellular link shows risk as it lands; GO stays locked until the full
+    /// verdict flips `weatherScored`.
+    var provisionalSamples: [RiskSample?] = []
     /// Per-sample corridor risk + map-drawable segments, filled at hydration.
     /// Sample/segment risk is the noisy-OR blend of alert severity AND the
     /// R engine's continuous ZIP environmental field (RiskFieldService), so
@@ -93,6 +102,11 @@ struct PlannedRoute: Identifiable {
     /// (coarse pass + fine refinement) — localized steepness, inspectable
     /// on the card and consulted for the steep-hill chip while driving.
     var gradeProfile: [GradeSegment] = []
+    /// Draw geometry for the 3D-terrain grade overlay, resolved ONCE when
+    /// the grade profile hydrates (RouteService.gradeDisplayGeometry) —
+    /// the map body just strokes these.
+    var gradeRibbonSlices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)] = []
+    var steepMarkers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] = []
     /// All posted clearances (meters) found near the corridor below ~5.5 m —
     /// compared against the driver's vehicle-height slider.
     var clearancesMeters: [Double]?
@@ -148,6 +162,32 @@ struct PlannedRoute: Identifiable {
             guard let c = counts[band], c > 0 else { return nil }
             return (band, Double(c) / n)
         }
+    }
+
+    /// Worst realized risk among the corridor cells resolved SO FAR — the
+    /// provisional "so far" band while scoring. nil until anything lands.
+    var provisionalWorstRisk: Double? {
+        provisionalSamples.compactMap { $0?.risk }.max()
+    }
+
+    /// Mid-scoring strip fractions: resolved samples by band, plus a trailing
+    /// nil-band share for cells still being checked (drawn as pending, so an
+    /// unfetched stretch never reads as clear).
+    var provisionalFractions: [(band: RiskBand?, fraction: Double)] {
+        guard !provisionalSamples.isEmpty else { return [] }
+        var counts: [RiskBand: Int] = [:]
+        var unknown = 0
+        for s in provisionalSamples {
+            if let s { counts[FlowsCore.riskBand(score: s.risk), default: 0] += 1 } else { unknown += 1 }
+        }
+        let n = Double(provisionalSamples.count)
+        var out: [(band: RiskBand?, fraction: Double)] = [RiskBand.clear, .green, .yellow, .red]
+            .compactMap { band in
+                guard let c = counts[band], c > 0 else { return nil }
+                return (band, Double(c) / n)
+            }
+        if unknown > 0 { out.append((nil, Double(unknown) / n)) }
+        return out
     }
 }
 
@@ -233,13 +273,53 @@ final class RouteService: ObservableObject {
 
     /// Geocode free text ("ZIP, county, or city" — same contract as the web
     /// planner) into a coordinate.
-    func geocode(_ query: String) async throws -> (CLLocationCoordinate2D, String) {
-        let placemarks = try await geocoder.geocodeAddressString(query)
-        guard let pm = placemarks.first, let loc = pm.location else {
-            throw RouteError.notFound(query)
+    ///   * Raw coordinates ("43.0731, -89.4012") plan directly — no
+    ///     geocoder, no network.
+    ///   * Ambiguous names resolve NEAREST-FIRST when the driver's position
+    ///     is known: "Springfield" should mean the one down the road, not
+    ///     whichever of the dozen Apple lists first.
+    ///   * REDUNDANT: CLGeocoder is rate-limited and throttles bursts; when
+    ///     it fails, MKLocalSearch answers the same query through a
+    ///     different Apple service, so planning survives a geocoder throttle
+    ///     instead of dead-ending the destination field.
+    func geocode(
+        _ query: String, near: CLLocationCoordinate2D? = nil
+    ) async throws -> (CLLocationCoordinate2D, String) {
+        if let point = CoordinateInput.parse(query) {
+            return (point, CoordinateInput.displayName(point))
         }
-        let name = pm.locality ?? pm.name ?? query
-        return (loc.coordinate, name)
+        do {
+            let placemarks = try await geocoder.geocodeAddressString(query)
+                .filter { $0.location != nil }
+            let pm: CLPlacemark?
+            if let near {
+                pm = placemarks.min {
+                    POIRanking.meters($0.location!.coordinate, near)
+                        < POIRanking.meters($1.location!.coordinate, near)
+                }
+            } else {
+                pm = placemarks.first
+            }
+            guard let pm, let loc = pm.location else {
+                throw RouteError.notFound(query)
+            }
+            let name = pm.locality ?? pm.name ?? query
+            return (loc.coordinate, name)
+        } catch {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = query
+            if let near {
+                request.region = MKCoordinateRegion(
+                    center: near, latitudinalMeters: 200_000, longitudinalMeters: 200_000)
+            }
+            guard let item = (try? await MKLocalSearch(request: request).start())?
+                .mapItems.first else { throw error }   // surface the ORIGINAL failure
+            FlowsDiag.logThrottled(
+                key: "geocode.fallback", .info, "geocode",
+                "CLGeocoder failed — MKLocalSearch answered the plan query")
+            let pm = item.placemark
+            return (pm.coordinate, pm.locality ?? item.name ?? query)
+        }
     }
 
     /// Plan DISTINCT route strategies with live traffic and return
@@ -345,6 +425,89 @@ final class RouteService: ObservableObject {
         "\(Int(route.distance / 400))|\(Int(route.expectedTravelTime / 45))"
     }
 
+    /// How much slower a route may be and still win the top card on lower
+    /// risk — PROPORTIONAL to the trip, not a flat number.
+    ///
+    /// Review finding: this was a fixed 300 s, which is a 25% swing on a
+    /// 20-minute errand and 0.8% on a ten-hour haul. That made safety
+    /// essentially unable to win a short trip and almost unable to lose a
+    /// long one — an inversion nobody chose. 8% of the shorter ETA matches
+    /// how people actually talk about detours ("ten minutes out of my way"
+    /// means something different on a cross-country run), with a 2-minute
+    /// floor so short trips still have a real tolerance, and a 15-minute
+    /// ceiling so a marginally-calmer corridor can't cost three quarters of
+    /// an hour on a long haul.
+    nonisolated static func etaTieTolerance(shorterETA: TimeInterval) -> TimeInterval {
+        let proportional = max(shorterETA, 0) * 0.08
+        return min(max(proportional, 120), 900)
+    }
+
+    /// Scale routing ETAs by the driver's learned pace (DrivingProfile). A
+    /// multiplier of 1 — not yet earned, or a driver who matches the router
+    /// — returns the routes untouched, and a route that already carries an
+    /// `etaOverride` (the long-walk estimate) keeps its own number.
+    nonisolated static func applyPersonalPace(
+        _ routes: [PlannedRoute], multiplier: Double
+    ) -> [PlannedRoute] {
+        guard multiplier != 1, multiplier.isFinite, multiplier > 0 else { return routes }
+        return routes.map { r in
+            guard r.etaOverride == nil, !r.isWalkingEstimate else { return r }
+            var out = r
+            out.etaOverride = r.route.expectedTravelTime * multiplier
+            return out
+        }
+    }
+
+    /// Precomputed draw geometry for the 3D-terrain grade overlay: the
+    /// ribbon's per-segment polyline slices and the steep-marker (≥6%, first
+    /// 12) midpoints. One pass extracts the coordinates and their cumulative
+    /// meters; each segment then resolves by binary search. The map body
+    /// used to re-extract and re-walk the WHOLE polyline for every segment
+    /// on every frame — ~100 segments × thousands of vertices at GPS-fix
+    /// cadence whenever 3D terrain was on.
+    nonisolated static func gradeDisplayGeometry(
+        of polyline: MKPolyline, profile: [GradeSegment]
+    ) -> (slices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)],
+          markers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)]) {
+        let n = polyline.pointCount
+        guard n > 1, !profile.isEmpty else { return ([], []) }
+        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
+        polyline.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        var prefix = [Double](repeating: 0, count: n)
+        for i in 1..<n { prefix[i] = prefix[i - 1] + POIRanking.meters(coords[i - 1], coords[i]) }
+
+        // First vertex index whose cumulative distance reaches `target`.
+        func firstIndex(atOrAbove target: Double) -> Int {
+            var lo = 0, hi = n
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if prefix[mid] >= target { hi = mid } else { lo = mid + 1 }
+            }
+            return lo
+        }
+
+        var slices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)] = []
+        slices.reserveCapacity(profile.count)
+        for seg in profile {
+            let a = seg.startMile * 1609.344, b = seg.endMile * 1609.344
+            var i = firstIndex(atOrAbove: a)
+            var pts: [CLLocationCoordinate2D] = []
+            while i < n, prefix[i] <= b {
+                pts.append(coords[i])
+                i += 1
+            }
+            if pts.count >= 2 { slices.append((pts, seg.gradePercent)) }
+        }
+        var markers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] = []
+        for seg in profile where abs(seg.gradePercent) >= 6 {
+            if markers.count >= 12 { break }
+            let target = (seg.startMile + seg.endMile) / 2 * 1609.344
+            let i = min(max(firstIndex(atOrAbove: target), 1), n - 1)
+            markers.append((coords[i], seg.gradePercent))
+        }
+        return (slices, markers)
+    }
+
     /// Sample coordinates along a polyline roughly every `everyMeters`.
     nonisolated static func samplePoints(
         of polyline: MKPolyline, everyMeters: CLLocationDistance
@@ -371,9 +534,13 @@ final class RouteService: ObservableObject {
         var current: [CLLocationCoordinate2D] = [coords[0]]
         var sinceLast: CLLocationDistance = 0
         for i in 1..<n {
-            let a = CLLocation(latitude: coords[i - 1].latitude, longitude: coords[i - 1].longitude)
-            let b = CLLocation(latitude: coords[i].latitude, longitude: coords[i].longitude)
-            sinceLast += b.distance(from: a)
+            // POIRanking.meters, not CLLocation.distance: this loop walks
+            // every vertex of the polyline (~30k on a long route) and is run
+            // several times per route — the CLLocation pair here was two heap
+            // objects per vertex. The equirectangular error (<0.1% at vertex
+            // hop lengths) only shifts a sample boundary against the 40 km
+            // threshold by at most one vertex.
+            sinceLast += POIRanking.meters(coords[i - 1], coords[i])
             current.append(coords[i])
             if sinceLast >= everyMeters {
                 samples.append(coords[i])
