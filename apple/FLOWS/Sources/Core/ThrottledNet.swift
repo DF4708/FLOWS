@@ -262,6 +262,18 @@ actor RequestGate {
         burstDepth = max(0, burstDepth - 1)
     }
 
+    /// Run `op` inside one planning burst: begin/end are paired by the SCOPE,
+    /// not by call-site discipline, so a new burst site can't leak the
+    /// elevated ceiling on an early return. `op` is @MainActor because every
+    /// burst site in the app is (scoring, hydration, prefetch); the refcount
+    /// and safety window still backstop the shared instance.
+    nonisolated func withPlanningBurst<T>(_ op: @MainActor () async -> T) async -> T {
+        await beginPlanningBurst()
+        let out = await op()
+        await endPlanningBurst()
+        return out
+    }
+
     private func acquire() async {
         if active < ceiling {
             active += 1

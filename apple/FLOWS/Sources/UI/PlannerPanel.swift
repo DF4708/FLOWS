@@ -338,12 +338,11 @@ struct PlannerPanel: View {
                 to = try await model.router.geocode(model.plannerDestination)
                 from = try await fromF
             }
-            // Both endpoints known, geometry not yet: start warming the
-            // corridor's alert cells while MKDirections works.
-            model.prefetchDestinationCorridor(from: from.0, to: to.0)
             // Routes appear as soon as directions return; weather badges
-            // hydrate asynchronously inside present(routes:). Planning goes
-            // through the model so filter toggles can replan variants later.
+            // hydrate asynchronously inside present(routes:), and the
+            // corridor prefetch fires inside model.plan — the choke point
+            // every planning path shares. Planning goes through the model so
+            // filter toggles can replan variants later.
             let planned = try await model.plan(
                 from: from.0, fromName: from.1,
                 to: to.0, toName: to.1)

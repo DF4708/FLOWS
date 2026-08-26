@@ -846,20 +846,18 @@ final class AppModel: ObservableObject {
         lastPlanEndpoints
     }
 
-    /// Fire-and-forget cache warmer for the moment BOTH plan endpoints are
-    /// known but MKDirections hasn't returned geometry yet — the planner UI
-    /// calls this the instant the destination geocodes, so short/medium
-    /// corridors have most of their alert cells cached before scoring even
-    /// starts (WeatherAlertService.prefetchCells gates away corridors too
-    /// long for the straight line to predict the roads).
-    func prefetchDestinationCorridor(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) {
-        alerts.prefetchCorridor(from: from, to: to)
-    }
-
     /// Planning entry point used by the planner UI: remembers endpoints and
     /// includes a toll-free variant up front when that filter is already on.
     func plan(from: CLLocationCoordinate2D, fromName: String,
               to: CLLocationCoordinate2D, toName: String) async throws -> [PlannedRoute] {
+        // Cache warmer at the ONE choke point every planning path passes
+        // through — planner submit, favorite tap, the walk↔drive replan, and
+        // any future entry point — fired before the MKDirections await, so
+        // short/medium corridors have most of their alert cells cached before
+        // scoring starts (WeatherAlertService.prefetchCells gates away
+        // corridors too long for the straight line to predict the roads).
+        // Wiring it per-call-site left the mode replan unprimed.
+        alerts.prefetchCorridor(from: from, to: to)
         // Commit lastPlanEndpoints only when a plan actually lands (below).
         // Setting it up front meant a throw/empty result left the app still
         // showing the OLD A→B routes while lastPlanEndpoints pointed at the
@@ -1370,9 +1368,6 @@ final class AppModel: ObservableObject {
     func planToFavorite(_ fav: FavoriteAddress) async -> [PlannedRoute]? {
         guard let here = effectivePosition ?? location.coordinate else { return nil }
         plannerDestination = fav.name
-        // A favorite needs no geocode — both endpoints are known right now,
-        // so the corridor cache starts warming before routing begins.
-        prefetchDestinationCorridor(from: here, to: fav.coordinate)
         guard let planned = try? await plan(
             from: here, fromName: "Current location",
             to: fav.coordinate, toName: fav.name), !planned.isEmpty else { return nil }
@@ -1416,27 +1411,59 @@ final class AppModel: ObservableObject {
         routeChoices[i] = done
     }
 
+    /// Progress sink for one route CARD: patches the choices entry's
+    /// provisional fields as alert cells land. Built by the HYDRATION layer,
+    /// not by `scored` — scoring stays presentation-agnostic, and scorings
+    /// with no card behind them (leg swaps, reroutes) pass no sink and skip
+    /// the per-batch provisional work entirely.
+    private func cardProgressSink(routeID: UUID) -> @MainActor (Double, [RiskSample?]) -> Void {
+        { [weak self] fraction, partial in
+            guard let self, let i = self.routeChoices.firstIndex(where: { $0.id == routeID })
+            else { return }
+            // Incremental across ticks: cells only ever ADD during one
+            // scoring pass, so samples blended on an earlier tick keep their
+            // value — only the newly landed ones run the realized-risk
+            // equation (each drags a nearest-ZIP field lookup with it). This
+            // sink fires per fetch batch on the main actor; re-blending the
+            // whole corridor every tick was the single hottest main-thread
+            // cost of a plan.
+            let prior = self.routeChoices[i].provisionalSamples
+            self.routeChoices[i].provisionalSamples = partial.enumerated().map { j, s in
+                guard let s else { return nil }
+                if j < prior.count, let done = prior[j] { return done }
+                return RiskSample(
+                    coordinate: s.coordinate,
+                    risk: self.sampleRealizedRisk(
+                        at: s.coordinate, alertEvent: s.worstEvent, alertSeverity: s.risk),
+                    worstEvent: s.worstEvent, alertID: s.alertID)
+            }
+            self.routeChoices[i].scoringProgress = fraction
+        }
+    }
+
     private func hydrateRouteRisk() async {
         // The driver just asked for these routes and is watching the cards —
         // the whole phase-1 pass rides the planning-burst lane (elevated
         // in-flight ceiling, same bounded request set).
-        await RequestGate.shared.beginPlanningBurst()
-        // FASTEST ROUTE FIRST: routeChoices arrive ETA-sorted, so the top
-        // card — the one most drivers take — gets the entire burst lane to
-        // itself and its GO unlocks in a few seconds; the alternates then
-        // score concurrently, and cheaper than they look (they share most of
-        // their corridor cells with the leader through the TTL cache).
-        let leadID = routeChoices.first?.id
-        if let lead = routeChoices.first {
-            landScore(await scored(lead))
-        }
-        await withTaskGroup(of: PlannedRoute.self) { group in
-            for r in routeChoices where r.id != leadID {
-                group.addTask { await self.scored(r) }
+        await RequestGate.shared.withPlanningBurst {
+            // FASTEST ROUTE FIRST: routeChoices arrive ETA-sorted, so the top
+            // card — the one most drivers take — gets the entire burst lane to
+            // itself and its GO unlocks in a few seconds; the alternates then
+            // score concurrently, and cheaper than they look (they share most
+            // of their corridor cells with the leader through the TTL cache).
+            let leadID = self.routeChoices.first?.id
+            if let lead = self.routeChoices.first {
+                self.landScore(await self.scored(
+                    lead, onProgress: self.cardProgressSink(routeID: lead.id)))
             }
-            for await done in group { landScore(done) }
+            await withTaskGroup(of: PlannedRoute.self) { group in
+                for r in self.routeChoices where r.id != leadID {
+                    let sink = self.cardProgressSink(routeID: r.id)
+                    group.addTask { await self.scored(r, onProgress: sink) }
+                }
+                for await done in group { self.landScore(done) }
+            }
         }
-        await RequestGate.shared.endPlanningBurst()
         if mode == .choosing {
             routeChoices.sort {
                 // Near-equal ETA → prefer the lower balanced risk (band + identified
@@ -1458,11 +1485,12 @@ final class AppModel: ObservableObject {
                 // Burst only around the re-scoring itself, never across the
                 // backoff sleeps — the elevated ceiling is for active,
                 // user-blocking work.
-                await RequestGate.shared.beginPlanningBurst()
-                for r in incomplete where mode == .choosing {
-                    landScore(await scored(r))
+                await RequestGate.shared.withPlanningBurst {
+                    for r in incomplete where self.mode == .choosing {
+                        self.landScore(await self.scored(
+                            r, onProgress: self.cardProgressSink(routeID: r.id)))
+                    }
                 }
-                await RequestGate.shared.endPlanningBurst()
             }
         }
         // PHASE 2 — physical attributes (grades / clearances / FEMA / EV
@@ -1585,48 +1613,27 @@ final class AppModel: ObservableObject {
     /// driver actively waits on (escalation/traffic reroutes, resuming after
     /// a stop). Background scorings (the continuation leg planned while the
     /// driver is still en route to a stop) call `scored` directly and stay at
-    /// the background ceiling.
+    /// the background ceiling. No progress sink: these routes have no card.
     private func scoredBurst(_ input: PlannedRoute) async -> PlannedRoute {
-        await RequestGate.shared.beginPlanningBurst()
-        let out = await scored(input)
-        await RequestGate.shared.endPlanningBurst()
-        return out
+        await RequestGate.shared.withPlanningBurst { await self.scored(input) }
     }
 
-    private func scored(_ input: PlannedRoute) async -> PlannedRoute {
+    /// `onProgress` (optional): per-batch provisional updates, supplied by
+    /// the hydration layer for routes with a visible card. Progressive
+    /// display: as alert cells land, the card colors the resolved share of
+    /// the corridor instead of spinning until the last cell — each landed
+    /// sample runs through the SAME realized-risk equation as the final pass
+    /// (field predictors + capped alert), so the provisional band can't
+    /// red-out on a watch the final pass would cap. GO still waits for the
+    /// complete verdict.
+    private func scored(
+        _ input: PlannedRoute,
+        onProgress: (@MainActor (Double, [RiskSample?]) -> Void)? = nil
+    ) async -> PlannedRoute {
         var r = input
         // Partition once: boundaries feed the weather scorer, the
         // between-boundary runs become map-drawable segments.
         let part = RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000)
-        // Progressive display: as alert cells land, the card colors the
-        // resolved share of the corridor instead of spinning until the last
-        // cell. Each landed sample runs through the SAME realized-risk
-        // equation as the final pass (field predictors + capped alert), so
-        // the provisional band can't red-out on a watch the final pass would
-        // cap. GO still waits for the complete verdict.
-        let routeID = r.id
-        let progressSink: @MainActor (Double, [RiskSample?]) -> Void = { [weak self] fraction, partial in
-            guard let self, let i = self.routeChoices.firstIndex(where: { $0.id == routeID })
-            else { return }
-            // Incremental across ticks: cells only ever ADD during one
-            // scoring pass, so samples blended on an earlier tick keep their
-            // value — only the newly landed ones run the realized-risk
-            // equation (each drags a nearest-ZIP field lookup with it). This
-            // sink fires per fetch batch on the main actor; re-blending the
-            // whole corridor every tick was the single hottest main-thread
-            // cost of a plan.
-            let prior = self.routeChoices[i].provisionalSamples
-            self.routeChoices[i].provisionalSamples = partial.enumerated().map { j, s in
-                guard let s else { return nil }
-                if j < prior.count, let done = prior[j] { return done }
-                return RiskSample(
-                    coordinate: s.coordinate,
-                    risk: self.sampleRealizedRisk(
-                        at: s.coordinate, alertEvent: s.worstEvent, alertSeverity: s.risk),
-                    worstEvent: s.worstEvent, alertID: s.alertID)
-            }
-            self.routeChoices[i].scoringProgress = fraction
-        }
 
         // Corridor bbox for the flood-evidence fetches.
         let sampleLats = part.samples.map(\.latitude)
@@ -1646,7 +1653,7 @@ final class AppModel: ObservableObject {
             at: part.samples,
             arrivalOffsets: RiskTiming.arrivalOffsets(
                 sampleCount: part.samples.count, totalTravelSeconds: eta),
-            onProgress: progressSink)
+            onProgress: onProgress)
         async let onDeviceF = Self.corridorForecasts(at: part.samples)
         // DOT closures along the corridor (WZDx): realized blocked-road proof.
         async let closuresF = LiveHazardFeedFetcher.shared.roadClosures(

@@ -80,6 +80,21 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertLessThanOrEqual(closed, 2)
     }
 
+    /// The scoped form pairs begin/end by construction: the lane is open
+    /// exactly for the duration of the operation and closed after, so a new
+    /// burst site cannot leak the elevated ceiling.
+    func testWithPlanningBurstScopesTheCeiling() async {
+        let gate = RequestGate(baseCeiling: { 2 }, burstCeiling: { 5 })
+        let peak = Peak()
+        await gate.withPlanningBurst {
+            let inside = await self.drive(gate, count: 12, peak: peak)
+            XCTAssertGreaterThan(inside, 2)
+            XCTAssertLessThanOrEqual(inside, 5)
+        }
+        let after = await drive(gate, count: 12, peak: peak)
+        XCTAssertLessThanOrEqual(after, 2)
+    }
+
     /// A leaked burst (begin with no end — a cancelled hydration in the worst
     /// spot) self-heals: past the safety window the ceiling is background
     /// again even though the refcount never hit zero.

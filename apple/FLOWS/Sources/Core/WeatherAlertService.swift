@@ -264,21 +264,22 @@ final class WeatherAlertService: ObservableObject {
         guard !points.isEmpty else { return }
         prefetchTask?.cancel()
         prefetchTask = Task {
-            await RequestGate.shared.beginPlanningBurst()
-            await withTaskGroup(of: Void.self) { group in
-                for pt in points {
-                    group.addTask {
-                        // A superseded prefetch (new destination typed) stops
-                        // starting cells; ones already fetching run out in the
-                        // cache actor's coalesced tasks and stay useful.
-                        guard !Task.isCancelled else { return }
-                        _ = await self.cache.fetch(Self.cellKey(pt)) {
-                            await self.activeAlerts(at: pt)
+            await RequestGate.shared.withPlanningBurst {
+                await withTaskGroup(of: Void.self) { group in
+                    for pt in points {
+                        group.addTask {
+                            // A superseded prefetch (new destination typed)
+                            // stops starting cells; ones already fetching run
+                            // out in the cache actor's coalesced tasks and
+                            // stay useful.
+                            guard !Task.isCancelled else { return }
+                            _ = await self.cache.fetch(Self.cellKey(pt)) {
+                                await self.activeAlerts(at: pt)
+                            }
                         }
                     }
                 }
             }
-            await RequestGate.shared.endPlanningBurst()
         }
     }
 
