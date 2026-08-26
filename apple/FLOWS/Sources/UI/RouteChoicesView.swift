@@ -767,8 +767,29 @@ struct RouteChoicesView: View {
         }
     }
 
-    private var fastestETA: TimeInterval {
-        choices.map(\.eta).min() ?? 0
+    /// Per-render snapshot of the card list and everything derived from it.
+    /// Built ONCE per body evaluation: `model.filteredChoices` is a full
+    /// filter pass over the routes, and reading it (and the designation ids)
+    /// through computed vars from every card re-ran that pass ~50× per
+    /// render — per scoring progress tick, now that cards update live.
+    private struct CardContext {
+        let choices: [PlannedRoute]
+        let fastestETA: TimeInterval
+        let safestID: UUID?
+        let cheapestID: UUID?
+        let efficientID: UUID?
+        let truckerID: UUID?
+    }
+
+    private func makeCardContext() -> CardContext {
+        let choices = model.filteredChoices
+        return CardContext(
+            choices: choices,
+            fastestETA: choices.map(\.eta).min() ?? 0,
+            safestID: safestID(in: choices),
+            cheapestID: cheapestID(in: choices),
+            efficientID: efficientID(in: choices),
+            truckerID: model.truckerRouteID)
     }
 
     /// "$12 fuel est." line for a card; nil when economy/price are unknowable.
@@ -791,7 +812,7 @@ struct RouteChoicesView: View {
 
     /// "Safest" = lowest normalized corridor risk, decided once every route
     /// has been scored (mirrors the web router's safest profile).
-    private var safestID: UUID? {
+    private func safestID(in choices: [PlannedRoute]) -> UUID? {
         let scored = choices.filter(\.weatherScored)
         guard scored.count == choices.count, scored.count > 1,
               let best = scored.min(by: { $0.weatherRisk < $1.weatherRisk })
@@ -813,7 +834,7 @@ struct RouteChoicesView: View {
 
     /// "Cheapest" = lowest estimated fuel cost, ties to fewer tolls. Decided
     /// once all routes are scored so the banner doesn't jump mid-hydration.
-    private var cheapestID: UUID? {
+    private func cheapestID(in choices: [PlannedRoute]) -> UUID? {
         let scored = choices.filter(\.weatherScored)
         guard scored.count == choices.count, scored.count > 1 else { return nil }
         return scored.min(by: {
@@ -826,7 +847,7 @@ struct RouteChoicesView: View {
     /// "Efficient" = least fuel burned (car) — with one vehicle the shortest
     /// distance wins; CO₂-efficiency for mass transit is flagged on the
     /// transit card instead (per-passenger-mile emissions beat any car).
-    private var efficientID: UUID? {
+    private func efficientID(in choices: [PlannedRoute]) -> UUID? {
         let scored = choices.filter(\.weatherScored)
         guard scored.count == choices.count, scored.count > 1 else { return nil }
         return scored.min(by: { $0.distanceMeters < $1.distanceMeters })?.id
@@ -893,8 +914,11 @@ struct RouteChoicesView: View {
                 hybridCard(h)
             }
             ScrollView {
+                // One snapshot for the whole list — every derived value the
+                // cards share is computed here exactly once per render.
+                let ctx = makeCardContext()
                 VStack(spacing: 8) {
-                    if choices.isEmpty {
+                    if ctx.choices.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("No route satisfies every active filter — searching for one…")
                                 .font(.footnote)
@@ -904,11 +928,12 @@ struct RouteChoicesView: View {
                                     .font(.caption.weight(.semibold))
                                 RouteCard(
                                     route: closest,
-                                    keyPoints: keyPoints(for: closest),
+                                    keyPoints: keyPoints(for: closest, ctx: ctx),
                                     fastestETA: closest.eta,
                                     isSafest: false,
                                     isCheapest: false,
                                     isEfficient: false,
+                                    isTrucker: ctx.truckerID == closest.id,
                                     fuelCostText: fuelCostText(closest),
                                     isHighlighted: closest.id == model.highlightedRouteID,
                                     onHighlight: { highlight(closest) },
@@ -917,14 +942,15 @@ struct RouteChoicesView: View {
                         }
                         .padding(.vertical, 6)
                     }
-                    ForEach(choices) { route in
+                    ForEach(ctx.choices) { route in
                         RouteCard(
                             route: route,
-                            keyPoints: keyPoints(for: route),
-                            fastestETA: fastestETA,
-                            isSafest: route.id == safestID,
-                            isCheapest: route.id == cheapestID,
-                            isEfficient: route.id == efficientID,
+                            keyPoints: keyPoints(for: route, ctx: ctx),
+                            fastestETA: ctx.fastestETA,
+                            isSafest: route.id == ctx.safestID,
+                            isCheapest: route.id == ctx.cheapestID,
+                            isEfficient: route.id == ctx.efficientID,
+                            isTrucker: ctx.truckerID == route.id,
                             fuelCostText: fuelCostText(route),
                             isHighlighted: route.id == model.highlightedRouteID,
                             onHighlight: { highlight(route) },
@@ -1033,9 +1059,12 @@ struct RouteChoicesView: View {
     }
 
     /// The pros/cons beneath each option — comparative, so the driver sees
-    /// what distinguishes THIS route from the others.
-    private func keyPoints(for route: PlannedRoute) -> [(text: String, good: Bool)] {
+    /// what distinguishes THIS route from the others. Reads shared values
+    /// from the per-render CardContext instead of recomputing them per card.
+    private func keyPoints(for route: PlannedRoute, ctx: CardContext) -> [(text: String, good: Bool)] {
         var points: [(String, Bool)] = []
+        let choices = ctx.choices
+        let fastestETA = ctx.fastestETA
         let others = choices.filter { $0.id != route.id }
         guard !others.isEmpty else { return [] }
 
@@ -1054,13 +1083,10 @@ struct RouteChoicesView: View {
         }
         // Tourist filter on → each card counts the pinned attractions within a
         // worthwhile detour of ITS corridor, so scenic options impact choice.
-        if model.routeFilters.contains(.tourist), !model.poi.results.isEmpty,
-           !route.riskSamples.isEmpty {
-            let near = model.poi.results.filter { r in
-                route.riskSamples.contains {
-                    POIRanking.meters($0.coordinate, r.item.placemark.coordinate) < 40_000
-                }
-            }.count
+        // (model.touristCount — the same scan the tourist sort uses, deduped;
+        // this had a byte-for-byte copy of that distance loop inline.)
+        if model.routeFilters.contains(.tourist), !model.poi.results.isEmpty {
+            let near = model.touristCount(for: route)
             if near > 0 {
                 points.append(("\(near) tourist stop\(near == 1 ? "" : "s") along this route", true))
             }
@@ -1070,7 +1096,7 @@ struct RouteChoicesView: View {
             points.append((String(format: "Shortest — %.0f mi", route.distanceMeters / 1609.344), true))
         }
         if route.weatherScored, choices.allSatisfy(\.weatherScored) {
-            if route.id == safestID {
+            if route.id == ctx.safestID {
                 points.append(("Lowest weather risk of the options", true))
             } else if let worst = choices.max(by: { $0.weatherRisk < $1.weatherRisk }),
                       worst.id == route.id, route.weatherRisk >= FlowsCore.riskGreenMin {
@@ -1186,6 +1212,9 @@ private struct RouteCard: View {
     let isSafest: Bool
     let isCheapest: Bool
     let isEfficient: Bool
+    /// Trucker designation resolved by the parent — reading
+    /// model.truckerRouteID here re-ran its scoring sort once per card.
+    let isTrucker: Bool
     let fuelCostText: String?
     let isHighlighted: Bool
     let onHighlight: () -> Void
@@ -1213,7 +1242,7 @@ private struct RouteCard: View {
                     // ALWAYS-designated trucker pick: high clearance, gentle
                     // grades, low wind, highways + trucker amenities — the
                     // brown truck sits top-right of its card.
-                    if model.truckerRouteID == route.id {
+                    if isTrucker {
                         Image(systemName: "truck.box.fill")
                             .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(.white)
@@ -1443,7 +1472,7 @@ private struct RouteCard: View {
             }
 
             // Explicit clearance confirmation on the trucker pick.
-            if model.truckerRouteID == route.id, model.routeFilters.contains(.lowBridges) {
+            if isTrucker, model.routeFilters.contains(.lowBridges) {
                 if let cl = route.clearancesMeters {
                     Label(cl.isEmpty
                           ? "Clearance checked: no posted low bridges on this route"

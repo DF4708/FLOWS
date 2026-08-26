@@ -511,6 +511,22 @@ final class PrimaryHazardFeedTests: XCTestCase {
         let away = CLLocationCoordinate2D(latitude: 44.0, longitude: -89.0)
         XCTAssertFalse(HazardFeedScores.pointInPolygon(away, ring))
         XCTAssertEqual(HazardFeedScores.firePerimeterScore(perimeters: [ring], at: away), 0)
+        // Inside the smoke buffer but outside the ring: a graded value from
+        // the EDGE distance — pins the fused parity+distance pass and that
+        // the bounding-box reject doesn't skip a ring whose edge is in reach.
+        // ~5.6 km north of the ring's top edge (43.1°): (1 - 5.56/12) * 0.7.
+        let fringe = CLLocationCoordinate2D(latitude: 43.15, longitude: -89.0)
+        let expected = (1 - 5_566.0 / 12_000) * 0.7   // 0.05° lat ≈ 5,566 m
+        XCTAssertEqual(
+            HazardFeedScores.firePerimeterScore(perimeters: [ring], at: fringe),
+            expected, accuracy: 0.02)
+        // A second ring far away must not disturb the graded value.
+        let farRing = ring.map {
+            CLLocationCoordinate2D(latitude: $0.latitude + 5, longitude: $0.longitude + 5)
+        }
+        XCTAssertEqual(
+            HazardFeedScores.firePerimeterScore(perimeters: [farRing, ring], at: fringe),
+            expected, accuracy: 0.02)
     }
 
     func testSpaceWeatherScaleAndLatitude() {

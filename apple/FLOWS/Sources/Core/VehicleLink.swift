@@ -108,8 +108,13 @@ final class VehicleLink: NSObject, ObservableObject {
     #if canImport(ExternalAccessory) && os(iOS)
     static let mfiProtocols = ["com.scantool.stn", "com.obdlink.obd"]
     private var mfiSession: EASession?
+    private var mfiPollTask: Task<Void, Never>?
 
     private func startMFiIfAvailable() {
+        // Reentry guard: the scanning toggle calls start() on every off→on
+        // flip — without this, each flip spawned ANOTHER permanent poll loop
+        // and orphaned the previous EASession with its streams still open.
+        guard mfiSession == nil else { return }
         for accessory in EAAccessoryManager.shared().connectedAccessories {
             guard let proto = accessory.protocolStrings.first(
                 where: { Self.mfiProtocols.contains($0) }) else { continue }
@@ -122,8 +127,11 @@ final class VehicleLink: NSObject, ObservableObject {
             input.open()
             mfiSession = session
             status = "MFi OBD adapter connected (\(accessory.name))"
-            // ELM init + fuel poll over the accessory streams.
-            Task { [weak self] in
+            // ELM init + fuel poll over the accessory streams. Stored so
+            // stop() can actually end it — the Task.isCancelled guard was
+            // dead code while nothing held the handle.
+            mfiPollTask?.cancel()
+            mfiPollTask = Task { [weak self] in
                 for cmd in ["ATZ", "ATE0", "ATSP0"] {
                     self?.mfiWrite(cmd)
                     try? await Task.sleep(for: .seconds(1))
@@ -137,6 +145,18 @@ final class VehicleLink: NSObject, ObservableObject {
             }
             return
         }
+    }
+
+    private func stopMFi() {
+        mfiPollTask?.cancel()
+        mfiPollTask = nil
+        if let session = mfiSession {
+            session.inputStream?.close()
+            session.outputStream?.close()
+            session.inputStream?.remove(from: .main, forMode: .default)
+            session.outputStream?.remove(from: .main, forMode: .default)
+        }
+        mfiSession = nil
     }
 
     private func mfiWrite(_ command: String) {
@@ -159,15 +179,18 @@ final class VehicleLink: NSObject, ObservableObject {
     }
     #else
     private func startMFiIfAvailable() {}
+    private func stopMFi() {}
     #endif
 
     private func stop() {
         obdPollTask?.cancel()
         obdPollTask = nil
+        stopMFi()
         central?.stopScan()
         if let p = obdPeripheral { central?.cancelPeripheralConnection(p) }
         obdPeripheral = nil
         central = nil
+        obdBuffer = ""
         status = "Off"
     }
 }
@@ -257,6 +280,12 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                     self.status = String(format: "OBD fuel: %.0f%%", fuel * 100)
                 }
                 self.obdBuffer = ""
+            } else if self.obdBuffer.count > 4096 {
+                // Device matched the name heuristic but never sends an ELM
+                // prompt: without a cap the buffer grows (and the contains
+                // scan rescans it) for the whole drive. A real reply fits in
+                // well under 4 KB — keep only the tail.
+                self.obdBuffer.removeFirst(self.obdBuffer.count - 4096)
             }
         }
     }

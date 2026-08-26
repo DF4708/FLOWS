@@ -127,8 +127,19 @@ final class VehicleStore: ObservableObject {
     }
 
     /// Rolling driving habits (exponential decay so the last ~hour dominates).
+    /// Seeded from the persisted, encrypted DrivingProfile via
+    /// `restoreDriving` so a launch resumes a learned driver instead of
+    /// starting over at a 55 mph default.
     private(set) var averageSpeedMph: Double = 55
     private(set) var idleFraction: Double = 0
+
+    /// Resume the learned speed/idle shape (called once at startup).
+    func restoreDriving(averageSpeedMph: Double, idleFraction: Double) {
+        guard averageSpeedMph.isFinite, averageSpeedMph > 0,
+              idleFraction.isFinite else { return }
+        self.averageSpeedMph = averageSpeedMph
+        self.idleFraction = min(max(idleFraction, 0), 1)
+    }
 
     /// TOWING: separate consumption pattern — the multiplier applies at
     /// read time so towing miles never contaminate normal-pattern learning.

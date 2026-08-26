@@ -222,15 +222,18 @@ final class POIService: ObservableObject {
     private var routePath: POIRanking.RoutePath?
     private var corridor: [CLLocationCoordinate2D] = []
     /// Bundled per-location shower table (1,505 OSM truck stops).
-    private let showerTable = ShowerAvailability.LocationTable.loadBundled()
+    /// `static let` (lazy, once) — as stored `let`s these four decoded
+    /// ~160 KB of JSON on the main thread during APP LAUNCH (POIService is an
+    /// eager AppModel property); now they parse on the first shower lookup.
+    private static let showerTable = ShowerAvailability.LocationTable.loadBundled()
     /// Verified city-keyed shower counts (scraped chain store pages).
     // VERIFIED per-city shower counts, one table per chain (scraped from each
     // brand's own store data) — kept separate so a Love's hit never matches a
     // Pilot city key. Pilot/Flying J + Love's + TA/Petro are all verified now.
-    private let cityShowers = ShowerAvailability.CityTable.loadBundled()
-    private let lovesShowers = ShowerAvailability.CityTable.loadBundled(
+    private static let cityShowers = ShowerAvailability.CityTable.loadBundled()
+    private static let lovesShowers = ShowerAvailability.CityTable.loadBundled(
         resource: "loves_city_showers")
-    private let taShowers = ShowerAvailability.CityTable.loadBundled(
+    private static let taShowers = ShowerAvailability.CityTable.loadBundled(
         resource: "ta_petro_city_showers")
 
     init() {
@@ -475,7 +478,7 @@ final class POIService: ObservableObject {
         // list; with network, it fills the chains MKLocalSearch misses.
         if let groups = Self.shardGroups(for: kind) {
             for center in centers.prefix(centerCap) {
-                for p in PlacesStore.shared.places(
+                for p in await PlacesStore.shared.places(
                     near: center, groups: groups, radiusMeters: regionMeters) {
                     let placemark = MKPlacemark(
                         coordinate: p.coordinate,
@@ -549,8 +552,13 @@ final class POIService: ObservableObject {
                 : unique.map { _ in nil }
         } else {
             var p: [Double?] = []
+            // Never a blank price column: before the driver has picked a
+            // fuel type, gas rows price as regular gasoline (the estimate is
+            // already labeled "est." in the UI); the pick refines, it does
+            // not reveal.
+            let pricingFuel = fuel ?? (kind == .gas ? .gas : nil)
             for item in unique {
-                var value = fuel.flatMap { self.priceProvider(item, $0) }
+                var value = pricingFuel.flatMap { self.priceProvider(item, $0) }
                 if let fuel, let live = await self.livePriceProvider(
                     item.placemark.coordinate, fuel) {
                     value = live   // real station price wins over the estimate
@@ -611,11 +619,11 @@ final class POIService: ObservableObject {
                 // Brand-anchored matches: bare substrings ("ta ", "love")
                 // false-positived on ordinary names (Vista Travel, Loveland).
                 let brandTable: ShowerAvailability.CityTable? =
-                    lower.contains("pilot") || lower.contains("flying j") ? cityShowers
-                    : (lower.contains("love's") || lower.contains("loves travel")) ? lovesShowers
+                    lower.contains("pilot") || lower.contains("flying j") ? Self.cityShowers
+                    : (lower.contains("love's") || lower.contains("loves travel")) ? Self.lovesShowers
                     : (lower.hasPrefix("ta ") || lower.contains("travelcenters")
                        || lower.contains("ta travel") || lower.contains("petro ")
-                       || lower.hasSuffix("petro")) ? taShowers
+                       || lower.hasSuffix("petro")) ? Self.taShowers
                     : nil
                 if let table = brandTable,
                    let count = table.showers(
@@ -625,7 +633,7 @@ final class POIService: ObservableObject {
                 } else {
                     r.showers = ShowerAvailability.forStop(
                         named: row.item.name, lat: c.latitude, lon: c.longitude,
-                        table: showerTable)
+                        table: Self.showerTable)
                 }
             }
             return r
@@ -759,6 +767,23 @@ final class POIService: ObservableObject {
     /// context (time of day, weekday, start cell) feeds the habit patterns.
     func choose(_ ranked: RankedPOI) {
         selected = ranked
+        // The CHOICE SET, not just the winner: the rows that were on screen
+        // and lost are what make a ranking weight identifiable at all. See
+        // ChoiceLog — recorded passively, read by nothing yet.
+        if let kind = activeKind {
+            ChoiceLogStore.shared.record(
+                kind: kind.rawValue,
+                options: results.prefix(ChoiceLog.optionsPerEvent).enumerated().map { i, row in
+                    ChoiceLog.Option(
+                        aheadMiles: row.aheadMeters / 1609.344,
+                        detourMiles: row.detourMeters / 1609.344,
+                        price: row.pricePerUnit,
+                        rating: row.rating,
+                        costTier: row.costTier,
+                        shownRank: i,
+                        chosen: row.id == ranked.id)
+                })
+        }
         guard let kind = activeKind,
               let category = Self.everydayCategory(for: kind) else { return }
         let c = ranked.item.placemark.coordinate

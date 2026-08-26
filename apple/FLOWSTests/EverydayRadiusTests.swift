@@ -39,9 +39,9 @@ final class EverydayRadiusTests: XCTestCase {
         XCTAssertEqual(EverydayStore.miles(from: home, to: home), 0, accuracy: 0.001)
     }
 
-    func testDefaultRadiusIsTheTwentyMileCap() {
-        XCTAssertEqual(EverydayStore().radiusMiles, 20.0)
-        XCTAssertEqual(EverydayStore.hardCapMiles, 20.0)
+    func testDefaultRadiusBeforeAnythingIsLearned() {
+        XCTAssertEqual(EverydayStore().radiusMiles, EverydayStore.defaultMiles)
+        XCTAssertEqual(EverydayStore.defaultMiles, 20.0)
     }
 
     func testMeanAndSDMatchHandComputedValues() {
@@ -51,7 +51,32 @@ final class EverydayRadiusTests: XCTestCase {
             + Array(repeating: 7.0, count: 10))
         XCTAssertEqual(s.meanTripMiles!, 5.0, accuracy: 0.0001)
         XCTAssertEqual(s.tripMilesSD!, (80.0 / 29.0).squareRoot(), accuracy: 0.0001)
-        XCTAssertEqual(s.radiusMiles, 5.0 + (80.0 / 29.0).squareRoot(), accuracy: 0.0001)
+        // The radius is the p85 of observed trips — here the 7-mile band.
+        XCTAssertEqual(s.radiusMiles, 7.0, accuracy: 0.0001)
+    }
+
+    /// The radius must GROW for a rural driver, not just shrink. Under the
+    /// old shrink-only rule (min(20, mean+SD)) someone whose everyday range
+    /// is 45 miles was pinned at 20 forever and never got instant results.
+    func testRadiusGrowsForALongRangeDriver() {
+        let rural = store(trips: Array(repeating: 38.0, count: 20)
+            + Array(repeating: 52.0, count: 15))
+        XCTAssertGreaterThan(rural.radiusMiles, 20.0)
+        XCTAssertLessThanOrEqual(rural.radiusMiles, EverydayStore.hardCapMiles)
+        // …and still tightens for a city driver.
+        let city = store(trips: Array(repeating: 2.5, count: 40))
+        XCTAssertLessThan(city.radiusMiles, 5.0)
+    }
+
+    func testQuantileEndpointsAndInterpolation() {
+        let v = [1.0, 2.0, 3.0, 4.0, 5.0]
+        XCTAssertEqual(EverydayStore.quantile(v, 0)!, 1.0, accuracy: 1e-9)
+        XCTAssertEqual(EverydayStore.quantile(v, 1)!, 5.0, accuracy: 1e-9)
+        XCTAssertEqual(EverydayStore.quantile(v, 0.5)!, 3.0, accuracy: 1e-9)
+        XCTAssertEqual(EverydayStore.quantile(v, 0.25)!, 2.0, accuracy: 1e-9)
+        XCTAssertNil(EverydayStore.quantile([], 0.5))
+        // Non-finite and negative samples are ignored, not propagated.
+        XCTAssertEqual(EverydayStore.quantile([Double.nan, -3, 4, 4], 0.5)!, 4.0, accuracy: 1e-9)
     }
 
     // MARK: Significance gating
@@ -66,13 +91,23 @@ final class EverydayRadiusTests: XCTestCase {
         XCTAssertLessThan(t.radiusMiles, 5.0)
     }
 
-    func testRadiusNeverGrowsPastTheCap() {
-        // A long-range driver (mean 35 mi) still gets the 20-mile ceiling.
-        let s = store(trips: Array(repeating: 35.0, count: 40))
-        XCTAssertEqual(s.radiusMiles, 20.0)
-        // Even with a huge spread pushing mean + SD way past 20.
-        let wild = store(trips: (0..<40).map { Double($0 % 2 == 0 ? 5 : 90) })
-        XCTAssertEqual(wild.radiusMiles, 20.0)
+    /// REPLACES `testRadiusNeverGrowsPastTheCap`, which pinned the old
+    /// shrink-only rule: the circle was capped at its own 20-mile default,
+    /// so a long-range driver could never earn a bigger one and simply never
+    /// got instant results. The radius now follows the driver in both
+    /// directions, with the rails as sanity bounds rather than policy.
+    func testRadiusFollowsTheDriverWithinSanityRails() {
+        // A 35-mile-range driver gets a 35-mile circle, not a 20-mile one.
+        let longRange = store(trips: Array(repeating: 35.0, count: 40))
+        XCTAssertEqual(longRange.radiusMiles, 35.0, accuracy: 0.001)
+
+        // The hard cap still bounds an absurd history.
+        let absurd = store(trips: Array(repeating: 400.0, count: 40))
+        XCTAssertEqual(absurd.radiusMiles, EverydayStore.hardCapMiles)
+
+        // …and the floor bounds the other extreme.
+        let tiny = store(trips: Array(repeating: 0.2, count: 40))
+        XCTAssertEqual(tiny.radiusMiles, EverydayStore.floorMiles)
     }
 
     func testRadiusShrinksOnlyWithSignificance() {

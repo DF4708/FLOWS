@@ -81,9 +81,14 @@ enum MexicoFuelParsing {
 actor MexicoFuelPrices {
     static let shared = MexicoFuelPrices()
 
+    /// Flat fields, not the parser's per-station dictionary: ~13k stations
+    /// resident for the session meant ~13k Dictionary allocations for two
+    /// values each. `premium` is parsed but deliberately not retained —
+    /// price(near:) maps every non-diesel fuel to "regular".
     struct Station {
         let coordinate: CLLocationCoordinate2D
-        let prices: [String: Double]   // "regular"/"premium"/"diesel", MXN/L
+        let regular: Double?   // MXN/L
+        let diesel: Double?    // MXN/L
     }
 
     private var grid: [Int: [Station]] = [:]
@@ -110,7 +115,8 @@ actor MexicoFuelPrices {
         var g: [Int: [Station]] = [:]
         for (id, coord) in places {
             guard let p = prices[id] else { continue }
-            g[cellKey(coord), default: []].append(Station(coordinate: coord, prices: p))
+            g[cellKey(coord), default: []].append(Station(
+                coordinate: coord, regular: p["regular"], diesel: p["diesel"]))
         }
         grid = g
         loaded = Date()
@@ -121,13 +127,13 @@ actor MexicoFuelPrices {
     func price(near point: CLLocationCoordinate2D, fuel: FuelType) async -> Double? {
         await ensureLoaded()
         guard fuel != .electric else { return nil }
-        let key = fuel == .diesel ? "diesel" : "regular"
+        let wantDiesel = fuel == .diesel
         let base = cellKey(point)
         var best: (Double, Double)?   // (distance, price)
         for dy in -1...1 {
             for dx in -1...1 {
                 for s in grid[base &+ dy &* 100_000 &+ dx] ?? [] {
-                    guard let p = s.prices[key] else { continue }
+                    guard let p = wantDiesel ? s.diesel : s.regular else { continue }
                     let d = POIRanking.meters(s.coordinate, point)
                     if d < 300, d < (best?.0 ?? .infinity) { best = (d, p) }
                 }
@@ -172,11 +178,16 @@ actor WorkZones {
     }
 
     /// Work zones for a state (30-min TTL). `stateName` lowercase full name.
+    /// The cache keeps a handful of states: a driver is only ever near 1-3 at
+    /// once, but a cross-country drive used to RETAIN every state crossed —
+    /// a 20k-zone state is ~2 MB, so 12 states was tens of MB for two display
+    /// integers per corridor update.
     func zones(stateName: String) async -> [Zone] {
         await loadRegistry()
         if let cached = zones[stateName], Date().timeIntervalSince(cached.fetched) < 1800 {
             return cached.zones
         }
+        if zones.count > 4 { CacheEviction.dropOldestHalf(&zones) { $0.fetched } }
         guard let feed = registry[stateName], let url = URL(string: feed),
               let (data, resp) = try? await ThrottledNet.fetch(url),
               (resp as? HTTPURLResponse)?.statusCode == 200,

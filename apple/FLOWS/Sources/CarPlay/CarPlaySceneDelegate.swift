@@ -15,6 +15,7 @@
 
 #if canImport(CarPlay)
 import CarPlay
+import CoreLocation
 import MediaPlayer
 import UIKit
 
@@ -31,6 +32,18 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         let map = CPMapTemplate()
         map.automaticallyHidesNavigationBar = true
 
+        // WHERE TO — the predicted-destination list. This is the surface
+        // where knowing the driver pays off most: at the wheel, typing is
+        // impossible and every tap is expensive, so offering the two or
+        // three places they actually go at this hour turns a whole
+        // interaction into one press. Rows carry their own reason ("You
+        // usually go here about now"), and the list falls back to recent
+        // destinations when there isn't enough evidence to predict.
+        let whereTo = CPBarButton(title: "Where to") { [weak self] _ in
+            self?.presentDestinations()
+        }
+        map.leadingNavigationBarButtons = [whereTo]
+
         // Apple Music transport controls, right on the map template. Playback
         // uses the system music player so whatever the driver had going in
         // Music keeps playing — FLOWS just surfaces the controls.
@@ -45,6 +58,52 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
 
         self.mapTemplate = map
         interfaceController.setRootTemplate(map, animated: true, completion: nil)
+    }
+
+    /// Predicted destinations first, then recent ones — each row one tap
+    /// from a planned route. Everything here is resolved on-device from
+    /// encrypted history; no typing, no network round trip to show the list.
+    @MainActor
+    private func presentDestinations() {
+        guard let interfaceController else { return }
+        let model = AppModel.shared
+        let here = model?.effectivePosition ?? model?.location.coordinate
+        var items: [CPListItem] = []
+
+        for p in EverydayPlaces.shared.predictions(from: here, limit: 3) {
+            let item = CPListItem(text: p.name, detailText: p.reason)
+            item.handler = { [weak self] _, completion in
+                self?.plan(to: p.coordinate, named: p.name)
+                completion()
+            }
+            items.append(item)
+        }
+        for r in (model?.recents.matching("", limit: 5) ?? [])
+        where !items.contains(where: { $0.text == r.name }) {
+            let item = CPListItem(text: r.name, detailText: "Recent")
+            item.handler = { [weak self] _, completion in
+                self?.plan(to: r.coordinate, named: r.name)
+                completion()
+            }
+            items.append(item)
+        }
+        guard !items.isEmpty else { return }
+        let list = CPListTemplate(title: "Where to",
+                                  sections: [CPListSection(items: items)])
+        interfaceController.pushTemplate(list, animated: true, completion: nil)
+    }
+
+    @MainActor
+    private func plan(to coordinate: CLLocationCoordinate2D, named name: String) {
+        guard let model = AppModel.shared,
+              let here = model.effectivePosition ?? model.location.coordinate else { return }
+        interfaceController?.popToRootTemplate(animated: true, completion: nil)
+        Task {
+            guard let routes = try? await model.plan(
+                from: here, fromName: "Current location",
+                to: coordinate, toName: name), !routes.isEmpty else { return }
+            model.present(routes: routes)
+        }
     }
 
     func templateApplicationScene(
