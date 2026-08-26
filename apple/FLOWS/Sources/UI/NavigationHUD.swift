@@ -16,6 +16,7 @@ import SwiftUI
 /// mode flip still feels like one app.
 struct NavigationHUD: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     let isCompact: Bool
     /// Short window (phone held sideways): the floating cards get the room
     /// the inline fuel cluster would take.
@@ -227,7 +228,7 @@ struct NavigationHUD: View {
                 fuelCluster
             }
         }
-        .padding(isCompact ? 8 : 16)
+        .padding(golden.pad)
         .onReceive(model.location.$latest) { fix in
             guard let fix else { return }
             let mph = max(fix.speed, 0) * 2.236936
@@ -359,7 +360,7 @@ struct NavigationHUD: View {
             }
         }
         .floatingCard()
-        .frame(maxWidth: isCompact ? .infinity : 640)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
     }
 
     // MARK: store category picker — shown when Stores is tapped
@@ -395,7 +396,7 @@ struct NavigationHUD: View {
             }
         }
         .floatingCard()
-        .frame(maxWidth: isCompact ? .infinity : 640)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
     }
 
     // MARK: fuel type picker — first Gas press only; remembered afterwards
@@ -432,7 +433,7 @@ struct NavigationHUD: View {
                 .foregroundStyle(.secondary)
         }
         .floatingCard()
-        .frame(maxWidth: isCompact ? .infinity : 640)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
     }
 
     // MARK: ranked results list — ahead-only, ordered per kind
@@ -443,10 +444,18 @@ struct NavigationHUD: View {
                 Text(listTitle)
                     .font(.system(size: 15, weight: .bold))
                 Spacer()
-                Button { model.poi.clearResults() } label: {
+                // X = minimize into the round list icon at the top right —
+                // the results (and their map pins) stay; pressing the active
+                // stop button below clears the search for real.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = model.collapsedPanels.insert("stops")
+                    }
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Tuck the stop list away")
             }
             if model.yelpAPIKey.isEmpty,
                model.poi.activeKind == .food || model.poi.activeKind == .hotel {
@@ -474,15 +483,16 @@ struct NavigationHUD: View {
                         }
                     }
                 }
-                .frame(maxHeight: 230)
+                .frame(maxHeight: golden.listMaxHeight)
                 .onChange(of: model.poi.selected?.id) { _, id in
                     guard let id else { return }
                     withAnimation { scroller.scrollTo(id, anchor: .center) }
                 }
             }
         }
+        .collapsibleMenu("stops")
         .floatingCard()
-        .frame(maxWidth: isCompact ? .infinity : 640)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
     }
 
     private var listTitle: String {
@@ -613,7 +623,7 @@ struct NavigationHUD: View {
                 .clipShape(Capsule())
         }
         .padding(14)
-        .frame(maxWidth: isCompact ? .infinity : 560)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background(Theme.riskGreen.opacity(0.95))
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
@@ -679,7 +689,7 @@ struct NavigationHUD: View {
             }
         }
         .padding(12)
-        .frame(maxWidth: isCompact ? .infinity : 560)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background(Theme.cta.opacity(0.95))
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
@@ -799,7 +809,7 @@ struct NavigationHUD: View {
             }
         }
         .padding(12)
-        .frame(maxWidth: isCompact ? .infinity : 560)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background(
             (FlowsCore.riskBand(score: escalation.newRisk) == .red
              ? Theme.riskRed : Theme.riskYellow)
@@ -911,7 +921,7 @@ struct NavigationHUD: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: isCompact ? .infinity : 560)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .fixedSize(horizontal: !isCompact, vertical: false)
         .background(Theme.chrome.opacity(0.92))
         .foregroundStyle(.white)
@@ -995,7 +1005,7 @@ struct NavigationHUD: View {
                     endButton
                 }
                 // Row 1 keeps its comfortable cap; row 2 below may run wider.
-                .frame(maxWidth: 680)
+                .frame(maxWidth: golden.cardMax)
             }
             // Row 2 — the stop buttons: the row widens past row 1's cap
             // (still centered) as long as the buttons fit the window; the
@@ -1058,7 +1068,7 @@ struct NavigationHUD: View {
             } label: {
                 Image(systemName: "location.fill")
                     .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 38, height: 38)
+                    .frame(width: golden.iconCircle, height: golden.iconCircle)
                     .background(Color.black.opacity(0.06))
                     .clipShape(Circle())
             }
@@ -1073,7 +1083,7 @@ struct NavigationHUD: View {
         } label: {
             Image(systemName: "link.circle.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .frame(width: 38, height: 38)
+                .frame(width: golden.iconCircle, height: golden.iconCircle)
                 .background(model.towingActive ? Color.brown : Color.black.opacity(0.06))
                 .foregroundStyle(model.towingActive ? .white : .primary)
                 .clipShape(Circle())
@@ -1084,12 +1094,13 @@ struct NavigationHUD: View {
 
     private var radioButton: some View {
         Button {
+            // Show/hide only — the card is the radio's home and its stop
+            // buttons end playback; hiding the card never cuts the audio.
             showRadio.toggle()
-            if !showRadio { model.radio.stop() }
         } label: {
             Image(systemName: "radio.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .frame(width: 38, height: 38)
+                .frame(width: golden.iconCircle, height: golden.iconCircle)
                 .background(showRadio ? Color.brown : Color.black.opacity(0.06))
                 .foregroundStyle(showRadio ? .white : .primary)
                 .clipShape(Circle())
@@ -1110,6 +1121,8 @@ struct NavigationHUD: View {
                                     : POIService.Kind.standardKinds) { kind in
                 let selected = model.poi.activeKind == kind
                 Button {
+                    // A fresh search brings a tucked stop list back out.
+                    model.collapsedPanels.remove("stops")
                     Task {
                         if model.poi.activeKind == kind {
                             model.poi.clearResults()
@@ -1155,6 +1168,7 @@ struct NavigationHUD: View {
             Text(note)
                 .font(.footnote.weight(.bold))
             Button("Find fuel") {
+                model.collapsedPanels.remove("stops")
                 Task { await model.poi.request(.gas, aheadOf: model.effectivePosition) }
             }
             .font(.footnote.weight(.heavy))
@@ -1203,13 +1217,15 @@ struct NavigationHUD: View {
                       systemImage: "radio.fill")
                     .font(.system(size: 15, weight: .bold))
                 Spacer()
+                // X = minimize back into the bar's radio button — playback
+                // keeps going; the stop buttons in the card end it.
                 Button {
                     showRadio = false
-                    model.radio.stop()
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Tuck the radio card away")
             }
             // NOAA Weather Radio: ONE dynamically-tuned relay — defaults to the
             // transmitter closest to the GPS position and auto-switches as you
@@ -1221,6 +1237,10 @@ struct NavigationHUD: View {
                     }
                 }
                 .labelsHidden()
+                // The menu picker wraps its label at a narrow intrinsic
+                // width even with the whole row free to its right —
+                // fixedSize lets the station name run on one line.
+                .fixedSize()
                 Button {
                     if model.radio.playingChannelID != nil {
                         model.radio.stop()
@@ -1287,15 +1307,17 @@ struct NavigationHUD: View {
                 model.radio.cabStream(for: $0.0) == nil
             }
             if !overAir.isEmpty {
-                Text("\(overAir.count) more channels (CB, advisory AM) are "
-                     + "over-the-air only — a car radio can tune them: "
-                     + overAir.map(\.0).joined(separator: ", "))
+                // One tight line per channel: what to tune and why you would.
+                Text("Car radio only: "
+                     + overAir.map {
+                         "\($0.0) — \(TruckerRadio.shortPurpose($0.0))"
+                     }.joined(separator: " · "))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
         .floatingCard()
-        .frame(maxWidth: isCompact ? .infinity : 640)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
     }
 
     @ViewBuilder
@@ -1491,7 +1513,7 @@ struct NavigationHUD: View {
             }
         }
         .floatingCard()
-        .frame(maxWidth: isCompact ? .infinity : 380)
+        .frame(maxWidth: isCompact ? .infinity : golden.sideColumn)
     }
 
     /// First play press: ask which service the driver uses, once. The pick
@@ -1532,7 +1554,7 @@ struct NavigationHUD: View {
                 .foregroundStyle(.secondary)
         }
         .floatingCard()
-        .frame(maxWidth: isCompact ? .infinity : 640)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
     }
 
     private func musicMenuRow(_ title: String, symbol: String, detail: String,

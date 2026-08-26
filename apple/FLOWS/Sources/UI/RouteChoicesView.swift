@@ -17,6 +17,7 @@ import SwiftUI
 /// band, and the worst active alert.
 struct RouteChoicesView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     @Binding var camera: MapCameraPosition
 
     private var choices: [PlannedRoute] { model.filteredChoices }
@@ -506,9 +507,10 @@ struct RouteChoicesView: View {
                 model.transitTasks[mode] = Task { await computeTransit(mode: mode) }
             }
         } label: {
-            Image(systemName: symbol).font(.system(size: 12, weight: .bold))
+            Image(systemName: symbol)
+                .font(.system(size: golden.iconSmall * 0.46, weight: .bold))
                 .foregroundStyle(isOn ? .white : .primary)
-                .frame(width: 26, height: 26)
+                .frame(width: golden.iconSmall, height: golden.iconSmall)
                 .background(isOn ? tint : Color.black.opacity(0.06))
                 .clipShape(Circle())
         }
@@ -824,20 +826,19 @@ struct RouteChoicesView: View {
                 // (Tourist stops live in the FILTER grid below — a route
                 // option, not a transportation mode.)
                 Spacer()
+                // X = minimize, not abandon: the panel tucks into the round
+                // routes icon at the top right; the trip pill's Edit is how
+                // a plan is actually discarded.
                 Button {
-                    model.routeChoices = []
-                    model.highlightedRouteID = nil
-                    // Walking is a per-choice mode, not a persistent setting:
-                    // leaving it set made the NEXT plan silently request a
-                    // pedestrian route (which can fail at driving distances),
-                    // leaving the planner stuck "on walking" with no routes.
-                    model.walkingMode = false
-                    model.mode = .planning
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = model.collapsedPanels.insert("routes")
+                    }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Tuck the route list away")
             }
             if let notice = model.plannerNotice {
                 Label(notice, systemImage: "exclamationmark.triangle.fill")
@@ -903,6 +904,7 @@ struct RouteChoicesView: View {
                 }
             }
         }
+        .collapsibleMenu("routes")
         .floatingCard()
         // Recompute the walk+ride offer whenever the plan or the walking
         // toggle changes (the id flips; .task cancels the stale run itself).

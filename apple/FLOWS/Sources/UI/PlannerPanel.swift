@@ -56,11 +56,25 @@ struct PlannerPanel: View {
                     }
                 }
             }
-            Text("Where to?")
-                .font(.system(size: 15, weight: .bold))
-                .onChange(of: model.plannerDestination) { _, text in
-                    destSearch.update(fragment: text, near: model.location.coordinate)
+            HStack {
+                Text("Where to?")
+                    .font(.system(size: 15, weight: .bold))
+                    .onChange(of: model.plannerDestination) { _, text in
+                        destSearch.update(fragment: text, near: model.location.coordinate)
+                    }
+                Spacer()
+                // X = minimize, not close: the planner tucks into the round
+                // search icon at the top right and comes back from there.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = model.collapsedPanels.insert("planner")
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
+                .help("Tuck the planner away")
+            }
             HStack(spacing: 6) {
                 TextField("Address, place, city, or ZIP", text: $model.plannerDestination)
                     .textFieldStyle(.plain)
@@ -221,6 +235,7 @@ struct PlannerPanel: View {
 
         }
         .onAppear { focusedField = .destination }
+        .collapsibleMenu("planner")
         .floatingCard()
     }
 

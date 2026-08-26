@@ -428,6 +428,11 @@ final class AppModel: ObservableObject {
     /// hides it; changing any filter shows it again.
     @Published var filterCardsHidden = false
 
+    /// Menus tucked into the top-right icon tray (double-tap a menu's grab
+    /// bar). On the model so rotation can't forget them; cleared when the
+    /// screen changes underneath them (new plan, GO, trip end).
+    @Published var collapsedPanels: Set<String> = []
+
     // MARK: music provider
 
     /// The mini player's service. Apple Music plays in place
@@ -728,6 +733,7 @@ final class AppModel: ObservableObject {
 
     /// Trip-needs chip tapped: run the POI search that need calls for.
     func requestTripNeed(_ event: TripNeeds.Event) async {
+        collapsedPanels.remove("stops")   // a fresh search reopens the list
         switch event.need {
         case .food(let category):
             poi.activeKind = .food
@@ -1385,6 +1391,7 @@ final class AppModel: ObservableObject {
         transitOptions = [:]
         activeTransitModes = []
         hybridOption = nil
+        collapsedPanels = []   // fresh choices bring tucked menus back
         highlightedRouteID = routes.first?.id
         mode = .choosing
         filterCardsHidden = false   // fresh choices bring the slider card back
@@ -1921,6 +1928,7 @@ final class AppModel: ObservableObject {
         stopDelaySeconds = 0
         tripShareOffered = false   // new trip → the share banner may show once
         tripSharePrompt = false
+        collapsedPanels = []   // the drive starts with its menus in reach
         mode = .navigating
         startLeg(route)
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
@@ -1967,6 +1975,7 @@ final class AppModel: ObservableObject {
         lastClockFix = nil
         tripSharePrompt = false
         tripShareOffered = false
+        collapsedPanels = []   // back to planning with nothing tucked away
         mode = .planning
         watch.sendEnded()
     }

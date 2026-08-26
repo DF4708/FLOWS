@@ -34,6 +34,7 @@ func alertEntityColor(_ name: String?) -> Color {
 /// PRESSED to dismiss; AMBER-style descriptions render the generic colored
 /// vehicle + brand badge + person silhouette composite.
 struct ImminentBannerView: View {
+    @Environment(\.golden) private var golden
     let warning: AppModel.ImminentWarning
     let isCompact: Bool
     var onDismiss: () -> Void
@@ -146,7 +147,7 @@ struct ImminentBannerView: View {
             }
         }
         .padding(12)
-        .frame(maxWidth: isCompact ? .infinity : 560)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background((isRed ? Theme.riskRed : Theme.riskYellow).opacity(0.95))
         .foregroundStyle(isRed ? .white : .black)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
@@ -158,6 +159,7 @@ struct ImminentBannerView: View {
 /// — "where was the needle BEFORE you filled?" Trains the refuel-prediction
 /// learning toward its 80% accuracy floor.
 struct GasGaugeCard: View {
+    @Environment(\.golden) private var golden
     /// Starting position (the model's own prediction).
     let predictedFraction: Double
     var accuracy: Double
@@ -209,7 +211,7 @@ struct GasGaugeCard: View {
             }
         }
         .floatingCard()
-        .frame(maxWidth: 420)
+        .frame(maxWidth: golden.cardMax)
         .onAppear {
             if !appeared {
                 fraction = min(max(predictedFraction, 0), 1)
@@ -308,6 +310,7 @@ struct GaugeDial: View {
 /// FLASH red with what actually goes wrong.
 struct TowingCard: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     @State private var flash = false
 
     var body: some View {
@@ -379,7 +382,7 @@ struct TowingCard: View {
             }
         }
         .floatingCard()
-        .frame(maxWidth: 480)
+        .frame(maxWidth: golden.cardMax)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
                 flash = true

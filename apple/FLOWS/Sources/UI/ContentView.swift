@@ -228,20 +228,56 @@ struct ContentView: View {
 
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     private var isCompact: Bool { sizeClass == .compact }
+    private var isShort: Bool { verticalSizeClass == .compact }
     #else
     private let isCompact = false
+    private let isShort = false
     #endif
 
+    /// Golden-ratio metrics from the live window (see GoldenScale) — set by
+    /// the GeometryReader below and pushed into the environment for every
+    /// child, so all chrome sizes as a proportion of THIS window.
+    @State private var golden = GoldenScale()
+
+    /// The legend belongs to the MAP: it only shows while most of the
+    /// window IS map — hidden when the choices panel covers a phone, when
+    /// a short (sideways) window is mostly planner, and behind the
+    /// first-launch vehicle card. Tucking those menus away (collapse)
+    /// brings the legend back.
+    private var legendHasRoom: Bool {
+        guard model.mode != .navigating else { return false }
+        guard isCompact else { return true }
+        if model.needsVehicleOnboarding { return false }
+        if model.mode == .choosing {
+            return model.collapsedPanels.contains("routes")
+        }
+        return !isShort || model.collapsedPanels.contains("planner")
+    }
+
     var body: some View {
+        GeometryReader { geo in
+            mainStack
+                .environment(\.golden, GoldenScale(size: geo.size))
+                .onChange(of: geo.size, initial: true) { _, size in
+                    golden = GoldenScale(size: size)
+                }
+        }
+    }
+
+    private var mainStack: some View {
         ZStack {
             mapLayer
             // Legend first: it is BACKGROUND — every input and information
             // box (planner, cards, banners) draws over it, never under it.
-            if model.mode != .navigating {
+            if legendHasRoom {
                 LegendCard(isCompact: isCompact)
             }
             chromeLayer
+            // Menus tucked away by their grab bars wait here as small round
+            // icons; a tap brings the menu back.
+            CollapsedPanelTray()
             // (Re-center now lives in the middle of the bottom bar.)
             if model.mode == .planning, model.needsVehicleOnboarding {
                 vehicleOnboardingCard
@@ -253,16 +289,16 @@ struct ContentView: View {
                         warning: warning, isCompact: isCompact,
                         onDismiss: { model.dismissImminentWarning() },
                         onShelterDelay: nil, onFindRest: nil)
-                        .padding(.top, 56)
+                        .padding(.top, golden.topClear)
                     Spacer()
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, golden.padCard)
             }
             if model.showTowingCard {
                 VStack {
                     Spacer()
                     TowingCard()
-                        .padding(.bottom, 90)
+                        .padding(.bottom, golden.bottomClear)
                 }
             }
             if let info = hazardInfo {
@@ -274,10 +310,10 @@ struct ContentView: View {
                 VStack {
                     Spacer()
                     TouristStopCard(stop: stop) { model.poi.touristDetail = nil }
-                        .frame(maxWidth: isCompact ? .infinity : 480)
-                        .padding(.bottom, 96)
+                        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+                        .padding(.bottom, golden.bottomClear)
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, golden.padCard)
             }
             #if os(macOS)
             // Settings floats as a panel instead of a modal sheet, so a
@@ -644,6 +680,10 @@ struct ContentView: View {
             // outage) — un-pin the debounce key so the next camera settle
             // retries instead of showing stale/empty hazards forever.
             if found.isEmpty { viewportHazardKey = ""; return }
+            // Ring fetching below walks this — found PLUS the kept carryover
+            // points, so a rain point surviving from the last sweep keeps its
+            // ZIP ring (and its centered badge) instead of aging out.
+            var merged = found
             if viewportHazardKey == key {
                 // Merge, don't replace: the new sweep's box is offset from
                 // the old one, and wholesale replacement blinked away icons
@@ -657,6 +697,7 @@ struct ContentView: View {
                         && abs(hz.coordinate.longitude - r.center.longitude) < r.span.longitudeDelta / 2
                 }
                 viewportHazards = found + kept
+                merged = viewportHazards
                 // Cluster once here, not on every render (O(n²) in the body).
                 // Badge score is the point's REALIZED risk (primary hazards can
                 // reach Red; secondary predictors amplify a realized primary but
@@ -690,7 +731,7 @@ struct ContentView: View {
             // actual ZIP shapes, with hull blobs only as a genuine fallback.
             // Same floor as the badges: striped AREAS are the map's loudest
             // element and must not paint for clear-band scores.
-            for hz in found.prefix(40)
+            for hz in merged.prefix(40)
             where hz.realized >= model.riskDisplayFloor {
                 if Task.isCancelled { return }   // superseded: skip remaining fetches
                 if let z = await ZCTAFetcher.shared.zcta(containing: hz.coordinate) {
@@ -705,12 +746,29 @@ struct ContentView: View {
                 // cluster-centroid falls inside a resolved ZCTA ring snaps to
                 // that ring's shoelace centroid — the symbol sits at the middle
                 // of the actual ZIP shape, not at the grid-sample average.
-                clusteredBadgesCache = clusteredBadgesCache.map { badge in
-                    guard let ring = rings.values.first(where: {
-                        HazardFeedScores.pointInPolygon(badge.coordinate, $0)
-                    }) else { return badge }
-                    return BadgeClustering.Item(coordinate: Self.centroid(of: ring),
-                                                kind: badge.kind, score: badge.score)
+                // A cluster averaging points from NEIGHBORING ZIPs can land in
+                // the gap between rings ("rain icon isn't on the striped
+                // area") — those snap to the nearest ring center within a
+                // couple of sample radii. Two badges of one kind landing on
+                // the same center collapse to one (duplicate identities).
+                let centers = rings.values.map { (ring: $0, center: Self.centroid(of: $0)) }
+                var seen = Set<String>()
+                clusteredBadgesCache = clusteredBadgesCache.compactMap { badge in
+                    var snapped = badge
+                    if let hit = centers.first(where: {
+                        HazardFeedScores.pointInPolygon(badge.coordinate, $0.ring)
+                    }) {
+                        snapped = BadgeClustering.Item(coordinate: hit.center,
+                                                       kind: badge.kind, score: badge.score)
+                    } else if let near = centers.min(by: {
+                        POIRanking.meters($0.center, badge.coordinate)
+                            < POIRanking.meters($1.center, badge.coordinate)
+                    }), POIRanking.meters(near.center, badge.coordinate)
+                            < viewportHazardRadius * 2.5 {
+                        snapped = BadgeClustering.Item(coordinate: near.center,
+                                                       kind: badge.kind, score: badge.score)
+                    }
+                    return seen.insert(snapped.stableID).inserted ? snapped : nil
                 }
                 rebuildRiskOverlays()   // ZCTA rings resolved — refresh overlays
             }
@@ -1128,8 +1186,8 @@ struct ContentView: View {
         .overlay(alignment: .topTrailing) {
             MapCompass(scope: mapScope)
                 .scaleEffect(1.35)
-                .padding(.top, 60)
-                .padding(.trailing, 18)
+                .padding(.top, golden.topClear)
+                .padding(.trailing, golden.padCard)
         }
         // No network: routing can't help, but the breadcrumb trail can. The
         // banner names the situation and offers the way back — the recorded
@@ -1370,10 +1428,10 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             }
             .floatingCard()
-            .frame(maxWidth: isCompact ? .infinity : 480)
-            .padding(.bottom, 96)   // clear of bottom bars
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            .padding(.bottom, golden.bottomClear)   // clear of bottom bars
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, golden.padCard)
     }
 
     /// First-launch vehicle prompt: range tracking needs to know the truck.
@@ -1403,11 +1461,11 @@ struct ContentView: View {
                 .buttonStyle(.plain)
             }
             .floatingCard()
-            .frame(maxWidth: isCompact ? .infinity : 560)
-            .padding(.top, 56)   // below the Map Filter pill
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            .padding(.top, golden.topClear)   // below the Map Filter pill
             Spacer()
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, golden.padCard)
     }
 
     #if os(macOS)
@@ -1637,6 +1695,7 @@ struct ContentView: View {
 /// and the route list get the space.
 private struct PlanningChrome: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     let isCompact: Bool
     @Binding var camera: MapCameraPosition
 
@@ -1647,15 +1706,17 @@ private struct PlanningChrome: View {
                 if model.mode == .choosing {
                     TripSummaryPill()
                     FilterSlidersCard()
+                    // Height/φ² cap: the choices list never claims the
+                    // window's majority — the map keeps it.
                     RouteChoicesView(camera: $camera)
-                        .frame(maxHeight: 420)
+                        .frame(maxHeight: golden.panelMaxHeight)
                     Spacer()
                 } else {
                     Spacer()
                     PlannerPanel(camera: $camera)     // planner bottom-center
                 }
             }
-            .padding(8)
+            .padding(golden.pad)
         } else {
             ZStack {
                 // Gear pinned top-right.
@@ -1666,25 +1727,25 @@ private struct PlanningChrome: View {
                 if model.mode == .choosing {
                     HStack(alignment: .top) {
                         RouteChoicesView(camera: $camera)
-                            .frame(width: 400)
+                            .frame(width: golden.sidePanel)
                         Spacer()
                         VStack(alignment: .trailing, spacing: 10) {
                             TripSummaryPill()
                             FilterSlidersCard()
                         }
-                        .frame(width: 300)
-                        .padding(.top, 48)   // clear of the gear
+                        .frame(width: golden.sideColumn)
+                        .padding(.top, golden.topClear)   // clear of the gear
                     }
                 } else {
                     // Planner bottom-center.
                     VStack {
                         Spacer()
                         PlannerPanel(camera: $camera)
-                            .frame(width: 420)
+                            .frame(width: golden.sidePanel)
                     }
                 }
             }
-            .padding(16)
+            .padding(golden.pad)
         }
     }
 }
@@ -1694,6 +1755,7 @@ private struct PlanningChrome: View {
 /// and the weights the bridge-weight check compares against.
 struct FilterSlidersCard: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
     private var isCompact: Bool { sizeClass == .compact }
@@ -1713,6 +1775,22 @@ struct FilterSlidersCard: View {
             // pushed it off a phone screen.
             ScrollWhenTight {
             VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Vehicle limits")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    // X = minimize into the round limits icon at the top right.
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            _ = model.collapsedPanels.insert("sliders")
+                        }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Tuck the limits card away")
+                }
                 if model.routeFilters.contains(.lowBridges) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(String(format: "Vehicle height: %d'%d\"",
@@ -1787,9 +1865,10 @@ struct FilterSlidersCard: View {
                     routeVerdictRow(r)
                 }
             }
-            .padding(10)
+            .padding(golden.padCard)
             }
-            .frame(maxWidth: isCompact ? .infinity : 240)
+            .collapsibleMenu("sliders")
+            .frame(maxWidth: isCompact ? .infinity : golden.sideColumn)
             .background(Theme.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .shadow(color: Theme.cardShadow, radius: 8, y: 3)
@@ -1855,20 +1934,76 @@ extension FilterSlidersCard {
 /// The settings gear — fuel type preference and future app settings.
 struct SettingsGear: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
 
     var body: some View {
         Button {
             model.showSettings = true
         } label: {
             Image(systemName: "gearshape.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .frame(width: 36, height: 36)
+                .font(.system(size: golden.iconCircle * 0.4, weight: .semibold))
+                .frame(width: golden.iconCircle, height: golden.iconCircle)
                 .background(Theme.cardBackground)
                 .clipShape(Circle())
                 .shadow(color: Theme.cardShadow, radius: 8, y: 3)
         }
         .buttonStyle(.plain)
         .help("Settings")
+    }
+}
+
+/// The tucked-menu tray: a small round icon per menu the driver collapsed
+/// with its grab bar, pinned top-right under the gear and compass. Tapping
+/// an icon brings that menu back.
+struct CollapsedPanelTray: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
+
+    struct PanelBadge: Identifiable {
+        let id: String
+        let symbol: String
+        let name: String
+    }
+
+    /// Every menu that tucks into the tray: id → symbol + plain name.
+    /// (Cards that already have their own bar button — radio, music,
+    /// towing — minimize back into that button instead.)
+    static let panels: [PanelBadge] = [
+        PanelBadge(id: "planner", symbol: "magnifyingglass", name: "Trip planner"),
+        PanelBadge(id: "routes", symbol: "arrow.triangle.turn.up.right.circle",
+                   name: "Route choices"),
+        PanelBadge(id: "sliders", symbol: "slider.horizontal.3", name: "Vehicle limits"),
+        PanelBadge(id: "stops", symbol: "list.bullet", name: "Stop list"),
+    ]
+
+    var body: some View {
+        let tucked = Self.panels.filter { model.collapsedPanels.contains($0.id) }
+        VStack(spacing: 8) {
+            ForEach(tucked) { panel in
+                badgeButton(panel)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        // Below the gear and compass (two golden steps down the window).
+        .padding(.top, golden.step(2))
+        .padding(.trailing, golden.pad)
+    }
+
+    private func badgeButton(_ panel: PanelBadge) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                _ = model.collapsedPanels.remove(panel.id)
+            }
+        } label: {
+            Image(systemName: panel.symbol)
+                .font(.system(size: golden.iconCircle * 0.4, weight: .semibold))
+                .frame(width: golden.iconCircle, height: golden.iconCircle)
+                .background(Theme.cardBackground)
+                .clipShape(Circle())
+                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+        }
+        .buttonStyle(.plain)
+        .help("Show \(panel.name)")
     }
 }
 
@@ -2028,8 +2163,9 @@ struct SettingsSheet: View {
                     .font(.system(size: 14, weight: .semibold))
             }
             Text("Trucker route designation on the choices screen, plus showers, "
-                 + "legal truck parking, truck-friendly motels, diesel-by-cost, "
-                 + "and the radio card in the navigation bar.")
+                 + "legal truck parking, truck-friendly motels, and "
+                 + "diesel-by-cost. The drive-bar radio works for everyone — "
+                 + "this just renames it trucker radio.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -2310,6 +2446,11 @@ private struct TripSummaryPill: View {
             Button("Edit") {
                 model.routeChoices = []
                 model.highlightedRouteID = nil
+                // Walking is a per-choice mode, not a persistent setting:
+                // leaving it set made the NEXT plan silently request a
+                // pedestrian route (which can fail at driving distances),
+                // leaving the planner stuck "on walking" with no routes.
+                model.walkingMode = false
                 model.mode = .planning
             }
             .font(.system(size: 13, weight: .bold))
@@ -2331,74 +2472,91 @@ private struct TripSummaryPill: View {
 }
 
 /// The web app's legend-shell, compact: what the route/band colors and
-/// weather blotches mean. Hidden while navigating (driver knows by then).
+/// weather blotches mean. Hidden while navigating (driver knows by then),
+/// and shown ONLY while the map owns most of the window (see
+/// ContentView.legendHasRoom). All sizes are golden fractions of the window.
 private struct LegendCard: View {
     @EnvironmentObject private var model: AppModel
-    /// Compact (phone) layouts anchor the planner to the bottom edge — the
-    /// legend rises above that band so it never sits beneath the search bar.
+    @Environment(\.golden) private var golden
+    /// Phones pin the legend TOP-LEFT — the planner and choices panels own
+    /// the bottom, and the legend must never sit under them. Regular
+    /// layouts keep it bottom-left like the web app.
     var isCompact = false
 
+    /// Which free corner the legend snaps to. Regular layouts keep the web
+    /// app's bottom-left. Compact planning: the planner owns the bottom, so
+    /// top-left. Compact choosing (legend shows only once the routes panel
+    /// is tucked): the trip pill owns the top center, so bottom-left.
+    private var anchorsBottom: Bool {
+        !isCompact || model.mode == .choosing
+    }
+
     var body: some View {
+        // Corner-snapped: the SAME inset from both edges of its corner —
+        // corner elements never float an uneven distance from the two edges.
         VStack {
-            Spacer()
+            if anchorsBottom { Spacer() }
             HStack {
-                // Bottom-LEFT so the right edge stays clear for the compass
-                // and driving controls.
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Risk")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.secondary)
-                    // Continuous gradient — risk is a 0…1 scale, not four
-                    // discrete buckets.
-                    VStack(alignment: .leading, spacing: 2) {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .blue, location: 0),
-                                .init(color: Theme.riskGreen.opacity(0.15), location: 0.0),
-                                .init(color: Theme.riskGreen, location: 0.40),
-                                .init(color: Theme.riskYellow, location: 0.70),
-                                .init(color: Theme.riskRed, location: 0.92),
-                            ],
-                            startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 150, height: 8)
-                            .clipShape(Capsule())
-                        HStack {
-                            Text("Clear").font(.system(size: 8))
-                            Spacer()
-                            Text("Severe").font(.system(size: 8))
-                        }
-                        .frame(width: 150)
-                        .foregroundStyle(.secondary)
-                    }
-                    if model.showWeatherLayer && model.riskField.loaded {
-                        Text("Hazards")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.secondary)
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 4)],
-                                  alignment: .leading, spacing: 3) {
-                            ForEach(HazardStyle.legendKinds, id: \.self) { kind in
-                                HStack(spacing: 3) {
-                                    Image(systemName: kind.symbol)
-                                        .font(.system(size: 9, weight: .bold))
-                                        .foregroundStyle(kind.color)
-                                        .frame(width: 12)
-                                    Text(kind.name).font(.system(size: 9))
-                                }
-                            }
-                        }
-                        .frame(width: 165)
-                    }
-                }
-                .padding(10)
-                .background(Theme.cardBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                legendBox
                 Spacer()
             }
-            .padding(.leading, 16)
-            .padding(.bottom, isCompact ? 248 : 16)
+            .padding(.leading, golden.pad)
+            .padding(anchorsBottom ? .bottom : .top, golden.pad)
+            if !anchorsBottom { Spacer() }
         }
         .allowsHitTesting(false)
+    }
+
+    private var legendBox: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Risk")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.secondary)
+            // Continuous gradient — risk is a 0…1 scale, not four
+            // discrete buckets.
+            VStack(alignment: .leading, spacing: 2) {
+                LinearGradient(
+                    stops: [
+                        .init(color: .blue, location: 0),
+                        .init(color: Theme.riskGreen.opacity(0.15), location: 0.0),
+                        .init(color: Theme.riskGreen, location: 0.40),
+                        .init(color: Theme.riskYellow, location: 0.70),
+                        .init(color: Theme.riskRed, location: 0.92),
+                    ],
+                    startPoint: .leading, endPoint: .trailing)
+                    .frame(width: golden.legendWidth, height: 8)
+                    .clipShape(Capsule())
+                HStack {
+                    Text("Clear").font(.system(size: 8))
+                    Spacer()
+                    Text("Severe").font(.system(size: 8))
+                }
+                .frame(width: golden.legendWidth)
+                .foregroundStyle(.secondary)
+            }
+            if model.showWeatherLayer && model.riskField.loaded {
+                Text("Hazards")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 4)],
+                          alignment: .leading, spacing: 3) {
+                    ForEach(HazardStyle.legendKinds, id: \.self) { kind in
+                        HStack(spacing: 3) {
+                            Image(systemName: kind.symbol)
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(kind.color)
+                                .frame(width: 12)
+                            Text(kind.name).font(.system(size: 9))
+                        }
+                    }
+                }
+                .frame(width: golden.legendWidth * 1.1)
+            }
+        }
+        .padding(golden.padCard)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 }
 
@@ -2710,6 +2868,7 @@ struct VehicleEditorSheet: View {
 /// voice until answered and only a PHYSICAL press dismisses it.
 struct CrashCheckInCard: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
 
     var body: some View {
         VStack(spacing: 12) {
@@ -2787,7 +2946,7 @@ struct CrashCheckInCard: View {
                 }
             }
             .padding(16)
-            .frame(maxWidth: 560)
+            .frame(maxWidth: golden.cardMax)
             .background(Theme.riskRed.opacity(0.97))
             .foregroundStyle(.white)
             .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
