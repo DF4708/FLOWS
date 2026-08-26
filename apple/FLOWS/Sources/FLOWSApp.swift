@@ -326,6 +326,19 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(speakTurns, forKey: "flows.speakTurns") }
     }
 
+    /// First launch shows ONE welcome card naming every permission and why
+    /// (location now; the rest only when their feature is first used) —
+    /// instead of a stack of unexplained system dialogs.
+    @Published var onboarded = UserDefaults.standard.bool(forKey: "flows.onboarded")
+
+    /// Get-started press: remember it, then run the ONE up-front system
+    /// prompt (location — it powers navigation and the risk map).
+    func completeOnboarding() {
+        onboarded = true
+        UserDefaults.standard.set(true, forKey: "flows.onboarded")
+        location.requestAuthorization()
+    }
+
     /// Word-finding help (on-device Apple Intelligence): when a spoken
     /// dialogue reply can't be matched exactly, the phone's own model maps
     /// it to the offered choices. Default ON — it only rescues replies
@@ -1120,7 +1133,14 @@ final class AppModel: ObservableObject {
             .compactMap { $0 }
             .sink { [weak self] guidance in self?.speakTurn(guidance) }
             .store(in: &serviceSubscriptions)
-        vehicleLink.scanning = true   // Bluetooth vehicle link on by default
+        // Location: on onboarded launches, request right away (a no-op once
+        // granted). First launch waits for the welcome card's Get started.
+        if onboarded { location.requestAuthorization() }
+        // Bluetooth vehicle link: OFF until the driver turns it on in
+        // Settings — creating the scanner at launch fired the Bluetooth
+        // permission dialog on first open, before any explanation.
+        vehicleLink.scanning =
+            UserDefaults.standard.bool(forKey: "flows.vehicleLinkScanning")
         // Populate the price column with state-average ESTIMATES (labeled
         // "est."); a licensed station feed replaces this same hook.
         poi.priceProvider = { item, fuel in
@@ -2614,6 +2634,13 @@ struct FLOWSApp: App {
             GeometryReader { geometry in
                 ContentView()
                     .environmentObject(model)
+                    .overlay {
+                        // First launch: the one-message permission explainer;
+                        // Get started fires the single up-front prompt.
+                        if !model.onboarded {
+                            WelcomeCard().environmentObject(model)
+                        }
+                    }
                     .dynamicTypeSize(TextScale.range(
                         chosenIndex: model.textSizeIndex,
                         maxIndex: model.textSizeMaxIndex))

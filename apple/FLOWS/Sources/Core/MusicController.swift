@@ -84,7 +84,31 @@ final class MusicController: ObservableObject {
         provider == .spotify && SpotifyRemote.shared.linked
     }
 
+    /// Touching the system player triggers the media-library permission
+    /// dialog — so nothing touches it until the driver actually uses music.
+    /// A fresh install's first launch must not ask for the music library.
+    private var activated = false
+
     init() {
+        // The HUD watches THIS object — mirror the Spotify remote's state
+        // in so play/pause icons and the track tooltip stay live.
+        // (objectWillChange fires before the value lands; the task hop
+        // reads it after.)
+        spotifySync = SpotifyRemote.shared.objectWillChange
+            .sink { [weak self] _ in
+                Task { @MainActor in self?.syncFromSpotify() }
+            }
+        // A driver who already picked a music service has been through the
+        // permission ask — reconnect to the system player right away so
+        // now-playing state is live at launch, exactly as before.
+        if UserDefaults.standard.string(forKey: "flows.musicProvider") != nil {
+            activateIfNeeded()
+        }
+    }
+
+    private func activateIfNeeded() {
+        guard !activated else { return }
+        activated = true
         refresh()
         updateNowPlaying()
         NotificationCenter.default.addObserver(
@@ -100,14 +124,6 @@ final class MusicController: ObservableObject {
             Task { @MainActor in self?.updateNowPlaying() }
         }
         player.beginGeneratingPlaybackNotifications()
-        // The HUD watches THIS object — mirror the Spotify remote's state
-        // in so play/pause icons and the track tooltip stay live.
-        // (objectWillChange fires before the value lands; the task hop
-        // reads it after.)
-        spotifySync = SpotifyRemote.shared.objectWillChange
-            .sink { [weak self] _ in
-                Task { @MainActor in self?.syncFromSpotify() }
-            }
     }
 
     private func syncFromSpotify() {
@@ -137,6 +153,7 @@ final class MusicController: ObservableObject {
             syncFromSpotify()   // Siri reads isPlaying right back — no hop
             return
         }
+        activateIfNeeded()
         if player.playbackState == .playing {
             player.pause()
         } else if player.nowPlayingItem == nil {
@@ -169,6 +186,7 @@ final class MusicController: ObservableObject {
             syncFromSpotify()
             return
         }
+        activateIfNeeded()
         if player.nowPlayingItem == nil {
             playLibraryShuffled()
         } else {
@@ -185,6 +203,7 @@ final class MusicController: ObservableObject {
             SpotifyRemote.shared.resume()   // stations are an Apple Music idea
             return
         }
+        activateIfNeeded()
         playLibraryShuffled()
         refresh()
     }
@@ -194,6 +213,7 @@ final class MusicController: ObservableObject {
     /// (The genre rows are hidden for Spotify — its Web API has no library
     /// genre query — so this path stays Apple Music's.)
     func playGenre(_ genre: String) {
+        activateIfNeeded()
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(MPMediaPropertyPredicate(
             value: genre, forProperty: MPMediaItemPropertyGenre,
@@ -216,6 +236,7 @@ final class MusicController: ObservableObject {
             SpotifyRemote.shared.skip()
             return
         }
+        activateIfNeeded()
         player.skipToNextItem()
     }
 
@@ -224,6 +245,7 @@ final class MusicController: ObservableObject {
             SpotifyRemote.shared.back()
             return
         }
+        activateIfNeeded()
         player.skipToPreviousItem()
     }
 
@@ -241,6 +263,7 @@ final class MusicController: ObservableObject {
             SpotifyRemote.shared.setOrder(next)
             return
         }
+        activateIfNeeded()
         switch playOrder {
         case .ordered:
             player.shuffleMode = .songs

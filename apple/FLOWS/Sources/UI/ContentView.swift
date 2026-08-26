@@ -1862,6 +1862,66 @@ struct SettingsGear: View {
 
 /// Fuel preference + app settings. The fuel type chosen here (or at the
 /// first Gas press) is remembered and used for every future Gas request.
+/// First launch: ONE plain-words message covering every permission —
+/// what's asked now (location, the only one basic use needs) and what
+/// waits until its feature is first used. iOS never allows a single
+/// combined system dialog, so this card is the single explanation and
+/// the later prompts arrive one at a time, each already expected.
+struct WelcomeCard: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45).ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Welcome to FLOWS", systemImage: "cloud.sun.fill")
+                    .font(.system(size: 18, weight: .bold))
+                Text("One permission runs the whole app: your location. It "
+                     + "powers navigation, the weather-risk map around you, "
+                     + "and stops ahead. The phone asks right after this.")
+                    .font(.callout)
+                Text("Nothing else is asked up front — each of these asks "
+                     + "only the first time you use it:")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                permissionRow("dot.radiowaves.right",
+                              "Bluetooth — when you turn on the tire-sensor "
+                              + "link in Settings")
+                permissionRow("music.note",
+                              "Music library — the first time you press play")
+                permissionRow("mic.fill",
+                              "Microphone and speech — the first time you "
+                              + "answer FLOWS by voice")
+                Button {
+                    model.completeOnboarding()
+                } label: {
+                    Text("Get started")
+                        .font(.system(size: 15, weight: .bold))
+                        .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.cta)
+            }
+            .padding(20)
+            .frame(maxWidth: 440)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: Theme.cardShadow, radius: 18, y: 6)
+            .padding(24)
+        }
+    }
+
+    private func permissionRow(_ symbol: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 18)
+                .foregroundStyle(.secondary)
+            Text(text).font(.caption)
+        }
+    }
+}
+
 struct SettingsSheet: View {
     @EnvironmentObject private var model: AppModel
     @State private var showDemoGallery = false
@@ -2314,7 +2374,13 @@ struct SettingsSheet: View {
                 .font(.system(size: 14, weight: .semibold))
             Toggle(isOn: Binding(
                 get: { model.vehicleLink.scanning },
-                set: { model.vehicleLink.scanning = $0 })) {
+                set: {
+                    model.vehicleLink.scanning = $0
+                    // Persisted: scanning resumes on later launches only if
+                    // the driver chose it (first turn-on shows the system's
+                    // one-time Bluetooth permission ask).
+                    UserDefaults.standard.set($0, forKey: "flows.vehicleLinkScanning")
+                })) {
                 Text("Listen for TPMS caps + OBD-II adapters").font(.caption)
             }
             Text(model.vehicleLink.status).font(.caption2).foregroundStyle(.secondary)
@@ -2516,6 +2582,8 @@ struct VehicleEditorSheet: View {
     @State private var epaMake = ""
     @State private var epaModels: [String] = []
     @State private var epaModel = ""
+    /// Auto-filled values collapse behind this until asked for.
+    @State private var fineTune = false
     /// City/highway split carried through to the saved profile.
     @State private var citySplit: (city: Double, highway: Double)?
     /// EPA class-typical ratings staged for save.
@@ -2531,11 +2599,16 @@ struct VehicleEditorSheet: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.blue)
             }
-            Toggle(isOn: $useEPADatabase) {
-                Text("All makes & models (EPA fueleconomy.gov — every US "
-                     + "vehicle since 1984)")
-                    .font(.caption)
-            }
+            // Year → make → model IS the whole ask: those three answers
+            // fill everything else (economy, fuel, tank, height, tow
+            // ratings) from the EPA database + class-typical specs. The
+            // sliders live under Fine-tune for trim differences; hand
+            // entry is the no-internet/can't-find-it fallback.
+            Text(useEPADatabase
+                 ? "Pick the year, make, and model — FLOWS fills in the rest."
+                 : "Enter your vehicle by hand.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             if useEPADatabase {
                 epaPickers
             } else {
@@ -2581,6 +2654,20 @@ struct VehicleEditorSheet: View {
             }
             }
 
+            Button(useEPADatabase
+                   ? "No internet, or can't find it? Enter it by hand"
+                   : "Pick from every US vehicle since 1984 instead") {
+                useEPADatabase.toggle()
+                if !useEPADatabase { fineTune = true }
+            }
+            .buttonStyle(.plain)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.blue)
+
+            // Auto-filled values stay out of the way until asked for —
+            // the pop-up is three pickers, not a wall of sliders.
+            DisclosureGroup(isExpanded: $fineTune) {
+                VStack(alignment: .leading, spacing: 12) {
             Picker("Fuel", selection: $fuelType) {
                 ForEach(FuelType.allCases) { fuel in
                     Label(fuel.rawValue, systemImage: fuel.symbol).tag(fuel)
@@ -2607,6 +2694,19 @@ struct VehicleEditorSheet: View {
                     .font(.caption)
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $heightFeet, in: VehicleSpecs.minimumHeightFeet...14, step: 0.1)
+            }
+                }
+                .padding(.top, 6)
+            } label: {
+                Text("Fine-tune for your exact trim")
+                    .font(.caption.weight(.semibold))
+            }
+            .onAppear {
+                // Editing an existing vehicle (or entering by hand): the
+                // numbers ARE the point — show them.
+                if model.vehicle.profile != nil || !useEPADatabase {
+                    fineTune = true
+                }
             }
             Text(String(format: "Rated range ~%.0f mi. Height feeds the low-bridge "
                         + "filter automatically; on the road FLOWS adjusts range for "
@@ -2760,8 +2860,15 @@ struct VehicleEditorSheet: View {
             }
         }
         if !epaModel.isEmpty {
-            Text("EPA economy + class-typical tank/height (adjust below for "
-                 + "your trim).")
+            // The proof the three answers were enough: everything that got
+            // filled in, on one line.
+            Text(String(format: "Filled in: %@ · %.0f %@ tank · %.1f mi/%@ "
+                        + "· %.1f ft tall%@",
+                        fuelType.rawValue, tankUnits,
+                        fuelType == .electric ? "kWh" : "gal",
+                        milesPerUnit, fuelType == .electric ? "kWh" : "gal",
+                        heightFeet,
+                        pendingEPARatings?.gvwr != nil ? " · tow ratings" : ""))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
