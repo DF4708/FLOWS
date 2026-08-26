@@ -38,10 +38,15 @@ enum MusicActionOption: String, AppEnum {
     case pause = "Pause"
     case skip = "Skip"
     case shuffle = "Shuffle"
+    // Full-sentence cases ride the bare "\(action) in FLOWS" phrase:
+    // "Play the next song in FLOWS", "Play the last song in FLOWS".
+    case nextSong = "Play the next song"
+    case lastSong = "Play the last song"
 
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Music action")
     static let caseDisplayRepresentations: [MusicActionOption: DisplayRepresentation] = [
         .play: "Play", .pause: "Pause", .skip: "Skip", .shuffle: "Shuffle",
+        .nextSong: "Play the next song", .lastSong: "Play the last song",
     ]
 }
 
@@ -66,9 +71,12 @@ struct MusicControlIntent: AppIntent {
         case .pause:
             if music.isPlaying { music.playPause() }
             return .result(dialog: "Paused.")
-        case .skip:
+        case .skip, .nextSong:
             music.skip()
-            return .result(dialog: "Skipped.")
+            return .result(dialog: "Next song.")
+        case .lastSong:
+            music.back()
+            return .result(dialog: "Back a song.")
         case .shuffle:
             music.toggleShuffle()
             return .result(dialog: music.shuffleOn ? "Shuffle on." : "Shuffle off.")
@@ -117,28 +125,93 @@ enum StopKindOption: String, AppEnum {
 struct FindStopIntent: AppIntent {
     static let title: LocalizedStringResource = "Find a stop ahead"
     static let description = IntentDescription(
-        "Searches for fuel, food, rest areas, hotels, parking, showers, medical help, or shelters ahead on the route.")
+        "Searches for fuel, food, rest areas, hotels, parking, showers, medical help, or shelters ahead — then offers the best options by name.")
     static let openAppWhenRun = true
 
     @Parameter(title: "Kind of stop")
     var kind: StopKindOption
+
+    /// Spoken follow-ups (never surfaced as up-front Siri questions —
+    /// asked mid-dialogue only when the step is reached).
+    @Parameter(title: "Food type")
+    var cuisine: String?
+
+    @Parameter(title: "Place")
+    var choice: String?
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let model = AppModel.shared else {
             return .result(dialog: "Open FLOWS first.")
         }
-        await model.poi.request(kind.poiKind, aheadOf: model.effectivePosition)
-        // Food/stores (and first-run fuel) divert into their category
-        // pickers — no results yet, and "nothing found" would be a lie.
-        if model.poi.pendingFoodChoice || model.poi.pendingFuelChoice
-            || model.poi.pendingStoreChoice {
-            return .result(dialog: "Opening FLOWS — pick the exact type there.")
+        let position = model.effectivePosition
+
+        // FOOD gets the extra step the picker gives on screen: "do you
+        // prefer Mexican, Greek, or fast food?" — the reply can name a
+        // cuisine in any sentence ("I want Mexican").
+        if kind == .food {
+            var cuisineReply = cuisine ?? ""
+            if cuisineReply.isEmpty {
+                let asked: String? = try await $cuisine.requestValue(
+                    "Yes — what sounds good: fast food, pizza, American, Mexican, Italian, Chinese, Greek, coffee, or breakfast?")
+                cuisineReply = asked ?? ""
+            }
+            let categories = FoodCategory.allCases
+            guard case .picked(let index) = VoicePick.choose(
+                reply: cuisineReply, options: categories.map(\.rawValue)) else {
+                await model.poi.request(.food, aheadOf: position)
+                return .result(dialog: "Okay — the food picker is on screen.")
+            }
+            await model.poi.chooseFood(categories[index], aheadOf: position)
+        } else {
+            await model.poi.request(kind.poiKind, aheadOf: position)
+            // Stores (and first-run fuel) divert into their category
+            // pickers — no results yet, and "nothing found" would be a lie.
+            if model.poi.pendingFuelChoice || model.poi.pendingStoreChoice {
+                return .result(dialog: "Opening FLOWS — pick the exact type there.")
+            }
         }
-        let count = model.poi.results.count
-        return .result(dialog: count > 0
-            ? IntentDialog("Found \(count) \(kind.rawValue.lowercased()) options ahead.")
-            : IntentDialog("Nothing found ahead on this route."))
+
+        let ranked = Array(model.poi.results.prefix(3))
+        guard !ranked.isEmpty else {
+            return .result(dialog: "Nothing found ahead on this route.")
+        }
+        // Not navigating: nothing to add a stop TO — the list on screen is
+        // the deliverable.
+        guard model.mode == .navigating else {
+            return .result(dialog: IntentDialog(
+                "Found \(model.poi.results.count) options — they're on screen."))
+        }
+
+        // Offer the top names and take the answer in ANY form: naming one
+        // picks it ("let's go to Taco Bell"), a bare yes takes the first,
+        // a no leaves the on-screen list.
+        let names = ranked.map { $0.item.name ?? "Unnamed stop" }
+        var choiceReply = choice ?? ""
+        if choiceReply.isEmpty {
+            let question = names.count == 1
+                ? "Does \(names[0]) work for you?"
+                : "Does \(names.dropLast().joined(separator: ", ")) or \(names.last ?? "") work for you?"
+            let asked: String? = try await $choice.requestValue(IntentDialog("\(question)"))
+            choiceReply = asked ?? ""
+        }
+        switch VoicePick.choose(reply: choiceReply, options: names) {
+        case .picked(let index):
+            let pick = ranked[index]
+            let name = pick.item.name ?? names[index]
+            let meters = position.map {
+                POIRanking.meters($0, pick.item.placemark.coordinate)
+            }
+            await model.addStop(pick.item)
+            guard model.pendingStopName == name else {
+                return .result(dialog: IntentDialog(
+                    "Couldn't route to \(name) right now. Try again in a moment."))
+            }
+            return .result(dialog: IntentDialog(
+                "\(SiriSummaries.addedStop(name: name, meters: meters))"))
+        case .declined, .unclear:
+            return .result(dialog: "Okay — the list is on screen.")
+        }
     }
 }
 
@@ -498,7 +571,8 @@ struct FLOWSShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: MusicControlIntent(),
             phrases: ["\(\.$action) music in \(.applicationName)",
-                      "\(\.$action) the music in \(.applicationName)"],
+                      "\(\.$action) the music in \(.applicationName)",
+                      "\(\.$action) in \(.applicationName)"],
             shortTitle: "Music",
             systemImageName: "playpause.fill")
         // Case display text IS the phrase: "Play the weather radio in

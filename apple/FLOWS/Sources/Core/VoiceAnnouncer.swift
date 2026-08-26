@@ -23,13 +23,16 @@ import Foundation
 final class VoiceAnnouncer {
     static let shared = VoiceAnnouncer()
 
-    /// Settings toggle (AppModel syncs it) — some drivers want a silent map.
-    var enabled = true
-
     private let synthesizer = AVSpeechSynthesizer()
 
+    /// The reply listener waits for this before opening the microphone —
+    /// otherwise it would transcribe FLOWS's own question.
+    var isSpeaking: Bool { synthesizer.isSpeaking }
+
+    /// Speak one announcement (utterances queue). Callers gate on their own
+    /// Settings toggle — alerts and turn-by-turn are separate switches.
     func announce(_ text: String) {
-        guard enabled, !text.isEmpty else { return }
+        guard !text.isEmpty else { return }
         #if os(iOS)
         try? AVAudioSession.sharedInstance().setCategory(
             .playback, mode: .spokenAudio, options: [.duckOthers])

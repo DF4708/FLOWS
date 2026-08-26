@@ -61,11 +61,23 @@ enum SiriSummaries {
         return head
     }
 
-    /// Spoken offer when traffic opens a faster route — ends by naming the
-    /// exact phrase that accepts it, so approval stays fully hands-free.
+    /// Spoken offer when traffic opens a faster route — FLOWS listens for
+    /// the plain yes/no right after asking ("go ahead in FLOWS" also works
+    /// any time via Siri).
     static func fasterRouteOffer(minutes: Int) -> String {
         "Traffic ahead adds about \(minutes) minute\(minutes == 1 ? "" : "s"). "
-            + "A faster route is ready — say: go ahead in FLOWS."
+            + "A faster route is ready — say yes to take it."
+    }
+
+    /// Turn distances, spoken the way a navigator says them.
+    static func spokenTurnDistance(meters: Double) -> String {
+        let miles = meters / 1609.344
+        if miles >= 1.75 { return "In \(Int(miles.rounded())) miles" }
+        if miles >= 0.85 { return "In a mile" }
+        if miles >= 0.4 { return "In half a mile" }
+        if miles >= 0.19 { return "In a quarter mile" }
+        let feet = max(Int((meters / 0.3048 / 100).rounded()) * 100, 100)
+        return "In \(feet) feet"
     }
 
     /// Spoken emergency announcement when a warning enters the corridor.

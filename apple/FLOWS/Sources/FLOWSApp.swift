@@ -311,13 +311,43 @@ final class AppModel: ObservableObject {
     }
 
     /// Speak faster-route offers and corridor warnings out loud — the
-    /// hands-free loop: FLOWS announces, the driver answers by voice
-    /// ("go ahead in FLOWS"). Off = screen-only, same features.
+    /// hands-free loop: FLOWS announces, then listens for the plain yes/no
+    /// (and "go ahead in FLOWS" works via Siri). Off = screen-only.
     @Published var voiceAlerts =
         UserDefaults.standard.object(forKey: "flows.voiceAlerts") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(voiceAlerts, forKey: "flows.voiceAlerts")
-            VoiceAnnouncer.shared.enabled = voiceAlerts
+        didSet { UserDefaults.standard.set(voiceAlerts, forKey: "flows.voiceAlerts") }
+    }
+
+    /// Turn-by-turn voice directions — its own switch, separate from the
+    /// alert voice: plenty of drivers want turns spoken but a quiet map,
+    /// or the reverse.
+    @Published var speakTurns =
+        UserDefaults.standard.object(forKey: "flows.speakTurns") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(speakTurns, forKey: "flows.speakTurns") }
+    }
+
+    /// Guidance state for the spoken turns: last step announced, and
+    /// whether its close-in reminder has fired.
+    private var lastSpokenTurnStep = -1
+    private var turnNearSpoken = false
+
+    /// Speak each maneuver twice: once when its step becomes current
+    /// ("In a quarter mile, turn left…"), once close in (the instruction
+    /// alone). Guidance updates at 1 Hz; everything else is deduped away.
+    private func speakTurn(_ guidance: NavigationEngine.Guidance) {
+        guard speakTurns, mode == .navigating, !guidance.isOffRoute,
+              !guidance.instruction.isEmpty else { return }
+        if guidance.stepIndex != lastSpokenTurnStep {
+            lastSpokenTurnStep = guidance.stepIndex
+            turnNearSpoken = guidance.distanceToManeuver < 150
+            VoiceAnnouncer.shared.announce(
+                turnNearSpoken
+                    ? guidance.instruction
+                    : SiriSummaries.spokenTurnDistance(meters: guidance.distanceToManeuver)
+                        + ", " + guidance.instruction)
+        } else if !turnNearSpoken, guidance.distanceToManeuver < 150 {
+            turnNearSpoken = true
+            VoiceAnnouncer.shared.announce(guidance.instruction)
         }
     }
     @Published var notifyFuel = UserDefaults.standard.object(forKey: "flows.notifyFuel") as? Bool ?? true {
@@ -644,7 +674,7 @@ final class AppModel: ObservableObject {
             // Speak each NEW warning once (never re-announce the same alert
             // as its distance/reach fields refresh) — the hands-free half of
             // the imminent banner, AMBER alerts included.
-            guard let warning = imminentWarning,
+            guard voiceAlerts, let warning = imminentWarning,
                   warning.alertID != oldValue?.alertID else { return }
             VoiceAnnouncer.shared.announce(SiriSummaries.emergencyAnnouncement(
                 event: warning.event, headline: warning.headline,
@@ -1026,7 +1056,6 @@ final class AppModel: ObservableObject {
         }
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
         MusicController.shared.provider = musicProvider   // same didSet gap
-        VoiceAnnouncer.shared.enabled = voiceAlerts       // same didSet gap
         vehicle.towingActive = towingActive
         checkTowingSignal()   // and at app start
         // Grade slider default follows the vehicle until the driver moves the
@@ -1038,6 +1067,12 @@ final class AppModel: ObservableObject {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.applyVehicleMaxGradeDefault() }
+            .store(in: &serviceSubscriptions)
+        // Spoken turn-by-turn rides the guidance stream (1 Hz while
+        // navigating); speakTurn dedupes per step.
+        navigation.$guidance
+            .compactMap { $0 }
+            .sink { [weak self] guidance in self?.speakTurn(guidance) }
             .store(in: &serviceSubscriptions)
         vehicleLink.scanning = true   // Bluetooth vehicle link on by default
         // Populate the price column with state-average ESTIMATES (labeled
@@ -2291,11 +2326,25 @@ final class AppModel: ObservableObject {
                 let newDelay = (delay >= 8 && self.notifyTraffic)
                     ? Int(delay.rounded()) : nil
                 // Announce a FRESH offer once (not every re-measure of the
-                // same jam) and stage it for the spoken "go ahead" yes.
+                // same jam), stage it for the spoken "go ahead" yes, and
+                // LISTEN for the plain yes/no right after asking. No clear
+                // answer = the chip stays on screen; nothing is guessed.
                 if let minutes = newDelay, self.trafficDelayMinutes == nil {
                     self.pendingVoiceOffer = .fasterRoute
-                    VoiceAnnouncer.shared.announce(
-                        SiriSummaries.fasterRouteOffer(minutes: minutes))
+                    if self.voiceAlerts {
+                        VoiceAnnouncer.shared.announce(
+                            SiriSummaries.fasterRouteOffer(minutes: minutes))
+                        VoiceReply.shared.listenAfterSpeech { [weak self] answer in
+                            guard let self,
+                                  case .fasterRoute? = self.pendingVoiceOffer
+                            else { return }
+                            if answer == true {
+                                Task { await self.rerouteForTraffic() }
+                            } else if answer == false {
+                                self.pendingVoiceOffer = nil
+                            }
+                        }
+                    }
                 } else if newDelay == nil,
                           case .fasterRoute? = self.pendingVoiceOffer {
                     self.pendingVoiceOffer = nil   // jam cleared on its own

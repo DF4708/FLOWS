@@ -586,6 +586,20 @@ full official text back on demand. Announcement wording is pure
 (`SiriSummaries`) and pinned by tests; a Settings toggle silences the
 voice without losing any screen behavior.
 
+The loop closed further (same pass): after FLOWS asks a question out
+loud, it LISTENS for the plain spoken **yes/no** (`VoiceReply` — the
+crash check-in's guarded microphone pattern: wait out our own utterance,
+refuse a record-incapable session, bounded window, nothing guessed on
+silence), so a faster-route offer is a two-word conversation. Find-a-stop
+became a stepwise dialogue with unambiguous choices: "find food in
+FLOWS" → "what sounds good: fast food, pizza, Mexican…?" → "I want
+Mexican" → "Does Taco Bell or El Rays work for you?" → naming one (or a
+bare yes = the first) adds it to the route; a no leaves the list on
+screen (`VoicePick`, pure + pinned). Turn-by-turn is now SPOKEN
+(guidance stream → twice per maneuver: "In a quarter mile, turn left…",
+then close-in) with its own Settings switch, separate from the alert
+voice.
+
 ### Spotify remote — optional user token (the Yelp/TomTom pattern)
 
 True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client

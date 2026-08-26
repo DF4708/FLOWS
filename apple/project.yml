@@ -68,11 +68,12 @@ targets:
           FLOWS shows Apple Music playback controls while navigating in
           CarPlay.
         NSMicrophoneUsageDescription: >-
-          After a suspected crash, FLOWS listens for your spoken reply to
-          "do you need assistance?" so help can be summoned hands-free.
+          When FLOWS asks a question out loud — a crash check-in, or a
+          faster-route offer — it listens briefly for your spoken yes-or-no
+          reply so you never reach for the screen.
         NSSpeechRecognitionUsageDescription: >-
-          Crash check-in understands "yes" / "I'm okay" spoken answers so an
-          injured driver doesn't have to reach the screen.
+          Understands short spoken answers ("yes", "no", "I'm okay") to
+          crash check-ins and route questions.
         NSMotionUsageDescription: >-
           Crash detection watches for sudden impacts while navigating.
         NSBluetoothAlwaysUsageDescription: >-
@@ -283,6 +284,7 @@ targets:
       - path: FLOWS/Sources/Core/MusicController.swift
       - path: FLOWS/Sources/Core/SpotifyRemote.swift
       - path: FLOWS/Sources/Core/SiriSummaries.swift
+      - path: FLOWS/Sources/Core/VoiceReply.swift
       - path: FLOWSTests
     settings:
       base:

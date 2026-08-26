@@ -165,13 +165,58 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertLessThanOrEqual(SiriSummaries.spokenClip(noPeriods).count, 220)
     }
 
-    func testFasterRouteOfferNamesTheApprovalPhrase() {
+    func testFasterRouteOfferAsksForThePlainYes() {
         XCTAssertEqual(
             SiriSummaries.fasterRouteOffer(minutes: 12),
             "Traffic ahead adds about 12 minutes. "
-            + "A faster route is ready — say: go ahead in FLOWS.")
+            + "A faster route is ready — say yes to take it.")
         XCTAssertTrue(SiriSummaries.fasterRouteOffer(minutes: 1)
             .contains("about 1 minute."))
+    }
+
+    func testYesNoWordsReadPlainReplies() {
+        XCTAssertEqual(YesNoWords.interpret("yes"), true)
+        XCTAssertEqual(YesNoWords.interpret("Yeah, take it"), true)
+        XCTAssertEqual(YesNoWords.interpret("okay sure"), true)
+        XCTAssertEqual(YesNoWords.interpret("go ahead"), true)
+        XCTAssertEqual(YesNoWords.interpret("no"), false)
+        XCTAssertEqual(YesNoWords.interpret("no thanks"), false)
+        XCTAssertEqual(YesNoWords.interpret("keep this route"), false)
+        // A mixed reply refuses — "yeah, no" is a no.
+        XCTAssertEqual(YesNoWords.interpret("yeah no"), false)
+        // Silence or chatter is NEVER guessed.
+        XCTAssertNil(YesNoWords.interpret(""))
+        XCTAssertNil(YesNoWords.interpret("what was that"))
+        // "Nose" must not read as "no" — whole words only.
+        XCTAssertNil(YesNoWords.interpret("nose"))
+    }
+
+    func testVoicePickTakesNamesKeywordsAndPlainYes() {
+        let options = ["Taco Bell", "El Rays", "Chipotle"]
+        // The user's exact script: "yes, let's go to Taco Bell".
+        XCTAssertEqual(VoicePick.choose(reply: "yes, let's go to Taco Bell",
+                                        options: options), .picked(0))
+        XCTAssertEqual(VoicePick.choose(reply: "El Rays please",
+                                        options: options), .picked(1))
+        // A bare yes takes the FIRST offer.
+        XCTAssertEqual(VoicePick.choose(reply: "yes", options: options), .picked(0))
+        XCTAssertEqual(VoicePick.choose(reply: "no", options: options), .declined)
+        XCTAssertEqual(VoicePick.choose(reply: "hmm what", options: options), .unclear)
+        // Cuisine step: "I want mexican" from the category list.
+        let cuisines = ["Fast food", "Pizza", "American", "Mexican", "Greek"]
+        XCTAssertEqual(VoicePick.choose(reply: "I want mexican",
+                                        options: cuisines), .picked(3))
+        XCTAssertEqual(VoicePick.choose(reply: "fast food I guess",
+                                        options: cuisines), .picked(0))
+    }
+
+    func testSpokenTurnDistancesReadLikeANavigator() {
+        XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 3 * 1609.344), "In 3 miles")
+        XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 1609), "In a mile")
+        XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 800), "In half a mile")
+        XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 400), "In a quarter mile")
+        XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 152), "In 500 feet")
+        XCTAssertEqual(SiriSummaries.spokenTurnDistance(meters: 10), "In 100 feet")
     }
 
     func testEmergencyAnnouncementFramesAmberAndWeatherDifferently() {
