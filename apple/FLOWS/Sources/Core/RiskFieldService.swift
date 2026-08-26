@@ -83,18 +83,12 @@ final class RiskFieldService: ObservableObject {
         familyIdx[family]
     }
 
-    /// Field score for a family at a coordinate = nearest ZIP centroid within
-    /// ~30 km (matches the web app's ZIP-resolution field; 0 beyond it).
-    func score(family: String, at coord: CLLocationCoordinate2D) -> Double {
-        guard let fi = familyIndex(family), let e = nearestEntry(to: coord) else { return 0 }
-        return fi < e.scores.count ? e.scores[fi] : 0
-    }
-
-    /// The WHOLE aligned score row at a coordinate (nil beyond the field) —
-    /// one nearest-entry resolution for callers that need several families at
-    /// the same point. Route scoring reads 13 family scores per corridor
-    /// sample; through `score()` that was 13 identical neighborhood scans.
-    /// Index it with `familyIndex(_:)`.
+    /// The aligned score row at a coordinate = nearest ZIP centroid within
+    /// ~30 km (matches the web app's ZIP-resolution field; nil beyond it).
+    /// ONE nearest-entry resolution serves every family at the point — route
+    /// scoring reads 13 family scores per corridor sample, and the old
+    /// per-family score() accessor redid the same neighborhood scan for each.
+    /// Index the row with `familyIndex(_:)`.
     func scoreRow(at coord: CLLocationCoordinate2D) -> [Double]? {
         nearestEntry(to: coord)?.scores
     }
