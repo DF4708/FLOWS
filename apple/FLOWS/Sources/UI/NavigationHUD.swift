@@ -84,6 +84,9 @@ struct NavigationHUD: View {
             if let need = model.nextTripNeed {
                 tripNeedChip(need)
             }
+            if let lastChance = model.fuelWarningText {
+                lastChanceFuelBanner(lastChance)
+            }
             if let fuelNote = model.fuelRecommendation {
                 fuelRecommendationChip(fuelNote)
             }
@@ -299,7 +302,7 @@ struct NavigationHUD: View {
         let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
         let electric = vehicle.profile?.fuelType == .electric
         return VStack(spacing: 3) {
-            GaugeDial(fraction: .constant(fraction))
+            GaugeDial(fraction: .constant(fraction), alarming: model.fuelGaugeAlarming)
                 .frame(width: golden.step(2), height: golden.step(2) * 0.6)
                 .allowsHitTesting(false)
             if let economy = averageEconomy {
@@ -1157,6 +1160,49 @@ struct NavigationHUD: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// LAST CHANCE: only a few stations selling this vehicle's fuel are
+    /// still reachable on what's in the tank (FuelWarning). Blinks red, and
+    /// the same advice was spoken aloud — one tap adds the cheapest
+    /// reachable stop to the route.
+    private func lastChanceFuelBanner(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "fuelpump.exclamationmark.fill")
+                .font(.system(size: 18, weight: .bold))
+            Text(text)
+                .font(.footnote.weight(.bold))
+                .lineLimit(2)
+            Spacer(minLength: 4)
+            if model.fuelWarningStation != nil {
+                Button("Add stop") {
+                    Task { await model.addRecommendedFuelStop() }
+                }
+                .font(.footnote.weight(.heavy))
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(minHeight: Theme.tapMinimum)
+                .background(Color.white)
+                .foregroundStyle(Theme.riskRed)
+                .clipShape(Capsule())
+            }
+            Button { model.dismissFuelWarning() } label: {
+                Image(systemName: "xmark.circle.fill").opacity(0.8)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+        .background(Theme.riskRed.opacity(escalationPulse ? 0.95 : 0.6))
+        .foregroundStyle(.white)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .shadow(color: Theme.cardShadow, radius: 10, y: 4)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                escalationPulse = true
             }
         }
     }

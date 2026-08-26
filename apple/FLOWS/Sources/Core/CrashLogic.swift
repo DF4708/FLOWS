@@ -27,16 +27,68 @@ import Foundation
 enum CrashLogic {
 
     /// Moderate-impact threshold. Normal driving (potholes, hard braking) stays
-    /// under ~2.5 g at the phone; crash pulses exceed 4 g. A 4–6 g spike must be
+    /// under ~2.5 g at the phone; crash pulses exceed 5 g. A 5–8 g spike must be
     /// CONFIRMED (see `isImpact(window:)`) to avoid a one-off phone drop firing
     /// the check-in.
-    static let impactGForce = 4.0
-    /// Unambiguous hard impact: fires immediately, even from a single sample —
-    /// no real crash this violent should ever wait for confirmation.
-    static let hardImpactGForce = 6.0
+    static let impactGForce = 5.0
+    /// Unambiguous hard impact: no real crash this violent waits for
+    /// window corroboration (it still needs the motion evidence below).
+    static let hardImpactGForce = 8.0
     /// Corroboration threshold: how high a *follow-up* sample must be to count as
     /// "the disturbance continued" rather than a spike that settled to rest.
     static let confirmImpactGForce = 2.5
+
+    // MARK: motion corroboration — what separates a crash from a fun ride
+    //
+    // G force alone is not a crash. A rollercoaster pulls 4–6 g through a
+    // loop, a dropped phone spikes past 8 g, and neither is an emergency.
+    // What makes a crash a crash is that a vehicle TRAVELING AT ROAD SPEED
+    // ON A ROAD suddenly stops. All three must agree.
+
+    /// The vehicle must have been moving at real road speed just before the
+    /// impact (≈20 mph). Below this, an "impact" is someone handling the
+    /// phone, not a collision worth summoning help for.
+    static let minPreImpactSpeedMps = 8.9
+    /// …and must be at or near a standstill just after (≈10 mph). A ride
+    /// pulling high g mid-track keeps its speed; a crashed car does not.
+    static let crashStopSpeedMps = 4.5
+    /// …losing most of its speed in the process.
+    static let minSpeedDropFraction = 0.55
+    /// On a ROAD: within this far of the road corridor being driven. A
+    /// rollercoaster, a bike park, a boat — none are on the road, so their
+    /// g-loads never reach the check-in. `nil` distance (corridor unknown)
+    /// is treated as unknown-but-allowed, since the speed evidence still has
+    /// to hold and refusing to detect crashes off-route would be worse.
+    static let maxMetersFromRoad = 60.0
+
+    /// Everything the crash decision needs, gathered at the moment of impact.
+    struct ImpactEvidence {
+        /// Rolling |acceleration| magnitudes in g (newest last).
+        var window: [Double]
+        /// Fastest the vehicle was traveling in the seconds before impact.
+        var speedBeforeMps: Double
+        /// Speed right after the impact.
+        var speedAfterMps: Double
+        /// Distance from the road corridor being driven; nil when unknown.
+        var metersFromRoad: Double?
+    }
+
+    /// THE crash decision: a strong enough impact AND a road-speed vehicle
+    /// suddenly stopping AND being on a road. Splitting these out is what
+    /// keeps the amusement park quiet — a loop pulls the g's but never the
+    /// sudden stop, and it is nowhere near the corridor.
+    static func isCrash(_ evidence: ImpactEvidence) -> Bool {
+        guard isImpact(window: evidence.window) else { return false }
+        guard evidence.speedBeforeMps >= minPreImpactSpeedMps else { return false }
+        guard evidence.speedAfterMps <= crashStopSpeedMps else { return false }
+        let drop = (evidence.speedBeforeMps - evidence.speedAfterMps)
+            / max(evidence.speedBeforeMps, 0.001)
+        guard drop >= minSpeedDropFraction else { return false }
+        if let meters = evidence.metersFromRoad, meters > maxMetersFromRoad {
+            return false
+        }
+        return true
+    }
 
     /// Re-ask cadence: after a crash the driver may be unconscious — keep
     /// asking until they answer or PHYSICALLY dismiss, never stop after one

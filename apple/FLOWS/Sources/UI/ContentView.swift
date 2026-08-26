@@ -252,6 +252,17 @@ struct ContentView: View {
     /// a short (sideways) window is mostly planner, and behind the
     /// first-launch vehicle card. Tucking those menus away (collapse)
     /// brings the legend back.
+    /// Where the compass sits below the top-left occupant. The map ignores
+    /// the safe area, so these clear the whole stack above it: status bar +
+    /// instruction banner while driving, status bar + legend while it's up,
+    /// status bar alone otherwise. Golden steps of the window, like the rest
+    /// of the chrome.
+    private var compassTopInset: CGFloat {
+        if model.mode == .navigating { return golden.topClear * 3 }
+        if legendHasRoom { return golden.step(1) + golden.topClear }
+        return golden.topClear
+    }
+
     private var legendHasRoom: Bool {
         guard model.mode != .navigating else { return false }
         guard isCompact else { return true }
@@ -352,7 +363,8 @@ struct ContentView: View {
             }
             moveCamera(.camera(MapCamera(
                 centerCoordinate: coord,
-                distance: chaseEngaged ? g.cameraAltitude : g.cameraAltitude * 1.4,
+                distance: model.cameraAltitude(
+                    auto: chaseEngaged ? g.cameraAltitude : g.cameraAltitude * 1.4),
                 heading: chaseEngaged && model.location.course >= 0
                     ? model.location.course : 0,
                 pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
@@ -446,7 +458,8 @@ struct ContentView: View {
                 // vehicle has moved; re-centering while parked stays flat.
                 moveCamera(.camera(MapCamera(
                     centerCoordinate: coord,
-                    distance: model.navigation.guidance?.cameraAltitude ?? 900,
+                    distance: model.cameraAltitude(
+                        auto: model.navigation.guidance?.cameraAltitude ?? 900),
                     heading: chaseEngaged && model.location.course >= 0
                         ? model.location.course : 0,
                     pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
@@ -1237,12 +1250,23 @@ struct ContentView: View {
                                          distance: distance, heading: 0,
                                          pitch: on ? 55 : 0)))
         }
-        // Compass pinned top-right (under the gear), sized up for glanceability.
-        .overlay(alignment: .topTrailing) {
+        // MapKit's own compass lives top-right, where the phone's status
+        // icons (battery, signal, Wi-Fi) cover it — turn the built-ins off
+        // and place our own.
+        .mapControls { }
+        // Compass top-LEFT, clear of whatever owns that corner: the
+        // instruction banner while navigating, the legend when it's up, the
+        // status bar otherwise. (MapKit only draws a compass on a rotated
+        // map, so in practice this is the driving case.)
+        .overlay(alignment: .topLeading) {
             MapCompass(scope: mapScope)
+                // Always drawn: the default compass auto-hides at north-up,
+                // and a driver glancing for "which way am I pointed" should
+                // find it in the same place every time.
+                .mapControlVisibility(.visible)
                 .scaleEffect(1.35)
-                .padding(.top, golden.topClear)
-                .padding(.trailing, golden.padCard)
+                .padding(.top, compassTopInset)
+                .padding(.leading, golden.padCard)
         }
         // No network: routing can't help, but the breadcrumb trail can. The
         // banner names the situation and offers the way back — the recorded
@@ -2085,6 +2109,14 @@ struct SettingsSheet: View {
     @State private var showDemoGallery = false
     @State private var showContactPicker = false
 
+    /// Camera height in the units a driver thinks in.
+    private func zoomLabel(_ meters: Double) -> String {
+        let feet = meters / 0.3048
+        return feet < 2_000
+            ? String(format: "%.0f ft up", feet)
+            : String(format: "%.1f mi up", meters / 1609.344)
+    }
+
     var body: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 14) {
@@ -2271,6 +2303,39 @@ struct SettingsSheet: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
             }
+
+            Divider()
+            Text("Map zoom while driving")
+                .font(.system(size: 14, weight: .semibold))
+            Picker("Map zoom", selection: $model.cameraZoomMode) {
+                ForEach(AppModel.CameraZoomMode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            if model.cameraZoomMode == .manual {
+                HStack {
+                    Text(zoomLabel(model.manualZoomMeters))
+                        .font(.caption)
+                        .frame(width: 90, alignment: .leading)
+                    // Log scale: the useful range spans street level to
+                    // continent, and a linear slider spends most of its
+                    // travel in the far end nobody drives at.
+                    Slider(value: Binding(
+                        get: { log10(model.manualZoomMeters) },
+                        set: { model.manualZoomMeters = pow(10, $0) }),
+                        in: log10(150)...log10(200_000))
+                }
+            }
+            Text("Automatic follows the road: close together in town where "
+                 + "turns come fast, farther out on a highway between exits, "
+                 + "and tight on the turn itself. Walking always stays close. "
+                 + "Flying stays far until the airport. Pick another option to "
+                 + "hold one view — handy for seeing the walking and flying "
+                 + "views without walking or flying.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Divider()
             Toggle(isOn: $model.show3DMap) {

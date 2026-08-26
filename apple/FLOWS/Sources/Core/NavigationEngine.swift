@@ -45,6 +45,10 @@ final class NavigationEngine: ObservableObject {
     @Published private(set) var guidance: Guidance?
     @Published private(set) var route: PlannedRoute?
     @Published private(set) var isRerouting = false
+    /// How far the last fix sat from the road corridor being driven — the
+    /// "are we even on a road?" signal crash detection corroborates with
+    /// (CrashLogic.isCrash). nil before the first matched fix.
+    @Published private(set) var metersFromCorridor: CLLocationDistance?
 
     /// Fired ONCE when the vehicle reaches the route's end (< 120 m) —
     /// AppModel chains multi-leg trips (POI stop → final destination) off it.
@@ -112,6 +116,7 @@ final class NavigationEngine: ObservableObject {
         cancellable = nil
         guidance = nil
         route = nil
+        metersFromCorridor = nil
         location.endNavigationUpdates()
     }
 
@@ -159,6 +164,7 @@ final class NavigationEngine: ObservableObject {
             (nearest, nearestDist) = scan(0..<points.count)
         }
         lastNearestIndex = nearest
+        metersFromCorridor = nearestDist
 
         // Off-route: 3 consecutive fixes > 60 m from the corridor → reroute.
         if nearestDist > 60 {

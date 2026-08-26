@@ -221,9 +221,24 @@ struct GasGaugeCard: View {
     }
 }
 
-/// The dial itself: E→F arc, ticks, centrally rotating red needle.
+/// The dial itself: E→F arc, ticks, centrally rotating red needle. The
+/// filled arc takes its color from the tank level on an exponential curve
+/// (FuelWarning.band) — green through the ordinary middle of a tank, yellow
+/// only in the last third, red in the final stretch where range is a real
+/// planning problem.
 struct GaugeDial: View {
     @Binding var fraction: Double
+    /// Set while the tank is low enough to demand action — the arc pulses.
+    var alarming = false
+    @State private var alarmPulse = false
+
+    private var levelColor: Color {
+        switch FuelWarning.band(fraction: fraction) {
+        case .green: return Theme.riskGreen
+        case .yellow: return Theme.riskYellow
+        case .red: return Theme.riskRed
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -239,7 +254,8 @@ struct GaugeDial: View {
                     .position(center)
                 Circle()
                     .trim(from: 0.5, to: 0.5 + fraction / 2)
-                    .stroke(Theme.riskGreen.opacity(0.6), style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .stroke(levelColor.opacity(alarming && alarmPulse ? 0.25 : 0.75),
+                            style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .frame(width: radius * 2, height: radius * 2)
                     .position(center)
                 // Ticks + labels.
@@ -278,6 +294,19 @@ struct GaugeDial: View {
                     .rotationEffect(Angle(degrees: -90 + fraction * 180), anchor: .center)
                     .position(center)
                 Circle().fill(Color.red).frame(width: 12, height: 12).position(center)
+            }
+            .onChange(of: alarming, initial: true) { _, on in
+                // Pulse only while the tank actually demands action, and
+                // stop cleanly when it doesn't (a forever-animation left
+                // running costs a redraw every frame for nothing).
+                if on {
+                    withAnimation(.easeInOut(duration: 0.6)
+                        .repeatForever(autoreverses: true)) {
+                        alarmPulse = true
+                    }
+                } else {
+                    withAnimation(.default) { alarmPulse = false }
+                }
             }
             .contentShape(Rectangle())
             .gesture(

@@ -47,6 +47,14 @@ final class CrashDetectionService: ObservableObject {
                         vehicle: VehicleProfile?,
                         medicalNotes: String?) = { (nil, nil, nil) }
 
+    /// Set by AppModel: the MOTION evidence that separates a crash from a
+    /// thrill ride — how fast the vehicle was going just before, how fast it
+    /// is now, and how far it is from the road corridor being driven
+    /// (nil when unknown). See CrashLogic.isCrash.
+    var motionEvidence: () -> (speedBeforeMps: Double,
+                               speedAfterMps: Double,
+                               metersFromRoad: Double?) = { (0, 0, nil) }
+
     #if os(iOS)
     private let motion = CMMotionManager()
     private let synthesizer = AVSpeechSynthesizer()
@@ -98,6 +106,7 @@ final class CrashDetectionService: ObservableObject {
                 window.removeFirst(window.count - Self.accelWindowSize)
             }
             if CrashLogic.isImpact(window: window) {
+                let snapshot = window
                 window.removeAll(keepingCapacity: true) // consume — don't re-fire this event
                 Task { @MainActor [weak self] in
                     // Drop a hop enqueued before end()/a new begin(): its
@@ -105,6 +114,16 @@ final class CrashDetectionService: ObservableObject {
                     // the trip it belonged to has ended.
                     guard let self, self.monitorGeneration == generation,
                           self.state == .idle else { return }
+                    // The g-force only opened the question. A crash also
+                    // means a road-speed vehicle ON A ROAD suddenly stopped —
+                    // the motion evidence (MainActor state) decides.
+                    let motion = self.motionEvidence()
+                    guard CrashLogic.isCrash(CrashLogic.ImpactEvidence(
+                        window: snapshot,
+                        speedBeforeMps: motion.speedBeforeMps,
+                        speedAfterMps: motion.speedAfterMps,
+                        metersFromRoad: motion.metersFromRoad))
+                    else { return }
                     self.impactDetected()
                 }
             }
