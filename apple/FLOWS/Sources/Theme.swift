@@ -56,6 +56,42 @@ extension View {
     func floatingCard() -> some View { modifier(FloatingCard()) }
 }
 
+/// A fixed point size that STILL grows with the text-size setting.
+///
+/// `.font(.system(size: 14))` is frozen: it ignores Dynamic Type and the
+/// in-app text-size slider entirely. That silently broke the promise the
+/// slider makes — nearly half the app's type never moved. `@ScaledMetric`
+/// scales the point size the same way body text scales, so the HUD keeps
+/// its exact tuned proportions at the default size and actually enlarges
+/// for a driver who needs it. The root `.dynamicTypeSize(...)` clamp still
+/// caps how far it can go, so text can't outgrow its card.
+private struct ScaledFont: ViewModifier {
+    @ScaledMetric private var size: CGFloat
+    private let weight: Font.Weight
+    private let design: Font.Design
+
+    init(size: CGFloat, weight: Font.Weight, design: Font.Design,
+         relativeTo style: Font.TextStyle) {
+        _size = ScaledMetric(wrappedValue: size, relativeTo: style)
+        self.weight = weight
+        self.design = design
+    }
+
+    func body(content: Content) -> some View {
+        content.font(.system(size: size, weight: weight, design: design))
+    }
+}
+
+extension View {
+    /// Drop-in replacement for `.font(.system(size:weight:))` that scales.
+    func scaledFont(size: CGFloat, weight: Font.Weight = .regular,
+                    design: Font.Design = .default,
+                    relativeTo style: Font.TextStyle = .body) -> some View {
+        modifier(ScaledFont(size: size, weight: weight, design: design,
+                            relativeTo: style))
+    }
+}
+
 /// THE band→color mapping — review finding: three drifting copies existed,
 /// one of which used `== .blue` as a "clear band" sentinel.
 extension RiskBand {

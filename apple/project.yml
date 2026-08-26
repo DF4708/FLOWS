@@ -68,11 +68,14 @@ targets:
           FLOWS shows Apple Music playback controls while navigating in
           CarPlay.
         NSMicrophoneUsageDescription: >-
-          After a suspected crash, FLOWS listens for your spoken reply to
-          "do you need assistance?" so help can be summoned hands-free.
+          When FLOWS asks a question out loud — a crash check-in, or a
+          faster-route offer — it listens briefly for your spoken yes-or-no
+          reply; the mic buttons listen for what to play (a music ask, a
+          radio station). Nothing records outside those short moments.
         NSSpeechRecognitionUsageDescription: >-
-          Crash check-in understands "yes" / "I'm okay" spoken answers so an
-          injured driver doesn't have to reach the screen.
+          Understands short spoken answers ("yes", "no", "I'm okay") and
+          asks ("classic country", "the weather radio") to crash check-ins,
+          route questions, and the music and radio mic buttons.
         NSMotionUsageDescription: >-
           Crash detection watches for sudden impacts while navigating.
         NSBluetoothAlwaysUsageDescription: >-
@@ -87,6 +90,10 @@ targets:
               - flows
         UIBackgroundModes:
           - location
+          # Radio (NOAA relays + AM/FM streams) must keep playing with the
+          # screen locked or the app backgrounded — without this mode iOS
+          # silences AVPlayer the moment the app leaves the foreground.
+          - audio
         # CarPlay map scene — activates only when the CarPlay entitlement
         # (com.apple.developer.carplay-maps) is granted by Apple.
         UIApplicationSceneManifest:
@@ -283,6 +290,18 @@ targets:
         buildPhase: resources
       - path: FLOWS/Sources/Core/AdaptiveTuning.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
+      - path: FLOWS/Sources/Core/TruckerRadio.swift
+      - path: FLOWS/Sources/Core/RadioBrowser.swift
+      - path: FLOWS/Sources/Core/MusicController.swift
+      - path: FLOWS/Sources/Core/SpotifyRemote.swift
+      - path: FLOWS/Sources/Core/SiriSummaries.swift
+      - path: FLOWS/Sources/Core/VoiceReply.swift
+      - path: FLOWS/Sources/Core/TextScale.swift
+      - path: FLOWS/Sources/Core/IntentClarifier.swift
+      - path: FLOWS/Sources/Core/PlaybackFallback.swift
+      - path: FLOWS/Sources/Core/PlaybackGrace.swift
+      - path: FLOWS/Sources/Core/BufferLearning.swift
+      - path: FLOWS/Sources/Core/SignalQuality.swift
       - path: FLOWS/Sources/Core/FlowsDiag.swift
       - path: FLOWS/Sources/Core/SecureBehaviorStore.swift
       - path: FLOWS/Sources/Core/RouteHeadTrainer.swift

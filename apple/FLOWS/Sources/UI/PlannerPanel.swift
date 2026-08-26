@@ -54,7 +54,7 @@ struct PlannerPanel: View {
                 }
             }
             Text("Where to?")
-                .font(.system(size: 15, weight: .bold))
+                .scaledFont(size: 15, weight: .bold)
                 .onChange(of: model.plannerDestination) { _, text in
                     destSearch.update(fragment: text, near: model.location.coordinate)
                 }
@@ -94,7 +94,7 @@ struct PlannerPanel: View {
             HStack(spacing: 6) {
                 TextField("Address, place, city, or ZIP", text: $model.plannerDestination)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 16))
+                    .scaledFont(size: 16)
                     .frame(minHeight: Theme.tapMinimum)
                     .padding(.horizontal, 14)
                     .background(Color.black.opacity(0.04))
@@ -127,12 +127,14 @@ struct PlannerPanel: View {
                     }
                 } label: {
                     Image(systemName: destinationIsFavorite ? "star.fill" : "star")
-                        .font(.system(size: 20, weight: .semibold))
+                        .scaledFont(size: 20, weight: .semibold)
                         .foregroundStyle(destinationIsFavorite ? Color.yellow : Color.secondary)
                         .frame(width: 56, height: Theme.tapMinimum)
                         .background(Color.black.opacity(0.04))
                         .clipShape(Capsule())
                 }
+                .accessibilityLabel(destinationIsFavorite
+                                    ? "Saved as a favorite" : "Save as a favorite")
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .disabled(model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -156,6 +158,11 @@ struct PlannerPanel: View {
                 Image(systemName: usingGPSSource ? "location.fill" : "mappin.circle")
                     .font(.footnote)
                     .foregroundStyle(usingGPSSource ? .blue : .secondary)
+                    // The icon carries the GPS-vs-manual distinction that
+                    // the text alone leaves to color.
+                    .accessibilityLabel(usingGPSSource
+                                        ? "Starting from your location"
+                                        : "Starting from a typed place")
                 Text(sourceRowText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -175,7 +182,7 @@ struct PlannerPanel: View {
                 // style had a near-unclickable hit target on macOS.
                 TextField("Start address, place, city, or ZIP", text: $model.plannerSource)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 16))
+                    .scaledFont(size: 16)
                     .frame(minHeight: Theme.tapMinimum)
                     .padding(.horizontal, 14)
                     .background(Color.black.opacity(0.04))
@@ -247,23 +254,23 @@ struct PlannerPanel: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: icon(for: sug.kind))
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                             .foregroundStyle(sug.kind == .completion ? Color.secondary : Theme.cta)
                             .frame(width: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(sug.title)
-                                .font(.system(size: 14, weight: .semibold))
+                                .scaledFont(size: 14, weight: .semibold)
                                 .foregroundStyle(.primary)
                             if !sug.subtitle.isEmpty {
                                 Text(sug.subtitle)
-                                    .font(.system(size: 11))
+                                    .scaledFont(size: 11)
                                     .foregroundStyle(.secondary)
                             }
                         }
                         Spacer(minLength: 4)
                         if let meters = sug.distanceMeters {
                             Text(Self.milesText(meters))
-                                .font(.system(size: 11, weight: .semibold))
+                                .scaledFont(size: 11, weight: .semibold)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -370,7 +377,7 @@ struct PlannerPanel: View {
             }
         } label: {
             Label(fav.name, systemImage: fav.symbol.systemImage)
-                .font(.system(size: 13, weight: .semibold))
+                .scaledFont(size: 13, weight: .semibold)
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 34)

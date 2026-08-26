@@ -18,12 +18,18 @@ struct NavigationHUD: View {
     @EnvironmentObject private var model: AppModel
     let isCompact: Bool
     @State private var escalationPulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @Environment(\.openURL) private var openURL
     @StateObject private var music = MusicController.shared
+    /// Spotify Web API remote (token-gated) — observed here for the plain-
+    /// words status line in the music menu.
+    @StateObject private var spotify = SpotifyRemote.shared
     /// Radio card visibility (trucker radio in trucker mode, emergency
     /// radio otherwise — same card, same relays).
     @State private var showRadio = false
+    /// AM/FM search field text (radio-browser.info directory).
+    @State private var stationSearch = ""
     /// Long-trip share banner: recipient list expanded / contacts sheet up.
     @State private var showShareChooser = false
     @State private var showShareContactPicker = false
@@ -31,6 +37,9 @@ struct NavigationHUD: View {
     @AppStorage("flows.radioChannel") private var radioChannelID = ""
     /// Quick music menu (resume / station / genres) visibility.
     @State private var showMusicMenu = false
+    /// In-app mic states (music ask / radio ask) — "Listening…" feedback.
+    @State private var musicMicListening = false
+    @State private var radioMicListening = false
     /// Live-economy inputs, fed by GPS fixes: current speed and a lightly
     /// smoothed acceleration (single-fix speed noise would flicker the bar).
     @State private var liveMph: Double = 0
@@ -277,12 +286,12 @@ struct NavigationHUD: View {
                 Text(electric
                      ? String(format: "%.1f mi/kWh", economy)
                      : String(format: "%.0f MPG", economy))
-                    .font(.system(size: 12, weight: .bold))
+                    .scaledFont(size: 12, weight: .bold)
                     .monospacedDigit()
             }
             if let range = vehicle.expectedRangeMiles {
                 Text(String(format: "~%.0f mi left", range))
-                    .font(.system(size: 10, weight: .semibold))
+                    .scaledFont(size: 10, weight: .semibold)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
@@ -304,7 +313,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What kind of food?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -320,7 +329,7 @@ struct NavigationHUD: View {
                         }
                     } label: {
                         Text(category.rawValue)
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(Color.black.opacity(0.05))
@@ -340,7 +349,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What kind of store?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -356,7 +365,7 @@ struct NavigationHUD: View {
                         }
                     } label: {
                         Label(category.rawValue, systemImage: category.symbol)
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(Color.black.opacity(0.05))
@@ -376,7 +385,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What does this vehicle take?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -391,7 +400,7 @@ struct NavigationHUD: View {
                         }
                     } label: {
                         Label(fuel.rawValue, systemImage: fuel.symbol)
-                            .font(.system(size: 14, weight: .semibold))
+                            .scaledFont(size: 14, weight: .semibold)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                             .background(Color.black.opacity(0.05))
                             .clipShape(Capsule())
@@ -413,7 +422,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(listTitle)
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -475,7 +484,7 @@ struct NavigationHUD: View {
         return HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(ranked.item.name ?? "Stop")
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(String(format: "in %.0f mi", max(ranked.aheadMeters, 0) / 1609.344))
@@ -536,37 +545,37 @@ struct NavigationHUD: View {
                        ranked.isLivePrice, let mx = ranked.pricePerUnit {
                         // CRE feed: this station's real posted price, MXN/L.
                         Text(String(format: "MX$%.2f", mx))
-                            .font(.system(size: 19, weight: .heavy, design: .rounded))
+                            .scaledFont(size: 19, weight: .heavy, design: .rounded)
                             .monospacedDigit()
                             .foregroundStyle(Theme.cta)
                         Text("/L · official (CRE)")
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(size: 9, weight: .semibold)
                             .foregroundStyle(.secondary)
                     } else if model.poi.activeKind == .gas, !ranked.isLivePrice {
                         Text(ranked.pricePerUnit.map {
                             String(format: "~$%.2f est.", $0) }
                             ?? (model.tomtomAPIKey.isEmpty ? "add TomTom key" : "$ —"))
-                            .font(.system(size: 10, weight: .semibold))
+                            .scaledFont(size: 10, weight: .semibold)
                             .foregroundStyle(.secondary)
                     } else if model.poi.activeKind == .hotel, ranked.pricePerUnit == nil {
                         // No live nightly: a tier-anchored typical rate,
                         // clearly an estimate — never a blank "$ —".
                         Text(String(format: "~$%.0f est.",
                                     RatingsAndCost.estimatedNightly(costTier: ranked.costTier)))
-                            .font(.system(size: 10, weight: .semibold))
+                            .scaledFont(size: 10, weight: .semibold)
                             .foregroundStyle(.secondary)
                         Text("per night")
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(size: 9, weight: .semibold)
                             .foregroundStyle(.secondary)
                     } else {
                         Text(ranked.pricePerUnit.map { String(format: "$%.2f", $0) } ?? "$ —")
-                            .font(.system(size: 19, weight: .heavy, design: .rounded))
+                            .scaledFont(size: 19, weight: .heavy, design: .rounded)
                             .monospacedDigit()
                             .foregroundStyle(ranked.pricePerUnit == nil ? Color.secondary : Theme.cta)
                         Text(model.poi.activeKind == .gas
                              ? (model.poi.fuelType == .electric ? "/kWh" : "/gal")
                              : "per night")
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(size: 9, weight: .semibold)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -575,7 +584,7 @@ struct NavigationHUD: View {
             Button("Add stop") {
                 Task { await model.addStop(ranked.item) }
             }
-            .font(.system(size: 13, weight: .heavy))
+            .scaledFont(size: 13, weight: .heavy)
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .frame(minHeight: 32)
@@ -594,18 +603,18 @@ struct NavigationHUD: View {
     private func arrivedBanner(_ name: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 28))
+                .scaledFont(size: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Arrived")
-                    .font(.system(size: 15, weight: .semibold))
+                    .scaledFont(size: 15, weight: .semibold)
                     .opacity(0.85)
                 Text(name)
-                    .font(.system(size: 19, weight: .bold))
+                    .scaledFont(size: 19, weight: .bold)
                     .lineLimit(1)
             }
             Spacer()
             Button("Done") { model.endNavigation() }
-                .font(.system(size: 15, weight: .heavy))
+                .scaledFont(size: 15, weight: .heavy)
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
                 .frame(minHeight: Theme.tapMinimum)
@@ -648,7 +657,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Long trip — share your route with someone?",
                   systemImage: "paperplane.fill")
-                .font(.system(size: 15, weight: .bold))
+                .scaledFont(size: 15, weight: .bold)
             if let shareErrorText {
                 Text(shareErrorText)
                     .font(.footnote.weight(.semibold))
@@ -662,14 +671,14 @@ struct NavigationHUD: View {
                 HStack(spacing: 8) {
                     Spacer()
                     Button("Not now") { model.tripSharePrompt = false }
-                        .font(.system(size: 15, weight: .bold))
+                        .scaledFont(size: 15, weight: .bold)
                         .buttonStyle(.plain)
                         .padding(.horizontal, 16)
                         .frame(minHeight: Theme.tapMinimum)   // HIG driving target
                         .background(Color.white.opacity(0.25))
                         .clipShape(Capsule())
                     Button("Share") { startShare() }
-                        .font(.system(size: 15, weight: .heavy))
+                        .scaledFont(size: 15, weight: .heavy)
                         .buttonStyle(.plain)
                         .padding(.horizontal, 18)
                         .frame(minHeight: Theme.tapMinimum)
@@ -716,13 +725,13 @@ struct NavigationHUD: View {
                 Button { sendShare(name: person.name, phone: person.phone) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: index == 0 ? "star.fill" : "person.fill")
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                         Text(person.name)
-                            .font(.system(size: 14, weight: .semibold))
+                            .scaledFont(size: 14, weight: .semibold)
                             .lineLimit(1)
                         Spacer()
                         Text("Text")
-                            .font(.system(size: 13, weight: .heavy))
+                            .scaledFont(size: 13, weight: .heavy)
                             .padding(.horizontal, 12)
                             .frame(minHeight: 30)
                             .background(Color.white)
@@ -738,7 +747,7 @@ struct NavigationHUD: View {
             }
             #if os(iOS)
             Button("Someone else") { showShareContactPicker = true }
-                .font(.system(size: 14, weight: .bold))
+                .scaledFont(size: 14, weight: .bold)
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, minHeight: 34)
                 .background(Color.white.opacity(0.25))
@@ -770,18 +779,18 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             Label {
                 Text(escalation.headline)
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                     .lineLimit(2)
             } icon: {
                 Image(systemName: "exclamationmark.octagon.fill")
-                    .font(.system(size: 20))
+                    .scaledFont(size: 20)
             }
             HStack(spacing: 8) {
                 Text("Risk on this route has risen to \(FlowsCore.riskBand(score: escalation.newRisk).rawValue).")
                     .font(.footnote)
                 Spacer()
                 Button("Continue") { model.dismissEscalation() }
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .frame(minHeight: Theme.tapMinimum)   // HIG driving target
@@ -790,7 +799,7 @@ struct NavigationHUD: View {
                 Button("Reroute") {
                     Task { await model.approveEscalationReroute() }
                 }
-                .font(.system(size: 15, weight: .heavy))
+                .scaledFont(size: 15, weight: .heavy)
                 .buttonStyle(.plain)
                 .padding(.horizontal, 18)
                 .frame(minHeight: Theme.tapMinimum)
@@ -809,8 +818,14 @@ struct NavigationHUD: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+            // Reduce Motion (and photosensitivity): hold the banner at its
+            // strong opacity instead of flashing it.
+            if reduceMotion {
                 escalationPulse = true
+            } else {
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    escalationPulse = true
+                }
             }
         }
         .onDisappear { escalationPulse = false }
@@ -946,7 +961,7 @@ struct NavigationHUD: View {
                 if let g = model.navigation.guidance {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(etaText(model.adjustedRemainingTime(g.remainingTime)))
-                            .font(.system(size: 17, weight: .bold))
+                            .scaledFont(size: 17, weight: .bold)
                         Text(distanceText(g.remainingDistance))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -954,7 +969,7 @@ struct NavigationHUD: View {
                 } else if let route = model.navigation.route {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(etaText(model.adjustedRemainingTime(route.eta)))
-                            .font(.system(size: 17, weight: .bold))
+                            .scaledFont(size: 17, weight: .bold)
                         Text(distanceText(route.distanceMeters))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -972,7 +987,7 @@ struct NavigationHUD: View {
                         model.recenterRequested = true
                     } label: {
                         Image(systemName: "location.fill")
-                            .font(.system(size: 14, weight: .semibold))
+                            .scaledFont(size: 14, weight: .semibold)
                             .frame(width: 38, height: 38)
                             .background(Color.black.opacity(0.06))
                             .clipShape(Circle())
@@ -988,7 +1003,7 @@ struct NavigationHUD: View {
                     model.showTowingCard.toggle()
                 } label: {
                     Image(systemName: "link.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                         .frame(width: 38, height: 38)
                         .background(model.towingActive ? Color.brown : Color.black.opacity(0.06))
                         .foregroundStyle(model.towingActive ? .white : .primary)
@@ -1001,7 +1016,7 @@ struct NavigationHUD: View {
                     if !showRadio { model.radio.stop() }
                 } label: {
                     Image(systemName: "radio.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                         .frame(width: 38, height: 38)
                         .background(showRadio ? Color.brown : Color.black.opacity(0.06))
                         .foregroundStyle(showRadio ? .white : .primary)
@@ -1009,6 +1024,7 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
                 .help(model.truckerUI ? "Trucker radio" : "Emergency radio")
+                .accessibilityLabel(model.truckerUI ? "Trucker radio" : "Emergency radio")
                 SettingsGear()
                 Button("End") { model.endNavigation() }
                     .buttonStyle(PillCTAStyle())
@@ -1059,13 +1075,16 @@ struct NavigationHUD: View {
                         } else {
                             VStack(spacing: 3) {
                                 Text(kind.rawValue)
-                                    .font(.system(size: 10, weight: .bold))
+                                    .scaledFont(size: 10, weight: .bold)
                                     .lineLimit(1)
                                     .fixedSize()
                                 icon(for: kind)
                             }
                         }
                     }
+                    // The icon-only variant loses its text — VoiceOver
+                    // must not lose the button's name with it.
+                    .accessibilityLabel("Find \(kind.rawValue)")
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .frame(minHeight: 46)
@@ -1132,7 +1151,7 @@ struct NavigationHUD: View {
             HStack {
                 Label(model.truckerUI ? "Trucker radio" : "Emergency radio",
                       systemImage: "radio.fill")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button {
                     showRadio = false
@@ -1141,6 +1160,7 @@ struct NavigationHUD: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close the radio")
             }
             // NOAA Weather Radio: ONE dynamically-tuned relay — defaults to the
             // transmitter closest to the GPS position and auto-switches as you
@@ -1164,10 +1184,12 @@ struct NavigationHUD: View {
                 } label: {
                     Image(systemName: model.radio.playingChannelID != nil
                           ? "stop.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 28))
+                        .scaledFont(size: 28)
                         .foregroundStyle(Color.brown)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(model.radio.playingChannelID != nil
+                    ? "Stop the radio" : "Play the weather radio")
             }
             .onAppear { preselectNearestStation() }
             .onChange(of: model.currentStateCode) { _, _ in preselectNearestStation() }
@@ -1202,13 +1224,15 @@ struct NavigationHUD: View {
                         } label: {
                             Image(systemName: model.radio.playingChannelID == stream.id
                                   ? "stop.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 20))
+                                .scaledFont(size: 20)
                                 .foregroundStyle(Color.brown)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(model.radio.playingChannelID == stream.id
+                            ? "Stop \(channel)" : "Play \(channel)")
                     } else {
                         Image(systemName: "play.slash")
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                             .foregroundStyle(.tertiary)
                             .help("No internet relay exists for this channel — tune it on a car radio")
                     }
@@ -1224,9 +1248,169 @@ struct NavigationHUD: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            Divider()
+            // AM/FM: the community radio-browser.info directory, searched by
+            // the state the vehicle is in (or any word). Streams are https
+            // internet relays and play through the same player as NOAA.
+            Text("AM/FM stations")
+                .font(.caption.weight(.bold))
+                .onAppear {
+                    guard model.radioBrowser.stations.isEmpty else { return }
+                    let code = model.currentStateCode
+                    Task { await model.radioBrowser.searchNearby(stateCode: code) }
+                }
+            HStack(spacing: 6) {
+                TextField("Search by name or genre", text: $stationSearch)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.caption)
+                    .onSubmit {
+                        let query = stationSearch
+                        Task { await model.radioBrowser.search(text: query) }
+                    }
+                Button("Near me") {
+                    stationSearch = ""
+                    let code = model.currentStateCode
+                    Task { await model.radioBrowser.searchNearby(stateCode: code) }
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.blue)
+                // Spoken station pick: "weather radio", "KMFA", "bluegrass".
+                Button {
+                    guard !radioMicListening else { return }
+                    radioMicListening = true
+                    VoiceReply.shared.listenForDictation { transcript in
+                        radioMicListening = false
+                        guard let transcript else { return }
+                        stationSearch = transcript
+                        model.playRadioAsk(transcript)
+                    }
+                } label: {
+                    Image(systemName: radioMicListening ? "waveform" : "mic.fill")
+                        .scaledFont(size: 14, weight: .semibold)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+                .accessibilityLabel(radioMicListening
+                    ? "Listening" : "Say a station or genre")
+            }
+            if let note = model.radioBrowser.status {
+                Text(note).font(.caption2).foregroundStyle(.secondary)
+            }
+            if !model.radioBrowser.stations.isEmpty {
+                // Bounded list: the card floats over the map with no outer
+                // scroll, so the stations scroll INSIDE their own strip.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(model.radioBrowser.stations.prefix(30)) { station in
+                            amfmStationRow(station)
+                        }
+                    }
+                }
+                .frame(maxHeight: isCompact ? 132 : 168)
+                Text("Station list: radio-browser.info, a community "
+                     + "directory. Stations play as internet streams.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+            // Scanner: Broadcastify allows no keyless in-app streams, so
+            // this links OUT to their own web player (feeds near the
+            // driver, located by the browser).
+            HStack(alignment: .center, spacing: 6) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Scanner — police, fire, EMS")
+                        .font(.caption.weight(.bold))
+                    Text("Opens Broadcastify's own web player with feeds near you.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                // "Near me" asks the browser for location once; the state
+                // list is the no-prompt alternative (tap your county there).
+                if let code = model.currentStateCode,
+                   let stateURL = ScannerLinks.stateFeedsURL(stateCode: code) {
+                    Button {
+                        openURL(stateURL)
+                    } label: {
+                        Text("\(code) list")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.blue)
+                }
+                Button {
+                    openURL(ScannerLinks.broadcastifyNearMe)
+                } label: {
+                    Label("Near me", systemImage: "arrow.up.forward.app")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
+            HStack(alignment: .center, spacing: 6) {
+                Text("Recordings (a few minutes behind): OpenMHz, a "
+                     + "volunteer archive of dispatch radio.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    openURL(ScannerLinks.openMHz)
+                } label: {
+                    Text("Open")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
+            Text("Scanner listening rules differ by state — where it isn't "
+                 + "allowed while driving, listen only when parked.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
         .floatingCard()
         .frame(maxWidth: isCompact ? .infinity : 640)
+    }
+
+    /// One AM/FM search result: name + genre words, and the same brown
+    /// play/stop control as the relay rows.
+    private func amfmStationRow(_ station: RadioBrowser.Station) -> some View {
+        HStack(alignment: .center, spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(station.name)
+                    .font(.caption2.weight(.semibold))
+                    .lineLimit(1)
+                if !station.genre.isEmpty {
+                    Text(station.genre)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Button {
+                if model.radio.playingChannelID == station.channel.id {
+                    model.radio.stop()
+                } else {
+                    // The visible list IS the queue — next/previous (and
+                    // the mini player's skip button) walk these stations.
+                    let channels = model.radioBrowser.stations.map(\.channel)
+                    let start = channels.firstIndex { $0.id == station.channel.id } ?? 0
+                    model.radio.playQueue(
+                        channels,
+                        label: stationSearch.isEmpty ? "these stations" : stationSearch,
+                        startAt: start)
+                }
+            } label: {
+                Image(systemName: model.radio.playingChannelID == station.channel.id
+                      ? "stop.circle.fill" : "play.circle.fill")
+                    .scaledFont(size: 20)
+                    .foregroundStyle(Color.brown)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(model.radio.playingChannelID == station.channel.id
+                ? "Stop \(station.name)" : "Play \(station.name)")
+        }
     }
 
     @ViewBuilder
@@ -1239,7 +1423,7 @@ struct NavigationHUD: View {
             BenchIcon(size: 16)   // the actual park bench
         } else {
             Image(systemName: kind.symbol)
-                .font(.system(size: 15, weight: .semibold))
+                .scaledFont(size: 15, weight: .semibold)
         }
     }
 
@@ -1305,10 +1489,13 @@ struct NavigationHUD: View {
         HStack(spacing: 4) {
             // Album art (real artwork on iOS; placeholder tile on macOS,
             // track name in the tooltip). Tapping opens the quick music
-            // menu — resume, station, genres.
-            Button { showMusicMenu.toggle() } label: {
+            // menu — its rows match what the picked service can actually
+            // do (in-place transport, or deep links into its own app).
+            Button {
+                showMusicMenu.toggle()
+            } label: {
                 Group {
-                    if model.musicProvider.controllable, let art = music.artwork {
+                    if model.musicControllable, let art = music.artwork {
                         Image(decorative: art, scale: 1)
                             .resizable()
                             .scaledToFill()
@@ -1316,25 +1503,29 @@ struct NavigationHUD: View {
                         // The active SERVICE, visibly: a brand-colored
                         // monogram (logos need each service's asset license).
                         Text(model.musicProvider.monogram)
-                            .font(.system(size: 14, weight: .heavy))
+                            .scaledFont(size: 14, weight: .heavy)
                             .foregroundStyle(.white)
                     }
                 }
                 .frame(width: 30, height: 30)
-                .background(model.musicProvider.controllable && music.artwork != nil
+                .background(model.musicControllable && music.artwork != nil
                             ? Color.black.opacity(0.08)
                             : model.musicProvider.badgeColor)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
             .help(music.trackName.isEmpty ? model.musicProvider.rawValue : music.trackName)
-            if model.musicProvider.controllable {
+            .accessibilityLabel(model.musicControllable
+                ? "Music menu — \(music.trackName.isEmpty ? model.musicProvider.displayName : music.trackName)"
+                : "Open \(model.musicProvider.displayName)")
+            if model.musicControllable {
             Button { music.back() } label: {
                 Image(systemName: "backward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }
             .buttonStyle(.plain)
             .help("Previous track")
+            .accessibilityLabel("Previous track")
             // Shows PAUSE while playing (press to stop), PLAY while paused.
             Button { model.playMusic() } label: {
                 Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
@@ -1342,6 +1533,7 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help(music.isPlaying ? "Pause" : "Play")
+            .accessibilityLabel(music.isPlaying ? "Pause" : "Play")
             } else {
             // HONEST CONTROLS: this service can't be driven from inside
             // FLOWS on this platform (it needs the service's own kit and
@@ -1357,14 +1549,18 @@ struct NavigationHUD: View {
             .buttonStyle(.plain)
             .help("Playback controls live in \(model.musicProvider.rawValue)")
             }
-            if model.musicProvider.controllable {
+            if model.musicControllable {
             Button { music.skip() } label: {
                 Image(systemName: "forward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }
             .buttonStyle(.plain)
-            .help("Next track")
-            // Cycles shuffle → in order → loop.
+            .help(model.musicProvider == .radio ? "Next station" : "Next track")
+            .accessibilityLabel(model.musicProvider == .radio
+                                ? "Next station" : "Next track")
+            // Cycles shuffle → in order → loop. Live radio has no play
+            // order, so the button doesn't appear for it.
+            if model.musicProvider != .radio {
             Button { music.cyclePlayOrder() } label: {
                 Image(systemName: music.playOrder.symbol)
                     .frame(width: 30, height: Theme.tapMinimum)
@@ -1372,9 +1568,11 @@ struct NavigationHUD: View {
             }
             .buttonStyle(.plain)
             .help("Play order: \(music.playOrder.rawValue)")
+            .accessibilityLabel("Play order: \(music.playOrder.rawValue)")
+            }
             }
         }
-        .font(.system(size: 14, weight: .semibold))
+        .scaledFont(size: 14, weight: .semibold)
         .padding(.horizontal, 4)
         .background(Color.black.opacity(0.06))
         .clipShape(Capsule())
@@ -1386,43 +1584,139 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("Music", systemImage: "music.note")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { showMusicMenu = false } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
             }
-            musicMenuRow("Recently played", symbol: "clock.arrow.circlepath",
-                         detail: "Keep playing your last songs") {
-                music.resumeRecent()
+            // FLOWS's own mic — no "Hey Siri" needed: say a genre, artist,
+            // or mood and it routes through the picked service (catalog
+            // play, Spotify remote, or the service's own search).
+            Button {
+                guard !musicMicListening else { return }
+                musicMicListening = true
+                VoiceReply.shared.listenForDictation { transcript in
+                    musicMicListening = false
+                    guard let transcript else { return }
+                    model.playMusicAsk(transcript)
+                    showMusicMenu = false
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: musicMicListening ? "waveform" : "mic.fill")
+                        .scaledFont(size: 14, weight: .semibold)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(musicMicListening ? "Listening…" : "Say what to play")
+                            .scaledFont(size: 13, weight: .semibold)
+                        Text("Genre, artist, or mood — through \(model.musicProvider.displayName)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .frame(minHeight: 38)
+                .frame(maxWidth: .infinity)
+                .background(Color.black.opacity(0.05))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-            musicMenuRow("My station", symbol: "dot.radiowaves.left.and.right",
-                         detail: "Your own song mix") {
-                music.playMyStation()
+            .buttonStyle(.plain)
+            .accessibilityLabel(musicMicListening ? "Listening" : "Say what to play")
+            // Per-service rows — what THIS provider can actually do.
+            if model.musicProvider == .radio {
+                musicMenuRow("Stations near you",
+                             symbol: "antenna.radiowaves.left.and.right",
+                             detail: "What's on the air around here") {
+                    model.playMusic()
+                }
+                if !model.radio.queueLabel.isEmpty, model.radio.queue.count > 1 {
+                    Text("\(model.radio.queueLabel.capitalized) — station "
+                         + "\(model.radio.queueIndex + 1) of \(model.radio.queue.count). "
+                         + "Next plays another one.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            } else if !model.musicControllable {
+                // No control API exists for this service — one honest row
+                // into its own app (the genre chips below deep-link there).
+                musicMenuRow("Open \(model.musicProvider.displayName)",
+                             symbol: "arrow.up.forward.app",
+                             detail: "Playback controls live there") {
+                    model.musicProvider.openApp()
+                }
+            } else if model.musicProvider == .spotify {
+                // Spotify's remote has no library/genre queries — one
+                // honest resume row, plus its plain-words status line.
+                if let note = spotify.status {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
+                musicMenuRow("Keep playing", symbol: "clock.arrow.circlepath",
+                             detail: "Pick up where Spotify left off") {
+                    music.resumeRecent()
+                }
+            } else {
+                musicMenuRow("Recently played", symbol: "clock.arrow.circlepath",
+                             detail: "Keep playing your last songs") {
+                    music.resumeRecent()
+                }
+                musicMenuRow("My station", symbol: "dot.radiowaves.left.and.right",
+                             detail: "Your own song mix") {
+                    music.playMyStation()
+                }
             }
+            // Genres, for EVERY provider — one router decides what a genre
+            // MEANS for the picked service: radio tunes a station of that
+            // kind, Apple Music plays it, a linked Spotify searches and
+            // starts it, and a no-API service opens at its own search.
             VStack(alignment: .leading, spacing: 4) {
                 Text("Genres").font(.caption.weight(.bold)).foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     ForEach(MusicController.genreRows, id: \.self) { genre in
                         Button {
-                            music.playGenre(genre)
+                            model.playMusicAsk(genre)
                             showMusicMenu = false
                         } label: {
                             Text(genre)
-                                .font(.system(size: 12, weight: .semibold))
+                                .scaledFont(size: 12, weight: .semibold)
                                 .padding(.horizontal, 10)
                                 .frame(minHeight: 30)
                                 .background(Color.black.opacity(0.05))
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            "Play \(genre) on \(model.musicProvider.displayName)")
                     }
                 }
+                Text(genreDestinationNote)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if let tip = model.musicProvider.siriPlaybackTip {
+                Text("Voice tip: \"\(tip)\"")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .floatingCard()
         .frame(maxWidth: isCompact ? .infinity : 380)
+    }
+
+    /// Where a genre chip actually takes the driver, in plain words.
+    private var genreDestinationNote: String {
+        switch model.musicProvider {
+        case .radio:
+            return "A genre tunes a station of that kind — next moves to another."
+        case .appleMusic:
+            return "A genre plays from Apple Music."
+        case .spotify where model.musicControllable:
+            return "A genre searches Spotify and starts it."
+        default:
+            return "A genre opens \(model.musicProvider.displayName)'s own search."
+        }
     }
 
     /// First play press: ask which service the driver uses, once. The pick
@@ -1432,7 +1726,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What do you play music with?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.showMusicProviderPrompt = false } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -1446,7 +1740,7 @@ struct NavigationHUD: View {
                         model.chooseMusicProvider(provider)
                     } label: {
                         Label(provider.displayName, systemImage: provider.symbol)
-                            .font(.system(size: 12, weight: .semibold))
+                            .scaledFont(size: 12, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(provider == .appleMusic
@@ -1457,8 +1751,11 @@ struct NavigationHUD: View {
                     .buttonStyle(.plain)
                 }
             }
-            Text("Apple Music plays right here in FLOWS. Other apps open in "
-                 + "their own app. Change it anytime under ⚙ Settings.")
+            Text("Apple Music plays right here in FLOWS. Spotify can too — "
+                 + "on iPhone add a Spotify token (⚙ Settings → Data "
+                 + "sources). No other music service lets outside apps "
+                 + "control it, so the rest open in their own app. Change "
+                 + "your pick anytime under ⚙ Settings.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -1474,10 +1771,10 @@ struct NavigationHUD: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(.system(size: 13, weight: .semibold))
+                    Text(title).scaledFont(size: 13, weight: .semibold)
                     Text(detail).font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
