@@ -8,6 +8,7 @@
 
 import AppIntents
 import Foundation
+import MapKit
 
 /// Siri control for hands-free driving: the music buttons and the POI quick
 /// actions become App Intents — "Hey Siri, skip track in FLOWS", "find diesel
@@ -30,24 +31,27 @@ private func musicHandsOffDialog() -> IntentDialog {
         "\(provider.displayName) can only be controlled in its own app.")
 }
 
-struct PlayPauseMusicIntent: AppIntent {
-    static let title: LocalizedStringResource = "Play or pause music"
-    static let description = IntentDescription("Toggles music playback while navigating.")
+/// One music intent, four spoken actions — App Shortcuts are capped at 10
+/// per app, and the route/radio/voice-approval intents need the slots.
+enum MusicActionOption: String, AppEnum {
+    case play = "Play"
+    case pause = "Pause"
+    case skip = "Skip"
+    case shuffle = "Shuffle"
 
-    @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let music = MusicController.shared
-        guard music.controlsInPlace else {
-            return .result(dialog: musicHandsOffDialog())
-        }
-        music.playPause()
-        return .result(dialog: music.isPlaying ? "Playing." : "Paused.")
-    }
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Music action")
+    static let caseDisplayRepresentations: [MusicActionOption: DisplayRepresentation] = [
+        .play: "Play", .pause: "Pause", .skip: "Skip", .shuffle: "Shuffle",
+    ]
 }
 
-struct SkipTrackIntent: AppIntent {
-    static let title: LocalizedStringResource = "Skip track"
-    static let description = IntentDescription("Skips to the next song.")
+struct MusicControlIntent: AppIntent {
+    static let title: LocalizedStringResource = "Control music"
+    static let description = IntentDescription(
+        "Plays, pauses, skips, or shuffles music while navigating.")
+
+    @Parameter(title: "Action")
+    var action: MusicActionOption
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
@@ -55,23 +59,20 @@ struct SkipTrackIntent: AppIntent {
         guard music.controlsInPlace else {
             return .result(dialog: musicHandsOffDialog())
         }
-        music.skip()
-        return .result(dialog: "Skipped.")
-    }
-}
-
-struct ToggleShuffleIntent: AppIntent {
-    static let title: LocalizedStringResource = "Toggle shuffle"
-    static let description = IntentDescription("Turns music shuffle on or off.")
-
-    @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let music = MusicController.shared
-        guard music.controlsInPlace else {
-            return .result(dialog: musicHandsOffDialog())
+        switch action {
+        case .play:
+            if !music.isPlaying { music.playPause() }
+            return .result(dialog: "Playing.")
+        case .pause:
+            if music.isPlaying { music.playPause() }
+            return .result(dialog: "Paused.")
+        case .skip:
+            music.skip()
+            return .result(dialog: "Skipped.")
+        case .shuffle:
+            music.toggleShuffle()
+            return .result(dialog: music.shuffleOn ? "Shuffle on." : "Shuffle off.")
         }
-        music.toggleShuffle()
-        return .result(dialog: music.shuffleOn ? "Shuffle on." : "Shuffle off.")
     }
 }
 
@@ -296,83 +297,217 @@ struct RouteAheadIntent: AppIntent {
 
 // MARK: radio ("play the weather radio")
 
-struct PlayWeatherRadioIntent: AppIntent {
-    static let title: LocalizedStringResource = "Play the weather radio"
-    static let description = IntentDescription(
-        "Tunes the NOAA weather radio station closest to you.")
+/// One radio intent, three spoken actions — each case's display text IS
+/// the natural phrase ("Play the weather radio in FLOWS", "Stop the radio
+/// in FLOWS") via the parameterized shortcut phrase.
+enum RadioActionOption: String, AppEnum {
+    case weatherRadio = "Play the weather radio"
+    case station = "Play a radio station"
+    case off = "Stop the radio"
 
-    @MainActor
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let model = AppModel.shared else {
-            return .result(dialog: "Open FLOWS first.")
-        }
-        let channel = model.effectivePosition
-            .flatMap { model.radio.nearestChannel(to: $0)?.channel }
-            ?? model.radio.nearestChannel(stateCode: model.currentStateCode)
-        guard let channel else {
-            return .result(dialog: "No weather stations loaded yet. Try again in a moment.")
-        }
-        model.radio.play(channel)
-        return .result(dialog: IntentDialog("Playing \(channel.name)."))
-    }
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Radio action")
+    static let caseDisplayRepresentations: [RadioActionOption: DisplayRepresentation] = [
+        .weatherRadio: "Play the weather radio",
+        .station: "Play a radio station",
+        .off: "Stop the radio",
+    ]
 }
 
-struct PlayStationIntent: AppIntent {
-    static let title: LocalizedStringResource = "Play a radio station"
+struct RadioControlIntent: AppIntent {
+    static let title: LocalizedStringResource = "Control the radio"
     static let description = IntentDescription(
-        "Finds an AM/FM internet stream by name or genre and plays it.")
+        "Tunes the nearest NOAA weather radio, plays an AM/FM stream by name or genre, or stops the radio.")
+
+    @Parameter(title: "Action")
+    var action: RadioActionOption
 
     @Parameter(title: "Station or genre",
                requestValueDialog: "What station or kind of music?")
-    var station: String
+    var station: String?
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let model = AppModel.shared else {
             return .result(dialog: "Open FLOWS first.")
         }
-        await model.radioBrowser.search(text: station)
-        guard let top = model.radioBrowser.stations.first else {
-            return .result(dialog: IntentDialog("No station found for \(station)."))
+        switch action {
+        case .weatherRadio:
+            let channel = model.effectivePosition
+                .flatMap { model.radio.nearestChannel(to: $0)?.channel }
+                ?? model.radio.nearestChannel(stateCode: model.currentStateCode)
+            guard let channel else {
+                return .result(dialog: "No weather stations loaded yet. Try again in a moment.")
+            }
+            model.radio.play(channel)
+            return .result(dialog: IntentDialog("Playing \(channel.name)."))
+        case .station:
+            var term = station ?? ""
+            if term.isEmpty {
+                let asked: String? = try await $station.requestValue(
+                    "What station or kind of music?")
+                term = asked ?? ""
+            }
+            guard !term.isEmpty else {
+                return .result(dialog: "Tell me a station name or a kind of music.")
+            }
+            await model.radioBrowser.search(text: term)
+            guard let top = model.radioBrowser.stations.first else {
+                return .result(dialog: IntentDialog("No station found for \(term)."))
+            }
+            model.radio.play(top.channel)
+            return .result(dialog: IntentDialog("Playing \(top.name)."))
+        case .off:
+            model.radio.stop()
+            return .result(dialog: "Radio stopped.")
         }
-        model.radio.play(top.channel)
-        return .result(dialog: IntentDialog("Playing \(top.name)."))
     }
 }
 
-struct StopRadioIntent: AppIntent {
-    static let title: LocalizedStringResource = "Stop the radio"
-    static let description = IntentDescription("Stops radio playback.")
+// MARK: voice approval ("go ahead") + faster route + trip start
+
+struct TakeFasterRouteIntent: AppIntent {
+    static let title: LocalizedStringResource = "Take the faster route"
+    static let description = IntentDescription(
+        "Accepts the faster route FLOWS offered around traffic.")
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let model = AppModel.shared else {
             return .result(dialog: "Open FLOWS first.")
         }
-        model.radio.stop()
-        return .result(dialog: "Radio stopped.")
+        guard model.mode == .navigating else {
+            return .result(dialog: "Start a route first.")
+        }
+        guard model.trafficDelayMinutes != nil else {
+            return .result(dialog:
+                "No faster route on offer right now — I'll speak up when one appears.")
+        }
+        await model.rerouteForTraffic()
+        return .result(dialog: "Rerouting around the traffic.")
+    }
+}
+
+/// The universal spoken YES: whatever FLOWS last offered out loud — a
+/// faster route, a voice-planned trip — "go ahead in FLOWS" accepts it.
+struct GoAheadIntent: AppIntent {
+    static let title: LocalizedStringResource = "Go ahead"
+    static let description = IntentDescription(
+        "Accepts what FLOWS just offered — a faster route or a planned trip.")
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let model = AppModel.shared else {
+            return .result(dialog: "Open FLOWS first.")
+        }
+        switch model.pendingVoiceOffer {
+        case .trip(let route, let name):
+            model.select(route: route)
+            return .result(dialog: IntentDialog("Starting to \(name)."))
+        case .fasterRoute:
+            model.pendingVoiceOffer = nil
+            await model.rerouteForTraffic()
+            return .result(dialog: "Rerouting around the traffic.")
+        case nil:
+            return .result(dialog: "Nothing is waiting for a yes right now.")
+        }
+    }
+}
+
+struct StartTripIntent: AppIntent {
+    static let title: LocalizedStringResource = "Start a trip"
+    static let description = IntentDescription(
+        "Plans a route to a spoken destination; say go ahead to start driving it.")
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Destination", requestValueDialog: "Where to?")
+    var destination: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let model = AppModel.shared else {
+            return .result(dialog: "Open FLOWS first.")
+        }
+        guard let from = model.effectivePosition else {
+            return .result(dialog: "I need a location fix first — open FLOWS.")
+        }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = destination
+        request.region = MKCoordinateRegion(
+            center: from,
+            latitudinalMeters: 400_000, longitudinalMeters: 400_000)
+        let hits = (try? await MKLocalSearch(request: request).start())?.mapItems ?? []
+        guard let place = hits.first else {
+            return .result(dialog: IntentDialog("Couldn't find \(destination)."))
+        }
+        let name = place.name ?? destination
+        guard let routes = try? await model.plan(
+                from: from, fromName: "Current location",
+                to: place.placemark.coordinate, toName: name),
+              let best = routes.first else {
+            return .result(dialog: IntentDialog("No route found to \(name)."))
+        }
+        // The route CHOICES show on screen (risk colors and all); the spoken
+        // yes starts the first one. Nothing drives until the driver approves.
+        model.routeChoices = routes
+        model.pendingVoiceOffer = .trip(route: best, name: name)
+        let summary = "Route to \(name): about "
+            + SiriSummaries.spokenMiles(meters: best.distanceMeters) + " and "
+            + SiriSummaries.spokenTime(seconds: best.eta)
+            + ". Say: go ahead in FLOWS — or pick a route on screen."
+        return .result(dialog: IntentDialog("\(summary)"))
+    }
+}
+
+// MARK: emergency readout ("read the alert")
+
+struct ReadAlertIntent: AppIntent {
+    static let title: LocalizedStringResource = "Read the emergency alert"
+    static let description = IntentDescription(
+        "Reads the emergency or weather alert on your route out loud.")
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let model = AppModel.shared else {
+            return .result(dialog: "Open FLOWS first.")
+        }
+        if let warning = model.imminentWarning {
+            var text = SiriSummaries.emergencyAnnouncement(
+                event: warning.event, headline: warning.headline,
+                action: warning.action)
+            if let detail = warning.detail, !detail.isEmpty {
+                let clipped = SiriSummaries.spokenClip(detail, limit: 300)
+                text += " " + clipped + (clipped.hasSuffix(".") ? "" : ".")
+            }
+            return .result(dialog: IntentDialog("\(text)"))
+        }
+        let headlines = model.alerts.activeHeadlines
+        guard !headlines.isEmpty else {
+            return .result(dialog: "No emergency alerts on your route right now.")
+        }
+        let spoken = headlines.prefix(2)
+            .map { SiriSummaries.spokenClip($0) }
+            .joined(separator: ". ")
+        return .result(dialog: IntentDialog("On your route: \(spoken)."))
     }
 }
 
 struct FLOWSShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+        // Apple caps App Shortcuts at 10 per app — every slot below earns
+        // its place, and music/radio ride ONE parameterized slot each.
         AppShortcut(
-            intent: PlayPauseMusicIntent(),
-            phrases: ["Play music in \(.applicationName)",
-                      "Pause music in \(.applicationName)"],
-            shortTitle: "Play/Pause",
+            intent: MusicControlIntent(),
+            phrases: ["\(\.$action) music in \(.applicationName)",
+                      "\(\.$action) the music in \(.applicationName)"],
+            shortTitle: "Music",
             systemImageName: "playpause.fill")
+        // Case display text IS the phrase: "Play the weather radio in
+        // FLOWS", "Play a radio station in FLOWS", "Stop the radio in FLOWS".
         AppShortcut(
-            intent: SkipTrackIntent(),
-            phrases: ["Skip track in \(.applicationName)",
-                      "Next song in \(.applicationName)"],
-            shortTitle: "Skip",
-            systemImageName: "forward.fill")
-        AppShortcut(
-            intent: ToggleShuffleIntent(),
-            phrases: ["Toggle shuffle in \(.applicationName)"],
-            shortTitle: "Shuffle",
-            systemImageName: "shuffle")
+            intent: RadioControlIntent(),
+            phrases: ["\(\.$action) in \(.applicationName)"],
+            shortTitle: "Radio",
+            systemImageName: "radio.fill")
         // The \(\.$kind) phrases put every stop kind in Siri's vocabulary:
         // "find showers in FLOWS", "find truck parking in FLOWS".
         AppShortcut(
@@ -412,24 +547,33 @@ struct FLOWSShortcuts: AppShortcutsProvider {
             shortTitle: "Road ahead",
             systemImageName: "road.lanes")
         AppShortcut(
-            intent: PlayWeatherRadioIntent(),
-            phrases: ["Play the weather radio in \(.applicationName)",
-                      "Play weather radio in \(.applicationName)",
-                      "Turn on the weather radio in \(.applicationName)"],
-            shortTitle: "Weather radio",
-            systemImageName: "radio.fill")
+            intent: TakeFasterRouteIntent(),
+            phrases: ["Take the faster route in \(.applicationName)",
+                      "Take the fast route in \(.applicationName)",
+                      "Yes take the faster route in \(.applicationName)"],
+            shortTitle: "Faster route",
+            systemImageName: "arrow.triangle.swap")
         AppShortcut(
-            intent: PlayStationIntent(),
-            phrases: ["Play a radio station in \(.applicationName)",
-                      "Play some radio in \(.applicationName)",
-                      "Play AM FM radio in \(.applicationName)"],
-            shortTitle: "Play a station",
-            systemImageName: "antenna.radiowaves.left.and.right")
+            intent: GoAheadIntent(),
+            phrases: ["Go ahead in \(.applicationName)",
+                      "Yes go ahead in \(.applicationName)",
+                      "Do it in \(.applicationName)"],
+            shortTitle: "Go ahead",
+            systemImageName: "checkmark.circle.fill")
         AppShortcut(
-            intent: StopRadioIntent(),
-            phrases: ["Stop the radio in \(.applicationName)",
-                      "Turn off the radio in \(.applicationName)"],
-            shortTitle: "Stop radio",
-            systemImageName: "stop.circle")
+            intent: StartTripIntent(),
+            phrases: ["Start a trip in \(.applicationName)",
+                      "Navigate in \(.applicationName)",
+                      "Plan a route in \(.applicationName)",
+                      "Take me somewhere in \(.applicationName)"],
+            shortTitle: "Start a trip",
+            systemImageName: "map.fill")
+        AppShortcut(
+            intent: ReadAlertIntent(),
+            phrases: ["Read the alert in \(.applicationName)",
+                      "Read the emergency alert in \(.applicationName)",
+                      "What's the alert in \(.applicationName)"],
+            shortTitle: "Read the alert",
+            systemImageName: "exclamationmark.triangle.fill")
     }
 }

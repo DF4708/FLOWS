@@ -37,15 +37,31 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         // silently played Apple Music over the driver's pick were the
         // dishonest-controls bug, for every streaming option alike.
         let music = MusicController.shared
+        var buttons: [CPBarButton] = []
         if music.controlsInPlace {
-            let playPause = CPBarButton(title: "⏯") { _ in
+            buttons.append(CPBarButton(title: "⏯") { _ in
                 Task { @MainActor in MusicController.shared.playPause() }
-            }
-            let next = CPBarButton(title: "⏭") { _ in
+            })
+            buttons.append(CPBarButton(title: "⏭") { _ in
                 Task { @MainActor in MusicController.shared.skip() }
-            }
-            map.trailingNavigationBarButtons = [playPause, next]
+            })
         }
+        // Weather radio on the car screen: tunes the nearest NOAA relay,
+        // press again to stop. Audio already routes through the car (the
+        // app's background-audio session); this button is the control.
+        buttons.append(CPBarButton(title: "WX") { _ in
+            Task { @MainActor in
+                guard let model = AppModel.shared else { return }
+                if model.radio.playingChannelID != nil {
+                    model.radio.stop()
+                } else if let channel = model.effectivePosition
+                    .flatMap({ model.radio.nearestChannel(to: $0)?.channel })
+                    ?? model.radio.nearestChannel(stateCode: model.currentStateCode) {
+                    model.radio.play(channel)
+                }
+            }
+        })
+        map.trailingNavigationBarButtons = buttons
 
         self.mapTemplate = map
         interfaceController.setRootTemplate(map, animated: true, completion: nil)

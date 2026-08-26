@@ -1961,6 +1961,9 @@ struct SettingsSheet: View {
             Toggle(isOn: $model.notifyTraffic) {
                 Text("Traffic delay chips").font(.caption)
             }
+            Toggle(isOn: $model.voiceAlerts) {
+                Text("Speak alerts and faster-route offers out loud").font(.caption)
+            }
             Toggle(isOn: $model.notifyFuel) {
                 Text("Fuel range reminders + refuel check-ins").font(.caption)
             }

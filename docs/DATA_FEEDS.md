@@ -566,6 +566,26 @@ must not be used while driving where prohibited. Two links are offered:
 prompt) and the driver's state directory (`/listen/stid/<FIPS>`, no
 prompt — the county is one tap inside).
 
+**OpenMHz** (openmhz.com) rides along as a third, clearly-labeled link:
+volunteer captures of trunked public-safety systems — RECORDINGS a few
+minutes behind, not live audio. Its API sits behind a bot check (probe:
+curl gets a challenge page), so in-app wiring fails the keyless-verified
+bar; the link-out passes the check in a real browser.
+
+### Hands-free voice loop (2026-08)
+
+Siri cannot start a conversation on its own, so FLOWS speaks FIRST
+through its own voice (`VoiceAnnouncer`, AVSpeechSynthesizer over the
+car's audio route; music/radio duck): a fresh faster-route offer, and
+each imminent warning entering the corridor — AMBER included, with the
+call-911 line. The driver answers through Siri: **"go ahead in FLOWS"**
+accepts whatever was just offered (faster route, or a voice-planned trip
+staged by "start a trip in FLOWS" — route choices land on screen, and
+NOTHING drives until the spoken yes). "Read the alert in FLOWS" reads the
+full official text back on demand. Announcement wording is pure
+(`SiriSummaries`) and pinned by tests; a Settings toggle silences the
+voice without losing any screen behavior.
+
 ### Spotify remote — optional user token (the Yelp/TomTom pattern)
 
 True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client

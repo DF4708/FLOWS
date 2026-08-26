@@ -45,6 +45,54 @@ enum SiriSummaries {
         return "Added \(name), about \(spokenMiles(meters: meters)) ahead. Directions updated."
     }
 
+    /// Clip long official text at a sentence edge for speech — CAP
+    /// headlines can run paragraphs, and a spoken wall of text is
+    /// unusable at 70 mph.
+    static func spokenClip(_ text: String, limit: Int = 220) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > limit else { return trimmed }
+        let head = String(trimmed.prefix(limit))
+        if let sentence = head.range(of: ". ", options: .backwards) {
+            return String(head[..<sentence.lowerBound]) + "."
+        }
+        if let space = head.range(of: " ", options: .backwards) {
+            return String(head[..<space.lowerBound])
+        }
+        return head
+    }
+
+    /// Spoken offer when traffic opens a faster route — ends by naming the
+    /// exact phrase that accepts it, so approval stays fully hands-free.
+    static func fasterRouteOffer(minutes: Int) -> String {
+        "Traffic ahead adds about \(minutes) minute\(minutes == 1 ? "" : "s"). "
+            + "A faster route is ready — say: go ahead in FLOWS."
+    }
+
+    /// Spoken emergency announcement when a warning enters the corridor.
+    /// Child-abduction (AMBER) alerts get the emergency framing and the
+    /// call-911 line; weather warnings get the action FLOWS already took.
+    static func emergencyAnnouncement(event: String, headline: String?,
+                                      action: ImminentAlerts.Action) -> String {
+        let isAbduction = event.localizedCaseInsensitiveContains("child abduction")
+            || event.localizedCaseInsensitiveContains("amber")
+        var out = (isAbduction ? "Emergency alert: " : "Weather alert on your route: ")
+            + event + "."
+        if let headline, !headline.isEmpty {
+            let clipped = spokenClip(headline)
+            out += " " + clipped + (clipped.hasSuffix(".") ? "" : ".")
+        }
+        if isAbduction {
+            out += " If you see them, call 911 — do not approach."
+        } else {
+            switch action {
+            case .shelter: out += " FLOWS is showing shelter options."
+            case .restArea: out += " Consider waiting it out at a rest area."
+            case .monitor: out += " Check the FLOWS screen when it's safe."
+            }
+        }
+        return out
+    }
+
     /// Hours-of-service line for the road-ahead reply (trucker mode):
     /// nil while the clock is fine, one plain sentence once it isn't.
     static func hosLine(_ status: HOSRules.Status) -> String? {

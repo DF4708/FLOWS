@@ -1282,6 +1282,21 @@ struct NavigationHUD: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
             }
+            HStack(alignment: .center, spacing: 6) {
+                Text("Recordings (a few minutes behind): OpenMHz, a "
+                     + "volunteer archive of dispatch radio.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    openURL(ScannerLinks.openMHz)
+                } label: {
+                    Text("Open")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
             Text("Scanner listening rules differ by state — where it isn't "
                  + "allowed while driving, listen only when parked.")
                 .font(.caption2)

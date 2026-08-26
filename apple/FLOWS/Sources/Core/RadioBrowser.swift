@@ -256,6 +256,13 @@ enum ScannerLinks {
     static let broadcastifyNearMe =
         URL(string: "https://www.broadcastify.com/listen/near/")!
 
+    /// OpenMHz — volunteer captures of trunked public-safety systems,
+    /// RECORDINGS with a few minutes' delay (not live like Broadcastify).
+    /// Their site sits behind a bot check (curl gets a challenge page), so
+    /// the API can't be wired keylessly — link-out only, and the row says
+    /// it's recordings.
+    static let openMHz = URL(string: "https://openmhz.com/systems")!
+
     /// The state's own feed directory (driver taps their county there).
     static func stateFeedsURL(stateCode: String) -> URL? {
         let fips: [String: Int] = [

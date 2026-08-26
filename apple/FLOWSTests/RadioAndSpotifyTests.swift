@@ -154,6 +154,52 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertNil(ScannerLinks.stateFeedsURL(stateCode: ""))
     }
 
+    // MARK: Siri spoken announcements
+
+    func testSpokenClipCutsAtSentenceEdges() {
+        XCTAssertEqual(SiriSummaries.spokenClip("Short."), "Short.")
+        let sentences = "First sentence here. "
+            + String(repeating: "second part goes on ", count: 30)
+        XCTAssertEqual(SiriSummaries.spokenClip(sentences), "First sentence here.")
+        let noPeriods = String(repeating: "word ", count: 60)
+        XCTAssertLessThanOrEqual(SiriSummaries.spokenClip(noPeriods).count, 220)
+    }
+
+    func testFasterRouteOfferNamesTheApprovalPhrase() {
+        XCTAssertEqual(
+            SiriSummaries.fasterRouteOffer(minutes: 12),
+            "Traffic ahead adds about 12 minutes. "
+            + "A faster route is ready — say: go ahead in FLOWS.")
+        XCTAssertTrue(SiriSummaries.fasterRouteOffer(minutes: 1)
+            .contains("about 1 minute."))
+    }
+
+    func testEmergencyAnnouncementFramesAmberAndWeatherDifferently() {
+        let amber = SiriSummaries.emergencyAnnouncement(
+            event: "Child Abduction Emergency",
+            headline: "AMBER Alert: red pickup northbound", action: .monitor)
+        XCTAssertTrue(amber.hasPrefix("Emergency alert: Child Abduction Emergency."))
+        XCTAssertTrue(amber.contains("AMBER Alert: red pickup northbound."))
+        XCTAssertTrue(amber.hasSuffix("call 911 — do not approach."))
+        XCTAssertEqual(
+            SiriSummaries.emergencyAnnouncement(
+                event: "Tornado Warning",
+                headline: "Tornado Warning until 5 PM.", action: .shelter),
+            "Weather alert on your route: Tornado Warning. "
+            + "Tornado Warning until 5 PM. FLOWS is showing shelter options.")
+        XCTAssertTrue(SiriSummaries.emergencyAnnouncement(
+            event: "High Wind Warning", headline: nil, action: .restArea)
+            .hasSuffix("rest area."))
+        XCTAssertTrue(SiriSummaries.emergencyAnnouncement(
+            event: "Wind Advisory", headline: nil, action: .monitor)
+            .hasSuffix("when it's safe."))
+    }
+
+    func testOpenMHzLinkIsHTTPS() {
+        XCTAssertEqual(ScannerLinks.openMHz.scheme, "https")
+        XCTAssertEqual(ScannerLinks.openMHz.host, "openmhz.com")
+    }
+
     // MARK: Siri hours-of-service line
 
     func testHOSLineSpeaksOnlyWhenTheClockMatters() {

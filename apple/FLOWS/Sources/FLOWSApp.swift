@@ -309,6 +309,17 @@ final class AppModel: ObservableObject {
     @Published var notifyTraffic = UserDefaults.standard.object(forKey: "flows.notifyTraffic") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyTraffic, forKey: "flows.notifyTraffic") }
     }
+
+    /// Speak faster-route offers and corridor warnings out loud — the
+    /// hands-free loop: FLOWS announces, the driver answers by voice
+    /// ("go ahead in FLOWS"). Off = screen-only, same features.
+    @Published var voiceAlerts =
+        UserDefaults.standard.object(forKey: "flows.voiceAlerts") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(voiceAlerts, forKey: "flows.voiceAlerts")
+            VoiceAnnouncer.shared.enabled = voiceAlerts
+        }
+    }
     @Published var notifyFuel = UserDefaults.standard.object(forKey: "flows.notifyFuel") as? Bool ?? true {
         didSet { UserDefaults.standard.set(notifyFuel, forKey: "flows.notifyFuel") }
     }
@@ -628,7 +639,26 @@ final class AppModel: ObservableObject {
                 && lhs.incidentCoordinate?.longitude == rhs.incidentCoordinate?.longitude
         }
     }
-    @Published var imminentWarning: ImminentWarning?
+    @Published var imminentWarning: ImminentWarning? {
+        didSet {
+            // Speak each NEW warning once (never re-announce the same alert
+            // as its distance/reach fields refresh) — the hands-free half of
+            // the imminent banner, AMBER alerts included.
+            guard let warning = imminentWarning,
+                  warning.alertID != oldValue?.alertID else { return }
+            VoiceAnnouncer.shared.announce(SiriSummaries.emergencyAnnouncement(
+                event: warning.event, headline: warning.headline,
+                action: warning.action))
+        }
+    }
+
+    /// What FLOWS last offered OUT LOUD and is waiting on a spoken yes
+    /// for — "go ahead in FLOWS" (GoAheadIntent) consumes it.
+    enum VoiceOffer {
+        case trip(route: PlannedRoute, name: String)   // voice trip-start staged
+        case fasterRoute                                // traffic reroute offer
+    }
+    var pendingVoiceOffer: VoiceOffer?
     /// Warnings the driver dismissed — never re-raised for the same alert.
     private var dismissedImminentIDs = Set<String>()
     /// Cached OSM escape speeds per alert (one Overpass probe each).
@@ -996,6 +1026,7 @@ final class AppModel: ObservableObject {
         }
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
         MusicController.shared.provider = musicProvider   // same didSet gap
+        VoiceAnnouncer.shared.enabled = voiceAlerts       // same didSet gap
         vehicle.towingActive = towingActive
         checkTowingSignal()   // and at app start
         // Grade slider default follows the vehicle until the driver moves the
@@ -1898,6 +1929,7 @@ final class AppModel: ObservableObject {
     /// navigation is local and eager (camera follows GPS, updates every fix).
     func select(route: PlannedRoute) {
         routeChoices = []
+        pendingVoiceOffer = nil
         // Remember the trip's true endpoint so added stops can chain back.
         if finalDestination == nil, let end = Self.lastCoordinate(of: route) {
             finalDestination = (end, route.destinationName)
@@ -1930,6 +1962,7 @@ final class AppModel: ObservableObject {
     func endNavigation() {
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
+        pendingVoiceOffer = nil
         walkRefineTask?.cancel()
         walkingRefinedPath = []
         walkRefineAnchor = nil
@@ -2255,8 +2288,19 @@ final class AppModel: ObservableObject {
                 request.departureDate = Date()
                 guard let eta = try? await MKDirections(request: request).calculateETA() else { continue }
                 let delay = (eta.expectedTravelTime - scaledBaseline) / 60
-                self.trafficDelayMinutes = (delay >= 8 && self.notifyTraffic)
+                let newDelay = (delay >= 8 && self.notifyTraffic)
                     ? Int(delay.rounded()) : nil
+                // Announce a FRESH offer once (not every re-measure of the
+                // same jam) and stage it for the spoken "go ahead" yes.
+                if let minutes = newDelay, self.trafficDelayMinutes == nil {
+                    self.pendingVoiceOffer = .fasterRoute
+                    VoiceAnnouncer.shared.announce(
+                        SiriSummaries.fasterRouteOffer(minutes: minutes))
+                } else if newDelay == nil,
+                          case .fasterRoute? = self.pendingVoiceOffer {
+                    self.pendingVoiceOffer = nil   // jam cleared on its own
+                }
+                self.trafficDelayMinutes = newDelay
             }
         }
     }
@@ -2265,6 +2309,7 @@ final class AppModel: ObservableObject {
     func rerouteForTraffic() async {
         guard let fix = location.coordinate, let dest = finalDestination else { return }
         trafficDelayMinutes = nil
+        pendingVoiceOffer = nil
         guard let planned = try? await router.planRoutes(
             from: fix, fromName: "Current location",
             to: dest.coordinate, toName: dest.name),
