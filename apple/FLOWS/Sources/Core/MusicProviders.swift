@@ -189,6 +189,25 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         return URL(string: address)!
     }
 
+    /// Native Siri playback tip — services that ship SiriKit media
+    /// intents answer "Hey Siri, play country on <service>" DIRECTLY, no
+    /// FLOWS in the loop (verified per service, 2026-08 survey, sources
+    /// in DATA_FEEDS §13). nil = no evidence the service supports it, so
+    /// no tip is shown rather than a guess.
+    var siriPlaybackTip: String? {
+        switch self {
+        case .appleMusic: return "Hey Siri, play country music"
+        case .spotify: return "Hey Siri, play country on Spotify"
+        case .youtubeMusic: return "Hey Siri, play country on YouTube Music"
+        case .amazonMusic: return "Hey Siri, play country on Amazon Music"
+        case .pandora: return "Hey Siri, play country on Pandora"
+        case .deezer: return "Hey Siri, play country on Deezer"
+        case .tidal: return "Hey Siri, play country on Tidal"
+        case .iHeartRadio: return "Hey Siri, play country on iHeartRadio"
+        default: return nil
+        }
+    }
+
     /// The service's own search page for a term — the deep-integration
     /// layer that needs NO key and NO SDK: these are https universal
     /// links, so on a phone with the service's app installed the link

@@ -705,6 +705,39 @@ credential-proxy stream servers, DRM circumvention — are ToS violations
 (DMCA §1201 territory where DRM is involved), risk the USER's account,
 and are App Store rejections. FLOWS ships none of them.
 
+#### Voice into the services — three verified routes (2026-08)
+
+1. **Native Siri** — services shipping SiriKit media intents answer
+   "Hey Siri, play country on <service>" DIRECTLY, no FLOWS in the loop.
+   Verified per service: Spotify, Pandora, Amazon Music, Deezer (its own
+   support doc), YouTube Music (iPhone; HomePod added 2023), Tidal
+   (iPhone since 2022), iHeartRadio — plus Apple Music natively. No
+   evidence found for SoundCloud, Qobuz, Gaana, JioSaavn, SiriusXM, or
+   Audible, so those get NO tip rather than a guessed one
+   (`siriPlaybackTip`, pinned to exactly the verified set). The mini
+   player's menu teaches the phrase for the picked service.
+2. **FLOWS voice, in place** — "play something in FLOWS" routes by the
+   picked provider: Apple Music plays the library genre in place;
+   token-linked Spotify SEARCHES the catalog (playlists, the playable
+   context for a genre/mood ask) and STARTS the best hit on the active
+   device (`SpotifyRemote.playSearch` — search + context-play with a
+   JSON body, both request shapes pinned).
+3. **FLOWS voice, deep link** — every no-API service opens directly at
+   its own search for the ask (`openAppWhenRun` foregrounds FLOWS first;
+   iOS forbids deep links from a background intent). The reply says
+   where the driver is being taken — never pretends playback started.
+
+Voice-slot note: this took the tenth App Shortcut slot from
+TakeFasterRouteIntent (still available in the Shortcuts app) — "go ahead
+in FLOWS" and the plain spoken yes already accept faster-route offers.
+
+**Documented next step, not wired:** MusicKit could upgrade Apple Music
+from library-genre playback to FULL CATALOG search-and-play in place
+(ApplicationMusicPlayer; automatic developer tokens for apps with the
+MusicKit app service enabled in the developer portal — a signing/portal
+task, no third-party dependency). Deferred until that portal step is
+wanted.
+
 What every service DOES expose keylessly: its own search pages as https
 universal links — on a phone with the service's app installed, iOS
 routes the link INTO that app at its search results; otherwise the web

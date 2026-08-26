@@ -1563,6 +1563,13 @@ struct NavigationHUD: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+                // Native Siri route, where the service supports it — the
+                // phone can start playback there with no app-hopping.
+                if let tip = model.musicProvider.siriPlaybackTip {
+                    Text("Voice tip: \"\(tip)\" works directly — no FLOWS needed.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             } else if model.musicProvider == .spotify {
                 // Spotify's remote has no library/genre queries — one
                 // honest resume row, plus its plain-words status line.

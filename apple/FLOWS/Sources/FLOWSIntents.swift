@@ -418,6 +418,46 @@ struct RouteAheadIntent: AppIntent {
     }
 }
 
+/// "Play something in FLOWS" — voice-to-music through WHICHEVER service
+/// is picked, each by its honest route: Apple Music plays the library
+/// genre in place (Music's search otherwise), token-linked Spotify
+/// searches the catalog and STARTS the best playlist on the active
+/// device, and every no-API service opens directly at its own search
+/// for the ask (openAppWhenRun makes the hand-off legal — deep links
+/// can't launch from a background intent).
+struct PlayMusicSearchIntent: AppIntent {
+    static let title: LocalizedStringResource = "Play something"
+    static let description = IntentDescription(
+        "Plays a genre, artist, or mood through your picked music service.")
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Music", requestValueDialog: "What do you want to hear?")
+    var music: String
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let model = AppModel.shared else {
+            return .result(dialog: "Open FLOWS first.")
+        }
+        let provider = model.musicProvider
+        if provider == .appleMusic {
+            MusicController.shared.playGenre(music)
+            return .result(dialog: IntentDialog("Playing \(music)."))
+        }
+        if provider == .spotify, SpotifyRemote.shared.linked {
+            if await SpotifyRemote.shared.playSearch(music) {
+                return .result(dialog: IntentDialog("Playing \(music) on Spotify."))
+            }
+            provider.openSearch(query: music)
+            return .result(dialog: IntentDialog(
+                "Opening Spotify's search for \(music)."))
+        }
+        provider.openSearch(query: music)
+        return .result(dialog: IntentDialog(
+            "Opening \(provider.displayName)'s search for \(music)."))
+    }
+}
+
 // MARK: radio ("play the weather radio")
 
 /// One radio intent, three spoken actions — each case's display text IS
@@ -688,13 +728,17 @@ struct FLOWSShortcuts: AppShortcutsProvider {
                       "How much longer in \(.applicationName)"],
             shortTitle: "Road ahead",
             systemImageName: "road.lanes")
+        // TakeFasterRouteIntent keeps working from the Shortcuts app, but
+        // its voice slot went to play-anything: "go ahead in FLOWS" (and
+        // the plain spoken yes) already accept the faster-route offer.
         AppShortcut(
-            intent: TakeFasterRouteIntent(),
-            phrases: ["Take the faster route in \(.applicationName)",
-                      "Take the fast route in \(.applicationName)",
-                      "Yes take the faster route in \(.applicationName)"],
-            shortTitle: "Faster route",
-            systemImageName: "arrow.triangle.swap")
+            intent: PlayMusicSearchIntent(),
+            phrases: ["Play something in \(.applicationName)",
+                      "Play some music in \(.applicationName)",
+                      "Put on music in \(.applicationName)",
+                      "Put something on in \(.applicationName)"],
+            shortTitle: "Play something",
+            systemImageName: "music.note.list")
         AppShortcut(
             intent: GoAheadIntent(),
             phrases: ["Go ahead in \(.applicationName)",

@@ -495,6 +495,60 @@ final class RadioAndSpotifyTests: XCTestCase {
                        "Bearer abc123")
     }
 
+    // MARK: Spotify Web API — voice search-and-play
+
+    func testSearchCallEncodesAndTargetsPlaylists() {
+        let call = SpotifyWebAPI.searchCall(query: "classic country & hits")
+        XCTAssertEqual(call.method, "GET")
+        XCTAssertEqual(call.path,
+                       "/v1/search?q=classic%20country%20%26%20hits&type=playlist&limit=1")
+    }
+
+    func testParsePlaylistContextReadsTheFirstPlaylist() throws {
+        let payload = """
+        {"playlists":{"items":[{"uri":"spotify:playlist:37i9dQ",
+          "name":"Classic Country's Best"}]}}
+        """.data(using: .utf8)!
+        let hit = try XCTUnwrap(SpotifyWebAPI.parsePlaylistContext(payload))
+        XCTAssertEqual(hit.uri, "spotify:playlist:37i9dQ")
+        XCTAssertEqual(hit.name, "Classic Country's Best")
+        XCTAssertNil(SpotifyWebAPI.parsePlaylistContext(
+            Data(#"{"playlists":{"items":[]}}"#.utf8)))
+        XCTAssertNil(SpotifyWebAPI.parsePlaylistContext(Data("x".utf8)))
+    }
+
+    func testURLRequestCarriesAJSONBodyWhenGiven() throws {
+        let body = try JSONSerialization.data(
+            withJSONObject: ["context_uri": "spotify:playlist:abc"])
+        let request = try XCTUnwrap(SpotifyWebAPI.urlRequest(
+            for: SpotifyWebAPI.playPauseCall(isPlaying: false),
+            token: "t", body: body))
+        XCTAssertEqual(request.httpMethod, "PUT")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"),
+                       "application/json")
+        XCTAssertEqual(request.httpBody, body)
+        // No body → no content type, same as before.
+        let bare = try XCTUnwrap(SpotifyWebAPI.urlRequest(
+            for: SpotifyWebAPI.next, token: "t"))
+        XCTAssertNil(bare.value(forHTTPHeaderField: "Content-Type"))
+    }
+
+    // MARK: native Siri playback tips — verified services only
+
+    func testSiriPlaybackTipsExistOnlyForVerifiedServices() {
+        let verified: Set<MusicProvider> = [.appleMusic, .spotify, .youtubeMusic,
+                                            .amazonMusic, .pandora, .deezer,
+                                            .tidal, .iHeartRadio]
+        for provider in MusicProvider.allCases {
+            if verified.contains(provider) {
+                XCTAssertNotNil(provider.siriPlaybackTip, provider.rawValue)
+            } else {
+                // No evidence = no tip — never a guessed voice command.
+                XCTAssertNil(provider.siriPlaybackTip, provider.rawValue)
+            }
+        }
+    }
+
     // MARK: Spotify Web API — player state
 
     func testParsePlayerStateReadsTheFourDisplayedFields() throws {

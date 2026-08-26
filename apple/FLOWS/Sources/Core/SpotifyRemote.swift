@@ -38,12 +38,39 @@ enum SpotifyWebAPI {
         Call(method: "PUT", path: "/v1/me/player/repeat?state=\(all ? "context" : "off")")
     }
 
-    static func urlRequest(for call: Call, token: String) -> URLRequest? {
+    static func urlRequest(for call: Call, token: String,
+                           body: Data? = nil) -> URLRequest? {
         guard let url = URL(string: apiBase + call.path) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = call.method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         return request
+    }
+
+    /// Catalog search, playlists only — a genre/mood ask ("classic
+    /// country") lands on a playable CONTEXT, which is what the play
+    /// endpoint takes.
+    static func searchCall(query: String) -> Call {
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "&=+?")
+        let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
+        return Call(method: "GET", path: "/v1/search?q=\(q)&type=playlist&limit=1")
+    }
+
+    /// Search payload → the first playlist's (uri, name), nil when the
+    /// catalog had nothing playable for the ask.
+    static func parsePlaylistContext(_ data: Data) -> (uri: String, name: String)? {
+        guard let json = try? JSONSerialization.jsonObject(with: data)
+                as? [String: Any],
+              let items = ((json["playlists"] as? [String: Any])?["items"]
+                as? [[String: Any]]),
+              let first = items.first,
+              let uri = first["uri"] as? String, !uri.isEmpty else { return nil }
+        return (uri: uri, name: first["name"] as? String ?? "Spotify")
     }
 
     struct PlayerState: Equatable {
@@ -161,6 +188,39 @@ final class SpotifyRemote: ObservableObject {
         playOrder = order
         send(SpotifyWebAPI.shuffleCall(on: order == .shuffle))
         send(SpotifyWebAPI.repeatCall(all: order == .loop))
+    }
+
+    /// Voice search-and-play ("play classic country in FLOWS"): find the
+    /// best playlist for the ask and start it on the user's active device.
+    /// Returns false — with a plain-words status — when the search missed
+    /// or playback couldn't start, so the caller can fall back honestly.
+    func playSearch(_ query: String) async -> Bool {
+        guard linked,
+              let searchRequest = SpotifyWebAPI.urlRequest(
+                for: SpotifyWebAPI.searchCall(query: query), token: token),
+              let (data, resp) = try? await ThrottledNet.fetch(searchRequest),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let hit = SpotifyWebAPI.parsePlaylistContext(data) else {
+            status = "Couldn't find that on Spotify."
+            return false
+        }
+        let body = try? JSONSerialization.data(
+            withJSONObject: ["context_uri": hit.uri])
+        guard let playRequest = SpotifyWebAPI.urlRequest(
+                for: SpotifyWebAPI.playPauseCall(isPlaying: false),
+                token: token, body: body),
+              let (_, playResp) = try? await ThrottledNet.fetch(playRequest),
+              let code = (playResp as? HTTPURLResponse)?.statusCode,
+              SpotifyWebAPI.plainWords(status: code) == nil else {
+            status = "Open Spotify and play one song first — "
+                + "then the buttons here take over."
+            return false
+        }
+        isPlaying = true
+        trackName = hit.name
+        status = nil
+        refresh(afterSeconds: 0.8)
+        return true
     }
 
     // MARK: - Wire
