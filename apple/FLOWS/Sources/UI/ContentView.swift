@@ -258,9 +258,9 @@ struct ContentView: View {
     /// status bar alone otherwise. Golden steps of the window, like the rest
     /// of the chrome.
     private var compassTopInset: CGFloat {
-        if model.mode == .navigating { return golden.topClear * 3 }
-        if legendHasRoom { return golden.step(1) + golden.topClear }
-        return golden.topClear
+        // Below the banner AND below the speed plate, which shares this
+        // corner while driving.
+        golden.topClear * 3 + golden.iconCircle * 1.5
     }
 
     private var legendHasRoom: Bool {
@@ -1012,6 +1012,30 @@ struct ContentView: View {
                     .stroke(Color.orange.opacity(0.95),
                             style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [8, 6]))
             }
+            // OFFLINE LIFELINE, the other half: the ROAD AHEAD, saved to disk
+            // for trips between towns. With no signal Apple can't route, but
+            // this line already knows the way — so it draws whenever the
+            // network is gone and nothing live is on the map.
+            if model.breadcrumbs.isOffline, model.navigation.route == nil,
+               let here = model.location.coordinate,
+               let saved = model.corridors.nearest(to: here),
+               saved.coordinates.count >= 2 {
+                MapPolyline(coordinates: saved.coordinates)
+                    .stroke(Color.purple.opacity(0.9),
+                            style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [14, 8]))
+                if let end = saved.destination {
+                    Annotation(saved.destinationName, coordinate: end) {
+                        Image(systemName: "flag.checkered")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 30)
+                            .background(Color.purple)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(.white, lineWidth: 2))
+                            .shadow(radius: 3)
+                    }
+                }
+            }
             // Mode-aware "you are here": a simplified vehicle icon at the
             // precise GPS position — car when driving, walker in walking mode,
             // tram/bus when a transit itinerary is active. Rotates with the
@@ -1260,6 +1284,9 @@ struct ContentView: View {
         // status bar otherwise. (MapKit only draws a compass on a rotated
         // map, so in practice this is the driving case.)
         .overlay(alignment: .topLeading) {
+            // Travel only: parked on the planning map it just crowded the
+            // risk key, and a north-up planning map has nothing to report.
+            if model.mode == .navigating {
             MapCompass(scope: mapScope)
                 // Always drawn: the default compass auto-hides at north-up,
                 // and a driver glancing for "which way am I pointed" should
@@ -1268,6 +1295,7 @@ struct ContentView: View {
                 .scaleEffect(1.35)
                 .padding(.top, compassTopInset)
                 .padding(.leading, golden.padCard)
+            }
         }
         // No network: routing can't help, but the breadcrumb trail can. The
         // banner names the situation and offers the way back — the recorded
@@ -2067,6 +2095,8 @@ struct CollapsedPanelTray: View {
         PanelBadge(id: "sliders", symbol: "slider.horizontal.3", name: "Vehicle limits"),
         PanelBadge(id: "stops", symbol: "list.bullet", name: "Stop list"),
         PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
+        PanelBadge(id: "speed", symbol: "speedometer", name: "Speed"),
+        PanelBadge(id: "fuel", symbol: "fuelpump", name: "Fuel gauge"),
     ]
 
     var body: some View {

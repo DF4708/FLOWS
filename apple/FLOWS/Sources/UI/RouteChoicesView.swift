@@ -1189,14 +1189,21 @@ private struct RouteCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 // Profile chips — the web router's fastest/safest/metro triad.
                 HStack(spacing: 5) {
-                    if route.isWalkingEstimate { profileChip("Walking est.", .green) }
-                    if deltaText == "Fastest" { profileChip("Fastest", Theme.cta) }
-                    if isSafest { profileChip("Safest", Theme.riskGreen) }
-                    if isCheapest { profileChip("Cheapest", .orange) }
-                    if isEfficient { profileChip("Efficient", .mint) }
-                    if route.planKind == .avoidHighways { profileChip("Local roads", .blue) }
-                    if route.planKind == .tollFree { profileChip("Toll-free", .teal) }
-                    Spacer()
+                    // The chips a route earned. On a narrow card they scroll
+                    // sideways rather than squeezing each other into
+                    // unreadable slivers.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 5) {
+                            if route.isWalkingEstimate { profileChip("Walking est.", .green) }
+                            if deltaText == "Fastest" { profileChip("Fastest", Theme.cta) }
+                            if isSafest { profileChip("Safest", Theme.riskGreen) }
+                            if isCheapest { profileChip("Cheapest", .orange) }
+                            if isEfficient { profileChip("Efficient", .mint) }
+                            if route.planKind == .avoidHighways { profileChip("Local roads", .blue) }
+                            if route.planKind == .tollFree { profileChip("Toll-free", .teal) }
+                        }
+                    }
+                    Spacer(minLength: 4)
                     // ALWAYS-designated trucker pick: high clearance, gentle
                     // grades, low wind, highways + trucker amenities — the
                     // brown truck sits top-right of its card.
@@ -1511,6 +1518,11 @@ private struct RouteCard: View {
     private func profileChip(_ label: String, _ color: Color) -> some View {
         Text(label)
             .font(.caption2.weight(.heavy))
+            // One line, never hyphenated: a route that wins on every count
+            // wears four of these, and "Cheap-est" across two lines is not
+            // a label anyone can read at a glance.
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(color.opacity(0.14))
@@ -1568,6 +1580,8 @@ private struct RouteCard: View {
             // the whole-route normalized band, peaks can be worse.
             Text(route.riskBand == .clear ? "No risk overall" : "Overall \(route.riskBand.rawValue)")
                 .font(.caption.weight(.bold))
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(badgeColor.opacity(route.riskBand == .clear ? 0.12 : 0.2))

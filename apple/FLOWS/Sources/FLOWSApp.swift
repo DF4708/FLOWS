@@ -86,6 +86,10 @@ final class AppModel: ObservableObject {
     let alerts = WeatherAlertService()
     /// Offline lifeline: GPS breadcrumb trail + network-path monitor.
     let breadcrumbs = BreadcrumbTrail()
+    /// The other half of the offline lifeline: the ROAD AHEAD for trips
+    /// between towns, saved to disk so losing signal (or force-quitting in
+    /// the middle of nowhere) still leaves the way home on screen.
+    let corridors = OfflineCorridorStore()
     let riskField = RiskFieldService()
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
@@ -1031,6 +1035,7 @@ final class AppModel: ObservableObject {
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
             vehicle, radio, vehicleLink, smartcar, crash, breadcrumbs,
+            corridors,
         ]
         for child in children {
             (child.objectWillChange as? ObservableObjectPublisher)?
@@ -1100,6 +1105,9 @@ final class AppModel: ObservableObject {
                 self.updateFuelRecommendation()
                 self.updateFuelWarning()   // last-chance matching-fuel stops
                 self.updatePostedSpeedLimit(fix)   // the HUD speed sign
+                // Saved corridors age out as they stop being useful:
+                // arrived, left far behind, or simply stale.
+                self.corridors.prune(position: fix.coordinate)
                 self.updateDrivingClocks(fix: fix)
                 self.updateSteepGrade()
                 // Towing is live during the trip, not a trip-start snapshot:
@@ -2169,6 +2177,10 @@ final class AppModel: ObservableObject {
         tripShareOffered = false   // new trip → the share banner may show once
         tripSharePrompt = false
         collapsedPanels = []   // the drive starts with its menus in reach
+        // Carry the road ahead offline for trips between towns: if signal
+        // drops (or the app is reopened out in the country), the way onward
+        // is already on disk. Short in-town hops aren't stored.
+        recordOfflineCorridor(for: route)
         mode = .navigating
         startLeg(route)
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
@@ -2177,6 +2189,21 @@ final class AppModel: ObservableObject {
             crash.begin()
             crash.resolveAddress()
         }
+    }
+
+    /// Save the driven route's geometry for offline use when the trip is a
+    /// real between-towns run (CorridorRetention decides). A corridor to the
+    /// same destination replaces the previous one rather than stacking.
+    private func recordOfflineCorridor(for route: PlannedRoute) {
+        let poly = route.route.polyline
+        let n = poly.pointCount
+        guard n > 1 else { return }
+        var coords = [CLLocationCoordinate2D](
+            repeating: kCLLocationCoordinate2DInvalid, count: n)
+        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        corridors.record(coordinates: coords,
+                         destinationName: route.destinationName,
+                         tripMeters: route.distanceMeters)
     }
 
     func endNavigation() {
@@ -2220,6 +2247,7 @@ final class AppModel: ObservableObject {
         tripSharePrompt = false
         tripShareOffered = false
         collapsedPanels = []   // back to planning with nothing tucked away
+        corridors.prune(position: location.coordinate)   // arrived → let it go
         mode = .planning
         watch.sendEnded()
     }

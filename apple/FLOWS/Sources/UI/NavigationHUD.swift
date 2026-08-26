@@ -263,6 +263,7 @@ struct NavigationHUD: View {
     private var showsFuelCluster: Bool {
         model.vehicle.profile != nil
             && model.navigation.route?.isWalkingEstimate != true
+            && !model.collapsedPanels.contains("fuel")
     }
 
     /// Any floating card open above the bottom bar (radio, music, pickers,
@@ -288,7 +289,8 @@ struct NavigationHUD: View {
     /// A driving instrument, so it hides for a walker and for a passenger
     /// on a plane, bus, or train (SpeedSign.shouldShow).
     private var showsSpeedSign: Bool {
-        SpeedSign.shouldShow(
+        !model.collapsedPanels.contains("speed")
+        && SpeedSign.shouldShow(
             isNavigating: model.mode == .navigating,
             isWalking: model.walkingMode
                 || model.navigation.route?.isWalkingEstimate == true,
@@ -342,6 +344,26 @@ struct NavigationHUD: View {
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+        .overlay(alignment: .topTrailing) {
+            minimizeButton("speed", help: "Tuck the speed away")
+                .offset(x: 6, y: -6)
+        }
+    }
+
+    /// The shared X that tucks a driving instrument into the top-right tray.
+    private func minimizeButton(_ id: String, help: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                _ = model.collapsedPanels.insert(id)
+            }
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .background(Circle().fill(Color.white))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     private var fuelCluster: some View {
@@ -371,6 +393,10 @@ struct NavigationHUD: View {
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+        .overlay(alignment: .topTrailing) {
+            minimizeButton("fuel", help: "Tuck the fuel gauge away")
+                .offset(x: 6, y: -6)
+        }
     }
 
     // MARK: food category picker — shown when Food is tapped
