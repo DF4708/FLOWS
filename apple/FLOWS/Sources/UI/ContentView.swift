@@ -817,7 +817,7 @@ struct ContentView: View {
         let rotate = model.mode == .navigating && model.location.course >= 0
             && !cameraFollows
         return Image(systemName: symbol)
-            .font(.system(size: 15, weight: .bold))
+            .scaledFont(size: 15, weight: .bold)
             .foregroundStyle(.white)
             .frame(width: 32, height: 32)
             .background(color.gradient)
@@ -926,7 +926,7 @@ struct ContentView: View {
                         Circle().fill(Theme.riskRed).frame(width: 34, height: 34)
                         Image(systemName: warning.vehicleEntity?.kind.symbol
                               ?? "exclamationmark.octagon.fill")
-                            .font(.system(size: 16, weight: .bold))
+                            .scaledFont(size: 16, weight: .bold)
                             .foregroundStyle(.white)
                     }
                     .overlay(Circle().stroke(.white, lineWidth: 2))
@@ -1082,7 +1082,7 @@ struct ContentView: View {
                     Annotation(ranked.item.name ?? "Stop",
                                coordinate: ranked.item.placemark.coordinate) {
                         Text(String(format: "$%.2f", price))
-                            .font(.system(size: 12, weight: .heavy).monospacedDigit())
+                            .scaledFont(size: 12, weight: .heavy).monospacedDigit()
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
                             .background(ranked.id == model.poi.selected?.id
@@ -1211,7 +1211,7 @@ struct ContentView: View {
             }
         } label: {
             Image(systemName: model.poi.activeKind?.symbol ?? "mappin")
-                .font(.system(size: 13, weight: .bold))
+                .scaledFont(size: 13, weight: .bold)
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
                 .background(isSelected ? Theme.cta : Color.gray)
@@ -1321,7 +1321,7 @@ struct ContentView: View {
             Spacer()
             HStack(spacing: 10) {
                 Image(systemName: info.kind.symbol)
-                    .font(.system(size: 22, weight: .bold))
+                    .scaledFont(size: 22, weight: .bold)
                     .foregroundStyle(.white)
                     .frame(width: 40, height: 40)
                     .background(info.kind.color)
@@ -1329,7 +1329,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text("\(info.kind.name) risk")
-                            .font(.system(size: 15, weight: .bold))
+                            .scaledFont(size: 15, weight: .bold)
                         if let band {
                             Text(band.rawValue)
                                 .font(.caption.weight(.heavy))
@@ -1373,7 +1373,7 @@ struct ContentView: View {
                 Spacer()
                 Button { hazardInfo = nil } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
+                        .scaledFont(size: 18)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -1390,16 +1390,16 @@ struct ContentView: View {
         VStack {
             HStack(spacing: 10) {
                 Image(systemName: "car.fill")
-                    .font(.system(size: 20))
+                    .scaledFont(size: 20)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Add your vehicle")
-                        .font(.system(size: 14, weight: .bold))
+                        .scaledFont(size: 14, weight: .bold)
                     Text("Track range from mpg + tank size + how you drive, and get fuel stops before you need them.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Button("Add vehicle") { model.showVehicleEditor = true }
-                    .font(.system(size: 13, weight: .heavy))
+                    .scaledFont(size: 13, weight: .heavy)
                     .buttonStyle(.plain)
                     .padding(.horizontal, 12)
                     .frame(minHeight: 34)
@@ -1544,7 +1544,7 @@ struct ContentView: View {
                 Label(String(format: "%.0f%%", abs(m.gradePercent)),
                       systemImage: m.gradePercent > 0
                         ? "arrow.up.right" : "arrow.down.right")
-                    .font(.system(size: 10, weight: .heavy))
+                    .scaledFont(size: 10, weight: .heavy)
                     .padding(.horizontal, 6).padding(.vertical, 3)
                     .background(abs(m.gradePercent) >= 9
                                 ? Theme.riskRed : Color.orange)
@@ -1685,7 +1685,7 @@ struct FilterSlidersCard: View {
                                     (model.vehicleHeightFeet + 2).rounded(.down),
                                     ((model.vehicleHeightFeet + 2)
                                      - (model.vehicleHeightFeet + 2).rounded(.down)) * 12))
-                            .font(.system(size: 9))
+                            .scaledFont(size: 9)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -1698,7 +1698,7 @@ struct FilterSlidersCard: View {
                             .font(.caption.weight(.semibold))
                         Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
                         Text("USGS elevation profile must stay under this incline.")
-                            .font(.system(size: 9))
+                            .scaledFont(size: 9)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -1727,12 +1727,12 @@ struct FilterSlidersCard: View {
                             Text(String(format: "Avoiding roads and bridges with "
                                         + "weight signs under %.0f lb "
                                         + "(your vehicle + what you tow).", rig))
-                                .font(.system(size: 9))
+                                .scaledFont(size: 9)
                                 .foregroundStyle(.secondary)
                         } else {
                             Text("Set your weights so routes can be checked "
                                  + "against posted weight signs.")
-                                .font(.system(size: 9))
+                                .scaledFont(size: 9)
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -1761,7 +1761,7 @@ extension FilterSlidersCard {
         let limits = model.filterLimits
         HStack(spacing: 4) {
             Text(r.via.isEmpty ? "Route" : r.via)
-                .font(.system(size: 9, weight: .semibold))
+                .scaledFont(size: 9, weight: .semibold)
                 .lineLimit(1)
             Spacer()
             if model.routeFilters.contains(.mountainGrades) {
@@ -1770,10 +1770,10 @@ extension FilterSlidersCard {
                     Label(String(format: "%.1f°", deg),
                           systemImage: limits.passesGrade(g)
                               ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                        .font(.system(size: 9, weight: .bold))
+                        .scaledFont(size: 9, weight: .bold)
                         .foregroundStyle(limits.passesGrade(g) ? Theme.riskGreen : Theme.riskRed)
                 } else {
-                    Text("grade…").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("grade…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
             }
             if model.routeFilters.contains(.lowBridges) {
@@ -1785,24 +1785,24 @@ extension FilterSlidersCard {
                         return String(format: "%d'%d\"", Int(ft), Int((ft - Double(Int(ft))) * 12))
                     } ?? "no low posts",
                           systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                        .font(.system(size: 9, weight: .bold))
+                        .scaledFont(size: 9, weight: .bold)
                         .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
                 } else {
-                    Text("bridges…").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("bridges…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
             }
             if model.routeFilters.contains(.bridgeWeight) {
                 if limits.rigWeightLbs == nil {
                     // No entered weight → nothing honest to check against.
-                    Text("set weight").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("set weight").scaledFont(size: 9).foregroundStyle(.secondary)
                 } else if let wl = r.weightLimitsLbs {
                     let passes = limits.passesWeightLimits(wl)
                     Label(wl.min().map { String(format: "%.0f lb", $0) } ?? "no weight signs",
                           systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
-                        .font(.system(size: 9, weight: .bold))
+                        .scaledFont(size: 9, weight: .bold)
                         .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
                 } else {
-                    Text("weight…").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("weight…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
             }
         }
@@ -1818,12 +1818,13 @@ struct SettingsGear: View {
             model.showSettings = true
         } label: {
             Image(systemName: "gearshape.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
                 .frame(width: 36, height: 36)
                 .background(Theme.cardBackground)
                 .clipShape(Circle())
                 .shadow(color: Theme.cardShadow, radius: 8, y: 3)
         }
+        .accessibilityLabel("Settings")
         .buttonStyle(.plain)
         .help("Settings")
     }
@@ -1844,7 +1845,7 @@ struct WelcomeCard: View {
             Color.black.opacity(0.45).ignoresSafeArea()
             VStack(alignment: .leading, spacing: 12) {
                 Label("Welcome to FLOWS", systemImage: "cloud.sun.fill")
-                    .font(.system(size: 18, weight: .bold))
+                    .scaledFont(size: 18, weight: .bold)
                 Text("One permission runs the whole app: your location. It "
                      + "powers navigation, the weather-risk map around you, "
                      + "and stops ahead. The phone asks right after this.")
@@ -1865,7 +1866,7 @@ struct WelcomeCard: View {
                     model.completeOnboarding()
                 } label: {
                     Text("Get started")
-                        .font(.system(size: 15, weight: .bold))
+                        .scaledFont(size: 15, weight: .bold)
                         .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                 }
                 .buttonStyle(.borderedProminent)
@@ -1883,7 +1884,7 @@ struct WelcomeCard: View {
     private func permissionRow(_ symbol: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
+                .scaledFont(size: 12, weight: .semibold)
                 .frame(width: 18)
                 .foregroundStyle(.secondary)
             Text(text).font(.caption)
@@ -1917,14 +1918,14 @@ struct SettingsSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Settings")
-                    .font(.system(size: 17, weight: .bold))
+                    .scaledFont(size: 17, weight: .bold)
                 Spacer()
                 Button("Done") { model.showSettings = false }
                     .buttonStyle(PillCTAStyle())
                     .frame(width: 90)
             }
             Text("Fuel type")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Picker("Fuel type", selection: Binding(
                 get: { model.poi.fuelType },
                 set: { model.poi.fuelType = $0 })) {
@@ -1943,7 +1944,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Music")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Picker("Music app", selection: $model.musicProvider) {
                 ForEach(MusicProvider.allCases) { provider in
                     Label(provider.displayName, systemImage: provider.symbol)
@@ -1964,7 +1965,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Vehicle limits")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             HStack {
                 Text(String(format: "Height %.0f'%.0f\"", model.vehicleHeightFeet.rounded(.down),
                             (model.vehicleHeightFeet - model.vehicleHeightFeet.rounded(.down)) * 12))
@@ -1996,7 +1997,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Notifications")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.notifyImminent) {
                 Text("Imminent weather + emergency broadcasts").font(.caption)
             }
@@ -2028,9 +2029,9 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Text size")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             HStack(spacing: 10) {
-                Text("A").font(.system(size: 12, weight: .semibold))
+                Text("A").scaledFont(size: 12, weight: .semibold)
                 Slider(
                     value: Binding(
                         get: {
@@ -2043,7 +2044,7 @@ struct SettingsSheet: View {
                     in: 0...Double(max(model.textSizeMaxIndex, 1)),
                     step: 1)
                     .accessibilityLabel("Text size")
-                Text("A").font(.system(size: 22, weight: .semibold))
+                Text("A").scaledFont(size: 22, weight: .semibold)
             }
             if model.textSizeIndex >= 0 {
                 Button("Match the phone's text size") { model.textSizeIndex = -1 }
@@ -2060,7 +2061,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Accessibility")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.wordFindingHelp) {
                 Text("Word-finding help (on-device)").font(.caption)
             }
@@ -2107,7 +2108,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Emergency")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             HStack(spacing: 8) {
                 TextField("Contact name", text: $model.emergencyContactName)
                     .textFieldStyle(.roundedBorder)
@@ -2138,7 +2139,7 @@ struct SettingsSheet: View {
             Divider()
             Toggle(isOn: $model.truckerUI) {
                 Label("Trucker mode", systemImage: "truck.box.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
             }
             Text("Trucker route designation on the choices screen, plus showers, "
                  + "legal truck parking, truck-friendly motels, diesel-by-cost, "
@@ -2148,7 +2149,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Vehicle")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             HStack(spacing: 8) {
                 if let v = model.vehicle.profile {
                     VStack(alignment: .leading, spacing: 1) {
@@ -2181,7 +2182,7 @@ struct SettingsSheet: View {
             Divider()
             Toggle(isOn: $model.show3DMap) {
                 Label("3D terrain", systemImage: "mountain.2.fill")
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
             }
             Text("Drapes a grade-colored elevation ribbon on the route (from our EPQS road-elevation data) and pitches the camera deeper. Apple's base terrain isn't app-editable, so relief is shown through the ribbon + grade markers, not by bending the map.")
                 .font(.caption2)
@@ -2189,7 +2190,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Trip needs")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.tripNeedsEnabled) {
                 Text("Schedule recurring stops")
                     .font(.caption)
@@ -2232,7 +2233,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Favorites")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             if model.favorites.favorites.isEmpty {
                 Text("Star a destination in the planner to save it here.")
                     .font(.caption)
@@ -2256,7 +2257,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Data sources")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             TextField("Google Places API key (free monthly quota: console.cloud.google.com) — stars + $",
                       text: $model.googlePlacesAPIKey)
                 .textFieldStyle(.roundedBorder)
@@ -2321,7 +2322,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Connected vehicle (cloud — Smartcar)")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             HStack(spacing: 8) {
                 TextField("Client ID", text: Binding(
                     get: { model.smartcar.clientID },
@@ -2353,7 +2354,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Vehicle link (Bluetooth)")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: Binding(
                 get: { model.vehicleLink.scanning },
                 set: {
@@ -2381,7 +2382,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Data sources & refresh")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Text("Weather alerts: NWS api.weather.gov — live, re-checked every "
                  + "4 min while driving. Risk field: FLOWS 20-year NOAA Storm "
                  + "Events climatology baseline (see generated time in Map Filter). "
@@ -2394,7 +2395,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Your everyday area")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Text(String(format: "Stops you use often within ~%.0f miles of "
                  + "home are remembered on this device for instant results. "
                  + "The area is learned from your trips (20-mile max) and "
@@ -2405,7 +2406,7 @@ struct SettingsSheet: View {
 
             Divider()
             Text("Attribution & licenses")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Text("Places (fuel, food, lodging, medical, transit): Foursquare "
                  + "Open Source Places, © Foursquare Labs, Inc., licensed under "
                  + "Apache License 2.0.\n"
@@ -2469,7 +2470,7 @@ struct SettingsSheet: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.system(size: 13, weight: .semibold))
+            .scaledFont(size: 13, weight: .semibold)
 
             Divider()
 
@@ -2481,24 +2482,36 @@ struct SettingsSheet: View {
                     Text(healthLines.isEmpty
                          ? "No problems recorded — every weather and road source is answering."
                          : healthLines.joined(separator: "\n"))
-                        .font(.system(size: 9, design: .monospaced))
+                        .scaledFont(size: 9, design: .monospaced)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                 }
                 .frame(maxHeight: 150)
-                Button("Copy log") {
-                    let text = healthLines.joined(separator: "\n")
-                    #if os(macOS)
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
-                    #else
-                    UIPasteboard.general.string = text
-                    #endif
+                HStack(spacing: 12) {
+                    Button("Copy log") {
+                        let text = healthLines.joined(separator: "\n")
+                        #if os(macOS)
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                        #else
+                        UIPasteboard.general.string = text
+                        #endif
+                    }
+                    .font(.caption)
+                    // The visible tail is a preview; a trip review wants
+                    // the WHOLE journal, so the files themselves ship out.
+                    ShareLink(items: FlowsDiag.shared.fileURLs) {
+                        Text("Send full log").font(.caption)
+                    }
                 }
-                .font(.caption)
+                Text("After a drive, send the full log to have the music "
+                     + "handoffs, learned buffer times, and any feed "
+                     + "problems reviewed.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            .font(.system(size: 13, weight: .semibold))
-            .task { healthLines = await FlowsDiag.shared.recent(60) }
+            .scaledFont(size: 13, weight: .semibold)
+            .task { healthLines = await FlowsDiag.shared.recent(120) }
         }
         .padding(20)
         }
@@ -2527,14 +2540,14 @@ private struct TripSummaryPill: View {
             Image(systemName: "arrow.triangle.turn.up.right.circle.fill")
                 .foregroundStyle(Theme.cta)
             Text(tripText)
-                .font(.system(size: 13, weight: .semibold))
+                .scaledFont(size: 13, weight: .semibold)
                 .lineLimit(1)
             Button("Edit") {
                 model.routeChoices = []
                 model.highlightedRouteID = nil
                 model.mode = .planning
             }
-            .font(.system(size: 13, weight: .bold))
+            .scaledFont(size: 13, weight: .bold)
             .buttonStyle(.plain)
             .foregroundStyle(.blue)
         }
@@ -2585,13 +2598,21 @@ private struct LegendCard: View {
                             .frame(width: 150, height: 8)
                             .clipShape(Capsule())
                         HStack {
-                            Text("Clear").font(.system(size: 8))
+                            Text("Clear").scaledFont(size: 8)
                             Spacer()
-                            Text("Severe").font(.system(size: 8))
+                            Text("Severe").scaledFont(size: 8)
                         }
                         .frame(width: 150)
                         .foregroundStyle(.secondary)
                     }
+                    // A color ramp says nothing to a screen reader, and
+                    // nothing to a driver who can't separate the hues —
+                    // so the scale is stated in words too.
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Risk scale")
+                    .accessibilityValue("Runs from clear, through green for "
+                                        + "normal and yellow for elevated, to "
+                                        + "red for severe.")
                     if model.showWeatherLayer && model.riskField.loaded {
                         Text("Hazards")
                             .font(.caption2.weight(.bold))
@@ -2601,11 +2622,13 @@ private struct LegendCard: View {
                             ForEach(HazardStyle.legendKinds, id: \.self) { kind in
                                 HStack(spacing: 3) {
                                     Image(systemName: kind.symbol)
-                                        .font(.system(size: 9, weight: .bold))
+                                        .scaledFont(size: 9, weight: .bold)
                                         .foregroundStyle(kind.color)
                                         .frame(width: 12)
-                                    Text(kind.name).font(.system(size: 9))
+                                    Text(kind.name).scaledFont(size: 9)
                                 }
+                                // Icon + name are one idea; read them as one.
+                                .accessibilityElement(children: .combine)
                             }
                         }
                         .frame(width: 165)
@@ -2656,7 +2679,7 @@ struct VehicleEditorSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(model.vehicle.profile == nil ? "Add vehicle" : "Edit vehicle")
-                    .font(.system(size: 17, weight: .bold))
+                    .scaledFont(size: 17, weight: .bold)
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.plain)
@@ -2967,7 +2990,7 @@ struct CrashCheckInCard: View {
             Spacer()
             VStack(alignment: .leading, spacing: 10) {
                 Label("Possible crash detected", systemImage: "car.side.rear.and.collision.and.car.side.front")
-                    .font(.system(size: 17, weight: .heavy))
+                    .scaledFont(size: 17, weight: .heavy)
                 if case .checkingIn(let attempt) = model.crash.state {
                     Text("Do you need assistance? Say “yes” or “I'm okay” — "
                          + "or use the buttons. FLOWS keeps asking (attempt \(attempt)) "
@@ -2975,13 +2998,13 @@ struct CrashCheckInCard: View {
                         .font(.footnote)
                     HStack(spacing: 10) {
                         Button("I'm OK") { model.crash.standDown() }
-                            .font(.system(size: 15, weight: .bold))
+                            .scaledFont(size: 15, weight: .bold)
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                             .background(Color.white.opacity(0.25))
                             .clipShape(Capsule())
                         Button("Get help") { model.crash.requestAssistance() }
-                            .font(.system(size: 15, weight: .heavy))
+                            .scaledFont(size: 15, weight: .heavy)
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                             .background(Color.white)
@@ -2997,7 +3020,7 @@ struct CrashCheckInCard: View {
                         .font(.footnote)
                     HStack(spacing: 8) {
                         Button("Call 911") { model.crash.call911() }
-                            .font(.system(size: 15, weight: .heavy))
+                            .scaledFont(size: 15, weight: .heavy)
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                             .background(Color.white)
@@ -3007,7 +3030,7 @@ struct CrashCheckInCard: View {
                             Button("Text report") {
                                 model.crash.messageContact(number: model.emergencyContactPhone)
                             }
-                            .font(.system(size: 15, weight: .bold))
+                            .scaledFont(size: 15, weight: .bold)
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                             .background(Color.white.opacity(0.25))
@@ -3015,7 +3038,7 @@ struct CrashCheckInCard: View {
                             Button("Call contact") {
                                 model.crash.callContact(number: model.emergencyContactPhone)
                             }
-                            .font(.system(size: 15, weight: .bold))
+                            .scaledFont(size: 15, weight: .bold)
                             .buttonStyle(.plain)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                             .background(Color.white.opacity(0.25))
@@ -3030,7 +3053,7 @@ struct CrashCheckInCard: View {
                     .frame(maxHeight: 110)
                     #endif
                     Button("Done — dismiss") { model.crash.standDown() }
-                        .font(.system(size: 14, weight: .bold))
+                        .scaledFont(size: 14, weight: .bold)
                         .buttonStyle(.plain)
                         .frame(maxWidth: .infinity, minHeight: 38)
                         .background(Color.white.opacity(0.25))

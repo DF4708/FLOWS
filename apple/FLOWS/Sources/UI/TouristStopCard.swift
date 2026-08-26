@@ -27,14 +27,14 @@ struct TouristStopCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: "star.fill")
-                    .font(.system(size: 18, weight: .bold))
+                    .scaledFont(size: 18, weight: .bold)
                     .foregroundStyle(.white)
                     .frame(width: 36, height: 36)
                     .background(Theme.riskGreen)
                     .clipShape(Circle())
                 VStack(alignment: .leading, spacing: 1) {
                     Text(stop.item.name ?? "Stop")
-                        .font(.system(size: 15, weight: .bold))
+                        .scaledFont(size: 15, weight: .bold)
                         .lineLimit(2)
                     Text(whatItIs)
                         .font(.caption)
@@ -43,7 +43,7 @@ struct TouristStopCard: View {
                 Spacer()
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
+                        .scaledFont(size: 18)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)

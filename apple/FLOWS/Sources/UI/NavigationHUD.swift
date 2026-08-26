@@ -286,12 +286,12 @@ struct NavigationHUD: View {
                 Text(electric
                      ? String(format: "%.1f mi/kWh", economy)
                      : String(format: "%.0f MPG", economy))
-                    .font(.system(size: 12, weight: .bold))
+                    .scaledFont(size: 12, weight: .bold)
                     .monospacedDigit()
             }
             if let range = vehicle.expectedRangeMiles {
                 Text(String(format: "~%.0f mi left", range))
-                    .font(.system(size: 10, weight: .semibold))
+                    .scaledFont(size: 10, weight: .semibold)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
@@ -313,7 +313,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What kind of food?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -329,7 +329,7 @@ struct NavigationHUD: View {
                         }
                     } label: {
                         Text(category.rawValue)
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(Color.black.opacity(0.05))
@@ -349,7 +349,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What kind of store?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -365,7 +365,7 @@ struct NavigationHUD: View {
                         }
                     } label: {
                         Label(category.rawValue, systemImage: category.symbol)
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(Color.black.opacity(0.05))
@@ -385,7 +385,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What does this vehicle take?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -400,7 +400,7 @@ struct NavigationHUD: View {
                         }
                     } label: {
                         Label(fuel.rawValue, systemImage: fuel.symbol)
-                            .font(.system(size: 14, weight: .semibold))
+                            .scaledFont(size: 14, weight: .semibold)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                             .background(Color.black.opacity(0.05))
                             .clipShape(Capsule())
@@ -422,7 +422,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(listTitle)
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.poi.clearResults() } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -484,7 +484,7 @@ struct NavigationHUD: View {
         return HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(ranked.item.name ?? "Stop")
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(String(format: "in %.0f mi", max(ranked.aheadMeters, 0) / 1609.344))
@@ -526,37 +526,37 @@ struct NavigationHUD: View {
                        ranked.isLivePrice, let mx = ranked.pricePerUnit {
                         // CRE feed: this station's real posted price, MXN/L.
                         Text(String(format: "MX$%.2f", mx))
-                            .font(.system(size: 19, weight: .heavy, design: .rounded))
+                            .scaledFont(size: 19, weight: .heavy, design: .rounded)
                             .monospacedDigit()
                             .foregroundStyle(Theme.cta)
                         Text("/L · official (CRE)")
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(size: 9, weight: .semibold)
                             .foregroundStyle(.secondary)
                     } else if model.poi.activeKind == .gas, !ranked.isLivePrice {
                         Text(ranked.pricePerUnit.map {
                             String(format: "~$%.2f est.", $0) }
                             ?? (model.tomtomAPIKey.isEmpty ? "add TomTom key" : "$ —"))
-                            .font(.system(size: 10, weight: .semibold))
+                            .scaledFont(size: 10, weight: .semibold)
                             .foregroundStyle(.secondary)
                     } else if model.poi.activeKind == .hotel, ranked.pricePerUnit == nil {
                         // No live nightly: a tier-anchored typical rate,
                         // clearly an estimate — never a blank "$ —".
                         Text(String(format: "~$%.0f est.",
                                     RatingsAndCost.estimatedNightly(costTier: ranked.costTier)))
-                            .font(.system(size: 10, weight: .semibold))
+                            .scaledFont(size: 10, weight: .semibold)
                             .foregroundStyle(.secondary)
                         Text("per night")
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(size: 9, weight: .semibold)
                             .foregroundStyle(.secondary)
                     } else {
                         Text(ranked.pricePerUnit.map { String(format: "$%.2f", $0) } ?? "$ —")
-                            .font(.system(size: 19, weight: .heavy, design: .rounded))
+                            .scaledFont(size: 19, weight: .heavy, design: .rounded)
                             .monospacedDigit()
                             .foregroundStyle(ranked.pricePerUnit == nil ? Color.secondary : Theme.cta)
                         Text(model.poi.activeKind == .gas
                              ? (model.poi.fuelType == .electric ? "/kWh" : "/gal")
                              : "per night")
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(size: 9, weight: .semibold)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -565,7 +565,7 @@ struct NavigationHUD: View {
             Button("Add stop") {
                 Task { await model.addStop(ranked.item) }
             }
-            .font(.system(size: 13, weight: .heavy))
+            .scaledFont(size: 13, weight: .heavy)
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .frame(minHeight: 32)
@@ -584,18 +584,18 @@ struct NavigationHUD: View {
     private func arrivedBanner(_ name: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 28))
+                .scaledFont(size: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Arrived")
-                    .font(.system(size: 15, weight: .semibold))
+                    .scaledFont(size: 15, weight: .semibold)
                     .opacity(0.85)
                 Text(name)
-                    .font(.system(size: 19, weight: .bold))
+                    .scaledFont(size: 19, weight: .bold)
                     .lineLimit(1)
             }
             Spacer()
             Button("Done") { model.endNavigation() }
-                .font(.system(size: 15, weight: .heavy))
+                .scaledFont(size: 15, weight: .heavy)
                 .buttonStyle(.plain)
                 .padding(.horizontal, 16)
                 .frame(minHeight: Theme.tapMinimum)
@@ -638,7 +638,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Long trip — share your route with someone?",
                   systemImage: "paperplane.fill")
-                .font(.system(size: 15, weight: .bold))
+                .scaledFont(size: 15, weight: .bold)
             if let shareErrorText {
                 Text(shareErrorText)
                     .font(.footnote.weight(.semibold))
@@ -652,14 +652,14 @@ struct NavigationHUD: View {
                 HStack(spacing: 8) {
                     Spacer()
                     Button("Not now") { model.tripSharePrompt = false }
-                        .font(.system(size: 15, weight: .bold))
+                        .scaledFont(size: 15, weight: .bold)
                         .buttonStyle(.plain)
                         .padding(.horizontal, 16)
                         .frame(minHeight: Theme.tapMinimum)   // HIG driving target
                         .background(Color.white.opacity(0.25))
                         .clipShape(Capsule())
                     Button("Share") { startShare() }
-                        .font(.system(size: 15, weight: .heavy))
+                        .scaledFont(size: 15, weight: .heavy)
                         .buttonStyle(.plain)
                         .padding(.horizontal, 18)
                         .frame(minHeight: Theme.tapMinimum)
@@ -706,13 +706,13 @@ struct NavigationHUD: View {
                 Button { sendShare(name: person.name, phone: person.phone) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: index == 0 ? "star.fill" : "person.fill")
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                         Text(person.name)
-                            .font(.system(size: 14, weight: .semibold))
+                            .scaledFont(size: 14, weight: .semibold)
                             .lineLimit(1)
                         Spacer()
                         Text("Text")
-                            .font(.system(size: 13, weight: .heavy))
+                            .scaledFont(size: 13, weight: .heavy)
                             .padding(.horizontal, 12)
                             .frame(minHeight: 30)
                             .background(Color.white)
@@ -728,7 +728,7 @@ struct NavigationHUD: View {
             }
             #if os(iOS)
             Button("Someone else") { showShareContactPicker = true }
-                .font(.system(size: 14, weight: .bold))
+                .scaledFont(size: 14, weight: .bold)
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, minHeight: 34)
                 .background(Color.white.opacity(0.25))
@@ -760,18 +760,18 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             Label {
                 Text(escalation.headline)
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                     .lineLimit(2)
             } icon: {
                 Image(systemName: "exclamationmark.octagon.fill")
-                    .font(.system(size: 20))
+                    .scaledFont(size: 20)
             }
             HStack(spacing: 8) {
                 Text("Risk on this route has risen to \(FlowsCore.riskBand(score: escalation.newRisk).rawValue).")
                     .font(.footnote)
                 Spacer()
                 Button("Continue") { model.dismissEscalation() }
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .frame(minHeight: Theme.tapMinimum)   // HIG driving target
@@ -780,7 +780,7 @@ struct NavigationHUD: View {
                 Button("Reroute") {
                     Task { await model.approveEscalationReroute() }
                 }
-                .font(.system(size: 15, weight: .heavy))
+                .scaledFont(size: 15, weight: .heavy)
                 .buttonStyle(.plain)
                 .padding(.horizontal, 18)
                 .frame(minHeight: Theme.tapMinimum)
@@ -942,7 +942,7 @@ struct NavigationHUD: View {
                 if let g = model.navigation.guidance {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(etaText(model.adjustedRemainingTime(g.remainingTime)))
-                            .font(.system(size: 17, weight: .bold))
+                            .scaledFont(size: 17, weight: .bold)
                         Text(distanceText(g.remainingDistance))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -950,7 +950,7 @@ struct NavigationHUD: View {
                 } else if let route = model.navigation.route {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(etaText(model.adjustedRemainingTime(route.eta)))
-                            .font(.system(size: 17, weight: .bold))
+                            .scaledFont(size: 17, weight: .bold)
                         Text(distanceText(route.distanceMeters))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -968,7 +968,7 @@ struct NavigationHUD: View {
                         model.recenterRequested = true
                     } label: {
                         Image(systemName: "location.fill")
-                            .font(.system(size: 14, weight: .semibold))
+                            .scaledFont(size: 14, weight: .semibold)
                             .frame(width: 38, height: 38)
                             .background(Color.black.opacity(0.06))
                             .clipShape(Circle())
@@ -984,7 +984,7 @@ struct NavigationHUD: View {
                     model.showTowingCard.toggle()
                 } label: {
                     Image(systemName: "link.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                         .frame(width: 38, height: 38)
                         .background(model.towingActive ? Color.brown : Color.black.opacity(0.06))
                         .foregroundStyle(model.towingActive ? .white : .primary)
@@ -997,7 +997,7 @@ struct NavigationHUD: View {
                     if !showRadio { model.radio.stop() }
                 } label: {
                     Image(systemName: "radio.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                         .frame(width: 38, height: 38)
                         .background(showRadio ? Color.brown : Color.black.opacity(0.06))
                         .foregroundStyle(showRadio ? .white : .primary)
@@ -1056,7 +1056,7 @@ struct NavigationHUD: View {
                         } else {
                             VStack(spacing: 3) {
                                 Text(kind.rawValue)
-                                    .font(.system(size: 10, weight: .bold))
+                                    .scaledFont(size: 10, weight: .bold)
                                     .lineLimit(1)
                                     .fixedSize()
                                 icon(for: kind)
@@ -1132,7 +1132,7 @@ struct NavigationHUD: View {
             HStack {
                 Label(model.truckerUI ? "Trucker radio" : "Emergency radio",
                       systemImage: "radio.fill")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button {
                     showRadio = false
@@ -1165,7 +1165,7 @@ struct NavigationHUD: View {
                 } label: {
                     Image(systemName: model.radio.playingChannelID != nil
                           ? "stop.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 28))
+                        .scaledFont(size: 28)
                         .foregroundStyle(Color.brown)
                 }
                 .buttonStyle(.plain)
@@ -1205,7 +1205,7 @@ struct NavigationHUD: View {
                         } label: {
                             Image(systemName: model.radio.playingChannelID == stream.id
                                   ? "stop.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 20))
+                                .scaledFont(size: 20)
                                 .foregroundStyle(Color.brown)
                         }
                         .buttonStyle(.plain)
@@ -1213,7 +1213,7 @@ struct NavigationHUD: View {
                             ? "Stop \(channel)" : "Play \(channel)")
                     } else {
                         Image(systemName: "play.slash")
-                            .font(.system(size: 13))
+                            .scaledFont(size: 13)
                             .foregroundStyle(.tertiary)
                             .help("No internet relay exists for this channel — tune it on a car radio")
                     }
@@ -1268,7 +1268,7 @@ struct NavigationHUD: View {
                     }
                 } label: {
                     Image(systemName: radioMicListening ? "waveform" : "mic.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
@@ -1385,7 +1385,7 @@ struct NavigationHUD: View {
             } label: {
                 Image(systemName: model.radio.playingChannelID == station.channel.id
                       ? "stop.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 20))
+                    .scaledFont(size: 20)
                     .foregroundStyle(Color.brown)
             }
             .buttonStyle(.plain)
@@ -1404,7 +1404,7 @@ struct NavigationHUD: View {
             BenchIcon(size: 16)   // the actual park bench
         } else {
             Image(systemName: kind.symbol)
-                .font(.system(size: 15, weight: .semibold))
+                .scaledFont(size: 15, weight: .semibold)
         }
     }
 
@@ -1484,7 +1484,7 @@ struct NavigationHUD: View {
                         // The active SERVICE, visibly: a brand-colored
                         // monogram (logos need each service's asset license).
                         Text(model.musicProvider.monogram)
-                            .font(.system(size: 14, weight: .heavy))
+                            .scaledFont(size: 14, weight: .heavy)
                             .foregroundStyle(.white)
                     }
                 }
@@ -1553,7 +1553,7 @@ struct NavigationHUD: View {
             }
             }
         }
-        .font(.system(size: 14, weight: .semibold))
+        .scaledFont(size: 14, weight: .semibold)
         .padding(.horizontal, 4)
         .background(Color.black.opacity(0.06))
         .clipShape(Capsule())
@@ -1565,7 +1565,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("Music", systemImage: "music.note")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { showMusicMenu = false } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -1587,11 +1587,11 @@ struct NavigationHUD: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: musicMicListening ? "waveform" : "mic.fill")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(size: 14, weight: .semibold)
                         .frame(width: 22)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(musicMicListening ? "Listening…" : "Say what to play")
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                         Text("Genre, artist, or mood — through \(model.musicProvider.displayName)")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -1661,7 +1661,7 @@ struct NavigationHUD: View {
                             showMusicMenu = false
                         } label: {
                             Text(genre)
-                                .font(.system(size: 12, weight: .semibold))
+                                .scaledFont(size: 12, weight: .semibold)
                                 .padding(.horizontal, 10)
                                 .frame(minHeight: 30)
                                 .background(Color.black.opacity(0.05))
@@ -1707,7 +1707,7 @@ struct NavigationHUD: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("What do you play music with?")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Button { model.showMusicProviderPrompt = false } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -1721,7 +1721,7 @@ struct NavigationHUD: View {
                         model.chooseMusicProvider(provider)
                     } label: {
                         Label(provider.displayName, systemImage: provider.symbol)
-                            .font(.system(size: 12, weight: .semibold))
+                            .scaledFont(size: 12, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(provider == .appleMusic
@@ -1752,10 +1752,10 @@ struct NavigationHUD: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: symbol)
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(size: 14, weight: .semibold)
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(.system(size: 13, weight: .semibold))
+                    Text(title).scaledFont(size: 13, weight: .semibold)
                     Text(detail).font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()

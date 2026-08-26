@@ -49,22 +49,22 @@ struct ImminentBannerView: View {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: isRed
                       ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 26))
+                    .scaledFont(size: 26)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(warning.event)
-                        .font(.system(size: 16, weight: .heavy))
+                        .scaledFont(size: 16, weight: .heavy)
                         .lineLimit(1)
                     if warning.vehicleEntity != nil || warning.personEntity != nil {
                         HStack(spacing: 10) {
                             if let v = warning.vehicleEntity {
                                 HStack(spacing: 5) {
                                     Image(systemName: v.kind.symbol)
-                                        .font(.system(size: 28))
+                                        .scaledFont(size: 28)
                                         .foregroundStyle(alertEntityColor(v.colorName))
                                         .shadow(color: .black.opacity(0.45), radius: 1)
                                     if let brand = v.brand {
                                         Text(brand.uppercased())
-                                            .font(.system(size: 11, weight: .heavy))
+                                            .scaledFont(size: 11, weight: .heavy)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 3)
                                             .background(Color.white)
@@ -75,7 +75,7 @@ struct ImminentBannerView: View {
                             }
                             if let person = warning.personEntity {
                                 Image(systemName: person.symbol)
-                                    .font(.system(size: 26))
+                                    .scaledFont(size: 26)
                                     .foregroundStyle(alertEntityColor(person.colorName))
                                     .shadow(color: .black.opacity(0.45), radius: 1)
                             }
@@ -83,7 +83,7 @@ struct ImminentBannerView: View {
                         .padding(.vertical, 2)
                     }
                     Text(warning.headline)
-                        .font(.system(size: 13, weight: .semibold))
+                        .scaledFont(size: 13, weight: .semibold)
                         .lineLimit(2)
                     if let detail = warning.detail {
                         Text(detail)
@@ -95,7 +95,7 @@ struct ImminentBannerView: View {
                 Spacer()
                 Button { onDismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 18))
+                        .scaledFont(size: 18)
                         .opacity(0.8)
                 }
                 .buttonStyle(.plain)
@@ -106,7 +106,7 @@ struct ImminentBannerView: View {
                         openURL(url)
                     } label: {
                         Label("Official alert", systemImage: "link")
-                            .font(.system(size: 13, weight: .bold))
+                            .scaledFont(size: 13, weight: .bold)
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 12)
@@ -119,7 +119,7 @@ struct ImminentBannerView: View {
                 case .shelter:
                     if let onShelterDelay {
                         Button("Sheltering here (+1 h)") { onShelterDelay() }
-                            .font(.system(size: 14, weight: .heavy))
+                            .scaledFont(size: 14, weight: .heavy)
                             .buttonStyle(.plain)
                             .padding(.horizontal, 14)
                             .frame(minHeight: Theme.tapMinimum)
@@ -132,7 +132,7 @@ struct ImminentBannerView: View {
                         .font(.footnote.weight(.semibold))
                     if let onFindRest {
                         Button("Find rest area") { onFindRest() }
-                            .font(.system(size: 14, weight: .heavy))
+                            .scaledFont(size: 14, weight: .heavy)
                             .buttonStyle(.plain)
                             .padding(.horizontal, 14)
                             .frame(minHeight: Theme.tapMinimum)
@@ -172,7 +172,7 @@ struct GasGaugeCard: View {
         VStack(spacing: 8) {
             HStack {
                 Label("Just refueled?", systemImage: "fuelpump.circle.fill")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 // Physical dismiss assumes "yes, filled to full".
                 Button { onDismiss() } label: {
@@ -186,10 +186,23 @@ struct GasGaugeCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             GaugeDial(fraction: $fraction)
+                // A draggable needle is unusable without sight and hard
+                // with a tremor — VoiceOver gets the value spoken as a
+                // percentage and adjusts it in 5% steps instead.
+                .accessibilityElement()
+                .accessibilityLabel("Fuel level before filling")
+                .accessibilityValue("\(Int((fraction * 100).rounded())) percent")
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: fraction = min(fraction + 0.05, 1)
+                    case .decrement: fraction = max(fraction - 0.05, 0)
+                    @unknown default: break
+                    }
+                }
                 .frame(width: 220, height: 130)
             HStack(spacing: 8) {
                 Button("Didn't refuel") { onNoRefuel() }
-                    .font(.system(size: 13, weight: .semibold))
+                    .scaledFont(size: 13, weight: .semibold)
                     .buttonStyle(.plain)
                     .padding(.horizontal, 14)
                     .frame(minHeight: 38)
@@ -199,7 +212,7 @@ struct GasGaugeCard: View {
                 Button(String(format: "It was at %.0f%% — filled up", fraction * 100)) {
                     onConfirm(fraction)
                 }
-                .font(.system(size: 13, weight: .heavy))
+                .scaledFont(size: 13, weight: .heavy)
                 .buttonStyle(.plain)
                 .padding(.horizontal, 14)
                 .frame(minHeight: 38)
@@ -254,7 +267,7 @@ struct GaugeDial: View {
                     // name the two ends themselves).
                     if i > 0, i < 4 {
                         Text("\(i * 25)%")
-                            .font(.system(size: 8, weight: .semibold))
+                            .scaledFont(size: 8, weight: .semibold)
                             .foregroundStyle(.secondary)
                             .position(point(center, radius + 14, angle))
                     }
@@ -316,7 +329,7 @@ struct TowingCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Label("Towing", systemImage: "link.circle.fill")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 Toggle("", isOn: $model.towingActive)
                     .labelsHidden()
@@ -358,7 +371,7 @@ struct TowingCard: View {
             ForEach(Array(violations.enumerated()), id: \.offset) { _, v in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(v.title)
-                        .font(.system(size: 13, weight: .heavy))
+                        .scaledFont(size: 13, weight: .heavy)
                         .foregroundStyle(Theme.riskRed)
                         .opacity(flash ? 1 : 0.35)
                     Text(v.consequences)
@@ -389,9 +402,9 @@ struct TowingCard: View {
 
     private func ratingBadge(_ label: String, _ value: Double?, violated: Bool) -> some View {
         VStack(spacing: 1) {
-            Text(label).font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+            Text(label).scaledFont(size: 9, weight: .bold).foregroundStyle(.secondary)
             Text(value.map { String(format: "%.0f lb", $0) } ?? "—")
-                .font(.system(size: 13, weight: .heavy).monospacedDigit())
+                .scaledFont(size: 13, weight: .heavy).monospacedDigit()
                 .foregroundStyle(violated ? Theme.riskRed : .primary)
                 .opacity(violated && flash ? 0.35 : 1)
         }
@@ -436,7 +449,7 @@ struct DemoAlertsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text("Alert & notification gallery")
-                        .font(.system(size: 17, weight: .bold))
+                        .scaledFont(size: 17, weight: .bold)
                     Spacer()
                     Button("Done") { dismiss() }
                         .buttonStyle(.plain)
@@ -474,7 +487,7 @@ struct DemoAlertsView: View {
                 } label: {
                     Label("Demo red alert on the map (symbol + reach circle)",
                           systemImage: "exclamationmark.octagon.fill")
-                        .font(.system(size: 14, weight: .heavy))
+                        .scaledFont(size: 14, weight: .heavy)
                         .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                         .background(Theme.riskRed)
                         .foregroundStyle(.white)
@@ -515,7 +528,7 @@ struct StarsAndBucks: View {
                     ForEach(0..<5) { i in
                         Image(systemName: Double(i) < stars.rounded(.down) ? "star.fill"
                               : (Double(i) < stars ? "star.leadinghalf.filled" : "star"))
-                            .font(.system(size: 11))
+                            .scaledFont(size: 11)
                             .foregroundStyle(starColor)
                     }
                     Text(String(format: "%.1f", stars))
@@ -548,11 +561,11 @@ struct StarsAndBucks: View {
                 HStack(spacing: 0) {
                     ForEach(0..<5) { i in
                         Text("$")
-                            .font(.system(size: 11, weight: .heavy))
+                            .scaledFont(size: 11, weight: .heavy)
                             .foregroundStyle(i < tier ? dollarColor : Color.black.opacity(0.15))
                     }
                     Text(" \(currency)")
-                        .font(.system(size: 8, weight: .semibold))
+                        .scaledFont(size: 8, weight: .semibold)
                         .foregroundStyle(.secondary)
                 }
                 .help("$ = affordable on that country's minimum-wage dining "

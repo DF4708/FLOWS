@@ -541,7 +541,7 @@ struct RouteChoicesView: View {
                 transitTasks[mode] = Task { await computeTransit(mode: mode) }
             }
         } label: {
-            Image(systemName: symbol).font(.system(size: 12, weight: .bold))
+            Image(systemName: symbol).scaledFont(size: 12, weight: .bold)
                 .foregroundStyle(isOn ? .white : .primary)
                 .frame(width: 26, height: 26)
                 .background(isOn ? tint : Color.black.opacity(0.06))
@@ -578,7 +578,7 @@ struct RouteChoicesView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Label(t.title, systemImage: symbol)
-                    .font(.system(size: 13, weight: .bold))
+                    .scaledFont(size: 13, weight: .bold)
                 // Cross-mode banners: transit is "Cheapest" when its estimated
                 // fare undercuts every drive option's fuel estimate, and rail/
                 // bus are effectively always the CO₂ winner per passenger-mile
@@ -588,14 +588,14 @@ struct RouteChoicesView: View {
                     if itin.fare > 0, !choices.isEmpty,
                        itin.fare < choices.map({ fuelCost($0) }).min() ?? .infinity {
                         Text("Cheapest")
-                            .font(.system(size: 10, weight: .heavy))
+                            .scaledFont(size: 10, weight: .heavy)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Color.orange.opacity(0.9))
                             .foregroundStyle(.white).clipShape(Capsule())
                     }
                     if mode != .plane {
                         Text("CO₂-efficient")
-                            .font(.system(size: 10, weight: .heavy))
+                            .scaledFont(size: 10, weight: .heavy)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Color.mint.opacity(0.9))
                             .foregroundStyle(.white).clipShape(Capsule())
@@ -643,7 +643,7 @@ struct RouteChoicesView: View {
                     Text("Flight drawn as a straight arc; times include airport "
                          + "waiting and are estimates — airlines set schedules "
                          + "and prices.")
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                        .scaledFont(size: 9).foregroundStyle(.secondary)
                 } else if itin.rideGeometryIsApproximate {
                     let isRail = itin.mode == "Amtrak" || itin.mode == "Rail"
                     // "Walk legs are exact" only holds when every walk leg actually
@@ -667,7 +667,7 @@ struct RouteChoicesView: View {
                            : "Ride line follows the roads the coach drives; the time is an "
                              + "estimate — exact schedule arrives with GTFS. ")
                     Text(rideNote + walkNote)
-                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                        .scaledFont(size: 9).foregroundStyle(.secondary)
                 }
                 // The EXACT ticket for this ride — carrier booking page in-line;
                 // never a hand-off to Maps.
@@ -700,13 +700,13 @@ struct RouteChoicesView: View {
                     ForEach(Array(t.rentals.enumerated()), id: \.offset) { _, office in
                         HStack(spacing: 4) {
                             Text("\(office.name) · \(String(format: "%.1f mi", office.miles))")
-                                .font(.system(size: 10))
+                                .scaledFont(size: 10)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                             Spacer(minLength: 4)
                             if let url = office.url {
                                 Link("Book", destination: url)
-                                    .font(.system(size: 10, weight: .bold))
+                                    .scaledFont(size: 10, weight: .bold)
                             }
                         }
                     }
@@ -746,21 +746,21 @@ struct RouteChoicesView: View {
         }
         return HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol)
-                .font(.system(size: 12, weight: .bold))
+                .scaledFont(size: 12, weight: .bold)
                 .foregroundStyle(color)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(title)
-                        .font(.system(size: 11, weight: .semibold))
+                        .scaledFont(size: 11, weight: .semibold)
                     Spacer(minLength: 4)
                     Text(TransitPlanning.fmt(leg.seconds))
-                        .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                        .scaledFont(size: 10, weight: .semibold).monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
                 ForEach(Array(leg.steps.prefix(isLast || leg.kind != .walk ? 3 : 2).enumerated()),
                         id: \.offset) { _, s in
-                    Text("• \(s)").font(.system(size: 9)).foregroundStyle(.secondary)
+                    Text("• \(s)").scaledFont(size: 9).foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
             }
@@ -857,14 +857,14 @@ struct RouteChoicesView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("Routes")
-                    .font(.system(size: 15, weight: .bold))
+                    .scaledFont(size: 15, weight: .bold)
                 // Walk ↔ drive toggle: walking uses Apple's pedestrian
                 // network (sidewalks/crossings where mapped, real pace).
                 Toggle(isOn: Binding(
                     get: { model.walkingMode },
                     set: { model.walkingMode = $0; Task { await replanForMode() } })) {
                     Image(systemName: model.walkingMode ? "figure.walk" : "car.fill")
-                        .font(.system(size: 12, weight: .bold))
+                        .scaledFont(size: 12, weight: .bold)
                 }
                 .toggleStyle(.switch)
                 .controlSize(.mini)
@@ -976,9 +976,9 @@ struct RouteChoicesView: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Label("Walk + a paid ride", systemImage: "figure.walk.motion")
-                    .font(.system(size: 13, weight: .bold))
+                    .scaledFont(size: 13, weight: .bold)
                 Text("Best time for the money")
-                    .font(.system(size: 10, weight: .heavy))
+                    .scaledFont(size: 10, weight: .heavy)
                     .padding(.horizontal, 6).padding(.vertical, 2)
                     .background(Color.orange.opacity(0.9))
                     .foregroundStyle(.white).clipShape(Capsule())
@@ -1015,7 +1015,7 @@ struct RouteChoicesView: View {
                 Spacer()
             }
             Text("Uber and Lyft set the real price — $\(cost) is our guess from the miles.")
-                .font(.system(size: 9)).foregroundStyle(.secondary)
+                .scaledFont(size: 9).foregroundStyle(.secondary)
         }
         .padding(8)
         .background(Color.green.opacity(0.08))
@@ -1244,7 +1244,7 @@ private struct RouteCard: View {
                     // brown truck sits top-right of its card.
                     if isTrucker {
                         Image(systemName: "truck.box.fill")
-                            .font(.system(size: 14, weight: .bold))
+                            .scaledFont(size: 14, weight: .bold)
                             .foregroundStyle(.white)
                             .frame(width: 26, height: 26)
                             .background(Color.brown)
@@ -1255,7 +1255,7 @@ private struct RouteCard: View {
                 }
                 HStack(alignment: .firstTextBaseline) {
                     Text(etaText)
-                        .font(.system(size: 17, weight: .bold))
+                        .scaledFont(size: 17, weight: .bold)
                     if deltaText != "Fastest" {
                         Text(deltaText)
                             .font(.caption.weight(.semibold))
@@ -1331,7 +1331,7 @@ private struct RouteCard: View {
                     // sequencing (plan → score → GO) is enforced, not implied.
                     if route.weatherScored {
                         Button("GO", action: onGo)
-                            .font(.system(size: 15, weight: .heavy))
+                            .scaledFont(size: 15, weight: .heavy)
                             .buttonStyle(.plain)
                             .frame(width: 72, height: 36)
                             .background(Theme.cta)
