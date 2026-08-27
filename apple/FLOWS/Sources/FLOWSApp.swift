@@ -1256,6 +1256,9 @@ final class AppModel: ObservableObject {
                 self.corridors.prune(position: fix.coordinate)
                 self.updateDrivingClocks(fix: fix)
                 self.updateSteepGrade()
+                // Fixed speed and red-light cameras on the road ahead — the
+                // only enforcement data any app may lawfully carry.
+                self.updateEnforcementCameras(fix)
                 // Towing is live during the trip, not a trip-start snapshot:
                 // re-poll telemetry (a trailer hitched mid-trip auto-toggles
                 // towing mode) and surface limit violations as a warning once.
@@ -1586,6 +1589,62 @@ final class AppModel: ObservableObject {
             // Keep the last known limit when this stretch has no tag —
             // blanking the sign every unmapped block would flicker.
             if limit != nil { self.postedSpeedLimitMph = limit }
+        }
+    }
+
+    // MARK: fixed enforcement cameras on the road ahead
+
+    /// Automated speed and red-light cameras near the vehicle — drawn on the
+    /// map, and called out on the approach.
+    @Published private(set) var enforcementCameras: [EnforcementCameras.Camera] = []
+    /// The one to warn about right now, with how far off it is.
+    @Published private(set) var cameraWarning: String?
+    private var cameraLookupTask: Task<Void, Never>?
+    private var lastCameraLookup: CLLocationCoordinate2D?
+    /// Cameras already spoken for, so a slow approach isn't announced twice.
+    private var announcedCameras: Set<String> = []
+
+    /// Refresh the camera list as the vehicle moves into new ground, and
+    /// keep the live warning in step with every fix.
+    private func updateEnforcementCameras(_ fix: CLLocation) {
+        guard mode == .navigating, !walkingMode, !isPassengerTransit else {
+            if !enforcementCameras.isEmpty { enforcementCameras = [] }
+            if cameraWarning != nil { cameraWarning = nil }
+            return
+        }
+        // A 4 km fetch re-run every 2 km always has ground ahead of it.
+        let moved = lastCameraLookup.map {
+            POIRanking.meters($0, fix.coordinate) > 2_000
+        } ?? true
+        if moved {
+            lastCameraLookup = fix.coordinate
+            let point = fix.coordinate
+            cameraLookupTask?.cancel()
+            cameraLookupTask = Task { [weak self] in
+                let found = await LiveHazardFeedFetcher.shared
+                    .enforcementCameras(near: point)
+                guard let self, !Task.isCancelled, self.mode == .navigating else { return }
+                self.enforcementCameras = found
+            }
+        }
+        let heading = fix.course >= 0 ? fix.course : nil
+        guard let next = EnforcementCameras.imminent(among: enforcementCameras,
+                                                     at: fix.coordinate,
+                                                     headingDegrees: heading) else {
+            if cameraWarning != nil { cameraWarning = nil }
+            return
+        }
+        let mph = max(fix.speed, 0) * 2.236936
+        cameraWarning = EnforcementCameras.warning(
+            for: next.camera, meters: next.meters,
+            speedMph: mph, postedLimitMph: postedSpeedLimitMph)
+        // Say it once per camera, and only when the driver is actually over
+        // the limit it enforces — a camera you are already legal for is a
+        // map icon, not an interruption.
+        let limit = next.camera.limitMph ?? postedSpeedLimitMph
+        if let limit, mph > limit + SpeedLaw.stateToleranceMph,
+           announcedCameras.insert(next.camera.id).inserted {
+            DriveVoice.shared.speak(next.camera.kind.title + " ahead")
         }
     }
 

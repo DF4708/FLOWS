@@ -221,67 +221,62 @@ enum RadioDirectory {
         var bitrate: Int?
     }
 
-    /// Stations for the state the position falls in, already filed by kind.
-    /// Empty on any failure — an unreachable directory is a quiet radio, not
-    /// an error card.
+    /// How far out to look for stations, in meters. 400 km is about the
+    /// span of a day's driving — far enough that the dial doesn't empty out
+    /// in open country, near enough that everything on it is plausibly a
+    /// station you could have heard on the way.
+    static let searchRadiusMeters = 400_000
+
+    /// Stations around a position. Empty on any failure — an unreachable
+    /// directory is a quiet radio, not an error card.
+    ///
+    /// The search is by DISTANCE, not by state. A state query stops at the
+    /// line, which is exactly wrong for a driver: half of Madison's real
+    /// dial broadcasts from Illinois, and someone crossing into Iowa should
+    /// not watch their stations vanish at the river. Distance also means
+    /// every result carries a position, so nearest-first ranking is exact
+    /// rather than a guess. The country list stays as the fallback for
+    /// places the geo index has nothing for.
     static func stations(near position: CLLocationCoordinate2D) async
         -> [BroadcastRadio.Station] {
+        let geo = "geo_lat=\(position.latitude)&geo_long=\(position.longitude)"
+            + "&geo_distance=\(searchRadiusMeters)"
         let country = RatingsAndCost.Country.forCoordinate(
             latitude: position.latitude, longitude: position.longitude)
-        var query = "limit=400&hidebroken=true&order=clickcount&reverse=true"
-            + "&countrycode=\(country.radioBrowserCode)"
-        // Inside the US the state narrows it to a real local dial; elsewhere
-        // the country list is already the right size.
-        if country == .us,
-           let state = LiveHazardFeedFetcher.stateBBoxes.first(where: { _, b in
-               position.latitude >= b.s && position.latitude <= b.n
-                   && position.longitude >= b.w && position.longitude <= b.e
-           })?.key, let name = Self.stateNames[state] {
-            let escaped = name.addingPercentEncoding(
-                withAllowedCharacters: .urlQueryAllowed) ?? name
-            query += "&state=" + escaped
-        }
-        for host in hosts {
-            guard let url = URL(string: "\(host)/json/stations/search?\(query)"),
-                  let (data, resp) = try? await ThrottledNet.fetch(url),
-                  (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let rows = try? JSONDecoder().decode([Row].self, from: data)
-            else { continue }
-            var seen = Set<String>()
-            return rows.compactMap { row -> BroadcastRadio.Station? in
-                let stream = row.url_resolved?.isEmpty == false
-                    ? row.url_resolved! : row.url
-                guard !stream.isEmpty, !row.name.isEmpty,
-                      let kind = BroadcastRadio.kind(forTags: row.tags),
-                      seen.insert(stream).inserted else { return nil }
-                return BroadcastRadio.Station(
-                    id: row.stationuuid,
-                    name: row.name.trimmingCharacters(in: .whitespacesAndNewlines),
-                    url: stream, tags: row.tags,
-                    latitude: row.geo_lat, longitude: row.geo_long,
-                    bitrate: row.bitrate ?? 0, kind: kind)
+        let common = "&limit=400&hidebroken=true&order=clickcount&reverse=true"
+        for query in [geo + common,
+                      "countrycode=\(country.radioBrowserCode)" + common] {
+            for host in hosts {
+                guard let url = URL(string: "\(host)/json/stations/search?\(query)"),
+                      let (data, resp) = try? await ThrottledNet.fetch(url),
+                      (resp as? HTTPURLResponse)?.statusCode == 200,
+                      let rows = try? JSONDecoder().decode([Row].self, from: data)
+                else { continue }
+                let found = parse(rows)
+                if !found.isEmpty { return found }
             }
         }
         return []
     }
 
-    /// The directory keys states by full name, and the app keys them by
-    /// code — this is the bridge.
-    static let stateNames: [String: String] = [
-        "AL": "Alabama", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
-        "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
-        "FL": "Florida", "GA": "Georgia", "ID": "Idaho", "IL": "Illinois",
-        "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky",
-        "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
-        "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
-        "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
-        "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
-        "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
-        "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
-        "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
-        "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
-        "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
-        "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
-        "WI": "Wisconsin", "WY": "Wyoming",
-    ]
+    /// Directory rows → stations the dial can use: a working stream, a name,
+    /// and tags that say what KIND it is. A station whose tags say nothing a
+    /// driver would recognize has no shelf to go on, so it is left out
+    /// rather than dumped into a catch-all nobody would pick.
+    private static func parse(_ rows: [Row]) -> [BroadcastRadio.Station] {
+        var seen = Set<String>()
+        return rows.compactMap { row -> BroadcastRadio.Station? in
+            let stream = row.url_resolved?.isEmpty == false
+                ? row.url_resolved! : row.url
+            guard !stream.isEmpty, !row.name.isEmpty,
+                  let kind = BroadcastRadio.kind(forTags: row.tags),
+                  seen.insert(stream).inserted else { return nil }
+            return BroadcastRadio.Station(
+                id: row.stationuuid,
+                name: row.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                url: stream, tags: row.tags,
+                latitude: row.geo_lat, longitude: row.geo_long,
+                bitrate: row.bitrate ?? 0, kind: kind)
+        }
+    }
 }

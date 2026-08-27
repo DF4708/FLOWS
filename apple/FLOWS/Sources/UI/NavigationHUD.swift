@@ -99,6 +99,9 @@ struct NavigationHUD: View {
             if model.refuelPrompt {
                 refuelGauge
             }
+            if let camera = model.cameraWarning {
+                cameraChip(camera)
+            }
             if let steep = model.upcomingSteepGrade {
                 steepGradeChip(steep)
             }
@@ -1711,6 +1714,28 @@ struct NavigationHUD: View {
     }
 
     /// Range is getting tight — plan a fuel stop now (vehicle range model).
+    /// A fixed enforcement camera coming up. Quiet by design — it states
+    /// the distance and gets out of the way, with no button to press,
+    /// because the only useful response is to slow down.
+    private func cameraChip(_ note: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 13, weight: .bold))
+            Text(note)
+                .font(.footnote.weight(.bold))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color.black.opacity(0.85))
+        .foregroundStyle(Theme.onDark)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Theme.riskYellow, lineWidth: 1.5))
+        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.25), value: note)
+    }
+
     private func fuelRecommendationChip(_ note: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "fuelpump.exclamationmark.fill")
@@ -2031,9 +2056,11 @@ struct NavigationHUD: View {
     @ViewBuilder
     private func icon(for kind: POIService.Kind) -> some View {
         if model.poi.isSearching && model.poi.activeKind == kind {
-            // The spinner only ever appears on the pressed (near-black)
-            // button — untinted it vanishes into the background.
-            ProgressView().controlSize(.small).tint(Color(white: 0.8))
+            // The spinner only ever appears on the PRESSED button, whose
+            // fill is the CTA — near-black by day and near-white by night.
+            // Untinted, or tinted a fixed light gray, it vanishes into one
+            // of the two.
+            ProgressView().controlSize(.small).tint(Theme.onCTA)
         } else if kind == .rest {
             BenchIcon(size: 16)   // the actual park bench
         } else {

@@ -1066,6 +1066,59 @@ actor LiveHazardFeedFetcher {
         return limit
     }
 
+    // MARK: fixed enforcement cameras — the only speed-trap data we may use
+
+    /// Cameras cached per ~1 km cell; they don't move, so this can be coarse
+    /// and long-lived.
+    private var cameraCache: [String: [EnforcementCameras.Camera]] = [:]
+
+    /// Automated speed and red-light cameras within `radius` of a point.
+    ///
+    /// The same Overpass source as posted limits and lane guidance. Fixed
+    /// installations only — see EnforcementCameras for why a parked officer
+    /// with a radar gun is not, and cannot be, in here.
+    func enforcementCameras(near point: CLLocationCoordinate2D,
+                            radiusMeters: Int = 4_000) async
+        -> [EnforcementCameras.Camera] {
+        // ~1 km cells: cameras are fixed, so a coarse key still hits.
+        let key = "\(Int(point.latitude * 100))|\(Int(point.longitude * 100))|\(radiusMeters)"
+        if let cached = cameraCache[key] { return cached }
+        let around = "(around:\(radiusMeters),\(point.latitude),\(point.longitude))"
+        let query = "[out:json][timeout:15];("
+            + "node[\"highway\"=\"speed_camera\"]\(around);"
+            + "node[\"enforcement\"]\(around);"
+            + "node[\"traffic_signals\"=\"camera\"]\(around);"
+            + ");out tags center 200;"
+        var found: [EnforcementCameras.Camera] = []
+        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
+            comps.queryItems = [URLQueryItem(name: "data", value: query)]
+            if let u = comps.url,
+               let (data, resp) = try? await ThrottledNet.fetch(u),
+               (resp as? HTTPURLResponse)?.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let elements = json["elements"] as? [[String: Any]] {
+                for el in elements {
+                    guard let raw = el["tags"] as? [String: Any] else { continue }
+                    let tags = raw.compactMapValues { $0 as? String }
+                    guard let kind = EnforcementCameras.kind(fromTags: tags) else { continue }
+                    let center = el["center"] as? [String: Any]
+                    guard let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double),
+                          let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
+                    else { continue }
+                    let id = (el["id"] as? Int).map(String.init) ?? "\(lat),\(lon)"
+                    found.append(EnforcementCameras.Camera(
+                        id: id,
+                        coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                        kind: kind,
+                        limitMph: EnforcementCameras.limitMph(fromTags: tags)))
+                }
+            }
+        }
+        cameraCache[key] = found
+        if cameraCache.count > 120 { CacheEviction.dropHalf(&cameraCache) }
+        return found
+    }
+
     // MARK: lane-level guidance — OSM turn:lanes at the maneuver
 
     private var laneCache: [String: [LaneData.Lane]] = [:]

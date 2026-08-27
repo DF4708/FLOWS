@@ -1111,6 +1111,25 @@ struct ContentView: View {
                 }
             }
 
+            // Fixed automated enforcement: speed and red-light cameras, from
+            // OpenStreetMap. Permanent, publicly signed installations — the
+            // only enforcement FLOWS can lawfully carry (see
+            // EnforcementCameras for why a parked patrol car is not here).
+            ForEach(model.enforcementCameras) { camera in
+                Annotation("", coordinate: camera.coordinate) {
+                    ZStack {
+                        Circle().fill(Color.black.opacity(0.85))
+                            .frame(width: 26, height: 26)
+                        Image(systemName: camera.kind.symbol)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Theme.onDark)
+                    }
+                    .overlay(Circle().stroke(Theme.riskYellow, lineWidth: 2))
+                    .shadow(radius: 2)
+                    .help(camera.kind.title)
+                }
+            }
+
             // The web app's ZIP risk choropleth, family-filtered by the Map
             // Filter — drawn first, under everything. Brightened (0.35) with
             // a visible floor at 0.2 so the filterable overlay actually shows.
