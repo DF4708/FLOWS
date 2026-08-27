@@ -85,6 +85,30 @@ enum SpeedLaw {
         return v
     }
 
+    /// The bar's own floor: below this the scale is uselessly cramped, and
+    /// a stopped vehicle would otherwise get a zero-width bar.
+    static let minTopMph = 30.0
+    /// Headroom above the fastest thing that must stay visible, so the fill
+    /// never sits pinned against the right end.
+    static let headroom = 1.25
+
+    /// The top of the bar RIGHT NOW. The scale follows the driving instead
+    /// of standing still: it grows to keep the current speed and both legal
+    /// lines in view, and shrinks back when they fall away, so a 30 mph
+    /// street doesn't leave three-quarters of the bar permanently empty.
+    /// Rounded to a clean 10 so the number stops flickering, and never past
+    /// the vehicle's own maximum.
+    static func dynamicTopMph(speedMph: Double,
+                              postedLimitMph: Double?,
+                              vehicleTopSpeedMph: Double?) -> Double {
+        let mustShow = max(speedMph,
+                           stateThresholdMph(postedLimitMph: postedLimitMph) ?? 0,
+                           federalThresholdMph(postedLimitMph: postedLimitMph) ?? 0)
+        let target = (mustShow * headroom / 10).rounded(.up) * 10
+        let ceiling = barTopMph(vehicleTopSpeedMph: vehicleTopSpeedMph)
+        return min(max(target, minTopMph), ceiling)
+    }
+
     /// Where a threshold sits along the bar, 0…1 — nil when it's off the end.
     static func barFraction(_ mph: Double?, topMph: Double) -> Double? {
         guard let mph, topMph > 0, mph <= topMph else { return nil }
@@ -96,4 +120,31 @@ enum SpeedLaw {
     static let federalNote =
         "Limits are set by state law. The red line marks excessive speed — "
         + "a reckless-driving charge, and a federal case on federal land."
+}
+
+/// The compass reading under the banner needle: degrees and the 16-point
+/// cardinal name a driver actually says out loud.
+enum CompassReading {
+    static let points = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+
+    /// Normalize any heading (including the -1 CoreLocation reports when it
+    /// has no course) into 0..<360.
+    static func normalized(_ degrees: Double) -> Double {
+        guard degrees.isFinite else { return 0 }
+        let d = degrees.truncatingRemainder(dividingBy: 360)
+        return d < 0 ? d + 360 : d
+    }
+
+    static func cardinal(_ degrees: Double) -> String {
+        let d = normalized(degrees)
+        let idx = Int((d / 22.5).rounded()) % points.count
+        return points[idx]
+    }
+
+    /// "312° NW" — the whole reading, ready to draw.
+    static func label(_ degrees: Double) -> String {
+        let d = normalized(degrees)
+        return String(format: "%.0f° %@", d, cardinal(d))
+    }
 }

@@ -306,6 +306,12 @@ struct NavigationHUD: View {
                         .font(.system(size: 13, weight: .semibold))
                         .monospacedDigit()
                 }
+                // How thriftily this is being driven, at a size that can
+                // actually be read — riding the bar it was too small.
+                if showsSpeedSign {
+                    Divider().frame(height: golden.step(3) * 0.40)
+                    efficiencyIcon
+                }
             }
             .fixedSize(horizontal: true, vertical: false)
             if showsSpeedSign {
@@ -318,7 +324,8 @@ struct NavigationHUD: View {
                 }
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .padding(.trailing, 36)   // clear of the live readout
+                .padding(.top, 8)          // below the legal-line numbers
+                .padding(.trailing, 36)    // clear of the live readout
             }
         }
         .padding(.horizontal, 10)
@@ -381,9 +388,13 @@ struct NavigationHUD: View {
                 highway: model.vehicle.profile?.highwayMilesPerUnit))
     }
 
-    /// The top of the bar: the vehicle's own maximum, else 120.
+    /// The top of the bar, which FOLLOWS the driving: it grows to keep the
+    /// current speed and both legal lines in view and shrinks back when they
+    /// fall away, so a 30 mph street doesn't leave most of the bar empty.
     private var barTopMph: Double {
-        SpeedLaw.barTopMph(vehicleTopSpeedMph: model.vehicle.profile?.topSpeedMph)
+        SpeedLaw.dynamicTopMph(speedMph: liveMph,
+                               postedLimitMph: model.postedSpeedLimitMph,
+                               vehicleTopSpeedMph: model.vehicle.profile?.topSpeedMph)
     }
 
     private var speedStanding: SpeedLaw.Standing {
@@ -410,20 +421,16 @@ struct NavigationHUD: View {
     private var speedBar: some View {
         let top = barTopMph
         let fill = min(max(liveMph / max(top, 1), 0), 1)
-        let stateFrac = SpeedLaw.barFraction(
-            SpeedLaw.stateThresholdMph(postedLimitMph: model.postedSpeedLimitMph),
-            topMph: top)
-        let fedFrac = SpeedLaw.barFraction(
-            SpeedLaw.federalThresholdMph(postedLimitMph: model.postedSpeedLimitMph),
-            topMph: top)
+        let stateMph = SpeedLaw.stateThresholdMph(postedLimitMph: model.postedSpeedLimitMph)
+        let fedMph = SpeedLaw.federalThresholdMph(postedLimitMph: model.postedSpeedLimitMph)
+        let stateFrac = SpeedLaw.barFraction(stateMph, topMph: top)
+        let fedFrac = SpeedLaw.barFraction(fedMph, topMph: top)
         let over = speedStanding == .federalViolation
         return HStack(spacing: 8) {
             GeometryReader { geo in
                 let w = geo.size.width
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.black.opacity(0.07))
-                    // Tick marks, drawn under the fill so the bar reads as a
-                    // scale rather than a bare progress strip.
                     ticks(width: w, topMph: top)
                     Capsule()
                         .fill(speedBarColor)
@@ -434,11 +441,18 @@ struct NavigationHUD: View {
                     if let fedFrac {
                         legalMarker(at: w * fedFrac, color: Theme.riskRed)
                     }
-                    // The efficiency icon floats at the head of the fill.
-                    efficiencyIcon
-                        .offset(x: min(max(w * fill - 9, 0), w - 18), y: -13)
+                    // Each legal line says what speed it stands for.
+                    if let stateFrac, let stateMph {
+                        limitLabel(String(format: "%.0f", stateMph),
+                                   at: w * stateFrac, width: w, color: Theme.riskYellow)
+                    }
+                    if let fedFrac, let fedMph {
+                        limitLabel(String(format: "%.0f", fedMph),
+                                   at: w * fedFrac, width: w, color: Theme.riskRed)
+                    }
                 }
                 .animation(.easeOut(duration: 0.35), value: fill)
+                .animation(.easeInOut(duration: 0.5), value: top)
             }
             .frame(height: 14)
             Text(String(format: "%.0f", max(liveMph, 0)))
@@ -447,7 +461,6 @@ struct NavigationHUD: View {
                 .foregroundStyle(speedBarColor)
                 .frame(minWidth: 28, alignment: .trailing)
         }
-        .padding(.top, 10)   // room for the floating icon
         .shadow(color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
                 radius: over ? (overGlow ? 12 : 3) : 0)
         .onChange(of: over, initial: true) { _, isOver in
@@ -460,6 +473,18 @@ struct NavigationHUD: View {
             }
         }
         .help(SpeedLaw.federalNote)
+    }
+
+    /// The speed a legal line stands for, printed under its tick.
+    private func limitLabel(_ text: String, at x: CGFloat,
+                            width: CGFloat, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .heavy))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .fixedSize()
+            .offset(x: min(max(x - 8, 0), max(width - 16, 0)), y: 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Speedometer ticks: half-height every 10 mph, quarter-height every 5.
@@ -487,7 +512,9 @@ struct NavigationHUD: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The efficiency icon that rides the bar.
+    /// How thriftily the vehicle is being driven right now — its own
+    /// readout on the instrument line, switching live between leaf, neutral
+    /// and pump.
     private var efficiencyIcon: some View {
         let (symbol, tint): (String, Color) = switch efficiencyVerdict {
         case .efficient: ("leaf.fill", Theme.riskGreen)
@@ -495,11 +522,10 @@ struct NavigationHUD: View {
         case .wasteful: ("fuelpump.fill", Theme.riskRed)
         }
         return Image(systemName: symbol)
-            .font(.system(size: 11, weight: .bold))
+            .font(.system(size: 18, weight: .bold))
             .foregroundStyle(tint)
-            .padding(2)
-            .background(Circle().fill(Theme.cardBackground))
-            .shadow(color: Theme.cardShadow, radius: 2, y: 1)
+            .frame(width: 22)
+            .contentTransition(.symbolEffect(.replace))
             .help(efficiencyHelp)
     }
 
@@ -1103,8 +1129,9 @@ struct NavigationHUD: View {
             if rerouting {
                 ProgressView()
             }
-            // The compass lives IN the directions banner: it belongs with
-            // the maneuver, and it has no corner of the map left to sit in.
+            // Push the maneuver left and the compass right, so the two read
+            // as separate instruments rather than one crowded strip.
+            Spacer(minLength: 12)
             bannerCompass
         }
         .padding(14)
@@ -1120,23 +1147,34 @@ struct NavigationHUD: View {
     /// the map turns with the road, so a glance answers "which way am I
     /// actually headed?" without hunting for a floating control.
     private var bannerCompass: some View {
-        let heading = max(model.location.course, 0)
-        return ZStack {
-            Circle().fill(Color.white.opacity(0.14))
-            // North needle, counter-rotated against the vehicle's heading.
-            Image(systemName: "location.north.fill")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Theme.riskRed)
-                .rotationEffect(.degrees(-heading))
-            Text("N")
-                .font(.system(size: 8, weight: .heavy))
-                .foregroundStyle(.white)
-                .offset(y: -13)
-                .rotationEffect(.degrees(-heading))
+        let heading = CompassReading.normalized(max(model.location.course, 0))
+        return VStack(spacing: 2) {
+            ZStack {
+                // A lighter face with a rim: on the near-black banner an
+                // unrimmed circle simply disappeared.
+                Circle().fill(Color.white.opacity(0.16))
+                Circle().stroke(Color.white.opacity(0.45), lineWidth: 1)
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.riskRed)
+                    .rotationEffect(.degrees(-heading))
+                Text("N")
+                    .font(.system(size: 8, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .offset(y: -13)
+                    .rotationEffect(.degrees(-heading))
+            }
+            .frame(width: golden.iconCircle * 0.82, height: golden.iconCircle * 0.82)
+            // The reading in words and degrees — the part a driver can use
+            // without interpreting a needle.
+            Text(CompassReading.label(heading))
+                .font(.system(size: 10, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.9))
+                .fixedSize()
         }
-        .frame(width: golden.iconCircle * 0.82, height: golden.iconCircle * 0.82)
         .animation(.easeOut(duration: 0.3), value: heading)
-        .help("North")
+        .help("Heading")
     }
 
     private func firstInstruction(of route: PlannedRoute) -> String {
