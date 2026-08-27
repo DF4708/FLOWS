@@ -74,13 +74,6 @@ enum SpeedLaw {
         return estimatedLimitMph(speedMph: speedMph)
     }
 
-    /// True when the number on screen is the estimate rather than a posted
-    /// sign — the HUD marks those with `~` so it never claims to have read a
-    /// sign it hasn't.
-    static func isEstimated(postedLimitMph: Double?) -> Bool {
-        !(postedLimitMph.map { $0 > 0 } ?? false)
-    }
-
     /// The speed at which the bar turns yellow: over the posted limit
     /// (plus tolerance) is a state violation.
     static func stateThresholdMph(postedLimitMph: Double?) -> Double? {

@@ -253,16 +253,17 @@ final class SpeedBarTests: XCTestCase {
         // OSM has no maxspeed here. The bar must still draw a yellow and a
         // red line — an instrument with no marks teaches nothing.
         let limit = SpeedLaw.effectiveLimitMph(postedLimitMph: nil, speedMph: 68)
+        XCTAssertGreaterThan(limit, 0)
         XCTAssertNotNil(SpeedLaw.stateThresholdMph(postedLimitMph: limit))
         XCTAssertNotNil(SpeedLaw.federalThresholdMph(postedLimitMph: limit))
-        XCTAssertTrue(SpeedLaw.isEstimated(postedLimitMph: nil))
     }
 
     func testAPostedLimitAlwaysBeatsTheEstimate() {
         // Crawling in traffic on a 65 road: the estimate would say 25, but
         // the posted sign is what the lines come from.
         XCTAssertEqual(SpeedLaw.effectiveLimitMph(postedLimitMph: 65, speedMph: 12), 65)
-        XCTAssertFalse(SpeedLaw.isEstimated(postedLimitMph: 65))
+        // …and the estimate would have said something quite different.
+        XCTAssertNotEqual(SpeedLaw.estimatedLimitMph(speedMph: 12), 65)
     }
 
     func testTheEstimateTracksTheKindOfRoad() {

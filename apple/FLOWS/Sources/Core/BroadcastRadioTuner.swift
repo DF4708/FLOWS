@@ -48,7 +48,10 @@ final class BroadcastRadioTuner: ObservableObject {
     private static let kindKey = "flows.radioKind"
     private var player: AVPlayer?
     private var statusObservation: NSKeyValueObservation?
-    private var failureObserver: NSObjectProtocol?
+    /// `nonisolated(unsafe)` because deinit runs off the actor: by the time
+    /// it does, nothing else holds a reference, so the exclusive access the
+    /// annotation promises is real rather than asserted.
+    private nonisolated(unsafe) var failureObserver: NSObjectProtocol?
     private var catalogueTask: Task<Void, Never>?
     /// Where the last catalogue was built for — refetch after a real move.
     private var cataloguedNear: CLLocationCoordinate2D?
@@ -61,6 +64,18 @@ final class BroadcastRadioTuner: ObservableObject {
             kind = saved
         }
         byKind = Self.loadCache()
+    }
+
+    /// Tear the radio down with the object. Without this, a tuner that goes
+    /// away while a station is on leaves an AVPlayer running — audio with
+    /// nothing left to stop it — and its notification observer registered
+    /// for the life of the process. Only non-isolated work here: the player
+    /// and the notification center are both safe off the main actor.
+    deinit {
+        player?.pause()
+        statusObservation?.invalidate()
+        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
+        catalogueTask?.cancel()
     }
 
     // MARK: the dial
@@ -84,7 +99,10 @@ final class BroadcastRadioTuner: ObservableObject {
         statusObservation = item.observe(\.status) { [weak self] item, _ in
             Task { @MainActor in
                 switch item.status {
-                case .readyToPlay: self?.status = nil
+                case .readyToPlay:
+                    self?.status = nil
+                    // A station that plays proves the dial isn't dead.
+                    self?.skipsSinceUserAction = 0
                 case .failed:
                     // A dead stream should move the dial on, not sit silent:
                     // this is a radio, and the next station is the fix.
@@ -108,13 +126,23 @@ final class BroadcastRadioTuner: ObservableObject {
     }
 
     /// Forward and back along the current kind, wrapping at both ends.
-    func next() { play(BroadcastRadio.step(from: playing?.id, in: stations, forward: true)) }
-    func previous() { play(BroadcastRadio.step(from: playing?.id, in: stations, forward: false)) }
+    /// A press is a fresh start: the auto-skip budget resets, so a driver is
+    /// never told the dial is dead because of failures hours ago.
+    func next() {
+        skipsSinceUserAction = 0
+        play(BroadcastRadio.step(from: playing?.id, in: stations, forward: true))
+    }
+
+    func previous() {
+        skipsSinceUserAction = 0
+        play(BroadcastRadio.step(from: playing?.id, in: stations, forward: false))
+    }
 
     func stop() {
         stopPlayer()
         playing = nil
         status = nil
+        skipsSinceUserAction = 0
     }
 
     private func stopPlayer() {
@@ -154,7 +182,14 @@ final class BroadcastRadioTuner: ObservableObject {
         catalogueTask = Task { [weak self] in
             let found = await RadioDirectory.stations(near: position)
             guard let self, !Task.isCancelled, !found.isEmpty else {
-                await MainActor.run { self?.loading = false }
+                await MainActor.run {
+                    self?.loading = false
+                    // Let the next fix try again. Pinning the position on a
+                    // FAILED fetch left the dial empty until the vehicle had
+                    // moved 120 km — a dropped signal at the wrong moment
+                    // meant no radio for the rest of the state.
+                    self?.cataloguedNear = nil
+                }
                 return
             }
             await MainActor.run {

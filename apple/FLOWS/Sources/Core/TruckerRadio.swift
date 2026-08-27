@@ -174,10 +174,22 @@ final class TruckerRadio: ObservableObject {
     }
 
     private var statusObservation: NSKeyValueObservation?
-    private var failureObserver: NSObjectProtocol?
+    /// `nonisolated(unsafe)` because deinit runs off the actor: by the time
+    /// it does, nothing else holds a reference, so the exclusive access the
+    /// annotation promises is real rather than asserted.
+    private nonisolated(unsafe) var failureObserver: NSObjectProtocol?
     /// Called when playback starts, so the AM/FM dial can stand down — one
     /// car, one pair of speakers.
     var willStartPlaying: (() -> Void)?
+
+    /// Tear the relay down with the object: an emergency radio that goes
+    /// away mid-broadcast otherwise leaves an AVPlayer running with nothing
+    /// left to stop it, and its observer registered for the process's life.
+    deinit {
+        player?.pause()
+        statusObservation?.invalidate()
+        if let failureObserver { NotificationCenter.default.removeObserver(failureObserver) }
+    }
 
     func play(_ channel: Channel) {
         guard let url = channel.streamURL else {

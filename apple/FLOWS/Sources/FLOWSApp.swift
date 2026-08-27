@@ -170,6 +170,12 @@ final class AppModel: ObservableObject {
     }
     private var daylightTimer: Timer?
 
+    deinit {
+        // The daylight timer reschedules itself; without this it sits in the
+        // run loop until its next fire even though nothing is left to tell.
+        daylightTimer?.invalidate()
+    }
+
     /// The appearance the window should use, or nil to follow the system
     /// when there is no position to compute dusk from yet.
     var resolvedColorScheme: ColorScheme? {
@@ -1602,7 +1608,11 @@ final class AppModel: ObservableObject {
     private var cameraLookupTask: Task<Void, Never>?
     private var lastCameraLookup: CLLocationCoordinate2D?
     /// Cameras already spoken for, so a slow approach isn't announced twice.
-    private var announcedCameras: Set<String> = []
+    /// Bounded: a cross-country drive passes hundreds, and a set that only
+    /// ever grows is a slow leak. Cameras are fixed, so the oldest entries
+    /// are also the furthest behind and the safest to forget.
+    private var announcedCameras: [String] = []
+    private static let announcedCameraMemory = 200
 
     /// Refresh the camera list as the vehicle moves into new ground, and
     /// keep the live warning in step with every fix.
@@ -1623,7 +1633,8 @@ final class AppModel: ObservableObject {
             cameraLookupTask = Task { [weak self] in
                 let found = await LiveHazardFeedFetcher.shared
                     .enforcementCameras(near: point)
-                guard let self, !Task.isCancelled, self.mode == .navigating else { return }
+                guard let self, !Task.isCancelled, self.mode == .navigating,
+                      let found else { return }
                 self.enforcementCameras = found
             }
         }
@@ -1643,7 +1654,12 @@ final class AppModel: ObservableObject {
         // map icon, not an interruption.
         let limit = next.camera.limitMph ?? postedSpeedLimitMph
         if let limit, mph > limit + SpeedLaw.stateToleranceMph,
-           announcedCameras.insert(next.camera.id).inserted {
+           !announcedCameras.contains(next.camera.id) {
+            announcedCameras.append(next.camera.id)
+            if announcedCameras.count > Self.announcedCameraMemory {
+                announcedCameras.removeFirst(
+                    announcedCameras.count - Self.announcedCameraMemory)
+            }
             DriveVoice.shared.speak(next.camera.kind.title + " ahead")
         }
     }
@@ -2509,6 +2525,14 @@ final class AppModel: ObservableObject {
         postedSpeedLimitMph = nil
         lastLimitPoint = nil
         lastLimitStep = nil
+        // Enforcement cameras belong to the trip too: leaving them up drops
+        // a stale chip into planning mode, and keeping the spoken-for list
+        // would silence a camera the next trip drives past again.
+        cameraLookupTask?.cancel()
+        enforcementCameras = []
+        cameraWarning = nil
+        lastCameraLookup = nil
+        announcedCameras.removeAll()
         refuelPrompt = false
         refuelPromptShownAt = nil
         upcomingSteepGrade = nil

@@ -1098,9 +1098,14 @@ actor LiveHazardFeedFetcher {
     /// The same Overpass source as posted limits and lane guidance. Fixed
     /// installations only — see EnforcementCameras for why a parked officer
     /// with a radar gun is not, and cannot be, in here.
+    ///
+    /// nil means the lookup FAILED; an empty array means the lookup worked
+    /// and there is nothing here. The caller needs the difference — blanking
+    /// the map because Overpass was briefly unreachable would quietly drop
+    /// cameras the driver is still approaching.
     func enforcementCameras(near point: CLLocationCoordinate2D,
                             radiusMeters: Int = 4_000) async
-        -> [EnforcementCameras.Camera] {
+        -> [EnforcementCameras.Camera]? {
         // ~1 km cells: cameras are fixed, so a coarse key still hits.
         let key = "\(Int(point.latitude * 100))|\(Int(point.longitude * 100))|\(radiusMeters)"
         if let cached = cameraCache[key] { return cached }
@@ -1110,23 +1115,23 @@ actor LiveHazardFeedFetcher {
             + "node[\"enforcement\"]\(around);"
             + "node[\"traffic_signals\"=\"camera\"]\(around);"
             + ");out tags center 200;"
+        guard let elements = await LiveHazardFeedFetcher.overpassElements(query)
+        else { return nil }
         var found: [EnforcementCameras.Camera] = []
-        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
-            for el in elements {
-                guard let raw = el["tags"] as? [String: Any] else { continue }
-                let tags = raw.compactMapValues { $0 as? String }
-                guard let kind = EnforcementCameras.kind(fromTags: tags) else { continue }
-                let center = el["center"] as? [String: Any]
-                guard let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double),
-                      let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
-                else { continue }
-                let id = (el["id"] as? Int).map(String.init) ?? "\(lat),\(lon)"
-                found.append(EnforcementCameras.Camera(
-                    id: id,
-                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                    kind: kind,
-                    limitMph: EnforcementCameras.limitMph(fromTags: tags)))
-            }
+        for el in elements {
+            guard let raw = el["tags"] as? [String: Any] else { continue }
+            let tags = raw.compactMapValues { $0 as? String }
+            guard let kind = EnforcementCameras.kind(fromTags: tags) else { continue }
+            let center = el["center"] as? [String: Any]
+            guard let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double),
+                  let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
+            else { continue }
+            let id = (el["id"] as? Int).map(String.init) ?? "\(lat),\(lon)"
+            found.append(EnforcementCameras.Camera(
+                id: id,
+                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                kind: kind,
+                limitMph: EnforcementCameras.limitMph(fromTags: tags)))
         }
         cameraCache[key] = found
         if cameraCache.count > 120 { CacheEviction.dropHalf(&cameraCache) }
