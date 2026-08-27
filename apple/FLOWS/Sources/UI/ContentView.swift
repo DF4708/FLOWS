@@ -351,7 +351,11 @@ struct ContentView: View {
         // Light by day, dark by night, on the sun at the driver's own
         // position — see DaylightClock. Settings can pin either one.
         .preferredColorScheme(model.resolvedColorScheme)
-        .onAppear { model.refreshDaylight() }
+        .onAppear {
+            model.refreshDaylight()
+            // A week away means fuel stops happened that the app never saw.
+            model.checkStaleFuelGauge()
+        }
         .onReceive(model.navigation.$guidance) { guidance in
             // Navigation camera: chase the GPS fix at the engine's altitude —
             // but never fight the user; a manual pan pauses following until
@@ -1365,10 +1369,18 @@ struct ContentView: View {
         // Applies to the flight-phase follow too — panning while a plane
         // itinerary is chosen pauses it; picking the plane card resumes.
         .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { _ in
-            if cameraFollows,
-               model.mode == .navigating || model.transitItinerary?.mode == "Plane" {
-                cameraFollows = false
-            }
+            releaseCameraToUser()
+        })
+        // Pinch and two-finger rotate are user intent too, and neither one
+        // is a drag. Without these the automatic zoom kept overriding a
+        // pinch: the settle-window backstop can't tell them apart, because
+        // guidance moves the camera about once a second, so every gesture
+        // landed inside the "we just moved it ourselves" window.
+        .simultaneousGesture(MagnifyGesture().onChanged { _ in
+            releaseCameraToUser()
+        })
+        .simultaneousGesture(RotateGesture().onChanged { _ in
+            releaseCameraToUser()
         })
         // Click-off dismiss: a click/tap on the MAP closes any open floating
         // panel or menu (settings, fuel/food/store menus, stop list, slider
@@ -1403,6 +1415,17 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    /// Hand the camera to the driver: any deliberate gesture — drag, pinch,
+    /// rotate — stops the automatic zoom and heading-up chase until the
+    /// re-center button gives it back. A map that fights your fingers is
+    /// worse than one that never moved on its own.
+    private func releaseCameraToUser() {
+        guard cameraFollows else { return }
+        guard model.mode == .navigating
+            || model.transitItinerary?.mode == "Plane" else { return }
+        cameraFollows = false
     }
 
     /// One tappable stop pin. Tapping mirrors tapping the stop's list row —

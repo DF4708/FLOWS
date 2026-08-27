@@ -78,6 +78,20 @@ enum AlertEntityParser {
     /// First vehicle mentioned in the text, with the color/brand that appear
     /// NEAR it (same ~10-word window, so a red shirt elsewhere in the alert
     /// doesn't repaint the car).
+    /// Alerts that actually DESCRIBE a suspect vehicle or person: the
+    /// AMBER family and law-enforcement emergencies.
+    ///
+    /// Weather text is full of words this parser will happily read as a
+    /// description — a severe thunderstorm warning naming a bus route drew a
+    /// BUS on the banner, and a flood warning drew a CAR. Nothing in a
+    /// weather alert is a suspect vehicle, so the parser is not run on one.
+    static func describesAnEntity(event: String) -> Bool {
+        let lower = event.lowercased()
+        return ["amber", "child abduction", "blue alert", "silver alert",
+                "endangered", "missing", "law enforcement", "civil emergency"]
+            .contains { lower.contains($0) }
+    }
+
     static func vehicle(in text: String) -> VehicleEntity? {
         let lower = text.lowercased()
         guard let (word, kind) = vehicleWords.first(where: { lower.contains($0.0) }),

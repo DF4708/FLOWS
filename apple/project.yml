@@ -314,6 +314,7 @@ targets:
       - path: FLOWS/Sources/Core/DaylightClock.swift
       - path: FLOWS/Sources/Core/BroadcastRadio.swift
       - path: FLOWS/Sources/Core/EnforcementCameras.swift
+      - path: FLOWS/Sources/Core/ShelterPolicy.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
       - path: FLOWS/Sources/Core/TruckerRadio.swift
       - path: FLOWS/Sources/Core/RadioBrowser.swift

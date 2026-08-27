@@ -1127,6 +1127,44 @@ actor LiveHazardFeedFetcher {
         return nil
     }
 
+    // MARK: is the vehicle parked at a fuel station?
+
+    private var fuelStationCache: [String: Bool] = [:]
+
+    /// Is there a station of the right kind within `radiusMeters` of this
+    /// point? OSM tags pumps as `amenity=fuel` and chargers as
+    /// `amenity=charging_station`, with `fuel:diesel=yes` on the ones that
+    /// sell diesel.
+    ///
+    /// This is what makes "did you just refuel?" honest. Asking after any
+    /// four-minute stop asks after lunch, after a rest area, after a long
+    /// light — and a question that is usually wrong gets dismissed without
+    /// being read.
+    func isAtFuelStation(near point: CLLocationCoordinate2D,
+                         electric: Bool, diesel: Bool,
+                         radiusMeters: Int = 90) async -> Bool {
+        let key = "\(Int(point.latitude * 20_000))|\(Int(point.longitude * 20_000))"
+            + "|\(electric ? "e" : diesel ? "d" : "g")"
+        if let cached = fuelStationCache[key] { return cached }
+        let around = "(around:\(radiusMeters),\(point.latitude),\(point.longitude))"
+        let clause = electric
+            ? "node[\"amenity\"=\"charging_station\"]\(around);"
+                + "way[\"amenity\"=\"charging_station\"]\(around);"
+            : diesel
+                ? "node[\"amenity\"=\"fuel\"][\"fuel:diesel\"=\"yes\"]\(around);"
+                    + "way[\"amenity\"=\"fuel\"][\"fuel:diesel\"=\"yes\"]\(around);"
+                    + "node[\"amenity\"=\"fuel\"]\(around);"
+                : "node[\"amenity\"=\"fuel\"]\(around);"
+                    + "way[\"amenity\"=\"fuel\"]\(around);"
+        let query = "[out:json][timeout:12];(\(clause));out ids 1;"
+        guard let elements = await LiveHazardFeedFetcher.overpassElements(query)
+        else { return false }   // unknown ≠ yes: never ask on a failed lookup
+        let found = !elements.isEmpty
+        fuelStationCache[key] = found
+        if fuelStationCache.count > 200 { CacheEviction.dropHalf(&fuelStationCache) }
+        return found
+    }
+
     // MARK: fixed enforcement cameras — the only speed-trap data we may use
 
     /// Cameras cached per ~1 km cell; they don't move, so this can be coarse

@@ -45,3 +45,23 @@ struct RefuelLearning: Codable, Equatable {
         checkInsEnabled && accuracy < Self.accuracyFloor
     }
 }
+
+/// The gap after which the fuel reading on screen stops meaning anything.
+///
+/// FLOWS only knows about fuel it watched you buy. Leave the app alone for a
+/// week and the tank has almost certainly been filled without it — so the
+/// gauge is a guess, and the honest move is to ask once rather than keep
+/// predicting range off a stale number.
+enum StaleGauge {
+    /// A week away is the threshold: shorter gaps are ordinary weekday use.
+    static let gap: TimeInterval = 7 * 86_400
+
+    /// True when the app has been away long enough that the reading can't be
+    /// trusted. A first run has nothing to compare against, so it is never
+    /// stale — asking a brand-new user whether they just refuelled is
+    /// nonsense.
+    static func wentStale(lastUsed: Date?, now: Date = Date()) -> Bool {
+        guard let lastUsed else { return false }
+        return now.timeIntervalSince(lastUsed) >= gap
+    }
+}

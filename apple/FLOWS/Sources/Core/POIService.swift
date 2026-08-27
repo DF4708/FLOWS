@@ -55,7 +55,7 @@ final class POIService: ObservableObject {
 
         /// The bottom-bar button sets per mode.
         static let standardKinds: [Kind] = [.gas, .food, .stores, .rest, .parking,
-                                            .gyms, .hotel, .medical, .shelter]
+                                            .hotel, .gyms, .medical, .shelter]
         // Stores sits before hotel/food so it never scrolls out of first view
         // on the wider trucker bar (it was technically present but off-screen).
         static let truckerKinds: [Kind] = [.gas, .shower, .truckParking, .weighStation,
@@ -213,9 +213,10 @@ final class POIService: ObservableObject {
     /// cache's lookup-context (start cell) for habit correlation.
     private var lastSearchPosition: CLLocationCoordinate2D?
 
-    /// Shelter search query — swapped to tornado shelters by AppModel when a
-    /// tornado/severe warning is active near the corridor.
-    var shelterQuery: () -> String = { "emergency shelter" }
+    /// What counts as shelter from whatever is actually happening — set by
+    /// AppModel from ShelterPolicy. Ordinary open buildings for weather you
+    /// wait out indoors, real shelters only when the hazard needs one.
+    var shelterQueries: () -> [String] = { ShelterPolicy.Kind.anyBuilding.searchQueries }
 
     /// Station-level price source — nil prices until a licensed feed
     /// (GasBuddy / OPIS) is wired in; the cost model then uses fleet averages
@@ -335,14 +336,11 @@ final class POIService: ObservableObject {
                          aheadOf: position)
         case .shelter:
             // Government-recognized public refuge only: the alert-specific
-            // query (a tornado warning asks for storm shelters) plus the
-            // community buildings towns designate as official refuge sites.
-            // Private noise (animal shelters, service offices) is
-            // name-filtered after the sweep.
-            await search(kind, queries: [shelterQuery(),
-                                         "community shelter storm shelter",
-                                         "civic center high school gymnasium"],
-                         aheadOf: position)
+            // Whatever the hazard actually calls for (ShelterPolicy), each
+            // term its own search — MKLocalSearch matches a query as a
+            // PHRASE, so a string of them finds nothing. Private noise
+            // (animal shelters, service offices) is name-filtered after.
+            await search(kind, queries: shelterQueries(), aheadOf: position)
         case .gyms:
             await search(kind, queries: ["gym", "fitness center"], aheadOf: position)
         case .shower:

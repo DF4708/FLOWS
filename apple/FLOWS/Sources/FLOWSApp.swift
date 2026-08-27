@@ -373,16 +373,20 @@ final class AppModel: ObservableObject {
             + "last seen 25 minutes ago near the marked location"
         let detail = "The child is a 7-year-old girl wearing a blue jacket. "
             + "Vehicle traveling northbound. If seen, call 911 — do not approach."
+        let demoEvent = "Child Abduction Emergency (DEMO)"
+        let describesEntity = AlertEntityParser.describesAnEntity(event: demoEvent)
         imminentWarning = ImminentWarning(
             alertID: "demo-amber",
-            event: "Child Abduction Emergency (DEMO)",
+            event: demoEvent,
             headline: headline,
             detail: detail,
             sourceURL: URL(string: "https://www.missingkids.org/amber"),
             action: .shelter,
             etaSeconds: 300,
-            vehicleEntity: AlertEntityParser.vehicle(in: headline + " " + detail),
-            personEntity: AlertEntityParser.person(in: detail),
+            vehicleEntity: describesEntity
+                ? AlertEntityParser.vehicle(in: headline + " " + detail) : nil,
+            personEntity: describesEntity
+                ? AlertEntityParser.person(in: detail) : nil,
             incidentCoordinate: coordinate,
             onset: Date().addingTimeInterval(-25 * 60),
             reachSpeedMph: 55)
@@ -1335,6 +1339,13 @@ final class AppModel: ObservableObject {
         /// Plausible escape speed from roads near the incident (OSM
         /// maxspeed; blended default until the probe returns).
         var reachSpeedMph: Double = PursuitReach.defaultSpeedMph
+        /// When the official alert stops being in force. The shelter timer
+        /// runs to this, because "how long do I wait" is exactly "how long
+        /// is this dangerous".
+        var expires: Date? = nil
+        /// 0…1 severity — decides whether an ordinary open building is
+        /// enough shelter or the hazard needs a solid one.
+        var severityScore: Double = 0.5
 
         // CLLocationCoordinate2D isn't Equatable — compare by value.
         static func == (lhs: ImminentWarning, rhs: ImminentWarning) -> Bool {
@@ -1381,6 +1392,77 @@ final class AppModel: ObservableObject {
     /// every displayed ETA. The scenario's "+1 hour sheltering" adjustment.
     @Published var stopDelaySeconds: Double = 0
     func addStopDelay(seconds: Double = 3600) { stopDelaySeconds += seconds }
+
+    // MARK: the week-away blind spot
+
+    private static let lastUseKey = "flows.lastUsed"
+
+    /// Called at launch: ask once if the app has been away a week or more,
+    /// then stamp the visit.
+    func checkStaleFuelGauge(now: Date = Date()) {
+        let last = UserDefaults.standard.object(forKey: Self.lastUseKey) as? Date
+        UserDefaults.standard.set(now, forKey: Self.lastUseKey)
+        guard vehicle.profile != nil,
+              vehicle.telemetry().fuelFraction == nil,
+              refuelCheckInsEnabled, notifyFuel,
+              StaleGauge.wentStale(lastUsed: last, now: now) else { return }
+        refuelPrompt = true
+    }
+
+    // MARK: sheltering in place
+
+    /// An active "wait here until this passes" session.
+    struct ShelterSession: Equatable {
+        let event: String
+        let until: Date
+        let sourceURL: URL?
+        let kind: ShelterPolicy.Kind
+        /// What was added to the ETA when it started, so ending early can
+        /// take exactly that back out.
+        let addedSeconds: Double
+
+        var remaining: TimeInterval { max(0, until.timeIntervalSinceNow) }
+        var isOver: Bool { remaining <= 0 }
+    }
+
+    /// Set while the driver has chosen to sit out a hazard. The directions
+    /// window shows its countdown.
+    @Published private(set) var shelterSession: ShelterSession?
+
+    /// Start sheltering, and CLOSE the warning.
+    ///
+    /// The old button added an hour to the ETA every time it was pressed and
+    /// left the card up, so acknowledging the alert made the trip longer and
+    /// the banner stayed. Pressing it now means "I've read this and I'm
+    /// stopping": the card goes away, the wait is the alert's own remaining
+    /// life rather than a flat hour, and the ETA is adjusted exactly once.
+    func beginShelter(for warning: ImminentWarning) {
+        let wait = ShelterPolicy.waitSeconds(expires: warning.expires)
+        // Replace any previous session rather than stacking onto it.
+        if let old = shelterSession { stopDelaySeconds -= old.addedSeconds }
+        stopDelaySeconds += wait
+        shelterSession = ShelterSession(
+            event: warning.event,
+            until: Date().addingTimeInterval(wait),
+            sourceURL: warning.sourceURL,
+            kind: ShelterPolicy.kind(forEvent: warning.event,
+                                     severityScore: warning.severityScore),
+            addedSeconds: wait)
+        dismissImminentWarning()
+    }
+
+    /// Driver chose to move on before the timer ran out — give back the time
+    /// that was added for waiting.
+    func endShelter() {
+        guard let session = shelterSession else { return }
+        stopDelaySeconds = max(0, stopDelaySeconds - session.remaining)
+        shelterSession = nil
+    }
+
+    /// Drop a finished session so the countdown doesn't sit at zero.
+    func clearFinishedShelter() {
+        if shelterSession?.isOver == true { shelterSession = nil }
+    }
     /// The ETA the HUD shows: guidance baseline + unplanned stop time.
     func adjustedRemainingTime(_ baseline: Double) -> Double {
         // Unplanned stopped time, then what this device has LEARNED about
@@ -1762,16 +1844,27 @@ final class AppModel: ObservableObject {
         // Warning-aware shelters: the shelter search matches the SPECIFIC
         // hazard bearing down — an imminent warning names it directly;
         // otherwise fall back to whatever is active near the corridor.
-        poi.shelterQuery = { [weak self] in
-            if let event = self?.imminentWarning?.event {
-                return ImminentAlerts.shelterQuery(forEvent: event)
+        // Shelter that matches the THREAT: ordinary open buildings for
+        // weather you wait out indoors, a solid building when the wind is
+        // the story, an official shelter only for an evacuation — and the
+        // vehicle itself when the danger is to driving rather than to
+        // buildings. See ShelterPolicy.
+        poi.shelterQueries = { [weak self] in
+            guard let self else { return ShelterPolicy.Kind.anyBuilding.searchQueries }
+            if let w = self.imminentWarning {
+                return ShelterPolicy.kind(forEvent: w.event,
+                                          severityScore: w.severityScore).searchQueries
             }
-            let events = (self?.alerts.activeHeadlines ?? [])
-                + (self?.navigation.route?.alertEvents ?? [])
+            // No imminent card up: fall back to whatever is active near the
+            // corridor, scored from the risk band the route carries.
+            let events = self.alerts.activeHeadlines
+                + (self.navigation.route?.alertEvents ?? [])
             if let worst = events.first {
-                return ImminentAlerts.shelterQuery(forEvent: worst)
+                return ShelterPolicy.kind(
+                    forEvent: worst,
+                    severityScore: self.navigation.route?.weatherRisk ?? 0.6).searchQueries
             }
-            return "emergency shelter"
+            return ShelterPolicy.Kind.anyBuilding.searchQueries
         }
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
@@ -2048,13 +2141,25 @@ final class AppModel: ObservableObject {
             // like a fuel stop → ask ONCE per dwell. (CarPlay does not
             // expose the vehicle's real fuel level to third-party nav apps —
             // when Apple opens that API this becomes automatic.)
-            if let stopStart = stoppedSince, vehicle.profile != nil,
+            if let stopStart = stoppedSince, let profile = vehicle.profile,
                vehicle.telemetry().fuelFraction == nil,   // real data = no need to ask
                now.timeIntervalSince(stopStart) >= 240,
                refuelPromptShownAt.map({ $0 < stopStart }) ?? true,
                vehicle.refuelLearning.shouldPrompt(checkInsEnabled: refuelCheckInsEnabled && notifyFuel) {
+                // Only ask where fuel actually IS. A four-minute dwell is
+                // lunch as often as it is a fill-up, and a question that is
+                // usually wrong gets dismissed unread. The prompt waits for
+                // the station lookup rather than firing hopefully.
                 refuelPromptShownAt = now
-                refuelPrompt = true
+                let here = fix.coordinate
+                let electric = profile.fuelType == .electric
+                let diesel = profile.fuelType == .diesel
+                Task { [weak self] in
+                    let atPump = await LiveHazardFeedFetcher.shared.isAtFuelStation(
+                        near: here, electric: electric, diesel: diesel)
+                    guard let self, atPump, self.stoppedSince == stopStart else { return }
+                    self.refuelPrompt = true
+                }
             }
         }
     }
@@ -3492,15 +3597,22 @@ final class AppModel: ObservableObject {
             let lon = ring.map(\.longitude).reduce(0, +) / Double(max(ring.count, 1))
             return CLLocationCoordinate2D(latitude: lat, longitude: lon)
         } ?? score.samples.first { $0.alertID == alert.id }?.coordinate
+        // A suspect vehicle or person is only described by the AMBER family
+        // and law-enforcement alerts — never by weather.
+        let describesEntity = AlertEntityParser.describesAnEntity(event: alert.event)
         var warning = ImminentWarning(
             alertID: alert.id, event: alert.event, headline: alert.headline,
             detail: alert.detail, sourceURL: alert.sourceURL, action: action,
             etaSeconds: ImminentAlerts.secondsToReach(
                 distanceMeters: hit.distanceMeters, speedMps: speed),
-            vehicleEntity: AlertEntityParser.vehicle(in: fullText),
-            personEntity: AlertEntityParser.person(in: fullText),
+            vehicleEntity: describesEntity
+                ? AlertEntityParser.vehicle(in: fullText) : nil,
+            personEntity: describesEntity
+                ? AlertEntityParser.person(in: fullText) : nil,
             incidentCoordinate: incident,
-            onset: alert.onset)
+            onset: alert.onset,
+            expires: alert.expires,
+            severityScore: alert.severityScore)
         if let cached = reachSpeeds[alert.id] {
             warning.reachSpeedMph = cached
         } else if action == .shelter, let incident {

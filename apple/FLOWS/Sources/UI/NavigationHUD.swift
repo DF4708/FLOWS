@@ -37,6 +37,10 @@ struct NavigationHUD: View {
     /// Radio card visibility (trucker radio in trucker mode, emergency
     /// radio otherwise — same card, same relays).
     @State private var showRadio = false
+    /// Tapping the shelter countdown opens its two-way out.
+    @State private var showShelterSheet = false
+    /// Ticks once a second while sheltering so the countdown moves.
+    @State private var shelterTick = Date()
     /// AM/FM search field text (radio-browser.info directory).
     @State private var stationSearch = ""
     /// Long-trip share banner: recipient list expanded / contacts sheet up.
@@ -220,6 +224,9 @@ struct NavigationHUD: View {
             // model or the HUD, so the fits/scrolls swap loses nothing.
             ScrollWhenTight {
                 VStack(spacing: 8) {
+                    if showShelterSheet {
+                        shelterSheet
+                    }
                     if showRadio {
                         radioCard
                     }
@@ -248,6 +255,14 @@ struct NavigationHUD: View {
             }
         }
         .padding(golden.pad)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now in
+            // Only while sheltering — a per-second tick on an idle HUD would
+            // redraw the whole thing for nothing.
+            guard model.shelterSession != nil else { return }
+            shelterTick = now
+            model.clearFinishedShelter()
+            if model.shelterSession == nil { showShelterSheet = false }
+        }
         .onChange(of: model.showRadioCardRequested) { _, wants in
             guard wants else { return }
             showRadio = true
@@ -273,9 +288,16 @@ struct NavigationHUD: View {
 
     /// The cluster is a driving instrument: motor routes only (walking has
     /// no tank), and only once a vehicle profile exists to read from.
+    /// The cluster is a CAR instrument. A walker has no tank and no
+    /// speedometer, and neither does a passenger on a plane, bus or train —
+    /// SpeedSign.shouldShow already draws that line for the speed bar, so
+    /// the gauge and the economy readouts follow it rather than testing only
+    /// for a walking route.
     private var showsFuelCluster: Bool {
         model.vehicle.profile != nil
+            && !model.walkingMode
             && model.navigation.route?.isWalkingEstimate != true
+            && !model.isPassengerTransit
             && !model.collapsedPanels.contains("fuel")
     }
 
@@ -305,11 +327,16 @@ struct NavigationHUD: View {
         let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
         let electric = vehicle.profile?.fuelType == .electric
         return VStack(spacing: 6) {
-            HStack(alignment: .top, spacing: 8) {
+            // The readouts share the width EVENLY and span the same span as
+            // the speed bar beneath them — four instruments on one line,
+            // each with the same room, rather than a cluster hugging itself
+            // at the left end of a wide card.
+            HStack(alignment: .top, spacing: 0) {
                 GaugeDial(fraction: .constant(fraction),
                           alarming: model.fuelGaugeAlarming,
                           showsQuartileLabels: false)
                     .frame(width: golden.step(3) * 0.8, height: golden.step(3) * 0.5)
+                    .frame(maxWidth: .infinity)
                     .allowsHitTesting(false)
                 if let economy = averageEconomy {
                     Divider().frame(height: instrumentColumnHeight)
@@ -338,11 +365,10 @@ struct NavigationHUD: View {
                     Image(systemName: "fuelpump.fill")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Theme.riskRed.opacity(tankPulse ? 1 : 0.15))
-                        .frame(width: 22)
+                        .frame(maxWidth: .infinity)
                         .help("Few fuel stops left within your range")
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
             if showsSpeedSign {
                 speedBar
                 // The scale's ends and both legal speeds, each positioned
@@ -465,7 +491,7 @@ struct NavigationHUD: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(height: instrumentColumnHeight)
-        .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: live speed bar — how fast, how legal, how thriftily
@@ -1281,8 +1307,15 @@ struct NavigationHUD: View {
             warning: warning, isCompact: isCompact,
             onDismiss: { model.dismissImminentWarning() },
             onShelterDelay: warning.action == .shelter ? {
-                model.addStopDelay(seconds: 3600)
-                Task { await model.poi.request(.shelter, aheadOf: model.effectivePosition) }
+                model.beginShelter(for: warning)
+                // Only look for a place when a place is the answer — for a
+                // visibility or hydroplaning hazard the vehicle IS shelter.
+                if ShelterPolicy.kind(forEvent: warning.event,
+                                      severityScore: warning.severityScore)
+                    != .inVehicle {
+                    Task { await model.poi.request(.shelter,
+                                                   aheadOf: model.effectivePosition) }
+                }
             } : nil,
             onFindRest: warning.action == .restArea ? {
                 Task { await model.poi.request(.rest, aheadOf: model.effectivePosition) }
@@ -1345,6 +1378,89 @@ struct NavigationHUD: View {
         }
     }
 
+    /// How much longer to sit out the hazard, live, in the directions
+    /// window. Tapping it reopens the alert with a way out.
+    @ViewBuilder
+    private var shelterCountdown: some View {
+        if let session = model.shelterSession {
+            Button { showShelterSheet = true } label: {
+                VStack(spacing: 0) {
+                    Image(systemName: session.kind == .inVehicle
+                          ? "car.fill" : "house.fill")
+                        .scaledFont(size: 13, weight: .bold)
+                    Text(ShelterPolicy.countdownText(
+                        session.until.timeIntervalSince(shelterTick)))
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .monospacedDigit()
+                    Text("shelter")
+                        .scaledFont(size: 9, weight: .semibold)
+                        .opacity(0.75)
+                }
+                .foregroundStyle(Theme.riskYellow)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.white.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("Sheltering — tap to leave early or read the official alert")
+        }
+    }
+
+    /// Tapping the countdown: the two things a sheltering driver might
+    /// actually want — go anyway, or read the official word.
+    @ViewBuilder
+    private var shelterSheet: some View {
+        if let session = model.shelterSession {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Label(session.event, systemImage: "clock.badge.exclamationmark")
+                        .scaledFont(size: 15, weight: .bold)
+                        .lineLimit(2)
+                    Spacer()
+                    Button { showShelterSheet = false } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text(session.kind.advice)
+                    .scaledFont(size: 13)
+                    .foregroundStyle(.secondary)
+                Text("\(ShelterPolicy.countdownText(session.until.timeIntervalSince(shelterTick))) left")
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                HStack(spacing: 8) {
+                    Button {
+                        model.endShelter()
+                        showShelterSheet = false
+                    } label: {
+                        Text("Stop timer and drive on")
+                            .scaledFont(size: 14, weight: .heavy)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: Theme.tapMinimum)
+                            .background(Theme.cta)
+                            .foregroundStyle(Theme.onCTA)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    if let url = session.sourceURL {
+                        Link(destination: url) {
+                            Text("Official report")
+                                .scaledFont(size: 14, weight: .heavy)
+                                .frame(maxWidth: .infinity)
+                                .frame(minHeight: Theme.tapMinimum)
+                                .background(Theme.fill(0.08))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+            .floatingCard()
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+        }
+    }
+
     private func banner(distance: String, instruction: String,
                         rerouting: Bool, live: Bool) -> some View {
         HStack(spacing: 14) {
@@ -1379,6 +1495,9 @@ struct NavigationHUD: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if rerouting {
                 ProgressView()
+            }
+            if model.shelterSession != nil {
+                shelterCountdown
             }
             bannerCompass
         }

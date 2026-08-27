@@ -45,11 +45,25 @@ struct ImminentBannerView: View {
 
     private var isRed: Bool { warning.action == .shelter }
 
+    /// What sheltering means for THIS hazard, in the words of the button.
+    private var shelterKind: ShelterPolicy.Kind {
+        ShelterPolicy.kind(forEvent: warning.event,
+                           severityScore: warning.severityScore)
+    }
+
+    private var shelterButtonTitle: String {
+        shelterKind == .inVehicle ? "Pull over and wait" : "Shelter here"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: isRed
-                      ? "exclamationmark.octagon.fill" : "exclamationmark.triangle.fill")
+                // The icon for the HAZARD TYPE, from the same table the map
+                // legend draws from — a flood banner wears the flood wave, a
+                // tornado banner the funnel. Severity is already carried by
+                // the banner's own red/yellow ground, so the glyph is free to
+                // say WHAT rather than repeat how bad.
+                Image(systemName: HazardStyle.kind(forEvent: warning.event).symbol)
                     .scaledFont(size: 26)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(warning.event)
@@ -86,6 +100,15 @@ struct ImminentBannerView: View {
                     Text(warning.headline)
                         .scaledFont(size: 13, weight: .semibold)
                         .lineLimit(2)
+                    if isRed {
+                        // One plain line saying what to actually do — an
+                        // ordinary building for weather you wait out inside,
+                        // a solid one when the wind is the story, the
+                        // vehicle when the danger is to driving.
+                        Text(shelterKind.advice)
+                            .scaledFont(size: 12, weight: .bold)
+                            .lineLimit(2)
+                    }
                     if let detail = warning.detail {
                         Text(detail)
                             .font(.caption)
@@ -119,7 +142,11 @@ struct ImminentBannerView: View {
                 switch warning.action {
                 case .shelter:
                     if let onShelterDelay {
-                        Button("Sheltering here (+1 h)") { onShelterDelay() }
+                        // Pressing this means "read, and I'm stopping" — it
+                        // closes the card and starts one timer for as long as
+                        // the alert is actually in force. It does NOT stack
+                        // another hour on every press.
+                        Button(shelterButtonTitle) { onShelterDelay() }
                             .scaledFont(size: 14, weight: .heavy)
                             .buttonStyle(.plain)
                             .padding(.horizontal, 14)
