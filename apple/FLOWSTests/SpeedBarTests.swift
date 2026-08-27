@@ -60,48 +60,54 @@ final class SpeedBarTests: XCTestCase {
         XCTAssertNil(SpeedLaw.barFraction(nil, topMph: 120))
     }
 
-    // MARK: the scale zooms OUT to keep everything in view
+    // MARK: the scale zooms with the driving
 
-    func testScaleHoldsItsDefaultForNormalDriving() {
-        // The scale a driver learns to read must not shift under them just
-        // because they slowed down for a 25 mph street.
-        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 22, postedLimitMph: 25,
-                                              vehicleTopSpeedMph: nil),
-                       SpeedLaw.defaultTopSpeedMph)
-        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 70, postedLimitMph: 65,
-                                              vehicleTopSpeedMph: nil),
-                       SpeedLaw.defaultTopSpeedMph)
-    }
-
-    func testScaleUsesTheVehiclesOwnMaximumAsItsDefault() {
-        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 30, postedLimitMph: 35,
-                                              vehicleTopSpeedMph: 85), 85)
-    }
-
-    func testScaleZoomsOutWhenSpeedRunsPastTheDefault() {
-        // Past the top of the bar, the bar widens rather than pinning.
-        let top = SpeedLaw.dynamicTopMph(speedMph: 130, postedLimitMph: 70,
+    func testScaleTightensAtTownSpeeds() {
+        // Crawling a 25 mph street: the bar reads in tens near the driving,
+        // not a mostly-empty 120.
+        let top = SpeedLaw.dynamicTopMph(speedMph: 28, postedLimitMph: 25,
                                          vehicleTopSpeedMph: nil)
-        XCTAssertGreaterThan(top, SpeedLaw.defaultTopSpeedMph)
-        XCTAssertNotNil(SpeedLaw.barFraction(130, topMph: top))
+        XCTAssertLessThanOrEqual(top, 60)
+        XCTAssertEqual(top.truncatingRemainder(dividingBy: 10), 0)
     }
 
-    func testScaleZoomsOutToKeepBothLegalLinesInView() {
-        // A vehicle whose rated top is below the road's excessive-speed
-        // line: the scale must still show the red line.
-        let fed = SpeedLaw.federalThresholdMph(postedLimitMph: 75)!
-        let top = SpeedLaw.dynamicTopMph(speedMph: 60, postedLimitMph: 75,
-                                         vehicleTopSpeedMph: 80)
-        XCTAssertGreaterThanOrEqual(top, fed)
-        XCTAssertNotNil(SpeedLaw.barFraction(fed, topMph: top))
-    }
-
-    func testWideningRoundsToACleanTen() {
-        for speed in stride(from: 125.0, through: 133.0, by: 1.0) {
-            let top = SpeedLaw.dynamicTopMph(speedMph: speed, postedLimitMph: nil,
+    func testScaleStepsUpAtHighwaySpeeds() {
+        let town = SpeedLaw.dynamicTopMph(speedMph: 28, postedLimitMph: 25,
+                                          vehicleTopSpeedMph: nil)
+        let highway = SpeedLaw.dynamicTopMph(speedMph: 75, postedLimitMph: 70,
                                              vehicleTopSpeedMph: nil)
-            XCTAssertEqual(top.truncatingRemainder(dividingBy: 10), 0)
+        XCTAssertGreaterThan(highway, town)
+        XCTAssertEqual(highway.truncatingRemainder(dividingBy: 10), 0)
+    }
+
+    func testScaleNeverExceedsTheVehiclesTopSpeed() {
+        // Even flat out, and even where the excessive-speed line sits above
+        // what the vehicle can do, the bar stops at the vehicle's maximum.
+        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 200, postedLimitMph: 75,
+                                              vehicleTopSpeedMph: 85), 85)
+        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 200, postedLimitMph: nil,
+                                              vehicleTopSpeedMph: nil),
+                       SpeedLaw.defaultTopSpeedMph)
+    }
+
+    func testScaleAlwaysKeepsSpeedAndBothLinesInView() {
+        // Sweep a whole drive: at every speed, all three must be on the bar.
+        for speed in stride(from: 0.0, through: 110.0, by: 5.0) {
+            let top = SpeedLaw.dynamicTopMph(speedMph: speed, postedLimitMph: 55,
+                                             vehicleTopSpeedMph: nil)
+            XCTAssertNotNil(SpeedLaw.barFraction(speed, topMph: top),
+                            "current speed \(speed) fell off the bar")
+            XCTAssertNotNil(SpeedLaw.barFraction(
+                SpeedLaw.stateThresholdMph(postedLimitMph: 55), topMph: top))
+            XCTAssertNotNil(SpeedLaw.barFraction(
+                SpeedLaw.federalThresholdMph(postedLimitMph: 55), topMph: top))
         }
+    }
+
+    func testScaleStaysReadableWhenStopped() {
+        XCTAssertEqual(SpeedLaw.dynamicTopMph(speedMph: 0, postedLimitMph: nil,
+                                              vehicleTopSpeedMph: nil),
+                       SpeedLaw.minTopMph)
     }
 
     // MARK: the compass reading

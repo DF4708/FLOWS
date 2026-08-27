@@ -85,26 +85,33 @@ enum SpeedLaw {
         return v
     }
 
-    /// Headroom above anything that must stay visible, so a line or the
-    /// fill never sits jammed against the right end.
-    static let headroom = 1.15
+    /// Headroom above the current speed so the fill never sits jammed
+    /// against the right end.
+    static let headroom = 1.25
+    /// The tightest the scale may get — below this it is unreadable.
+    static let minTopMph = 30.0
 
-    /// The top of the bar. It STARTS at the vehicle's own maximum (or 120
-    /// when nothing is known) and only ever ZOOMS OUT from there — if the
-    /// driver passes the red line, or a road's thresholds land beyond the
-    /// vehicle's rated top, the scale widens to keep the current speed and
-    /// BOTH legal lines inside the bar. It never narrows below the default,
-    /// so the scale a driver learns to read stays put.
+    /// The top of the bar. The scale ZOOMS with the driving, in clean 10 mph
+    /// steps: crawling a town street it may read 50, and at highway speed it
+    /// steps up toward the vehicle's maximum. Two rules bound it —
+    ///
+    ///   * it NEVER exceeds the vehicle's own top speed (120 when nothing is
+    ///     known), because a bar promising speeds the vehicle cannot reach is
+    ///     just wasted width; and
+    ///   * it is never so tight that the current speed or either legal line
+    ///     falls off the end — all three must always be in view.
+    ///
+    /// Where those rules conflict (a road whose excessive-speed line sits
+    /// above the vehicle's rated top), the vehicle's maximum wins.
     static func dynamicTopMph(speedMph: Double,
                               postedLimitMph: Double?,
                               vehicleTopSpeedMph: Double?) -> Double {
-        let base = barTopMph(vehicleTopSpeedMph: vehicleTopSpeedMph)
-        let mustShow = max(speedMph,
+        let ceiling = barTopMph(vehicleTopSpeedMph: vehicleTopSpeedMph)
+        let mustShow = max(speedMph * headroom,
                            stateThresholdMph(postedLimitMph: postedLimitMph) ?? 0,
                            federalThresholdMph(postedLimitMph: postedLimitMph) ?? 0)
-        guard mustShow * headroom > base else { return base }
-        // Widen in clean tens so the number doesn't flicker mid-acceleration.
-        return (mustShow * headroom / 10).rounded(.up) * 10
+        let stepped = (mustShow / 10).rounded(.up) * 10
+        return min(max(stepped, minTopMph), ceiling)
     }
 
     /// Where a threshold sits along the bar, 0…1 — nil when it's off the end.

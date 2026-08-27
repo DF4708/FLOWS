@@ -338,11 +338,9 @@ struct NavigationHUD: View {
                     Spacer(minLength: 6)
                     if let state = SpeedLaw.stateThresholdMph(
                         postedLimitMph: model.postedSpeedLimitMph) {
-                        Text(String(format: "%.0f", state))
-                            .foregroundStyle(Theme.riskYellow)
-                            // Yellow on white needs an outline to be legible.
-                            .shadow(color: .black, radius: 0.6)
-                            .shadow(color: .black.opacity(0.7), radius: 1.2)
+                        OutlinedText(text: String(format: "%.0f", state),
+                                     color: Theme.riskYellow,
+                                     font: .system(size: 11, weight: .bold))
                         Spacer(minLength: 6)
                     }
                     if let fed = SpeedLaw.federalThresholdMph(
@@ -486,11 +484,22 @@ struct NavigationHUD: View {
                 .animation(.easeInOut(duration: 0.5), value: top)
             }
             .frame(height: 14)
-            Text(String(format: "%.0f", max(liveMph, 0)))
-                .font(.system(size: 15, weight: .heavy, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(speedBarColor)
-                .frame(minWidth: 28, alignment: .trailing)
+            // Outlined only while yellow — the other two read on their own,
+            // and an outline everywhere would just thicken them.
+            Group {
+                if speedStanding == .stateViolation {
+                    OutlinedText(text: String(format: "%.0f", max(liveMph, 0)),
+                                 color: Theme.riskYellow,
+                                 font: .system(size: 15, weight: .heavy,
+                                               design: .rounded))
+                } else {
+                    Text(String(format: "%.0f", max(liveMph, 0)))
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(speedBarColor)
+                }
+            }
+            .frame(minWidth: 28, alignment: .trailing)
         }
         .shadow(color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
                 radius: over ? (overGlow ? 12 : 3) : 0)
@@ -1139,10 +1148,12 @@ struct NavigationHUD: View {
 
     private func banner(distance: String, instruction: String,
                         rerouting: Bool, live: Bool) -> some View {
-        // Width hugs the text + symbol (capped) instead of a fixed box.
         HStack(spacing: 14) {
-            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+            // The arrow that MATCHES the words (ManeuverSymbol) — a right
+            // turn drawn beside "turn left" is worse than no icon.
+            Image(systemName: ManeuverSymbol.symbol(for: instruction))
                 .font(.system(size: live ? 34 : 28, weight: .bold))
+                .frame(width: live ? 40 : 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text(distance)
                     .font(live
@@ -1156,23 +1167,49 @@ struct NavigationHUD: View {
                     .opacity(live ? 0.9 : 1)
                     .minimumScaleFactor(0.7)
                     .lineLimit(2)
+                // Lane guidance, but ONLY when the instruction states it.
+                if let advice = LaneGuidance.advice(for: instruction) {
+                    laneStrip(advice)
+                }
             }
+            // Take the room between the icon and the compass instead of
+            // leaving it empty.
+            .frame(maxWidth: .infinity, alignment: .leading)
             if rerouting {
                 ProgressView()
             }
-            // The maneuver expands into the banner; a fixed gap is all that
-            // separates it from the compass, so no space is wasted between.
-            Spacer(minLength: 0)
-                .frame(maxWidth: .infinity)
             bannerCompass
         }
         .padding(14)
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-        .fixedSize(horizontal: !isCompact, vertical: false)
         .background(Theme.chrome.opacity(0.92))
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
+    }
+
+    /// The lanes to be in, drawn as arrows with the recommended ones filled
+    /// green — the multi-lane case (a five-lane interchange) where knowing
+    /// the turn isn't enough. Only ever drawn from what the instruction
+    /// actually says; MapKit publishes no lane data to invent it from.
+    private func laneStrip(_ advice: LaneGuidance.Advice) -> some View {
+        let total = max(advice.laneCount + 2, 3)
+        let lit = LaneGuidance.highlighted(advice: advice, total: total)
+        return HStack(spacing: 3) {
+            ForEach(0..<total, id: \.self) { i in
+                Image(systemName: lit.contains(i)
+                      ? ManeuverSymbol.symbol(for: advice.text) : "arrow.up")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(lit.contains(i)
+                                     ? Theme.riskGreen : Color.white.opacity(0.3))
+            }
+            Text(advice.text)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.riskGreen)
+                .lineLimit(1)
+                .padding(.leading, 2)
+        }
+        .padding(.top, 2)
     }
 
     /// A compass rose on the banner's right: the needle points north while
@@ -1317,7 +1354,7 @@ struct NavigationHUD: View {
             ?? model.navigation.route?.distanceMeters
         if let time, let meters {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Total")
+                Text("Total remaining to destination")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
                 Rectangle()

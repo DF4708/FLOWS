@@ -142,6 +142,42 @@ struct CollapsiblePanel: ViewModifier {
     }
 }
 
+/// Text with a SOLID outline — eight offset copies drawn behind the glyphs,
+/// not a shadow. Yellow is the app's least legible color on a light card, and
+/// a soft glow only smears it; a hard edge is what makes it read.
+///
+/// This is a view rather than a modifier on purpose: a modifier receives an
+/// already-styled view, and re-coloring it can't override a `foregroundStyle`
+/// already applied inside — which produced eight YELLOW copies and a smudge.
+/// Taking the string and both colors keeps the layering unambiguous.
+struct OutlinedText: View {
+    let text: String
+    var color: Color
+    var outline: Color = .black
+    var font: Font = .body
+    var width: CGFloat = 1
+
+    private static let offsets: [(CGFloat, CGFloat)] = [
+        (-1, 0), (1, 0), (0, -1), (0, 1),
+        (-1, -1), (1, -1), (-1, 1), (1, 1),
+    ]
+
+    var body: some View {
+        ZStack {
+            ForEach(Array(Self.offsets.enumerated()), id: \.offset) { _, o in
+                Text(text)
+                    .font(font)
+                    .foregroundStyle(outline)
+                    .offset(x: o.0 * width, y: o.1 * width)
+            }
+            Text(text)
+                .font(font)
+                .foregroundStyle(color)
+        }
+        .monospacedDigit()
+    }
+}
+
 /// Scrolls only when the content is too tall for the space offered — tall
 /// cards keep their natural size when there's room and become scrollable in
 /// short windows (a phone on its side) instead of being clipped.
