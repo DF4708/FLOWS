@@ -234,3 +234,38 @@ enum TransitTickets {
         }
     }
 }
+
+/// The three transit toggles on the Routes card. Rail/bus route through
+/// stations; plane boards at the nearest commercial airports.
+enum TransitMode: CaseIterable, Hashable { case rail, bus, plane }
+
+/// One computed transit option — the content of a rail/bus/plane card.
+/// Lives on AppModel (not view @State): rotating the phone flips the size
+/// class, which rebuilds the chrome tree and would clear view-local state
+/// mid-choice.
+struct TransitOption {
+    let title: String
+    let detail: String
+    let fare: Double
+    let destination: MKMapItem
+    /// The EXACT ticket for the ride: label naming board → alight, plus the
+    /// carrier's booking page (Amtrak/Greyhound) or the station/agency URL.
+    var ticketLabel: String?
+    var ticketURL: URL?
+    /// This option's own itinerary — rail and bus cards coexist, each with
+    /// its own legs; tapping a card draws ITS itinerary on the map.
+    var itinerary: TransitItinerary?
+    /// Rental counters near the destination — the traveller arrives
+    /// WITHOUT a car (that's the whole point of leg 3 being a walk).
+    var rentals: [RentalCars.Office] = []
+}
+
+/// The walk + paid-ride card's computed pieces (walking mode only). On the
+/// model for the same rotation-survival reason as TransitOption.
+struct HybridOption {
+    let walkAloneSeconds: TimeInterval
+    let offer: HybridWalk.Offer
+    let uberURL: URL?
+    let lyftURL: URL?
+    let itinerary: TransitItinerary
+}

@@ -66,23 +66,64 @@ final class SafetyAndGradeTests: XCTestCase {
     func testImpactThresholdAndReplies() {
         XCTAssertFalse(CrashLogic.isImpact(accelerationG: 1.0))   // normal driving
         XCTAssertFalse(CrashLogic.isImpact(accelerationG: 2.5))   // hard braking/pothole
-        XCTAssertTrue(CrashLogic.isImpact(accelerationG: 4.0))    // crash pulse
-        XCTAssertTrue(CrashLogic.isImpact(accelerationG: 8.0))
+        XCTAssertFalse(CrashLogic.isImpact(accelerationG: 4.0))   // rough road / thrill ride
+        XCTAssertTrue(CrashLogic.isImpact(accelerationG: 5.0))    // crash pulse
+        XCTAssertTrue(CrashLogic.isImpact(accelerationG: 9.0))
 
         // Windowed detector: a hard spike fires even if isolated (never miss a
-        // violent crash); a moderate spike needs corroboration; a lone 4–5 g
+        // violent crash); a moderate spike needs corroboration; a lone 5 g
         // spike that settles to rest (phone drop) does NOT fire.
         let rest = [Double](repeating: 1.0, count: 24)
-        XCTAssertTrue(CrashLogic.isImpact(window: rest + [7.0]),
-                      "a hard >=6 g spike must fire immediately")
-        XCTAssertFalse(CrashLogic.isImpact(window: rest + [4.5]),
+        XCTAssertTrue(CrashLogic.isImpact(window: rest + [8.5]),
+                      "a hard >=8 g spike must fire immediately")
+        XCTAssertFalse(CrashLogic.isImpact(window: rest + [5.5]),
                        "a lone moderate spike then rest must NOT fire (phone drop)")
-        // Real crash: 4.5 g peak with continued disturbance (tumble/skid).
-        let crash = [1.0, 1.2, 4.5, 3.1, 2.8, 2.6, 1.5] + [Double](repeating: 1.0, count: 18)
+        // Real crash: 5.5 g peak with continued disturbance (tumble/skid).
+        let crash = [1.0, 1.2, 5.5, 3.1, 2.8, 2.6, 1.5] + [Double](repeating: 1.0, count: 18)
         XCTAssertTrue(CrashLogic.isImpact(window: crash),
                       "a corroborated moderate impact must fire")
         XCTAssertFalse(CrashLogic.isImpact(window: rest),
                        "calm driving never fires")
+
+        // A crash is not g-force alone: a road-speed vehicle ON A ROAD has
+        // to suddenly stop. These are the cases that used to false-fire.
+        let crashWindow = [1.0, 1.2, 5.5, 3.1, 2.8, 2.6, 1.5]
+            + [Double](repeating: 1.0, count: 18)
+
+        // Real crash: 65 mph → stopped, on the road corridor.
+        XCTAssertTrue(CrashLogic.isCrash(.init(
+            window: crashWindow, speedBeforeMps: 29, speedAfterMps: 0,
+            metersFromRoad: 5)))
+
+        // Rollercoaster: the same g-loads (and real speed), but nowhere near
+        // a road and still moving through the loop.
+        XCTAssertFalse(CrashLogic.isCrash(.init(
+            window: crashWindow, speedBeforeMps: 25, speedAfterMps: 22,
+            metersFromRoad: 900)), "a thrill ride keeps its speed")
+        XCTAssertFalse(CrashLogic.isCrash(.init(
+            window: crashWindow, speedBeforeMps: 25, speedAfterMps: 0,
+            metersFromRoad: 900)), "a ride's brake run is not on a road")
+
+        // Phone knocked around in a parked or crawling car.
+        XCTAssertFalse(CrashLogic.isCrash(.init(
+            window: crashWindow, speedBeforeMps: 1.5, speedAfterMps: 0,
+            metersFromRoad: 3)), "no road speed beforehand, no crash")
+
+        // Hard braking that does NOT stop the vehicle.
+        XCTAssertFalse(CrashLogic.isCrash(.init(
+            window: crashWindow, speedBeforeMps: 30, speedAfterMps: 20,
+            metersFromRoad: 4)), "slowing down is not crashing")
+
+        // Corridor unknown (off-route, or before the first match): the speed
+        // evidence still has to hold, but we do not refuse to detect.
+        XCTAssertTrue(CrashLogic.isCrash(.init(
+            window: crashWindow, speedBeforeMps: 29, speedAfterMps: 0,
+            metersFromRoad: nil)))
+
+        // Calm window can never be a crash no matter the speed profile.
+        XCTAssertFalse(CrashLogic.isCrash(.init(
+            window: rest, speedBeforeMps: 29, speedAfterMps: 0,
+            metersFromRoad: 5)))
 
         XCTAssertEqual(CrashLogic.interpretReply("Yes I need help"), true)
         XCTAssertEqual(CrashLogic.interpretReply("call 911"), true)

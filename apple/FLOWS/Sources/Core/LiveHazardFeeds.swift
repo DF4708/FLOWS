@@ -1065,6 +1065,47 @@ actor LiveHazardFeedFetcher {
         return mph
     }
 
+    // MARK: posted limit on the road you're ON (the HUD speed sign)
+
+    private var postedLimitCache: [String: Double?] = [:]
+
+    /// The speed limit posted on the road AT this point (mph), or nil when
+    /// OSM has no `maxspeed` there. Distinct from `maxSpeedMph(near:)`, which
+    /// takes the fastest road within 2 km for the pursuit circle — a sign
+    /// must show THIS street, so the radius is tight and the LOWEST nearby
+    /// limit wins (a service road's 25 beside a 55 highway is the one you're
+    /// most likely on when the match is ambiguous, and under-posting is the
+    /// safe error).
+    func postedLimitMph(at point: CLLocationCoordinate2D) async -> Double? {
+        // ~11 m of latitude per key step: fine enough to change with the
+        // block, coarse enough that a 1 Hz drive isn't a query per fix.
+        let key = "\(Int(point.latitude * 10_000))|\(Int(point.longitude * 10_000))"
+        if let cached = postedLimitCache[key] { return cached }
+        let query = "[out:json][timeout:10];way[\"maxspeed\"][\"highway\"]"
+            + "(around:35,\(point.latitude),\(point.longitude));out tags 10;"
+        var limit: Double?
+        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
+            comps.queryItems = [URLQueryItem(name: "data", value: query)]
+            if let u = comps.url,
+               let (data, resp) = try? await ThrottledNet.fetch(u),
+               (resp as? HTTPURLResponse)?.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let elements = json["elements"] as? [[String: Any]] {
+                var best: Double?
+                for el in elements {
+                    guard let tags = el["tags"] as? [String: Any],
+                          let raw = tags["maxspeed"] as? String,
+                          let mph = SpeedSign.parseMaxspeed(raw) else { continue }
+                    best = best.map { min($0, mph) } ?? mph
+                }
+                limit = best
+            }
+        }
+        postedLimitCache[key] = limit
+        if postedLimitCache.count > 200 { CacheEviction.dropHalf(&postedLimitCache) }
+        return limit
+    }
+
     // MARK: air + UV — Open-Meteo per ~0.5° cell (30-min TTL)
 
     private struct AirCell { let aqi: Double?; let uv: Double?; let fetched: Date }

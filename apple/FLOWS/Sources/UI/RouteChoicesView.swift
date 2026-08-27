@@ -17,55 +17,33 @@ import SwiftUI
 /// band, and the worst active alert.
 struct RouteChoicesView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     @Binding var camera: MapCameraPosition
+    /// Compact stacks this panel across the top (map below it); regular
+    /// puts it down the left side. Decides which way a framed route grows.
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var panelOnTop: Bool { sizeClass == .compact }
+    #else
+    private let panelOnTop = false
+    #endif
 
     private var choices: [PlannedRoute] { model.filteredChoices }
 
-    struct TransitOption {
-        let title: String
-        let detail: String
-        let fare: Double
-        let destination: MKMapItem
-        /// The EXACT ticket for the ride: label naming board → alight, plus the
-        /// carrier's booking page (Amtrak/Greyhound) or the station/agency URL.
-        var ticketLabel: String?
-        var ticketURL: URL?
-        /// This option's own itinerary — rail and bus cards coexist, each with
-        /// its own legs; tapping a card draws ITS itinerary on the map.
-        var itinerary: TransitItinerary?
-        /// Rental counters near the destination — the traveller arrives
-        /// WITHOUT a car (that's the whole point of leg 3 being a walk).
-        var rentals: [RentalCars.Office] = []
-    }
-    /// The three transit toggles. Rail/bus route through stations; plane
-    /// boards at the nearest commercial airports.
-    enum TransitMode: CaseIterable, Hashable { case rail, bus, plane }
-    /// Per-mode transit options — car, train, bus, AND plane can all be
-    /// selected together; the planner shows every option.
-    @State private var transitOptions: [TransitMode: TransitOption] = [:]
-    /// Which transit modes are toggled ON (multi-select).
-    @State private var activeTransitModes: Set<TransitMode> = []
-    /// The in-flight transit computation, so a fresh mode tap cancels the last
-    /// one — otherwise a slower stale result could overwrite the newer itinerary.
-    // Per-mode so cancelling one never orphans the others, and so the cancel
-    // actually targets a live task (the single var was never assigned — every
-    // Task.isCancelled guard was dead, letting a stale itinerary overwrite
-    // fresh state).
-    @State private var transitTasks: [TransitMode: Task<Void, Never>] = [:]
-    /// The walk + paid-ride option, present only in walking mode and only
-    /// when the ride clears the significance bar (HybridWalk).
-    @State private var hybridOption: HybridOption?
+    // Transit toggles, option cards, in-flight tasks, and the walk+ride offer
+    // all live on AppModel (TransitMode/TransitOption/HybridOption in Core) —
+    // a rotation's size-class flip rebuilds this view and would have wiped
+    // view-local @State mid-choice. present(routes:) clears them per plan.
 
     private func replanForMode() async {
         guard let ep = model.lastPlanEndpointsPublic else { return }
-        transitTasks.values.forEach { $0.cancel() }   // a drive replan supersedes any in-flight transit calc
-        transitTasks = [:]
+        // A drive replan supersedes any in-flight transit calc; present()
+        // below clears the option cards, toggles, and walk+ride offer too.
+        model.transitTasks.values.forEach { $0.cancel() }
+        model.transitTasks = [:]
         if let planned = try? await model.plan(from: ep.from, fromName: ep.fromName,
                                                to: ep.to, toName: ep.toName) {
-            model.present(routes: planned)   // clears model.transitItinerary
-            transitOptions = [:]             // …drop the now-stale transit cards too
-            activeTransitModes = []          // …and untoggle rail/bus/plane
-            hybridOption = nil               // …the walk+ride offer recomputes for the new plan
+            model.present(routes: planned)
         }
     }
 
@@ -145,7 +123,7 @@ struct RouteChoicesView: View {
                 detail = String(format: "No rail close by. Closest train: %@, %.0f mi away — drive there or take the bus option.",
                                 nearest.name, mi)
             }
-            transitOptions[tMode] = TransitOption(
+            model.transitOptions[tMode] = TransitOption(
                 title: rail ? "No rail found nearby" : "No bus service found nearby",
                 detail: detail,
                 fare: 0, destination: MKMapItem(placemark: MKPlacemark(coordinate: ep.to)))
@@ -266,7 +244,7 @@ struct RouteChoicesView: View {
         // computation during the last awaits — don't commit a stale itinerary.
         if Task.isCancelled { return }
         let accessVerb = accessLeg.kind == .drive ? "Drive" : "Walk"
-        transitOptions[tMode] = TransitOption(
+        model.transitOptions[tMode] = TransitOption(
             title: "\(kind) via \(boardName)",
             detail: "\(accessVerb) \(TransitPlanning.fmt(accessLeg.seconds)) to \(boardName) · "
                     + "\(kind.lowercased()) ride \(TransitPlanning.fmt(rideSec))\(tail) · est. fare "
@@ -288,7 +266,7 @@ struct RouteChoicesView: View {
         let dest = MKMapItem(placemark: MKPlacemark(coordinate: ep.to))
         guard AirTravel.worthFlying(tripMiles: tripMiles) else {
             if Task.isCancelled { return }
-            transitOptions[.plane] = TransitOption(
+            model.transitOptions[.plane] = TransitOption(
                 title: "Flying won't help here",
                 detail: String(format: "This trip is about %.0f miles. With "
                                + "airport time added, a flight only beats the "
@@ -323,7 +301,7 @@ struct RouteChoicesView: View {
               POIRanking.meters(board.placemark.coordinate,
                                 alight.placemark.coordinate) / 1609.344
                   >= AirTravel.minAirportGapMiles else {
-            transitOptions[.plane] = TransitOption(
+            model.transitOptions[.plane] = TransitOption(
                 title: "No flight fits this trip",
                 detail: boardOpt == nil || alightOpt == nil
                     ? "No airport with airline service found near one end of the trip."
@@ -421,7 +399,7 @@ struct RouteChoicesView: View {
                                       airportURL: board.url)
         let accessVerb = accessLeg.kind == .drive ? "Drive" : "Walk"
         if Task.isCancelled { return }
-        transitOptions[.plane] = TransitOption(
+        model.transitOptions[.plane] = TransitOption(
             title: "Plane via \(boardName)",
             detail: "\(accessVerb) \(TransitPlanning.fmt(accessLeg.seconds)) to \(boardName) · "
                     + "flight \(TransitPlanning.fmt(flySec)) counting airport time · est. fare "
@@ -434,23 +412,19 @@ struct RouteChoicesView: View {
 
     // MARK: - Walk + paid ride (walking mode)
 
-    /// The walk + paid-ride card's computed pieces.
-    struct HybridOption {
-        let walkAloneSeconds: TimeInterval
-        let offer: HybridWalk.Offer
-        let uberURL: URL?
-        let lyftURL: URL?
-        let itinerary: TransitItinerary
-    }
-
     /// Walking mode's "best time for the money" option: a paid ride segment,
     /// offered ONLY when it clears HybridWalk's significance bar (>= 40% and
     /// >= 15 min saved, <= $25 est.). Whole-trip ride when the cap affords
     /// it; otherwise ride the first affordable miles from the start and walk
     /// the rest — with the walk remainder re-routed for real and the bar
     /// re-checked before anything is offered.
-    private func computeHybrid() async {
-        hybridOption = nil
+    private func computeHybrid(key: String) async {
+        // Same plan as the last computation (or a dismissal): keep what's
+        // there. Without this, the rotation-rebuilt view re-ran the .task
+        // and resurrected a dismissed offer.
+        guard key != model.hybridOptionKey else { return }
+        model.hybridOptionKey = key
+        model.hybridOption = nil
         guard model.walkingMode, let ep = model.lastPlanEndpointsPublic,
               let walkRoute = choices.min(by: { $0.eta < $1.eta })
         else { return }
@@ -502,7 +476,7 @@ struct RouteChoicesView: View {
                                        "Get out at \(dropName)"])]
         if let walkLeg { legs.append(walkLeg) }
         if Task.isCancelled { return }
-        hybridOption = HybridOption(
+        model.hybridOption = HybridOption(
             walkAloneSeconds: walkAlone, offer: offer,
             uberURL: HybridWalk.uberURL(pickup: ep.from, pickupName: startName,
                                         drop: drop,
@@ -526,7 +500,7 @@ struct RouteChoicesView: View {
 
     /// One transit toggle button: colored while its mode is active.
     private func transitToggle(_ mode: TransitMode, symbol: String, help: String) -> some View {
-        let isOn = activeTransitModes.contains(mode)
+        let isOn = model.activeTransitModes.contains(mode)
         let tint: Color = switch mode {
         case .rail: .purple
         case .bus: .blue
@@ -536,14 +510,16 @@ struct RouteChoicesView: View {
             if isOn {
                 deactivate(mode)   // toggle THIS mode off; other selections stay
             } else {
-                activeTransitModes.insert(mode)
-                transitTasks[mode]?.cancel()
-                transitTasks[mode] = Task { await computeTransit(mode: mode) }
+                model.activeTransitModes.insert(mode)
+                model.transitTasks[mode]?.cancel()
+                model.transitTasks[mode] = Task { await computeTransit(mode: mode) }
             }
         } label: {
-            Image(systemName: symbol).scaledFont(size: 12, weight: .bold)
+            // Golden sizing AND Dynamic Type — both sides improved this.
+            Image(systemName: symbol)
+                .scaledFont(size: golden.iconSmall * 0.46, weight: .bold)
                 .foregroundStyle(isOn ? .white : .primary)
-                .frame(width: 26, height: 26)
+                .frame(width: golden.iconSmall, height: golden.iconSmall)
                 .background(isOn ? tint : Color.black.opacity(0.06))
                 .clipShape(Circle())
         }
@@ -554,13 +530,13 @@ struct RouteChoicesView: View {
     /// Turn a transit mode off and surface whichever remaining active mode
     /// has a computed itinerary; the map clears only when nothing is left.
     private func deactivate(_ mode: TransitMode) {
-        transitTasks[mode]?.cancel(); transitTasks[mode] = nil
-        activeTransitModes.remove(mode)
-        transitOptions[mode] = nil
+        model.transitTasks[mode]?.cancel(); model.transitTasks[mode] = nil
+        model.activeTransitModes.remove(mode)
+        model.transitOptions[mode] = nil
         if let next = TransitMode.allCases.first(where: {
-            activeTransitModes.contains($0) && transitOptions[$0]?.itinerary != nil
+            model.activeTransitModes.contains($0) && model.transitOptions[$0]?.itinerary != nil
         }) {
-            model.transitItinerary = transitOptions[next]?.itinerary
+            model.transitItinerary = model.transitOptions[next]?.itinerary
         } else if model.transitItinerary?.mode != "Walk + ride" {
             // Siblings may still be computing — better an empty map for a
             // moment than the CLOSED mode's route still drawn as if chosen;
@@ -880,20 +856,19 @@ struct RouteChoicesView: View {
                 // (Tourist stops live in the FILTER grid below — a route
                 // option, not a transportation mode.)
                 Spacer()
+                // X = minimize, not abandon: the panel tucks into the round
+                // routes icon at the top right; the trip pill's Edit is how
+                // a plan is actually discarded.
                 Button {
-                    model.routeChoices = []
-                    model.highlightedRouteID = nil
-                    // Walking is a per-choice mode, not a persistent setting:
-                    // leaving it set made the NEXT plan silently request a
-                    // pedestrian route (which can fail at driving distances),
-                    // leaving the planner stuck "on walking" with no routes.
-                    model.walkingMode = false
-                    model.mode = .planning
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = model.collapsedPanels.insert("routes")
+                    }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Tuck the route list away")
             }
             if let notice = model.plannerNotice {
                 Label(notice, systemImage: "exclamationmark.triangle.fill")
@@ -903,21 +878,30 @@ struct RouteChoicesView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             if !model.walkingMode { filterChips }
-            ForEach(TransitMode.allCases.filter { transitOptions[$0] != nil },
-                    id: \.self) { mode in
-                if let opt = transitOptions[mode] { transitCard(opt, mode: mode) }
-            }
-            // Walking mode's money-vs-time option — only when walking is the
-            // sole selection and the ride clears the significance bar.
-            if model.walkingMode, activeTransitModes.isEmpty,
-               let h = hybridOption {
-                hybridCard(h)
-            }
             ScrollView {
                 // One snapshot for the whole list — every derived value the
                 // cards share is computed here exactly once per render.
                 let ctx = makeCardContext()
                 VStack(spacing: 8) {
+                    // Transit cards scroll WITH the route cards: three open
+                    // itineraries stack taller than a phone screen, and
+                    // outside the scroll they pushed the route list off the
+                    // bottom edge on compact layouts.
+                    ForEach(TransitMode.allCases.filter { model.transitOptions[$0] != nil },
+                            id: \.self) { mode in
+                        if let opt = model.transitOptions[mode] { transitCard(opt, mode: mode) }
+                    }
+                    // Walking mode's money-vs-time option — only when walking
+                    // is the sole selection and the ride clears the
+                    // significance bar.
+                    if model.walkingMode, model.activeTransitModes.isEmpty,
+                       let h = model.hybridOption {
+                        hybridCard(h)
+                    }
+                    // ctx.choices, not choices: the per-render snapshot
+                    // computes the filtered list once instead of ~50 times
+                    // per render. Their transit-cards-inside-the-scroll fix
+                    // and that snapshot are independent wins; keep both.
                     if ctx.choices.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("No route satisfies every active filter — searching for one…")
@@ -959,12 +943,20 @@ struct RouteChoicesView: View {
                 }
             }
         }
+        .collapsibleMenu("routes")
         .floatingCard()
         // Recompute the walk+ride offer whenever the plan or the walking
         // toggle changes (the id flips; .task cancels the stale run itself).
-        .task(id: "\(model.walkingMode)|\(choices.first?.id.uuidString ?? "-")") {
-            await computeHybrid()
+        // The key also rides into computeHybrid so a rotation-rebuilt view
+        // (same id) skips recomputing what the model already holds.
+        .task(id: hybridKey) {
+            await computeHybrid(key: hybridKey)
         }
+    }
+
+    /// Plan identity for the walk+ride offer: the walking toggle + lead route.
+    private var hybridKey: String {
+        "\(model.walkingMode)|\(choices.first?.id.uuidString ?? "-")"
     }
 
     /// The walk + paid-ride card (walking mode only). Plain words, the saving
@@ -986,7 +978,7 @@ struct RouteChoicesView: View {
                 Text("\(TransitPlanning.fmt(h.offer.totalSeconds)) · ~$\(cost) est.")
                     .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 Button {
-                    hybridOption = nil
+                    model.hybridOption = nil
                     if model.transitItinerary?.mode == "Walk + ride" {
                         model.transitItinerary = nil
                     }
@@ -1126,14 +1118,14 @@ struct RouteChoicesView: View {
 
     private func highlight(_ route: PlannedRoute) {
         model.highlightedRouteID = route.id
-        let rect = route.route.polyline.boundingMapRect
+        // Same framing rule as the first plan: grow the rect on whichever
+        // side the panel covers, so the route lands in the map the driver
+        // can actually see (PlannerPanel.choicesCameraRect).
         withAnimation {
-            var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
-            // The Routes panel covers the map's left edge — grow the rect
-            // leftward so the route itself centers in the VISIBLE map area.
-            fit.origin.x -= fit.size.width * 0.35
-            fit.size.width *= 1.35
-            camera = .rect(fit)
+            camera = .rect(PlannerPanel.choicesCameraRect(
+                route.route.polyline.boundingMapRect,
+                panelOnTop: panelOnTop,
+                windowAspect: golden.size.height / max(golden.size.width, 1)))
         }
     }
 }
@@ -1231,14 +1223,21 @@ private struct RouteCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 // Profile chips — the web router's fastest/safest/metro triad.
                 HStack(spacing: 5) {
-                    if route.isWalkingEstimate { profileChip("Walking est.", .green) }
-                    if deltaText == "Fastest" { profileChip("Fastest", Theme.cta) }
-                    if isSafest { profileChip("Safest", Theme.riskGreen) }
-                    if isCheapest { profileChip("Cheapest", .orange) }
-                    if isEfficient { profileChip("Efficient", .mint) }
-                    if route.planKind == .avoidHighways { profileChip("Local roads", .blue) }
-                    if route.planKind == .tollFree { profileChip("Toll-free", .teal) }
-                    Spacer()
+                    // The chips a route earned. On a narrow card they scroll
+                    // sideways rather than squeezing each other into
+                    // unreadable slivers.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 5) {
+                            if route.isWalkingEstimate { profileChip("Walking est.", .green) }
+                            if deltaText == "Fastest" { profileChip("Fastest", Theme.cta) }
+                            if isSafest { profileChip("Safest", Theme.riskGreen) }
+                            if isCheapest { profileChip("Cheapest", .orange) }
+                            if isEfficient { profileChip("Efficient", .mint) }
+                            if route.planKind == .avoidHighways { profileChip("Local roads", .blue) }
+                            if route.planKind == .tollFree { profileChip("Toll-free", .teal) }
+                        }
+                    }
+                    Spacer(minLength: 4)
                     // ALWAYS-designated trucker pick: high clearance, gentle
                     // grades, low wind, highways + trucker amenities — the
                     // brown truck sits top-right of its card.
@@ -1581,6 +1580,11 @@ private struct RouteCard: View {
     private func profileChip(_ label: String, _ color: Color) -> some View {
         Text(label)
             .font(.caption2.weight(.heavy))
+            // One line, never hyphenated: a route that wins on every count
+            // wears four of these, and "Cheap-est" across two lines is not
+            // a label anyone can read at a glance.
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(color.opacity(0.14))
@@ -1656,6 +1660,8 @@ private struct RouteCard: View {
             // the whole-route normalized band, peaks can be worse.
             Text(route.riskBand == .clear ? "No risk overall" : "Overall \(route.riskBand.rawValue)")
                 .font(.caption.weight(.bold))
+                .lineLimit(1)
+                .fixedSize()
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(badgeColor.opacity(route.riskBand == .clear ? 0.12 : 0.2))

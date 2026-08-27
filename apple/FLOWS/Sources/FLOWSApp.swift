@@ -34,6 +34,20 @@ final class AppModel: ObservableObject {
     /// The selected public-transit itinerary (walk → ride → walk), drawn on the
     /// map and stepped in-app. Cleared whenever drive routes are (re)presented.
     @Published var transitItinerary: TransitItinerary?
+    /// Transit planning state on the CHOICES screen: which rail/bus/plane
+    /// toggles are on and each mode's computed option card. On the model, not
+    /// view @State — rotating the phone flips the size class, which rebuilds
+    /// the chrome tree and was forgetting the driver's toggles and cards
+    /// right before a journey started. Cleared with each fresh plan.
+    @Published var transitOptions: [TransitMode: TransitOption] = [:]
+    @Published var activeTransitModes: Set<TransitMode> = []
+    /// In-flight per-mode transit computations (cancel targets, not UI state).
+    var transitTasks: [TransitMode: Task<Void, Never>] = [:]
+    /// Walking mode's walk + paid-ride offer, and the plan it was computed
+    /// (or dismissed) for — the key stops a rotation from recomputing an
+    /// offer the walker already closed.
+    @Published var hybridOption: HybridOption?
+    var hybridOptionKey = ""
     /// Route emphasized on the map while choosing (tap a card to change);
     /// alternates draw gray underneath, Apple/Google Maps style.
     @Published var highlightedRouteID: UUID? {
@@ -74,6 +88,10 @@ final class AppModel: ObservableObject {
     let alerts = WeatherAlertService()
     /// Offline lifeline: GPS breadcrumb trail + network-path monitor.
     let breadcrumbs = BreadcrumbTrail()
+    /// The other half of the offline lifeline: the ROAD AHEAD for trips
+    /// between towns, saved to disk so losing signal (or force-quitting in
+    /// the middle of nowhere) still leaves the way home on screen.
+    let corridors = OfflineCorridorStore()
     let riskField = RiskFieldService()
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
@@ -511,6 +529,11 @@ final class AppModel: ObservableObject {
     /// Click-off state for the height/grade slider card: a click on the map
     /// hides it; changing any filter shows it again.
     @Published var filterCardsHidden = false
+
+    /// Menus tucked into the top-right icon tray (double-tap a menu's grab
+    /// bar). On the model so rotation can't forget them; cleared when the
+    /// screen changes underneath them (new plan, GO, trip end).
+    @Published var collapsedPanels: Set<String> = []
 
     // MARK: music provider
 
@@ -1035,6 +1058,45 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: navigation camera (auto vs. hand-set zoom)
+
+    /// How the driving camera picks its height. `auto` follows the distance
+    /// between intersections (CameraZoom); the others let a driver pin the
+    /// view themselves — including previewing the walking and flight rules
+    /// on the ground, which is otherwise only reachable by walking a route
+    /// or boarding a plane.
+    enum CameraZoomMode: String, CaseIterable, Identifiable, Codable {
+        case auto = "Automatic"
+        case manual = "Set by hand"
+        case walking = "Always close (walking)"
+        case flight = "Always far (flying)"
+        var id: String { rawValue }
+    }
+
+    @Published var cameraZoomMode: CameraZoomMode = CameraZoomMode(
+        rawValue: UserDefaults.standard.string(forKey: "flows.cameraZoomMode") ?? ""
+    ) ?? .auto {
+        didSet { UserDefaults.standard.set(cameraZoomMode.rawValue,
+                                           forKey: "flows.cameraZoomMode") }
+    }
+    /// Hand-set camera height in meters (the Set-by-hand slider).
+    @Published var manualZoomMeters: Double =
+        UserDefaults.standard.object(forKey: "flows.manualZoomMeters") as? Double ?? 900 {
+        didSet { UserDefaults.standard.set(manualZoomMeters,
+                                           forKey: "flows.manualZoomMeters") }
+    }
+
+    /// The height the camera should actually use, given what the engine
+    /// computed for this moment. Auto passes it through; the rest override.
+    func cameraAltitude(auto: Double) -> Double {
+        switch cameraZoomMode {
+        case .auto: return auto
+        case .manual: return manualZoomMeters
+        case .walking: return CameraZoom.walkingAltitude
+        case .flight: return CameraZoom.cruiseAltitude
+        }
+    }
+
     /// 3D terrain: MapKit's realistic elevation rendering (its own DEM tiles;
     /// our EPQS/gradient data stays a risk input) + a deeper nav-camera pitch.
     @Published var show3DMap: Bool =
@@ -1301,6 +1363,7 @@ final class AppModel: ObservableObject {
 
     /// Trip-needs chip tapped: run the POI search that need calls for.
     func requestTripNeed(_ event: TripNeeds.Event) async {
+        collapsedPanels.remove("stops")   // a fresh search reopens the list
         switch event.need {
         case .food(let category):
             poi.activeKind = .food
@@ -1582,7 +1645,7 @@ final class AppModel: ObservableObject {
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
             vehicle, radio, radioBrowser, vehicleLink, smartcar, crash,
-            breadcrumbs,
+            breadcrumbs, corridors,
         ]
         for child in children {
             (child.objectWillChange as? ObservableObjectPublisher)?
@@ -1685,6 +1748,9 @@ final class AppModel: ObservableObject {
                 // Breadcrumbs record in EVERY mode — the offline way-back
                 // trail must exist before you realize you need it.
                 self.breadcrumbs.record(fix.coordinate)
+                // Speed history feeds the crash decision — kept in every
+                // mode so an impact right at GO still has "before" speed.
+                self.recordSpeed(fix)
                 guard self.mode == .navigating else { return }
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),
@@ -1698,6 +1764,11 @@ final class AppModel: ObservableObject {
                 self.recordDailyDriving(deltaMeters: min(delta, 500))
                 self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
                 self.updateFuelRecommendation()
+                self.updateFuelWarning()   // last-chance matching-fuel stops
+                self.updatePostedSpeedLimit(fix)   // the HUD speed sign
+                // Saved corridors age out as they stop being useful:
+                // arrived, left far behind, or simply stale.
+                self.corridors.prune(position: fix.coordinate)
                 self.updateDrivingClocks(fix: fix)
                 self.updateSteepGrade()
                 // Towing is live during the trip, not a trip-start snapshot:
@@ -1731,6 +1802,15 @@ final class AppModel: ObservableObject {
             (self?.location.coordinate,
              self?.vehicle.profile,
              self?.medicalNotes.isEmpty == false ? self?.medicalNotes : nil)
+        }
+        // The motion half of the crash decision: a rollercoaster pulls the
+        // g's of a collision, so the check-in also needs a road-speed
+        // vehicle ON A ROAD coming to a sudden stop (CrashLogic.isCrash).
+        crash.motionEvidence = { [weak self] in
+            guard let self else { return (0, 0, nil) }
+            return (self.recentPeakSpeedMps,
+                    max(self.location.speed, 0),
+                    self.navigation.metersFromCorridor)
         }
         // Telemetry ladder: OEM cloud (Smartcar) → Bluetooth (OBD adapter /
         // TPMS caps) → nothing (odometer model carries on). Real fuel data
@@ -1973,6 +2053,65 @@ final class AppModel: ObservableObject {
     /// Set while range is low enough to plan a fuel stop NOW (HUD chip).
     @Published var fuelRecommendation: String?
     private var lastHabitFix: CLLocation?
+
+    // MARK: posted speed limit (the HUD's live speed pair)
+
+    /// The limit posted on the road being driven (mph), when OSM has one.
+    @Published private(set) var postedSpeedLimitMph: Double?
+    private var limitLookupTask: Task<Void, Never>?
+    private var lastLimitLookup = Date.distantPast
+    private var lastLimitPoint: CLLocationCoordinate2D?
+
+    /// True while the traveler is a PASSENGER (plane, bus, train) rather
+    /// than driving — no speed sign for them.
+    var isPassengerTransit: Bool {
+        guard let mode = transitItinerary?.mode else { return false }
+        return mode != "Walk + ride"
+    }
+
+    /// Refresh the posted limit as the vehicle moves onto new road. Cheap:
+    /// only while driving, only every ~15 s, and only once the vehicle has
+    /// actually covered ground since the last lookup.
+    private func updatePostedSpeedLimit(_ fix: CLLocation) {
+        guard SpeedSign.shouldShow(isNavigating: mode == .navigating,
+                                   isWalking: walkingMode
+                                       || navigation.route?.isWalkingEstimate == true,
+                                   isPassengerTransit: isPassengerTransit) else {
+            if postedSpeedLimitMph != nil { postedSpeedLimitMph = nil }
+            return
+        }
+        let moved = lastLimitPoint.map {
+            POIRanking.meters($0, fix.coordinate) > 150
+        } ?? true
+        guard moved, Date().timeIntervalSince(lastLimitLookup) > 15 else { return }
+        lastLimitLookup = Date()
+        lastLimitPoint = fix.coordinate
+        let point = fix.coordinate
+        limitLookupTask?.cancel()
+        limitLookupTask = Task { [weak self] in
+            let limit = await LiveHazardFeedFetcher.shared.postedLimitMph(at: point)
+            guard let self, !Task.isCancelled, self.mode == .navigating else { return }
+            // Keep the last known limit when this stretch has no tag —
+            // blanking the sign every unmapped block would flicker.
+            if limit != nil { self.postedSpeedLimitMph = limit }
+        }
+    }
+
+    // MARK: recent speed (crash corroboration)
+
+    /// Speeds from the last ~10 s of fixes (m/s) — the "was this vehicle
+    /// actually traveling before the bang?" half of the crash decision.
+    private var recentSpeeds: [(time: Date, mps: Double)] = []
+    /// Fastest the vehicle went in that window.
+    var recentPeakSpeedMps: Double {
+        recentSpeeds.map(\.mps).max() ?? 0
+    }
+
+    private func recordSpeed(_ fix: CLLocation) {
+        let now = fix.timestamp
+        recentSpeeds.append((now, max(fix.speed, 0)))
+        recentSpeeds.removeAll { now.timeIntervalSince($0.time) > 10 }
+    }
     private var fuelRecommendationDismissedAtRange: Double = 0
 
     private func updateFuelRecommendation() {
@@ -1998,6 +2137,134 @@ final class AppModel: ObservableObject {
     func dismissFuelRecommendation() {
         fuelRecommendationDismissedAtRange = vehicle.expectedRangeMiles ?? 0
         fuelRecommendation = nil
+    }
+
+    // MARK: last-chance fuel warning (reachable matching stations)
+
+    /// The live "you are about to drive past your last fuel" state: the
+    /// warning level, the cheapest reachable station selling THIS vehicle's
+    /// fuel, and the text on screen. Drives the blinking gauge + the spoken
+    /// advisory (FuelWarning).
+    @Published private(set) var fuelWarningLevel: FuelWarning.Level = .none
+    @Published private(set) var fuelWarningStation: FuelWarning.Station?
+    @Published private(set) var fuelWarningText: String?
+    /// The MapKit item behind `fuelWarningStation`, so "Add to route" can
+    /// route to the exact place that was recommended.
+    private var fuelWarningItem: MKMapItem?
+    private var fuelScanTask: Task<Void, Never>?
+    private var lastFuelScan = Date.distantPast
+    /// Cleared when the driver dismisses; re-armed when the level worsens.
+    private var dismissedFuelWarningLevel: FuelWarning.Level = .none
+
+    /// True while the tank is low enough that the gauge should blink red.
+    var fuelGaugeAlarming: Bool {
+        guard let fraction = vehicle.predictedFuelFraction else { return false }
+        return FuelWarning.band(fraction: fraction) == .red
+            || fuelWarningLevel != .none
+    }
+
+    /// Scan for stations selling the vehicle's fuel ahead on the route and
+    /// decide whether the driver is running out of chances to stop. Runs on
+    /// a slow cadence, and only once range is low enough to matter — a full
+    /// tank never needs this search.
+    private func updateFuelWarning() {
+        guard mode == .navigating, notifyFuel,
+              let profile = vehicle.profile,
+              let range = vehicle.expectedRangeMiles else {
+            if fuelWarningLevel != .none { clearFuelWarning() }
+            return
+        }
+        // Only worth searching once the reachable set could plausibly be
+        // thinning: within ~2.5 reserves of empty.
+        let watchFrom = VehicleProfile.reserveMiles * 2.5
+        guard range <= watchFrom else {
+            if fuelWarningLevel != .none { clearFuelWarning() }
+            return
+        }
+        guard Date().timeIntervalSince(lastFuelScan) > 180 else { return }
+        lastFuelScan = Date()
+        let fuel = profile.fuelType
+        fuelScanTask?.cancel()
+        fuelScanTask = Task { [weak self] in
+            guard let self,
+                  let found = await self.scanFuelStationsAhead(fuel: fuel, rangeMiles: range),
+                  !Task.isCancelled, self.mode == .navigating else { return }
+            let level = FuelWarning.level(stationsAhead: found.stations, rangeMiles: range)
+            let cheapest = FuelWarning.cheapest(stationsAhead: found.stations,
+                                                rangeMiles: range)
+            self.fuelWarningLevel = level
+            self.fuelWarningStation = cheapest
+            self.fuelWarningItem = cheapest.flatMap { found.items[$0.name] }
+            self.fuelWarningText = FuelWarning.bannerText(
+                fuel: fuel, level: level, station: cheapest)
+            // Say it once per level change — a driver shouldn't be told the
+            // same thing every mile, but a worsening situation speaks again.
+            if level != .none, level != self.dismissedFuelWarningLevel,
+               let spoken = FuelWarning.spokenAdvice(
+                   fuel: fuel, level: level, station: cheapest, rangeMiles: range) {
+                DriveVoice.shared.speak(spoken)
+                self.dismissedFuelWarningLevel = level
+            }
+        }
+    }
+
+    private func clearFuelWarning() {
+        fuelScanTask?.cancel()
+        fuelWarningLevel = .none
+        fuelWarningStation = nil
+        fuelWarningItem = nil
+        fuelWarningText = nil
+        dismissedFuelWarningLevel = .none
+        DriveVoice.shared.reset()
+    }
+
+    /// Stations ahead that sell `fuel`, with along-route distance and price
+    /// where a source has one. Keyed by name so the warning can hand back
+    /// the exact MKMapItem for "Add to route".
+    private func scanFuelStationsAhead(fuel: FuelType, rangeMiles: Double)
+        async -> (stations: [FuelWarning.Station], items: [String: MKMapItem])? {
+        guard let here = effectivePosition else { return nil }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = fuel.searchQuery
+        // Search the span the remaining fuel can actually cover.
+        let meters = max(rangeMiles, 10) * 1609.344
+        request.region = MKCoordinateRegion(center: here,
+                                            latitudinalMeters: meters * 2,
+                                            longitudinalMeters: meters * 2)
+        guard let items = (try? await MKLocalSearch(request: request).start())?.mapItems
+        else { return nil }
+        var stations: [FuelWarning.Station] = []
+        var byName: [String: MKMapItem] = [:]
+        for item in items {
+            let name = item.name ?? fuel.rawValue
+            // AHEAD along the route, not merely nearby: a station behind the
+            // vehicle is not a chance to refuel.
+            let coord = item.placemark.coordinate
+            let ahead = POIRanking.meters(here, coord) / 1609.344
+            guard ahead <= rangeMiles else { continue }
+            // Live station price when a feed has one, else the state
+            // estimate — the same ladder the stop list uses.
+            let price = await poi.livePriceProvider(coord, fuel)
+                ?? poi.priceProvider(item, fuel)
+            stations.append(FuelWarning.Station(name: name, milesAhead: ahead,
+                                                pricePerUnit: price))
+            byName[name] = item
+        }
+        return (stations, byName)
+    }
+
+    /// "Add it to the route" — the action the spoken advisory offers.
+    func addRecommendedFuelStop() async {
+        guard let item = fuelWarningItem else { return }
+        await addStop(item)
+        clearFuelWarning()
+    }
+
+    /// Driver dismissed the last-chance warning: stay quiet until the
+    /// situation actually worsens.
+    func dismissFuelWarning() {
+        dismissedFuelWarningLevel = fuelWarningLevel
+        fuelWarningText = nil
     }
 
     // MARK: favorites (star button → one-press route planning)
@@ -2032,6 +2299,14 @@ final class AppModel: ObservableObject {
         routeChoices = RouteService.applyPersonalPace(
             routes, multiplier: DrivingProfileStore.shared.etaMultiplier)
         transitItinerary = nil   // drive routes replace any transit overlay
+        // A fresh plan resets the transit pickers: cancel in-flight
+        // computations, drop stale option cards, untoggle rail/bus/plane.
+        transitTasks.values.forEach { $0.cancel() }
+        transitTasks = [:]
+        transitOptions = [:]
+        activeTransitModes = []
+        hybridOption = nil
+        collapsedPanels = []   // fresh choices bring tucked menus back
         highlightedRouteID = routes.first?.id
         mode = .choosing
         filterCardsHidden = false   // fresh choices bring the slider card back
@@ -2730,6 +3005,11 @@ final class AppModel: ObservableObject {
         stopDelaySeconds = 0
         tripShareOffered = false   // new trip → the share banner may show once
         tripSharePrompt = false
+        collapsedPanels = []   // the drive starts with its menus in reach
+        // Carry the road ahead offline for trips between towns: if signal
+        // drops (or the app is reopened out in the country), the way onward
+        // is already on disk. Short in-town hops aren't stored.
+        recordOfflineCorridor(for: route)
         mode = .navigating
         startLeg(route)
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
@@ -2738,6 +3018,21 @@ final class AppModel: ObservableObject {
             crash.begin()
             crash.resolveAddress()
         }
+    }
+
+    /// Save the driven route's geometry for offline use when the trip is a
+    /// real between-towns run (CorridorRetention decides). A corridor to the
+    /// same destination replaces the previous one rather than stacking.
+    private func recordOfflineCorridor(for route: PlannedRoute) {
+        let poly = route.route.polyline
+        let n = poly.pointCount
+        guard n > 1 else { return }
+        var coords = [CLLocationCoordinate2D](
+            repeating: kCLLocationCoordinate2DInvalid, count: n)
+        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+        corridors.record(coordinates: coords,
+                         destinationName: route.destinationName,
+                         tripMeters: route.distanceMeters)
     }
 
     func endNavigation() {
@@ -2768,6 +3063,10 @@ final class AppModel: ObservableObject {
         // post-trip would even feed vehicle.filledUp()).
         towingWarning = nil
         fuelRecommendation = nil
+        clearFuelWarning()
+        limitLookupTask?.cancel()
+        postedSpeedLimitMph = nil
+        lastLimitPoint = nil
         refuelPrompt = false
         refuelPromptShownAt = nil
         upcomingSteepGrade = nil
@@ -2777,6 +3076,8 @@ final class AppModel: ObservableObject {
         lastClockFix = nil
         tripSharePrompt = false
         tripShareOffered = false
+        collapsedPanels = []   // back to planning with nothing tucked away
+        corridors.prune(position: location.coordinate)   // arrived → let it go
         mode = .planning
         watch.sendEnded()
     }

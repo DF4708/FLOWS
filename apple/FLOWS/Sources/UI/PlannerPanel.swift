@@ -16,7 +16,17 @@ import SwiftUI
 /// for web-app parity (find a place on the map without routing to it).
 struct PlannerPanel: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     @Binding var camera: MapCameraPosition
+    /// Compact layouts stack the choices panel ACROSS THE TOP, so a framed
+    /// route has to sit in the map below it; regular layouts put the panel
+    /// down the left side instead.
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var panelOnTop: Bool { sizeClass == .compact }
+    #else
+    private let panelOnTop = false
+    #endif
 
     @State private var searchQuery = ""
     @StateObject private var destSearch = DestinationSearch()
@@ -34,8 +44,14 @@ struct PlannerPanel: View {
     private var source: String { model.plannerSource }
     private var hasGPS: Bool { model.location.coordinate != nil }
     /// No GPS → the source field is always shown (the primary flow must
-    /// never dead-end on a Mac without location access).
-    private var showSourceField: Bool { overrideSource || !hasGPS }
+    /// never dead-end on a Mac without location access). A TYPED start also
+    /// keeps the field visible: the model holds the text, so a rotation's
+    /// view rebuild (which resets `overrideSource`) must not hide an
+    /// override that is still in effect.
+    private var showSourceField: Bool {
+        overrideSource || !hasGPS
+            || !source.trimmingCharacters(in: .whitespaces).isEmpty
+    }
     private var usingGPSSource: Bool {
         hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty
     }
@@ -53,44 +69,58 @@ struct PlannerPanel: View {
                     }
                 }
             }
-            Text("Where to?")
-                .scaledFont(size: 15, weight: .bold)
-                .onChange(of: model.plannerDestination) { _, text in
-                    destSearch.update(fragment: text, near: model.location.coordinate)
-                }
-                .onChange(of: model.plannerSource) { _, text in
-                    sourceSearch.update(fragment: text, near: model.location.coordinate)
-                }
-                // Focusing an empty field offers the driver's RECENT places
-                // before a single character is typed (works offline).
-                .onChange(of: focusedField) { _, field in
-                    switch field {
-                    case .destination:
-                        destSearch.update(fragment: model.plannerDestination,
-                                          near: model.location.coordinate)
-                    case .source:
-                        sourceSearch.update(fragment: model.plannerSource,
-                                            near: model.location.coordinate)
-                    case nil:
-                        break
+            HStack {
+                Text("Where to?")
+                    .scaledFont(size: 15, weight: .bold)
+                    .onChange(of: model.plannerDestination) { _, text in
+                        destSearch.update(fragment: text, near: model.location.coordinate)
                     }
+                    .onChange(of: model.plannerSource) { _, text in
+                        sourceSearch.update(fragment: text, near: model.location.coordinate)
+                    }
+                    // Focusing an empty field offers the driver's RECENT places
+                    // before a single character is typed (works offline).
+                    .onChange(of: focusedField) { _, field in
+                        switch field {
+                        case .destination:
+                            destSearch.update(fragment: model.plannerDestination,
+                                              near: model.location.coordinate)
+                        case .source:
+                            sourceSearch.update(fragment: model.plannerSource,
+                                                near: model.location.coordinate)
+                        case nil:
+                            break
+                        }
+                    }
+                    .onAppear {
+                        destSearch.recentsProvider = { [weak model] fragment in
+                            model?.recents.matching(fragment) ?? []
+                        }
+                        sourceSearch.recentsProvider = { [weak model] fragment in
+                            model?.recents.matching(fragment) ?? []
+                        }
+                        // Contextual predictions on the destination field only —
+                        // the START is where the driver already is.
+                        destSearch.predictionProvider = { [weak model] in
+                            guard let model else { return [] }
+                            return EverydayPlaces.shared.predictions(
+                                from: model.effectivePosition ?? model.location.coordinate,
+                                limit: 3)
+                        }
+                    }
+                Spacer()
+                // X = minimize, not close: the planner tucks into the round
+                // search icon at the top right and comes back from there.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        _ = model.collapsedPanels.insert("planner")
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
-                .onAppear {
-                    destSearch.recentsProvider = { [weak model] fragment in
-                        model?.recents.matching(fragment) ?? []
-                    }
-                    sourceSearch.recentsProvider = { [weak model] fragment in
-                        model?.recents.matching(fragment) ?? []
-                    }
-                    // Contextual predictions on the destination field only —
-                    // the START is where the driver already is.
-                    destSearch.predictionProvider = { [weak model] in
-                        guard let model else { return [] }
-                        return EverydayPlaces.shared.predictions(
-                            from: model.effectivePosition ?? model.location.coordinate,
-                            limit: 3)
-                    }
-                }
+                .buttonStyle(.plain)
+                .help("Tuck the planner away")
+            }
             HStack(spacing: 6) {
                 TextField("Address, place, city, or ZIP", text: $model.plannerDestination)
                     .textFieldStyle(.plain)
@@ -143,12 +173,19 @@ struct PlannerPanel: View {
             // Live lookup while typing: closest matches first (addresses,
             // places, partial words like "pharma"), the driver's recent
             // destinations, and pasted coordinates. Tapping one plans it.
+            // ScrollWhenTight (from the layout branch) lets the list alone
+            // scroll on a short window — a phone on its side — so Plan route
+            // stays reachable; the richer rows (icon by kind, distance,
+            // recents and predictions) come from the search work. Both
+            // survive: their scroll behaviour wrapping our row rendering.
             if focusedField == .destination, !destSearch.suggestions.isEmpty {
-                suggestionList(destSearch.suggestions) { sug in
-                    destSearch.accept()
-                    model.plannerDestination = sug.searchText
-                    focusedField = nil
-                    Task { await plan() }
+                ScrollWhenTight {
+                    suggestionList(destSearch.suggestions) { sug in
+                        destSearch.accept()
+                        model.plannerDestination = sug.searchText
+                        focusedField = nil
+                        Task { await plan() }
+                    }
                 }
             }
 
@@ -168,9 +205,16 @@ struct PlannerPanel: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if hasGPS {
+                    // Keyed off the VISIBLE state, not just `overrideSource`:
+                    // with a typed start the field shows regardless, and
+                    // "Use GPS" must clear it in one press.
                     Button(showSourceField ? "Use GPS" : "Enter your own location") {
-                        overrideSource.toggle()
-                        if !overrideSource { model.plannerSource = "" }
+                        if showSourceField {
+                            overrideSource = false
+                            model.plannerSource = ""
+                        } else {
+                            overrideSource = true
+                        }
                     }
                     .font(.caption2.weight(.semibold))
                     .buttonStyle(.plain)
@@ -237,6 +281,7 @@ struct PlannerPanel: View {
 
         }
         .onAppear { focusedField = .destination }
+        .collapsibleMenu("planner")
         .floatingCard()
     }
 
@@ -329,14 +374,13 @@ struct PlannerPanel: View {
         }
     }
 
-    /// Frame a route for the choosing layout: pad, then grow the rect
-    /// LEFTWARD so the route centers in the map area right of the Routes
-    /// panel instead of hiding behind it.
-    static func choicesCameraRect(_ rect: MKMapRect) -> MKMapRect {
-        var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
-        fit.origin.x -= fit.size.width * 0.35
-        fit.size.width *= 1.35
-        return fit
+    /// Frame a route for the choosing layout — the geometry lives in
+    /// CameraZoom.framedRect (pure, tested).
+    static func choicesCameraRect(_ rect: MKMapRect,
+                                  panelOnTop: Bool = false,
+                                  windowAspect: Double = 2.0) -> MKMapRect {
+        CameraZoom.framedRect(rect, panelOnTop: panelOnTop,
+                              windowAspect: windowAspect)
     }
 
     /// Plain-words error text — never surface raw framework errors like
@@ -369,7 +413,10 @@ struct PlannerPanel: View {
                 defer { isWorking = false }
                 if let planned = await model.planToFavorite(fav), let first = planned.first {
                     withAnimation {
-                        camera = .rect(Self.choicesCameraRect(first.route.polyline.boundingMapRect))
+                        camera = .rect(Self.choicesCameraRect(
+                        first.route.polyline.boundingMapRect,
+                        panelOnTop: panelOnTop,
+                        windowAspect: golden.size.height / max(golden.size.width, 1)))
                     }
                 } else {
                     errorMessage = "Couldn't plan to \(fav.name) — no GPS fix or no route."
@@ -455,7 +502,10 @@ struct PlannerPanel: View {
             // Frame the full corridor while choosing.
             if let first = planned.first {
                 withAnimation {
-                    camera = .rect(Self.choicesCameraRect(first.route.polyline.boundingMapRect))
+                    camera = .rect(Self.choicesCameraRect(
+                        first.route.polyline.boundingMapRect,
+                        panelOnTop: panelOnTop,
+                        windowAspect: golden.size.height / max(golden.size.width, 1)))
                 }
             }
         } catch {

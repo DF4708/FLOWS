@@ -34,6 +34,7 @@ func alertEntityColor(_ name: String?) -> Color {
 /// PRESSED to dismiss; AMBER-style descriptions render the generic colored
 /// vehicle + brand badge + person silhouette composite.
 struct ImminentBannerView: View {
+    @Environment(\.golden) private var golden
     let warning: AppModel.ImminentWarning
     let isCompact: Bool
     var onDismiss: () -> Void
@@ -146,7 +147,7 @@ struct ImminentBannerView: View {
             }
         }
         .padding(12)
-        .frame(maxWidth: isCompact ? .infinity : 560)
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background((isRed ? Theme.riskRed : Theme.riskYellow).opacity(0.95))
         .foregroundStyle(isRed ? .white : .black)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
@@ -158,6 +159,7 @@ struct ImminentBannerView: View {
 /// — "where was the needle BEFORE you filled?" Trains the refuel-prediction
 /// learning toward its 80% accuracy floor.
 struct GasGaugeCard: View {
+    @Environment(\.golden) private var golden
     /// Starting position (the model's own prediction).
     let predictedFraction: Double
     var accuracy: Double
@@ -199,7 +201,9 @@ struct GasGaugeCard: View {
                     @unknown default: break
                     }
                 }
-                .frame(width: 220, height: 130)
+                // Golden sizing rather than the old hardcoded 220×130 — both
+                // sides improved this control, in different dimensions.
+                .frame(width: golden.step(1), height: golden.step(1) * 0.6)
             HStack(spacing: 8) {
                 Button("Didn't refuel") { onNoRefuel() }
                     .scaledFont(size: 13, weight: .semibold)
@@ -222,7 +226,7 @@ struct GasGaugeCard: View {
             }
         }
         .floatingCard()
-        .frame(maxWidth: 420)
+        .frame(maxWidth: golden.cardMax)
         .onAppear {
             if !appeared {
                 fraction = min(max(predictedFraction, 0), 1)
@@ -232,9 +236,24 @@ struct GasGaugeCard: View {
     }
 }
 
-/// The dial itself: E→F arc, ticks, centrally rotating red needle.
+/// The dial itself: E→F arc, ticks, centrally rotating red needle. The
+/// filled arc takes its color from the tank level on an exponential curve
+/// (FuelWarning.band) — green through the ordinary middle of a tank, yellow
+/// only in the last third, red in the final stretch where range is a real
+/// planning problem.
 struct GaugeDial: View {
     @Binding var fraction: Double
+    /// Set while the tank is low enough to demand action — the arc pulses.
+    var alarming = false
+    @State private var alarmPulse = false
+
+    private var levelColor: Color {
+        switch FuelWarning.band(fraction: fraction) {
+        case .green: return Theme.riskGreen
+        case .yellow: return Theme.riskYellow
+        case .red: return Theme.riskRed
+        }
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -250,7 +269,8 @@ struct GaugeDial: View {
                     .position(center)
                 Circle()
                     .trim(from: 0.5, to: 0.5 + fraction / 2)
-                    .stroke(Theme.riskGreen.opacity(0.6), style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .stroke(levelColor.opacity(alarming && alarmPulse ? 0.25 : 0.75),
+                            style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .frame(width: radius * 2, height: radius * 2)
                     .position(center)
                 // Ticks + labels.
@@ -290,6 +310,19 @@ struct GaugeDial: View {
                     .position(center)
                 Circle().fill(Color.red).frame(width: 12, height: 12).position(center)
             }
+            .onChange(of: alarming, initial: true) { _, on in
+                // Pulse only while the tank actually demands action, and
+                // stop cleanly when it doesn't (a forever-animation left
+                // running costs a redraw every frame for nothing).
+                if on {
+                    withAnimation(.easeInOut(duration: 0.6)
+                        .repeatForever(autoreverses: true)) {
+                        alarmPulse = true
+                    }
+                } else {
+                    withAnimation(.default) { alarmPulse = false }
+                }
+            }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0).onChanged { value in
@@ -321,6 +354,7 @@ struct GaugeDial: View {
 /// FLASH red with what actually goes wrong.
 struct TowingCard: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
     @State private var flash = false
 
     var body: some View {
@@ -392,7 +426,7 @@ struct TowingCard: View {
             }
         }
         .floatingCard()
-        .frame(maxWidth: 480)
+        .frame(maxWidth: golden.cardMax)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
                 flash = true
@@ -505,7 +539,11 @@ struct DemoAlertsView: View {
             }
         }
         }
+        // macOS panel sizing only — an iPhone sheet is narrower than 460 pt
+        // and the floor pushed the gallery's edge off-screen in portrait.
+        #if os(macOS)
         .frame(minWidth: 460, minHeight: 560)
+        #endif
     }
 }
 

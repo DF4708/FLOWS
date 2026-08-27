@@ -59,6 +59,24 @@ final class TruckerRadio: ObservableObject {
         ("Highway Advisory 530/1610 kHz AM", "State DOT advisories near construction/incidents"),
     ]
 
+    /// Two-or-three plain words on WHY you'd tune a channel — the radio
+    /// card's car-radio line stays one breath instead of a paragraph.
+    static func shortPurpose(_ channel: String) -> String {
+        if channel.hasPrefix("CB 19") { return "traffic" }
+        if channel.hasPrefix("CB 17") { return "west-coast traffic" }
+        if channel.hasPrefix("CB 9") { return "emergency help" }
+        if channel.hasPrefix("NOAA") { return "weather alerts" }
+        return "road work alerts"
+    }
+
+    /// The AM/FM dial position for channels a NORMAL car radio can tune —
+    /// nil for CB and weather-band channels, which need their own sets.
+    /// Outside trucker mode the radio card lists only these.
+    static func carBandLabel(_ channel: String) -> String? {
+        guard channel.hasPrefix("Highway Advisory") else { return nil }
+        return "AM 530 or 1610 kHz"
+    }
+
     @Published private(set) var channels: [Channel]
     @Published private(set) var playingChannelID: String?
     @Published private(set) var status: String?
