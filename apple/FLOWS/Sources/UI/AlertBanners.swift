@@ -415,11 +415,12 @@ struct TowingCard: View {
         }
         .floatingCard()
         .frame(maxWidth: golden.cardMax)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                flash = true
-            }
-        }
+        // Scoped to THIS view — see the note on the escalation card: a
+        // repeatForever run through withAnimation catches every view in the
+        // transaction, not just the one being pulsed.
+        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true),
+                   value: flash)
+        .onAppear { flash = true }
     }
 
     private func ratingBadge(_ label: String, _ value: Double?, violated: Bool) -> some View {

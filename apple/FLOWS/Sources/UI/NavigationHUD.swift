@@ -1234,11 +1234,13 @@ struct NavigationHUD: View {
         .foregroundStyle(FlowsCore.riskBand(score: escalation.newRisk) == .red ? .white : .black)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                escalationPulse = true
-            }
-        }
+        // Scoped to THIS view. A repeatForever driven through withAnimation
+        // puts every view updated in the same transaction into the repeating
+        // animation — which is how a hazard pulse ended up blinking the
+        // music menu's rows.
+        .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true),
+                   value: escalationPulse)
+        .onAppear { escalationPulse = true }
         .onDisappear { escalationPulse = false }
     }
 

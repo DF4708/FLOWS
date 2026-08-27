@@ -1000,25 +1000,18 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"maxspeed\"](around:2000,"
             + "\(point.latitude),\(point.longitude));out tags 40;"
         var mph = PursuitReach.defaultSpeedMph
-        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
-            comps.queryItems = [URLQueryItem(name: "data", value: query)]
-            if let u = comps.url,
-               let (data, resp) = try? await ThrottledNet.fetch(u),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let elements = json["elements"] as? [[String: Any]] {
-                var best = 0.0
-                for el in elements {
-                    guard let tags = el["tags"] as? [String: Any],
-                          let raw = tags["maxspeed"] as? String else { continue }
-                    let digits = raw.prefix { $0.isNumber }
-                    guard let value = Double(digits) else { continue }
-                    // "55 mph" vs bare km/h numbers.
-                    let asMph = raw.lowercased().contains("mph") ? value : value / 1.609344
-                    best = max(best, min(asMph, 80))
-                }
-                if best > 0 { mph = best }
+        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            var best = 0.0
+            for el in elements {
+                guard let tags = el["tags"] as? [String: Any],
+                      let raw = tags["maxspeed"] as? String else { continue }
+                let digits = raw.prefix { $0.isNumber }
+                guard let value = Double(digits) else { continue }
+                // "55 mph" vs bare km/h numbers.
+                let asMph = raw.lowercased().contains("mph") ? value : value / 1.609344
+                best = max(best, min(asMph, 80))
             }
+            if best > 0 { mph = best }
         }
         speedCache[key] = mph
         if speedCache.count > 100 { CacheEviction.dropHalf(&speedCache) }
@@ -1044,26 +1037,54 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"maxspeed\"][\"highway\"]"
             + "(around:35,\(point.latitude),\(point.longitude));out tags 10;"
         var limit: Double?
-        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
-            comps.queryItems = [URLQueryItem(name: "data", value: query)]
-            if let u = comps.url,
-               let (data, resp) = try? await ThrottledNet.fetch(u),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let elements = json["elements"] as? [[String: Any]] {
-                var best: Double?
-                for el in elements {
-                    guard let tags = el["tags"] as? [String: Any],
-                          let raw = tags["maxspeed"] as? String,
-                          let mph = SpeedSign.parseMaxspeed(raw) else { continue }
-                    best = best.map { min($0, mph) } ?? mph
-                }
-                limit = best
+        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            var best: Double?
+            for el in elements {
+                guard let tags = el["tags"] as? [String: Any],
+                      let raw = tags["maxspeed"] as? String,
+                      let mph = SpeedSign.parseMaxspeed(raw) else { continue }
+                best = best.map { min($0, mph) } ?? mph
             }
+            limit = best
         }
         postedLimitCache[key] = limit
         if postedLimitCache.count > 200 { CacheEviction.dropHalf(&postedLimitCache) }
         return limit
+    }
+
+    // MARK: one Overpass call, three mirrors
+
+    /// Overpass instances, tried in order. All EU-hosted and reputable: the
+    /// main German instance, Kumi Systems (Austria), and OpenStreetMap
+    /// France. Route coordinates go to these, so the set is deliberately
+    /// limited to trusted operators.
+    static let overpassEndpoints = ["https://overpass-api.de/api/interpreter",
+                                    "https://overpass.kumi.systems/api/interpreter",
+                                    "https://overpass.openstreetmap.fr/api/interpreter"]
+
+    /// Run an Overpass query and hand back its elements, falling down the
+    /// mirror ladder until one answers.
+    ///
+    /// A single host is not enough. The main instance rate-limits under load
+    /// and goes fully unreachable often enough that every feature behind it
+    /// — posted limits, lane guidance, clearances, cameras — quietly stops
+    /// working with no sign on screen. Observed while testing this: the
+    /// German host refused the connection outright and Kumi returned 500,
+    /// while the French mirror answered the identical query.
+    nonisolated static func overpassElements(_ query: String) async
+        -> [[String: Any]]? {
+        for endpoint in overpassEndpoints {
+            guard var comps = URLComponents(string: endpoint) else { continue }
+            comps.queryItems = [URLQueryItem(name: "data", value: query)]
+            guard let u = comps.url,
+                  let (data, resp) = try? await ThrottledNet.fetch(u),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let elements = json["elements"] as? [[String: Any]]
+            else { continue }
+            return elements
+        }
+        return nil
     }
 
     // MARK: fixed enforcement cameras — the only speed-trap data we may use
@@ -1090,28 +1111,21 @@ actor LiveHazardFeedFetcher {
             + "node[\"traffic_signals\"=\"camera\"]\(around);"
             + ");out tags center 200;"
         var found: [EnforcementCameras.Camera] = []
-        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
-            comps.queryItems = [URLQueryItem(name: "data", value: query)]
-            if let u = comps.url,
-               let (data, resp) = try? await ThrottledNet.fetch(u),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let elements = json["elements"] as? [[String: Any]] {
-                for el in elements {
-                    guard let raw = el["tags"] as? [String: Any] else { continue }
-                    let tags = raw.compactMapValues { $0 as? String }
-                    guard let kind = EnforcementCameras.kind(fromTags: tags) else { continue }
-                    let center = el["center"] as? [String: Any]
-                    guard let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double),
-                          let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
-                    else { continue }
-                    let id = (el["id"] as? Int).map(String.init) ?? "\(lat),\(lon)"
-                    found.append(EnforcementCameras.Camera(
-                        id: id,
-                        coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
-                        kind: kind,
-                        limitMph: EnforcementCameras.limitMph(fromTags: tags)))
-                }
+        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            for el in elements {
+                guard let raw = el["tags"] as? [String: Any] else { continue }
+                let tags = raw.compactMapValues { $0 as? String }
+                guard let kind = EnforcementCameras.kind(fromTags: tags) else { continue }
+                let center = el["center"] as? [String: Any]
+                guard let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double),
+                      let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
+                else { continue }
+                let id = (el["id"] as? Int).map(String.init) ?? "\(lat),\(lon)"
+                found.append(EnforcementCameras.Camera(
+                    id: id,
+                    coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                    kind: kind,
+                    limitMph: EnforcementCameras.limitMph(fromTags: tags)))
             }
         }
         cameraCache[key] = found
@@ -1136,21 +1150,14 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"turn:lanes\"][\"highway\"]"
             + "(around:30,\(point.latitude),\(point.longitude));out tags 5;"
         var lanes: [LaneData.Lane] = []
-        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
-            comps.queryItems = [URLQueryItem(name: "data", value: query)]
-            if let u = comps.url,
-               let (data, resp) = try? await ThrottledNet.fetch(u),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let elements = json["elements"] as? [[String: Any]] {
-                // Take the most detailed tagging nearby — a slip road with
-                // one lane shouldn't outvote the mainline's five.
-                for el in elements {
-                    guard let tags = el["tags"] as? [String: Any],
-                          let raw = tags["turn:lanes"] as? String else { continue }
-                    let parsed = LaneData.parse(turnLanes: raw)
-                    if parsed.count > lanes.count { lanes = parsed }
-                }
+        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            // Take the most detailed tagging nearby — a slip road with
+            // one lane shouldn't outvote the mainline's five.
+            for el in elements {
+                guard let tags = el["tags"] as? [String: Any],
+                      let raw = tags["turn:lanes"] as? String else { continue }
+                let parsed = LaneData.parse(turnLanes: raw)
+                if parsed.count > lanes.count { lanes = parsed }
             }
         }
         laneCache[key] = lanes
