@@ -304,9 +304,14 @@ struct ContentView: View {
             if model.showTowingCard {
                 VStack {
                     Spacer()
+                    // Clear of the drive bar: the bar is two rows plus the
+                    // stop strip on a phone, and one bottomClear left the
+                    // towing sliders sitting on top of it.
                     TowingCard()
-                        .padding(.bottom, golden.bottomClear)
+                        .padding(.bottom, model.mode == .navigating
+                                 ? golden.bottomClear * 2.6 : golden.bottomClear)
                 }
+                .padding(.horizontal, golden.padCard)
             }
             if let info = hazardInfo {
                 hazardSummaryCard(info)
@@ -1007,7 +1012,11 @@ struct ContentView: View {
     @Namespace private var mapScope
 
     private var mapContent: some View {
-        Map(position: $camera, scope: mapScope) {
+        // interactionModes is an INITIALIZER parameter on SwiftUI's Map, not
+        // a modifier. Stated explicitly rather than left to the default so
+        // pinch-to-zoom, two-finger rotate, two-finger pitch and drag-to-pan
+        // can't be narrowed by accident later.
+        Map(position: $camera, interactionModes: .all, scope: mapScope) {
             // OFFLINE LIFELINE: the recorded breadcrumb trail — the way you
             // came, drawable with zero network. Orange dashes, newest at the
             // vehicle; follow it backward to walk out the way you came in.
@@ -2080,7 +2089,6 @@ struct CollapsedPanelTray: View {
         PanelBadge(id: "routes", symbol: "arrow.triangle.turn.up.right.circle",
                    name: "Route choices"),
         PanelBadge(id: "sliders", symbol: "slider.horizontal.3", name: "Vehicle limits"),
-        PanelBadge(id: "stops", symbol: "list.bullet", name: "Stop list"),
         PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
         PanelBadge(id: "fuel", symbol: "gauge.with.dots.needle.bottom.50percent",
                    name: "Driving instruments"),

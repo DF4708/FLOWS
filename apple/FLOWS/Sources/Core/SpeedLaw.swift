@@ -42,6 +42,45 @@ enum SpeedLaw {
     /// 25 mph street is 45, which is already excessive by any measure.
     static let excessAbsoluteMph = 85.0
 
+    /// What the limit most likely IS on a road OSM hasn't tagged.
+    ///
+    /// The warning lines have to be on the bar every mile of a drive — a
+    /// driver glancing down at 70 mph learns nothing from a bar with no
+    /// lines on it, and unmapped stretches are common. So when nothing is
+    /// posted the app falls back to the ordinary limit for the KIND of road
+    /// being driven: US residential and city streets run 25–35, arterials
+    /// and rural two-lanes 45–55, and interstates 65–70. Travel speed is the
+    /// signal for which of those a road is, since that is what is actually
+    /// measured.
+    ///
+    /// This is an ESTIMATE and the HUD says so (`~` before the number). It
+    /// is never used when a real posted limit is known.
+    static func estimatedLimitMph(speedMph: Double) -> Double {
+        switch speedMph {
+        case ..<30: return 25
+        case ..<42: return 35
+        case ..<52: return 45
+        case ..<62: return 55
+        default: return 65
+        }
+    }
+
+    /// The limit the bar should draw its lines from: the posted one when the
+    /// road is tagged, the estimate otherwise. Both lines always exist, so
+    /// they never blink out mid-drive.
+    static func effectiveLimitMph(postedLimitMph: Double?,
+                                  speedMph: Double) -> Double {
+        if let postedLimitMph, postedLimitMph > 0 { return postedLimitMph }
+        return estimatedLimitMph(speedMph: speedMph)
+    }
+
+    /// True when the number on screen is the estimate rather than a posted
+    /// sign — the HUD marks those with `~` so it never claims to have read a
+    /// sign it hasn't.
+    static func isEstimated(postedLimitMph: Double?) -> Bool {
+        !(postedLimitMph.map { $0 > 0 } ?? false)
+    }
+
     /// The speed at which the bar turns yellow: over the posted limit
     /// (plus tolerance) is a state violation.
     static func stateThresholdMph(postedLimitMph: Double?) -> Double? {

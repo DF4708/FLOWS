@@ -26,6 +26,10 @@ import AppKit
 /// Standing project rule: no services operated from Russia, China, Iran, or
 /// North Korea (e.g. Tencent Music, NetEase, Yandex Music) — do not add them.
 enum MusicProvider: String, CaseIterable, Identifiable, Codable {
+    /// Broadcast AM/FM — the radio already in the dash. It needs no account
+    /// and no subscription, which is why it is the DEFAULT until the driver
+    /// names a streaming service.
+    case localRadio
     case appleMusic
     case spotify
     case youtubeMusic
@@ -44,6 +48,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
+        case .localRadio: return "AM/FM radio"
         case .appleMusic: return "Apple Music"
         case .spotify: return "Spotify"
         case .youtubeMusic: return "YouTube Music"
@@ -62,6 +67,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     var symbol: String {
         switch self {
+        case .localRadio: return "antenna.radiowaves.left.and.right"
         case .appleMusic: return "music.note"
         case .spotify: return "music.note.list"
         case .youtubeMusic: return "play.rectangle.fill"
@@ -93,11 +99,14 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// One-letter badge so the mini player shows WHICH service is active
     /// (brand logos need each service's asset license; a colored monogram
     /// identifies without imitating).
-    var monogram: String { String(rawValue.prefix(1)) }
+    var monogram: String {
+        self == .localRadio ? "FM" : String(rawValue.prefix(1)).uppercased()
+    }
 
     /// The service's signature color, approximated for the badge.
     var badgeColor: Color {
         switch self {
+        case .localRadio: return Color(red: 0.35, green: 0.38, blue: 0.42)
         case .appleMusic: return Color(red: 0.98, green: 0.18, blue: 0.32)
         case .spotify: return Color(red: 0.11, green: 0.73, blue: 0.33)
         case .youtubeMusic: return Color(red: 0.93, green: 0.11, blue: 0.14)
@@ -116,8 +125,12 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     /// The service's public app URL scheme (launches the installed app).
     var appURL: URL? {
+        // Broadcast radio has no app to open — it plays through FLOWS's own
+        // relay card, or on the dash receiver itself.
+        if self == .localRadio { return nil }
         let scheme: String
         switch self {
+        case .localRadio: scheme = ""
         case .appleMusic: scheme = "music://"
         case .spotify: scheme = "spotify://"
         case .youtubeMusic: scheme = "youtubemusic://"
@@ -139,6 +152,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     var webURL: URL {
         let address: String
         switch self {
+        case .localRadio: address = "https://radio-locator.com"
         case .appleMusic: address = "https://music.apple.com"
         case .spotify: address = "https://open.spotify.com"
         case .youtubeMusic: address = "https://music.youtube.com"

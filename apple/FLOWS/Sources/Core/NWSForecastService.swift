@@ -19,6 +19,9 @@ import Foundation
 struct ForecastConditions: Sendable {
     var temperatureF: Double?
     var windMph: Double?
+    /// The direction the wind blows FROM, in degrees — what turns a wind
+    /// speed into a head- or tailwind once the vehicle's heading is known.
+    var windFromDegrees: Double?
     var popPercent: Double?
     /// Quantitative precipitation forecast for the coming hours, INCHES —
     /// how much water falls, not just how likely (drives the relative-
@@ -157,6 +160,9 @@ actor NWSForecastFetcher {
             let nums = ws.split(whereSeparator: { !"0123456789".contains($0) })
                 .compactMap { Double($0) }
             out.windMph = nums.max()
+            // NWS gives the direction as a compass word in the same forecast
+            // ("NW", "SSE") — turn it into the degrees the drag math wants.
+            out.windFromDegrees = Self.degrees(fromCompass: props["windDirection"] as? String)
         }
         if let popDict = now["probabilityOfPrecipitation"] as? [String: Any] {
             out.popPercent = popDict["value"] as? Double
@@ -298,5 +304,15 @@ actor NWSForecastFetcher {
         }
         guard let (row, d2) = best, d2 < 0.55 * 0.55 else { return nil }
         return IntlWeatherParsing.conditions(from: row)
+    }
+
+    /// NWS publishes wind direction as a compass word ("NW", "SSE"). The
+    /// drag math needs degrees, and the 16-point table is the same one the
+    /// banner compass reads from.
+    nonisolated static func degrees(fromCompass word: String?) -> Double? {
+        guard let word = word?.trimmingCharacters(in: .whitespaces).uppercased(),
+              !word.isEmpty,
+              let idx = CompassReading.points.firstIndex(of: word) else { return nil }
+        return Double(idx) * 22.5
     }
 }

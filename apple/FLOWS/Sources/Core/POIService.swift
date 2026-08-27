@@ -89,8 +89,11 @@ final class POIService: ObservableObject {
         case .hotel:
             return MKPointOfInterestFilter(including: [.hotel])
         case .shower:
-            // Showers live at truck stops — constrain to fuel to keep spas out.
-            return MKPointOfInterestFilter(including: [.gasStation])
+            // No category filter: travel centers are tagged inconsistently
+            // (some .gasStation, some .store, some nothing), and the filter
+            // silently dropped the very truck stops that HAVE showers. The
+            // brand-and-term queries constrain instead.
+            return nil
         case .parking:
             return MKPointOfInterestFilter(including: [.parking])
         case .gyms:
@@ -330,7 +333,9 @@ final class POIService: ObservableObject {
         case .gyms:
             await search(kind, queries: ["gym", "fitness center"], aheadOf: position)
         case .shower:
-            await search(kind, queries: ["truck stop showers Loves Pilot Flying J TA"],
+            await search(kind, queries: ["truck stop", "travel center",
+                                         "Love's Travel Stop", "Pilot Travel Center",
+                                         "Flying J", "TA Travel Center", "Petro"],
                          aheadOf: position)
         case .truckParking:
             // Legal overnight parking: truck stops, official rest areas, and
@@ -356,7 +361,7 @@ final class POIService: ObservableObject {
     func chooseStore(_ category: StoreCategory, aheadOf position: CLLocationCoordinate2D?) async {
         pendingStoreChoice = false
         activeStoreCategory = category
-        await search(.stores, queries: [category.searchQuery], aheadOf: position)
+        await search(.stores, queries: category.searchQueries, aheadOf: position)
     }
 
     /// Fuel type chosen (first run or from Settings).

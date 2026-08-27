@@ -165,6 +165,143 @@ final class SpeedBarTests: XCTestCase {
         XCTAssertGreaterThan(DriveEfficiency.gradePenalty(gradePercent: -50), -0.5)
     }
 
+    // MARK: the physics behind the three states
+
+    func testHeadwindCostsAndTailwindGivesBack() {
+        // Heading east into an easterly: pure headwind.
+        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 20, windFromDegrees: 90,
+                                                   headingDegrees: 90), 20, accuracy: 0.01)
+        // Same wind at your back.
+        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 20, windFromDegrees: 270,
+                                                   headingDegrees: 90), -20, accuracy: 0.01)
+        // Pure crosswind neither helps nor hurts along the direction of travel.
+        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 20, windFromDegrees: 0,
+                                                   headingDegrees: 90), 0, accuracy: 0.01)
+    }
+
+    func testUnknownWindDirectionIsNotTreatedAsEvidence() {
+        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 30, windFromDegrees: nil,
+                                                   headingDegrees: 90), 0)
+        XCTAssertEqual(DriveEfficiency.headwindMph(windMph: 30, windFromDegrees: 90,
+                                                   headingDegrees: nil), 0)
+    }
+
+    func testDragKeysOffAIRSPEEDNotJustSpeedometer() {
+        // 60 into a 25 mph headwind is aerodynamically 85.
+        let calm = DriveEfficiency.Inputs(speedMph: 60, accelMphPerSec: 0)
+        let into = DriveEfficiency.Inputs(speedMph: 60, accelMphPerSec: 0,
+                                          windMph: 25, windFromDegrees: 90,
+                                          headingDegrees: 90)
+        XCTAssertGreaterThan(DriveEfficiency.score(into), DriveEfficiency.score(calm))
+        // …and a tailwind of the same strength scores better than calm.
+        let behind = DriveEfficiency.Inputs(speedMph: 60, accelMphPerSec: 0,
+                                            windMph: 25, windFromDegrees: 270,
+                                            headingDegrees: 90)
+        XCTAssertLessThan(DriveEfficiency.score(behind), DriveEfficiency.score(calm))
+    }
+
+    func testABrickShapedVehicleIsJudgedOnItsOwnDragCurve() {
+        // A van that gains little between city and highway is paying more to
+        // push air than a sedan that gains a third.
+        let sedan = DriveEfficiency.dragSensitivity(cityMPU: 26, highwayMPU: 35)
+        let van = DriveEfficiency.dragSensitivity(cityMPU: 15, highwayMPU: 16)
+        XCTAssertGreaterThan(van, sedan)
+        // No spec on file → the standard curve, not a guess.
+        XCTAssertEqual(DriveEfficiency.dragSensitivity(cityMPU: nil, highwayMPU: nil), 1)
+    }
+
+    func testWeightTowingAndFuelLoadAllCost() {
+        let base = DriveEfficiency.Inputs(speedMph: 45, accelMphPerSec: 2,
+                                          gradePercent: 4)
+        var loaded = base
+        loaded.vehicleWeightLbs = 5_000
+        loaded.loadedWeightLbs = 9_000
+        XCTAssertGreaterThan(DriveEfficiency.score(loaded), DriveEfficiency.score(base))
+
+        var towing = base
+        towing.towing = true
+        XCTAssertGreaterThan(DriveEfficiency.score(towing), DriveEfficiency.score(base))
+
+        var brimmed = base
+        brimmed.fuelFraction = 1.0
+        var nearlyEmpty = base
+        nearlyEmpty.fuelFraction = 0.05
+        XCTAssertGreaterThan(DriveEfficiency.score(brimmed),
+                             DriveEfficiency.score(nearlyEmpty))
+    }
+
+    func testLoadOnlyCostsWhenTheMassIsBEINGMOVED() {
+        // Steady cruise on the flat: mass is already moving, so a trailer
+        // shouldn't change the throttle-and-grade half of the score.
+        var towingFlat = DriveEfficiency.Inputs(speedMph: 55, accelMphPerSec: 0)
+        towingFlat.towing = true
+        let soloFlat = DriveEfficiency.Inputs(speedMph: 55, accelMphPerSec: 0)
+        XCTAssertEqual(DriveEfficiency.score(towingFlat),
+                       DriveEfficiency.score(soloFlat), accuracy: 0.001)
+    }
+
+    func testNoVehicleOnFileStillScoresFromAnAverage() {
+        // Everything unknown: the score still works off documented averages
+        // rather than refusing to judge.
+        let bare = DriveEfficiency.Inputs(speedMph: 55, accelMphPerSec: 0)
+        XCTAssertEqual(DriveEfficiency.verdict(bare), .efficient)
+    }
+
+    // MARK: the legal lines are always ON the bar
+
+    func testUnmappedRoadStillGetsBothLegalLines() {
+        // OSM has no maxspeed here. The bar must still draw a yellow and a
+        // red line — an instrument with no marks teaches nothing.
+        let limit = SpeedLaw.effectiveLimitMph(postedLimitMph: nil, speedMph: 68)
+        XCTAssertNotNil(SpeedLaw.stateThresholdMph(postedLimitMph: limit))
+        XCTAssertNotNil(SpeedLaw.federalThresholdMph(postedLimitMph: limit))
+        XCTAssertTrue(SpeedLaw.isEstimated(postedLimitMph: nil))
+    }
+
+    func testAPostedLimitAlwaysBeatsTheEstimate() {
+        // Crawling in traffic on a 65 road: the estimate would say 25, but
+        // the posted sign is what the lines come from.
+        XCTAssertEqual(SpeedLaw.effectiveLimitMph(postedLimitMph: 65, speedMph: 12), 65)
+        XCTAssertFalse(SpeedLaw.isEstimated(postedLimitMph: 65))
+    }
+
+    func testTheEstimateTracksTheKindOfRoad() {
+        // A neighbourhood street, a rural two-lane, and an interstate must
+        // not all get the same guess.
+        XCTAssertLessThan(SpeedLaw.estimatedLimitMph(speedMph: 22),
+                          SpeedLaw.estimatedLimitMph(speedMph: 48))
+        XCTAssertLessThan(SpeedLaw.estimatedLimitMph(speedMph: 48),
+                          SpeedLaw.estimatedLimitMph(speedMph: 72))
+    }
+
+    func testBothLinesStayOnTheBarAsTheScaleZooms() {
+        // The scale steps up with speed; wherever it lands, both lines must
+        // still have a place on the bar, and in the right order.
+        let limit = 55.0
+        for speed in stride(from: 0.0, through: 115.0, by: 5) {
+            let top = SpeedLaw.dynamicTopMph(speedMph: speed,
+                                             postedLimitMph: limit,
+                                             vehicleTopSpeedMph: nil)
+            let y = SpeedLaw.barFraction(
+                SpeedLaw.stateThresholdMph(postedLimitMph: limit), topMph: top)
+            let r = SpeedLaw.barFraction(
+                SpeedLaw.federalThresholdMph(postedLimitMph: limit), topMph: top)
+            XCTAssertNotNil(y, "yellow fell off the bar at \(speed) mph")
+            XCTAssertNotNil(r, "red fell off the bar at \(speed) mph")
+            XCTAssertLessThan(y ?? 1, r ?? 0)
+        }
+    }
+
+    func testALineSitsWhereItsNumberSays() {
+        // The mark and the number under it are the same fraction of the same
+        // width — that is what keeps them in line as the scale zooms.
+        let top = SpeedLaw.dynamicTopMph(speedMph: 40, postedLimitMph: 35,
+                                         vehicleTopSpeedMph: nil)
+        let state = SpeedLaw.stateThresholdMph(postedLimitMph: 35)
+        XCTAssertEqual(SpeedLaw.barFraction(state, topMph: top) ?? 0,
+                       (state ?? 0) / top, accuracy: 0.0001)
+    }
+
     func testIdlingIsAlwaysWasteful() {
         XCTAssertEqual(DriveEfficiency.verdict(speedMph: 0, accelMphPerSec: 0,
                                                gradePercent: 0), .wasteful)

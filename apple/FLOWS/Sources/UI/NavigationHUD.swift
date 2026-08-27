@@ -236,6 +236,11 @@ struct NavigationHUD: View {
             }
         }
         .padding(golden.pad)
+        .onChange(of: model.showRadioCardRequested) { _, wants in
+            guard wants else { return }
+            showRadio = true
+            model.showRadioCardRequested = false
+        }
         .onReceive(model.location.$latest) { fix in
             guard let fix else { return }
             let mph = max(fix.speed, 0) * 2.236936
@@ -288,7 +293,7 @@ struct NavigationHUD: View {
         let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
         let electric = vehicle.profile?.fuelType == .electric
         return VStack(spacing: 6) {
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 GaugeDial(fraction: .constant(fraction),
                           alarming: model.fuelGaugeAlarming,
                           showsQuartileLabels: false)
@@ -343,30 +348,37 @@ struct NavigationHUD: View {
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let state = SpeedLaw.stateThresholdMph(
-                                postedLimitMph: model.postedSpeedLimitMph),
+                                postedLimitMph: lawLimitMph),
                                let f = SpeedLaw.barFraction(state, topMph: top) {
-                                OutlinedText(text: String(format: "%.0f", state),
+                                let label = limitTilde
+                                    + String(format: "%.0f", state)
+                                OutlinedText(text: label,
                                              color: Theme.riskYellow,
                                              font: .system(size: 11, weight: .bold))
                                     .fixedSize()
-                                    .offset(x: centered(w * f, width: w))
+                                    .offset(x: centered(
+                                        w * f, width: w,
+                                        labelWidth: labelWidth(label, outlined: true)))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             if let fed = SpeedLaw.federalThresholdMph(
-                                postedLimitMph: model.postedSpeedLimitMph),
+                                postedLimitMph: lawLimitMph),
                                let f = SpeedLaw.barFraction(fed, topMph: top) {
-                                Text(String(format: "%.0f", fed))
+                                let label = limitTilde
+                                    + String(format: "%.0f", fed)
+                                Text(label)
                                     .font(.system(size: 11, weight: .bold))
                                     .monospacedDigit()
                                     .foregroundStyle(Theme.riskRed)
                                     .fixedSize()
-                                    .offset(x: centered(w * f, width: w))
+                                    .offset(x: centered(w * f, width: w,
+                                                        labelWidth: labelWidth(label)))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             // The scale's top, under the END of the bar —
                             // yielding only if a legal number lands on it.
                             if !crowdsTheEnd(SpeedLaw.federalThresholdMph(
-                                    postedLimitMph: model.postedSpeedLimitMph),
+                                    postedLimitMph: lawLimitMph),
                                     top: top) {
                                 Text("\(Int(top))")
                                     .font(.system(size: 11, weight: .bold))
@@ -393,14 +405,12 @@ struct NavigationHUD: View {
             minimizeButton("fuel", help: "Tuck the driving instruments away")
                 .padding(3)
         }
+        .animation(model.fuelReachabilityTight
+                   ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
+                   : .default,
+                   value: tankPulse)
         .onChange(of: model.fuelReachabilityTight, initial: true) { _, tight in
-            if tight {
-                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
-                    tankPulse = true
-                }
-            } else {
-                withAnimation(.default) { tankPulse = false }
-            }
+            tankPulse = tight
         }
     }
 
@@ -429,10 +439,12 @@ struct NavigationHUD: View {
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.secondary)
                 .fixedSize()
+                .frame(maxWidth: .infinity)   // centered over its own column
             Rectangle()
                 .fill(Color.secondary.opacity(0.45))
                 .frame(height: 1)
             content()
+                .frame(maxWidth: .infinity)
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -462,13 +474,43 @@ struct NavigationHUD: View {
     /// Green leaf / half-and-half / red pump, from throttle, drag and hill
     /// (DriveEfficiency).
     private var efficiencyVerdict: DriveEfficiency.Verdict {
-        DriveEfficiency.verdict(
+        let profile = model.vehicle.profile
+        let ratings = model.towingRatings
+        return DriveEfficiency.verdict(DriveEfficiency.Inputs(
             speedMph: liveMph,
             accelMphPerSec: accelMphPerSec,
             gradePercent: currentGradePercent,
+            // Wind along the direction of travel: a headwind is air the
+            // vehicle has to push, a tailwind is help.
+            windMph: model.corridorWindMph,
+            windFromDegrees: model.corridorWindFromDegrees,
+            headingDegrees: model.location.course >= 0 ? model.location.course : nil,
             efficientCruiseMph: DriveEfficiency.efficientCruiseMph(
-                city: model.vehicle.profile?.cityMilesPerUnit,
-                highway: model.vehicle.profile?.highwayMilesPerUnit))
+                city: profile?.cityMilesPerUnit, highway: profile?.highwayMilesPerUnit),
+            cityMPU: profile?.cityMilesPerUnit,
+            highwayMPU: profile?.highwayMilesPerUnit,
+            loadedWeightLbs: model.towVehicleWeightLbs + model.towTrailerWeightLbs > 0
+                ? model.towVehicleWeightLbs + model.towTrailerWeightLbs : nil,
+            vehicleWeightLbs: model.towVehicleWeightLbs > 0
+                ? model.towVehicleWeightLbs : ratings.gvwrLbs,
+            towing: model.towingActive,
+            fuelFraction: model.vehicle.predictedFuelFraction))
+    }
+
+    /// The limit the yellow and red lines are drawn from. The posted one
+    /// wherever the road is tagged; otherwise the ordinary limit for the
+    /// kind of road being driven, so BOTH LINES ARE ALWAYS ON THE BAR. A bar
+    /// with no lines teaches a driver nothing, and unmapped stretches are
+    /// common enough that the lines were blinking out mid-drive.
+    private var lawLimitMph: Double {
+        SpeedLaw.effectiveLimitMph(postedLimitMph: model.postedSpeedLimitMph,
+                                   speedMph: liveMph)
+    }
+
+    /// `~` in front of a line's number when it came from the estimate rather
+    /// than a sign — the app never claims to have read one it hasn't.
+    private var limitTilde: String {
+        SpeedLaw.isEstimated(postedLimitMph: model.postedSpeedLimitMph) ? "~" : ""
     }
 
     /// The top of the bar, which FOLLOWS the driving: it grows to keep the
@@ -476,12 +518,12 @@ struct NavigationHUD: View {
     /// fall away, so a 30 mph street doesn't leave most of the bar empty.
     private var barTopMph: Double {
         SpeedLaw.dynamicTopMph(speedMph: liveMph,
-                               postedLimitMph: model.postedSpeedLimitMph,
+                               postedLimitMph: lawLimitMph,
                                vehicleTopSpeedMph: model.vehicle.profile?.topSpeedMph)
     }
 
     private var speedStanding: SpeedLaw.Standing {
-        SpeedLaw.standing(speedMph: liveMph, postedLimitMph: model.postedSpeedLimitMph)
+        SpeedLaw.standing(speedMph: liveMph, postedLimitMph: lawLimitMph)
     }
 
     /// The fill color follows the law: normal below the posted limit, yellow
@@ -504,8 +546,8 @@ struct NavigationHUD: View {
     private var speedBar: some View {
         let top = barTopMph
         let fill = min(max(liveMph / max(top, 1), 0), 1)
-        let stateMph = SpeedLaw.stateThresholdMph(postedLimitMph: model.postedSpeedLimitMph)
-        let fedMph = SpeedLaw.federalThresholdMph(postedLimitMph: model.postedSpeedLimitMph)
+        let stateMph = SpeedLaw.stateThresholdMph(postedLimitMph: lawLimitMph)
+        let fedMph = SpeedLaw.federalThresholdMph(postedLimitMph: lawLimitMph)
         let stateFrac = SpeedLaw.barFraction(stateMph, topMph: top)
         let fedFrac = SpeedLaw.barFraction(fedMph, topMph: top)
         let over = speedStanding == .federalViolation
@@ -550,14 +592,15 @@ struct NavigationHUD: View {
         }
         .shadow(color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
                 radius: over ? (overGlow ? 12 : 3) : 0)
+        // The pulse is animated ON THIS VIEW ONLY. Driving a repeatForever
+        // through withAnimation put every view updated in that transaction
+        // into the same repeating animation — which is why unrelated menus
+        // (the music picker's green rows) were seen blinking.
+        .animation(over ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                        : .default,
+                   value: overGlow)
         .onChange(of: over, initial: true) { _, isOver in
-            if isOver {
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                    overGlow = true
-                }
-            } else {
-                withAnimation(.default) { overGlow = false }
-            }
+            overGlow = isOver
         }
         .help(SpeedLaw.federalNote)
     }
@@ -580,9 +623,20 @@ struct NavigationHUD: View {
         return mph / top > 0.82
     }
 
+    /// How wide a scale label actually is.
+    ///
+    /// The scale numbers are monospaced digits at a known size, so one
+    /// advance per character is exact rather than a guess — and a guess is
+    /// what left every number sitting a few points to the LEFT of the line
+    /// it belongs to. SF Pro's monospaced digit advance is about 0.6 em; the
+    /// outlined (yellow) labels carry a point of edge on each side.
+    private func labelWidth(_ text: String, outlined: Bool = false) -> CGFloat {
+        CGFloat(text.count) * 11 * 0.6 + (outlined ? 2 : 0)
+    }
+
     /// Center a label on its line, kept inside the bar's own width so a
     /// threshold near either end still reads.
-    private func centered(_ x: CGFloat, width: CGFloat, labelWidth: CGFloat = 22)
+    private func centered(_ x: CGFloat, width: CGFloat, labelWidth: CGFloat)
         -> CGFloat {
         min(max(x - labelWidth / 2, 0), max(width - labelWidth, 0))
     }
@@ -629,8 +683,9 @@ struct NavigationHUD: View {
                 .contentTransition(.symbolEffect(.replace))
                 .help(efficiencyHelp)
         case .wasteful:
-            Image(systemName: "smoke.fill")
-                .font(.system(size: 18, weight: .bold))
+            // A bare cloud reads as weather; the CO2 glyph reads as exhaust.
+            Image(systemName: "carbon.dioxide.cloud.fill")
+                .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(Theme.riskRed)
                 .frame(width: 24)
                 .contentTransition(.symbolEffect(.replace))
@@ -1612,11 +1667,9 @@ struct NavigationHUD: View {
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 10, y: 4)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                escalationPulse = true
-            }
-        }
+        .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true),
+                   value: escalationPulse)
+        .onAppear { escalationPulse = true }
     }
 
     /// Range is getting tight — plan a fuel stop now (vehicle range model).
@@ -1649,13 +1702,28 @@ struct NavigationHUD: View {
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
-    /// Default the picker to the closest available station.
+    /// Straight-line miles from the vehicle to the station the picker is
+    /// showing — nil when neither is placeable.
+    private var nearestStationMiles: Double? {
+        guard let pos = model.effectivePosition,
+              let channel = model.radio.channels.first(where: { $0.id == radioChannelID }),
+              let p = TruckerRadio.position(of: channel) else { return nil }
+        return POIRanking.meters(p.coordinate, pos) / 1609.344
+    }
+
+    /// Point the picker at the closest available station.
+    ///
+    /// While something is playing the picker must name the station actually
+    /// on the air — auto-tune moves that as the drive crosses into the next
+    /// coverage area, and a picker left on the old name would be a lie.
+    /// While nothing is playing it simply tracks the nearest transmitter, so
+    /// the default is right for wherever the vehicle IS, not for wherever it
+    /// was when the card first opened.
     private func preselectNearestStation() {
-        guard radioChannelID.isEmpty
-            || !model.radio.channels.contains(where: { $0.id == radioChannelID })
-        else { return }
-        // Default = the transmitter CLOSEST to the current GPS position; the
-        // state match is only the no-fix fallback.
+        if let playing = model.radio.playingChannelID {
+            radioChannelID = playing
+            return
+        }
         if let pos = model.effectivePosition,
            let nearest = model.radio.nearestChannel(to: pos) {
             radioChannelID = nearest.channel.id
@@ -1718,7 +1786,32 @@ struct NavigationHUD: View {
             }
             .onAppear { preselectNearestStation() }
             .onChange(of: model.currentStateCode) { _, _ in preselectNearestStation() }
-            if let status = model.radio.status {
+            // The two ways the right station changes mid-drive: the vehicle
+            // moves nearer a different transmitter, or auto-tune has already
+            // switched the one playing.
+            .onChange(of: model.nearestStationID) { _, _ in preselectNearestStation() }
+            .onChange(of: model.radio.playingChannelID) { _, _ in preselectNearestStation() }
+            // How far off the relay actually is. NOAA runs about a thousand
+            // transmitters; only ~68 of them are relayed over the internet
+            // at all, so the closest one you can LISTEN to is often a long
+            // way from the windshield. Saying the distance is the honest
+            // thing — the alerts on a relay two states over are for two
+            // states over.
+            if let miles = nearestStationMiles {
+                Text(miles < 60
+                     ? String(format: "Closest relay — %.0f mi away", miles)
+                     : String(format: "Closest relay — %.0f mi away. It covers "
+                              + "its own area, not yours; your local "
+                              + "transmitter isn't relayed online.", miles))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Only worth a line when it says something the title doesn't —
+            // "Playing <station>" under a heading already naming the station
+            // is noise.
+            if let status = model.radio.status,
+               !status.hasPrefix("Playing ") {
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
             Divider()
@@ -1760,6 +1853,20 @@ struct NavigationHUD: View {
                             .help("No internet relay exists for this channel — tune it on a car radio")
                     }
                 }
+            }
+            // The question every driver asks of a radio card. Answering it
+            // is better than leaving a silent gap — and the answer is that
+            // there is no lawful, keyless feed to offer.
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "shield.slash")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text("Local law enforcement: not available. Most departments "
+                     + "now encrypt dispatch, several states restrict scanner "
+                     + "use in a moving vehicle, and the public relay services "
+                     + "don't license rebroadcast in an app.")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
             }
             let overAir = TruckerRadio.frequencyGuide.filter {
                 model.radio.cabStream(for: $0.0) == nil

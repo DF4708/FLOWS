@@ -272,6 +272,10 @@ targets:
       # shipping resource parses and covers the network.
       - path: FLOWS/Resources/amtrak_stations.json
         buildPhase: resources
+      # Same for the NOAA relay list — auto-tune is only as good as the
+      # positions shipped with it.
+      - path: FLOWS/Resources/nwr_stations.json
+        buildPhase: resources
       - path: FLOWS/Sources/Core/AdaptiveTuning.swift
       - path: FLOWS/Sources/Core/CameraZoom.swift
       - path: FLOWS/Sources/Core/FuelWarning.swift
@@ -283,6 +287,7 @@ targets:
       - path: FLOWS/Sources/Core/RoadEfficiencyLearning.swift
       - path: FLOWS/Sources/Core/ManeuverSymbol.swift
       - path: FLOWS/Sources/Core/LaneData.swift
+      - path: FLOWS/Sources/Core/RadioTuning.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
       - path: FLOWSTests
     settings:

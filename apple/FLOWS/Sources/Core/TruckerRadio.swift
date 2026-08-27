@@ -241,17 +241,57 @@ final class TruckerRadio: ObservableObject {
         return channels.first
     }
 
+    /// Where a transmitter is, for the nearest-station math. Its own listed
+    /// coordinates when it has them; the middle of its state otherwise.
+    ///
+    /// The fallback matters: the relay directory is re-scraped every launch
+    /// and stations that weren't in the bundle come back with no
+    /// coordinates. Skipping those made them INVISIBLE to auto-tune, so a
+    /// driver could sit inside a station's coverage while the app stayed on
+    /// a listed one two states away. A state centre is coarse, but it is on
+    /// the right side of the country.
+    nonisolated static func position(of channel: Channel)
+        -> (coordinate: CLLocationCoordinate2D, isExact: Bool)? {
+        if let la = channel.latitude, let lo = channel.longitude {
+            return (CLLocationCoordinate2D(latitude: la, longitude: lo), true)
+        }
+        guard let code = stateCode(of: channel),
+              let box = LiveHazardFeedFetcher.stateBBoxes[code] else { return nil }
+        return (CLLocationCoordinate2D(latitude: (box.s + box.n) / 2,
+                                       longitude: (box.w + box.e) / 2), false)
+    }
+
+    /// Every channel the tuner can rank, as RadioTuning sees them.
+    var tunableStations: [RadioTuning.Station] {
+        channels.compactMap { ch in
+            guard let p = Self.position(of: ch) else { return nil }
+            return RadioTuning.Station(id: ch.id, coordinate: p.coordinate,
+                                       isExact: p.isExact)
+        }
+    }
+
     /// Nearest transmitter by straight-line distance to the GPS position —
     /// the default station, and what auto-switching follows as you drive.
-    /// Returns (channel, meters); nil when no channel carries coordinates.
+    /// Returns (channel, meters); nil when no channel can be placed at all.
     func nearestChannel(to c: CLLocationCoordinate2D) -> (channel: Channel, meters: Double)? {
-        channels.compactMap { ch -> (Channel, Double)? in
-            guard let la = ch.latitude, let lo = ch.longitude else { return nil }
-            return (ch, POIRanking.meters(
-                CLLocationCoordinate2D(latitude: la, longitude: lo), c))
-        }
-        .min { $0.1 < $1.1 }
-        .map { (channel: $0.0, meters: $0.1) }
+        guard let best = RadioTuning.nearest(to: c, in: tunableStations),
+              let channel = channels.first(where: { $0.id == best.station.id })
+        else { return nil }
+        return (channel: channel, meters: best.meters)
+    }
+
+    /// The station the tuner should move to for this position, or nil to
+    /// stay where it is (nothing playing, already closest, or the next one
+    /// isn't meaningfully closer).
+    func retuneTarget(for position: CLLocationCoordinate2D) -> Channel? {
+        let playing = channels.first { $0.id == playingChannelID }
+        let coordinate = playing.flatMap { Self.position(of: $0)?.coordinate }
+        guard let id = RadioTuning.retarget(playingID: playingChannelID,
+                                            playingCoordinate: coordinate,
+                                            position: position,
+                                            stations: tunableStations)
+        else { return nil }
+        return channels.first { $0.id == id }
     }
 
     /// A streamable channel for a cab-radio guide entry, when one exists: the

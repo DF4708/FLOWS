@@ -150,21 +150,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The transmitter closest to where the vehicle is NOW, whether or not
+    /// the radio is playing. Published so the radio card's picker follows
+    /// the drive instead of standing on the station that was closest when
+    /// the card first opened.
+    @Published private(set) var nearestStationID: String?
+
     /// Auto-switch to the CLOSEST NOAA transmitter as the driver moves, with
     /// hysteresis: only retune when the new station is meaningfully (20%)
     /// closer than the one playing, so the tuner doesn't flap on the boundary
     /// between two coverage circles.
     func retuneRadioIfNeeded(at position: CLLocationCoordinate2D) {
-        guard radioAutoSwitch, radio.playingChannelID != nil,
-              let nearest = radio.nearestChannel(to: position),
-              nearest.channel.id != radio.playingChannelID else { return }
-        if let current = radio.channels.first(where: { $0.id == radio.playingChannelID }),
-           let la = current.latitude, let lo = current.longitude {
-            let currentDist = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: la, longitude: lo), position)
-            guard nearest.meters < currentDist * 0.8 else { return }
-        }
-        radio.play(nearest.channel)
+        // Track the nearest station even when nothing is playing — the card
+        // reads this to keep its default honest. The app still never starts
+        // audio by itself.
+        let closest = radio.nearestChannel(to: position)?.channel.id
+        if closest != nearestStationID { nearestStationID = closest }
+        guard radioAutoSwitch, let next = radio.retuneTarget(for: position)
+        else { return }
+        radio.play(next)
     }
 
     /// TomTom key (free tier: developer.tomtom.com) → live station fuel
@@ -457,9 +461,12 @@ final class AppModel: ObservableObject {
     /// (MPMusicPlayerController on iOS/CarPlay; Music.app on macOS). Every
     /// other service opens its own app — in-app control there needs that
     /// service's SDK.
+    /// Defaults to the radio already in the dash: it needs no account and no
+    /// subscription, so a driver who has told us nothing still gets audio.
+    /// The first play press asks which service they'd rather use.
     @Published var musicProvider: MusicProvider = MusicProvider(
         rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .appleMusic {
+    ) ?? .localRadio {
         didSet {
             UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
             musicProviderChosen = true
@@ -482,6 +489,12 @@ final class AppModel: ObservableObject {
             showMusicProviderPrompt = true
             return
         }
+        // Broadcast radio plays through FLOWS's own relay card — there is no
+        // app to hand off to.
+        if musicProvider == .localRadio {
+            showRadioCardRequested = true
+            return
+        }
         if musicProvider.controllable {
             MusicController.shared.playPause()
         } else {
@@ -489,11 +502,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Set when something (the play button, the provider picker) wants the
+    /// radio card open; the HUD consumes and clears it.
+    @Published var showRadioCardRequested = false
+
     /// First-play choice: remember it, then do what play was about to do.
     func chooseMusicProvider(_ provider: MusicProvider) {
         musicProvider = provider
         showMusicProviderPrompt = false
-        if provider.controllable {
+        if provider == .localRadio {
+            showRadioCardRequested = true
+        } else if provider.controllable {
             MusicController.shared.playPause()
         } else {
             provider.openApp()
@@ -1146,6 +1165,10 @@ final class AppModel: ObservableObject {
                 // Speed history feeds the crash decision — kept in every
                 // mode so an impact right at GO still has "before" speed.
                 self.recordSpeed(fix)
+                // Follow the closest NOAA transmitter in EVERY mode: parked
+                // at home the emergency-radio card should already name the
+                // local station, not one from wherever the app last ran.
+                self.retuneRadioIfNeeded(at: fix.coordinate)
                 guard self.mode == .navigating else { return }
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),
@@ -1157,6 +1180,7 @@ final class AppModel: ObservableObject {
                 self.updateFuelWarning()   // last-chance matching-fuel stops
                 self.updatePostedSpeedLimit(fix)   // the HUD speed sign
                 self.updateUpcomingLanes()         // lane row at the maneuver
+                self.updateCorridorWind(near: fix.coordinate)
                 // Saved corridors age out as they stop being useful:
                 // arrived, left far behind, or simply stale.
                 self.corridors.prune(position: fix.coordinate)
@@ -1167,9 +1191,6 @@ final class AppModel: ObservableObject {
                 // towing mode) and surface limit violations as a warning once.
                 self.checkTowingSignal()
                 self.updateTowingWarning()
-                // Follow the closest NOAA transmitter as the truck moves
-                // (20% hysteresis inside — no boundary flapping).
-                self.retuneRadioIfNeeded(at: fix.coordinate)
                 // A long WALKING ESTIMATE keeps its big-picture road geometry
                 // for direction, but the stretch right in front of the walker
                 // is refreshed with Apple's real pedestrian network as they go.
@@ -2707,6 +2728,30 @@ final class AppModel: ObservableObject {
             ratedMilesPerUnit: profile.ratedMilesPerUnit,
             area: location.coordinate.map(TrafficArea.init) ?? .pooled,
             roadClass: currentRoadClass)
+    }
+
+    /// Live wind on the corridor, from the forecast the risk engine already
+    /// fetched — speed and the direction it blows FROM. Feeds the efficiency
+    /// score, where a headwind is air the vehicle has to push.
+    @Published private(set) var corridorWindMph: Double = 0
+    @Published private(set) var corridorWindFromDegrees: Double?
+
+    private var windLookupTask: Task<Void, Never>?
+    private var lastWindLookup = Date.distantPast
+
+    /// Refresh the wind on this stretch — slow cadence, since wind is a
+    /// weather-scale quantity, and it only feeds the efficiency icon.
+    private func updateCorridorWind(near point: CLLocationCoordinate2D) {
+        guard mode == .navigating,
+              Date().timeIntervalSince(lastWindLookup) > 300 else { return }
+        lastWindLookup = Date()
+        windLookupTask?.cancel()
+        windLookupTask = Task { [weak self] in
+            guard let c = await NWSForecastFetcher.shared.conditions(at: point),
+                  let self, !Task.isCancelled else { return }
+            self.corridorWindMph = c.windMph ?? 0
+            self.corridorWindFromDegrees = c.windFromDegrees
+        }
     }
 
     /// The coarse weather bucket the delay model learns on, from the risk
