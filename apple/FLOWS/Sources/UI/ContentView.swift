@@ -254,17 +254,6 @@ struct ContentView: View {
     /// a short (sideways) window is mostly planner, and behind the
     /// first-launch vehicle card. Tucking those menus away (collapse)
     /// brings the legend back.
-    /// Where the compass sits below the top-left occupant. The map ignores
-    /// the safe area, so these clear the whole stack above it: status bar +
-    /// instruction banner while driving, status bar + legend while it's up,
-    /// status bar alone otherwise. Golden steps of the window, like the rest
-    /// of the chrome.
-    private var compassTopInset: CGFloat {
-        // Below the banner AND below the speed plate, which shares this
-        // corner while driving.
-        golden.topClear * 3 + golden.iconCircle * 1.5
-    }
-
     private var legendHasRoom: Bool {
         guard model.mode != .navigating else { return false }
         guard !model.collapsedPanels.contains("legend") else { return false }
@@ -317,9 +306,14 @@ struct ContentView: View {
             if model.showTowingCard {
                 VStack {
                     Spacer()
+                    // Clear of the drive bar: the bar is two rows plus the
+                    // stop strip on a phone, and one bottomClear left the
+                    // towing sliders sitting on top of it.
                     TowingCard()
-                        .padding(.bottom, golden.bottomClear)
+                        .padding(.bottom, model.mode == .navigating
+                                 ? golden.bottomClear * 2.6 : golden.bottomClear)
                 }
+                .padding(.horizontal, golden.padCard)
             }
             if let info = hazardInfo {
                 hazardSummaryCard(info)
@@ -350,7 +344,14 @@ struct ContentView: View {
             VehicleEditorSheet()
                 .environmentObject(model)
         }
-        .preferredColorScheme(.light)   // cards/theme are light-designed; adaptive materials later
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
+        // Light by day, dark by night, on the sun at the driver's own
+        // position — see DaylightClock. Settings can pin either one.
+        .preferredColorScheme(model.resolvedColorScheme)
+        .onAppear { model.refreshDaylight() }
         .onReceive(model.navigation.$guidance) { guidance in
             // Navigation camera: chase the GPS fix at the engine's altitude —
             // but never fight the user; a manual pan pauses following until
@@ -379,9 +380,24 @@ struct ContentView: View {
         // never fights the camera; a pan pauses it, and picking the plane
         // card again resumes.
         .onReceive(model.location.$latest.compactMap { $0 }) { fix in
-            guard model.mode != .navigating, cameraFollows, fix.speed > 0.7,
-                  let camera = flightCamera(for: fix) else { return }
-            moveCamera(.camera(camera))
+            guard model.mode != .navigating, cameraFollows else { return }
+            // Flying: the phase camera owns the view.
+            if fix.speed > 0.7, let camera = flightCamera(for: fix) {
+                moveCamera(.camera(camera))
+                return
+            }
+            // Otherwise: once the device is actually MOVING, turn the map to
+            // face the direction of travel, the same as during a guided
+            // drive. Parked, it stays north-up — a heading from a standing
+            // GPS fix is noise, and a map that spins at the curb is worse
+            // than one that doesn't move.
+            guard fix.speed > 2.2, fix.course >= 0,
+                  let region = visibleRegion else { return }
+            let distance = max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
+            moveCamera(.camera(MapCamera(centerCoordinate: fix.coordinate,
+                                         distance: distance,
+                                         heading: fix.course,
+                                         pitch: 0)))
         }
         .onChange(of: model.transitItinerary?.mode) { _, mode in
             if mode == "Plane" { cameraFollows = true }
@@ -416,6 +432,10 @@ struct ContentView: View {
             SettingsSheet()
                 .environmentObject(model)
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         #endif
         .onChange(of: model.mode) { previous, mode in
             switch mode {
@@ -472,6 +492,10 @@ struct ContentView: View {
             DemoAlertsView()
                 .environmentObject(model)
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         .onAppear {
             switch ProcessInfo.processInfo.environment["FLOWS_DEMO"] {
             case "gallery":
@@ -1005,7 +1029,11 @@ struct ContentView: View {
     @Namespace private var mapScope
 
     private var mapContent: some View {
-        Map(position: $camera, scope: mapScope) {
+        // interactionModes is an INITIALIZER parameter on SwiftUI's Map, not
+        // a modifier. Stated explicitly rather than left to the default so
+        // pinch-to-zoom, two-finger rotate, two-finger pitch and drag-to-pan
+        // can't be narrowed by accident later.
+        Map(position: $camera, interactionModes: .all, scope: mapScope) {
             // OFFLINE LIFELINE: the recorded breadcrumb trail — the way you
             // came, drawable with zero network. Orange dashes, newest at the
             // vehicle; follow it backward to walk out the way you came in.
@@ -1082,6 +1110,25 @@ struct ContentView: View {
                     }
                     .overlay(Circle().stroke(.white, lineWidth: 2))
                     .shadow(radius: 3)
+                }
+            }
+
+            // Fixed automated enforcement: speed and red-light cameras, from
+            // OpenStreetMap. Permanent, publicly signed installations — the
+            // only enforcement FLOWS can lawfully carry (see
+            // EnforcementCameras for why a parked patrol car is not here).
+            ForEach(model.enforcementCameras) { camera in
+                Annotation("", coordinate: camera.coordinate) {
+                    ZStack {
+                        Circle().fill(Color.black.opacity(0.85))
+                            .frame(width: 26, height: 26)
+                        Image(systemName: camera.kind.symbol)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(Theme.onDark)
+                    }
+                    .overlay(Circle().stroke(Theme.riskYellow, lineWidth: 2))
+                    .shadow(radius: 2)
+                    .help(camera.kind.title)
                 }
             }
 
@@ -1237,9 +1284,9 @@ struct ContentView: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
                             .background(ranked.id == model.poi.selected?.id
-                                        ? Theme.cta : Color.white)
+                                        ? Theme.cta : Theme.cardBackground)
                             .foregroundStyle(ranked.id == model.poi.selected?.id
-                                             ? .white : .primary)
+                                             ? Theme.onCTA : Color.primary)
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(Theme.cta, lineWidth: 1))
                             .shadow(radius: 2)
@@ -1280,27 +1327,10 @@ struct ContentView: View {
                                          pitch: on ? 55 : 0)))
         }
         // MapKit's own compass lives top-right, where the phone's status
-        // icons (battery, signal, Wi-Fi) cover it — turn the built-ins off
-        // and place our own.
+        // icons cover it — the built-ins stay off. While driving the
+        // directions banner carries a compass instead (NavigationHUD);
+        // a north-up planning map has nothing to report.
         .mapControls { }
-        // Compass top-LEFT, clear of whatever owns that corner: the
-        // instruction banner while navigating, the legend when it's up, the
-        // status bar otherwise. (MapKit only draws a compass on a rotated
-        // map, so in practice this is the driving case.)
-        .overlay(alignment: .topLeading) {
-            // Travel only: parked on the planning map it just crowded the
-            // risk key, and a north-up planning map has nothing to report.
-            if model.mode == .navigating {
-            MapCompass(scope: mapScope)
-                // Always drawn: the default compass auto-hides at north-up,
-                // and a driver glancing for "which way am I pointed" should
-                // find it in the same place every time.
-                .mapControlVisibility(.visible)
-                .scaleEffect(1.35)
-                .padding(.top, compassTopInset)
-                .padding(.leading, golden.padCard)
-            }
-        }
         // No network: routing can't help, but the breadcrumb trail can. The
         // banner names the situation and offers the way back — the recorded
         // trail draws entirely offline (MapKit shows recently-cached tiles).
@@ -1389,7 +1419,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: model.poi.activeKind?.symbol ?? "mappin")
                 .scaledFont(size: 13, weight: .bold)
-                .foregroundStyle(.white)
+                .foregroundStyle(isSelected ? Theme.onCTA : Color.white)
                 .frame(width: 28, height: 28)
                 .background(isSelected ? Theme.cta : Color.gray)
                 .clipShape(Circle())
@@ -1581,7 +1611,7 @@ struct ContentView: View {
                     .padding(.horizontal, 12)
                     .frame(minHeight: 34)
                     .background(Theme.cta)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.onCTA)
                     .clipShape(Capsule())
                 Button { model.vehicleOnboardingDismissed = true } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -1795,10 +1825,10 @@ private struct PlanningChrome: View {
                 if model.mode == .choosing {
                     TripSummaryPill()
                     FilterSlidersCard()
-                    // Height/φ² cap: the choices list never claims the
-                    // window's majority — the map keeps it.
+                    // Enough for a whole route card, and no more: the map
+                    // below still has to show the route being chosen.
                     RouteChoicesView(camera: $camera)
-                        .frame(maxHeight: golden.panelMaxHeight)
+                        .frame(maxHeight: golden.choicesPanelHeight)
                     Spacer()
                 } else {
                     Spacer()
@@ -2067,10 +2097,9 @@ struct CollapsedPanelTray: View {
         PanelBadge(id: "routes", symbol: "arrow.triangle.turn.up.right.circle",
                    name: "Route choices"),
         PanelBadge(id: "sliders", symbol: "slider.horizontal.3", name: "Vehicle limits"),
-        PanelBadge(id: "stops", symbol: "list.bullet", name: "Stop list"),
         PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
-        PanelBadge(id: "speed", symbol: "speedometer", name: "Speed"),
-        PanelBadge(id: "fuel", symbol: "fuelpump", name: "Fuel gauge"),
+        PanelBadge(id: "fuel", symbol: "gauge.with.dots.needle.bottom.50percent",
+                   name: "Driving instruments"),
     ]
 
     var body: some View {
@@ -2084,8 +2113,10 @@ struct CollapsedPanelTray: View {
         // Stacked right under the gear, one pad apart, in the same
         // top-right column — no dead gap. While navigating the gear lives
         // in the bottom bar, so the tray takes the corner itself.
+        // Clear of whatever owns the top-right: the instruction banner
+        // while driving, the settings gear while planning.
         .padding(.top, model.mode == .navigating
-                 ? golden.pad
+                 ? golden.topClear * 3
                  : golden.pad * 2 + golden.iconCircle)
         .padding(.trailing, golden.pad)
     }
@@ -2246,6 +2277,27 @@ struct SettingsSheet: View {
                  + "sources. No other music service lets outside apps "
                  + "control it, so the rest open in their own app. The same "
                  + "rule drives the Siri and CarPlay buttons.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+            Text("Screen light")
+                .font(.system(size: 14, weight: .semibold))
+            Picker("Screen light", selection: Binding(
+                get: { model.appearanceOverride },
+                set: { model.appearanceOverride = $0 })) {
+                Text("Follow the sun").tag(Bool?.none)
+                Text("Always light").tag(Bool?.some(false))
+                Text("Always dark").tag(Bool?.some(true))
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text(model.appearanceOverride == nil
+                 ? "Bright by day and dark by night, on the sunset and sunrise "
+                   + "where you are — not on a set hour. Dusk in Miami in June "
+                   + "and dusk in Fairbanks in December are hours apart."
+                 : "Pinned. Pick \"Follow the sun\" to have it change on its own "
+                   + "at dusk and dawn.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -2727,12 +2779,18 @@ struct SettingsSheet: View {
             Divider()
             Text("Attribution & licenses")
                 .scaledFont(size: 14, weight: .semibold)
-            Text("Places (fuel, food, lodging, medical, transit): Foursquare "
+            Text("Maps, routing, search and traffic: Apple Maps — "
+                 + "© Apple Inc. and its data providers. The Apple logo and "
+                 + "Legal link on the map are required by Apple's terms and "
+                 + "cannot be removed by an app; tapping Legal there opens "
+                 + "Apple's full notices.\n"
+                 + "Places (fuel, food, lodging, medical, transit): Foursquare "
                  + "Open Source Places, © Foursquare Labs, Inc., licensed under "
                  + "Apache License 2.0.\n"
-                 + "Low-bridge clearances and water features: © OpenStreetMap "
-                 + "contributors, available under the Open Database License (ODbL) "
-                 + "— openstreetmap.org/copyright.\n"
+                 + "Low-bridge clearances, weight limits, posted speed limits "
+                 + "and lane guidance: © OpenStreetMap contributors, available "
+                 + "under the Open Database License (ODbL) — "
+                 + "openstreetmap.org/copyright.\n"
                  + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
                  + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
                  + "data. FLOWS is not affiliated with any of these agencies.")
@@ -2845,6 +2903,10 @@ struct SettingsSheet: View {
             DemoAlertsView()
                 .environmentObject(model)
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         #if os(iOS)
         .sheet(isPresented: $showContactPicker) {
             ContactPicker { name, phone in
@@ -2852,6 +2914,10 @@ struct SettingsSheet: View {
                 model.emergencyContactPhone = phone
             }
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         #endif
     }
 }

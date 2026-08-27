@@ -29,7 +29,9 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// No streaming subscription needed: FLOWS's own AM/FM internet radio
     /// AS the music service. A genre ask tunes a matching station, next
     /// moves to the next station of that genre, pause silences it — the
-    /// shape of a streaming app, served by free public radio.
+    /// shape of a streaming app, served by free public radio. This is the
+    /// DEFAULT until the driver names a streaming service, because it needs
+    /// no account and no subscription.
     case radio
     case appleMusic
     case spotify
@@ -51,7 +53,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
-        case .radio: return "Radio (no subscription)"
+        case .radio: return "AM/FM radio"
         case .appleMusic: return "Apple Music"
         case .spotify: return "Spotify"
         case .youtubeMusic: return "YouTube Music"
@@ -72,7 +74,7 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
 
     var symbol: String {
         switch self {
-        case .radio: return "radio.fill"
+        case .radio: return "antenna.radiowaves.left.and.right"
         case .appleMusic: return "music.note"
         case .spotify: return "music.note.list"
         case .youtubeMusic: return "play.rectangle.fill"
@@ -127,9 +129,13 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// One-letter badge so the mini player shows WHICH service is active
     /// (brand logos need each service's asset license; a colored monogram
     /// identifies without imitating). SiriusXM gets "XM" — a plain "s"
-    /// would collide with Spotify's badge.
+    /// would collide with Spotify's badge — and the radio gets "FM".
     var monogram: String {
-        self == .siriusXM ? "XM" : String(rawValue.prefix(1))
+        switch self {
+        case .siriusXM: return "XM"
+        case .radio: return "FM"
+        default: return String(rawValue.prefix(1)).uppercased()
+        }
     }
 
     /// The service's signature color, approximated for the badge.

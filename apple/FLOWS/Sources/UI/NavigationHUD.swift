@@ -55,6 +55,10 @@ struct NavigationHUD: View {
     @State private var accelMphPerSec: Double = 0
     @State private var lastFixTime: Date?
     @State private var lastFixMph: Double = 0
+    /// Breathing phase for the over-the-red-line speed glow.
+    @State private var overGlow = false
+    /// Slow phase for the low-reachable-fuel tank.
+    @State private var tankPulse = false
 
 
     var body: some View {
@@ -70,11 +74,10 @@ struct NavigationHUD: View {
             // In a SHORT window an open floating card takes the cluster's
             // room — the driver just asked for that card, and the gauge
             // returns the moment it closes.
-            if isCompact, !(isShort && floatingCardOpen) {
-                HStack(alignment: .top, spacing: 8) {
-                    if showsSpeedSign { speedSign }
+            if isCompact, showsFuelCluster, !(isShort && floatingCardOpen) {
+                HStack {
                     Spacer()
-                    if showsFuelCluster { fuelCluster }
+                    fuelCluster
                 }
             }
             if let warning = model.imminentWarning {
@@ -102,6 +105,9 @@ struct NavigationHUD: View {
             }
             if model.refuelPrompt {
                 refuelGauge
+            }
+            if let camera = model.cameraWarning {
+                cameraChip(camera)
             }
             if let steep = model.upcomingSteepGrade {
                 steepGradeChip(steep)
@@ -241,14 +247,12 @@ struct NavigationHUD: View {
                 fuelCluster
             }
         }
-        // Regular layouts pin the speed pair to the opposite corner, so it
-        // never crowds the gauge.
-        .overlay(alignment: .topLeading) {
-            if !isCompact, showsSpeedSign {
-                speedSign
-            }
-        }
         .padding(golden.pad)
+        .onChange(of: model.showRadioCardRequested) { _, wants in
+            guard wants else { return }
+            showRadio = true
+            model.showRadioCardRequested = false
+        }
         .onReceive(model.location.$latest) { fix in
             guard let fix else { return }
             let mph = max(fix.speed, 0) * 2.236936
@@ -293,69 +297,130 @@ struct NavigationHUD: View {
             idleFraction: model.vehicle.idleFraction) / profile.tankCapacityUnits
     }
 
-    // MARK: live speed pair — posted limit beside actual speed
-
-    /// A driving instrument, so it hides for a walker and for a passenger
-    /// on a plane, bus, or train (SpeedSign.shouldShow).
-    private var showsSpeedSign: Bool {
-        !model.collapsedPanels.contains("speed")
-        && SpeedSign.shouldShow(
-            isNavigating: model.mode == .navigating,
-            isWalking: model.walkingMode
-                || model.navigation.route?.isWalkingEstimate == true,
-            isPassengerTransit: model.isPassengerTransit)
-    }
-
-    /// The posted limit and the speedometer, side by side: a US-style
-    /// speed-limit plate next to the live reading, which turns yellow a few
-    /// mph over the limit and red well over it (SpeedSign.judge).
-    private var speedSign: some View {
-        let limit = model.postedSpeedLimitMph
-        let judgment = SpeedSign.judge(speedMph: liveMph, limitMph: limit)
-        let speedColor: Color = switch judgment {
-        case .under: .primary
-        case .slightlyOver: Theme.riskYellow
-        case .over: Theme.riskRed
-        }
-        return HStack(spacing: 6) {
-            // The posted plate — white, black border, the shape a driver
-            // already reads at a glance. Blank while OSM has no limit here.
-            VStack(spacing: 0) {
-                Text("SPEED")
-                    .scaledFont(size: golden.iconSmall * 0.24, weight: .bold)
-                Text("LIMIT")
-                    .scaledFont(size: golden.iconSmall * 0.24, weight: .bold)
-                Text(limit.map { String(format: "%.0f", $0) } ?? "–")
-                    .scaledFont(size: golden.iconSmall * 0.62, weight: .heavy)
-                    .monospacedDigit()
+    /// Gauge, economy and range on ONE line in ONE type size, divided
+    /// rather than stacked — three readings, one glance — with the live
+    /// speed bar riding directly beneath them.
+    private var fuelCluster: some View {
+        let vehicle = model.vehicle
+        let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
+        let electric = vehicle.profile?.fuelType == .electric
+        return VStack(spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                GaugeDial(fraction: .constant(fraction),
+                          alarming: model.fuelGaugeAlarming,
+                          showsQuartileLabels: false)
+                    .frame(width: golden.step(3) * 0.8, height: golden.step(3) * 0.5)
+                    .allowsHitTesting(false)
+                if let economy = averageEconomy {
+                    Divider().frame(height: instrumentColumnHeight)
+                    titled("Average") {
+                        Text(electric
+                             ? String(format: "%.1f mi/kWh", economy)
+                             : String(format: "%.0f MPG", economy))
+                            .font(.system(size: 13, weight: .semibold))
+                            .monospacedDigit()
+                    }
+                }
+                if let range = vehicle.expectedRangeMiles {
+                    Divider().frame(height: instrumentColumnHeight)
+                    titled("Fuel Tank") {
+                        Text(String(format: "%.0f mi left", range))
+                            .font(.system(size: 13, weight: .semibold))
+                            .monospacedDigit()
+                    }
+                }
+                if showsSpeedSign {
+                    Divider().frame(height: instrumentColumnHeight)
+                    titled("Efficiency") { efficiencyIcon }
+                }
+                if model.fuelReachabilityTight {
+                    Divider().frame(height: instrumentColumnHeight)
+                    Image(systemName: "fuelpump.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Theme.riskRed.opacity(tankPulse ? 1 : 0.15))
+                        .frame(width: 22)
+                        .help("Few fuel stops left within your range")
+                }
             }
-            .foregroundStyle(.black)
-            .frame(width: golden.iconCircle, height: golden.iconCircle * 1.28)
-            .background(Color.white)
-            .overlay(RoundedRectangle(cornerRadius: 5)
-                .stroke(Color.black, lineWidth: 2))
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            // The speedometer.
-            VStack(spacing: 0) {
-                Text(String(format: "%.0f", max(liveMph, 0)))
-                    .scaledFont(size: golden.iconCircle * 0.55, weight: .heavy,
-                                  design: .rounded)
-                    .monospacedDigit()
-                    .foregroundStyle(speedColor)
-                Text("mph")
-                    .scaledFont(size: golden.iconSmall * 0.28, weight: .semibold)
-                    .foregroundStyle(.secondary)
+            .fixedSize(horizontal: true, vertical: false)
+            if showsSpeedSign {
+                speedBar
+                // The scale's ends and both legal speeds, each positioned
+                // UNDER ITS OWN LINE rather than spread evenly — a number
+                // that doesn't sit beneath its mark is worse than none.
+                // "mph" lives out in the readout column, under the current
+                // speed, so it can never crowd the scale's top number.
+                HStack(spacing: 8) {
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        let top = barTopMph
+                        ZStack(alignment: .leading) {
+                            Text("0")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if let state = SpeedLaw.stateThresholdMph(
+                                postedLimitMph: lawLimitMph),
+                               let f = SpeedLaw.barFraction(state, topMph: top) {
+                                let label = String(format: "%.0f", state)
+                                OutlinedText(text: label,
+                                             color: Theme.riskYellow,
+                                             font: .system(size: 11, weight: .bold))
+                                    .fixedSize()
+                                    .offset(x: centered(
+                                        w * f, width: w,
+                                        labelWidth: labelWidth(label, outlined: true)))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            if let fed = SpeedLaw.federalThresholdMph(
+                                postedLimitMph: lawLimitMph),
+                               let f = SpeedLaw.barFraction(fed, topMph: top) {
+                                let label = String(format: "%.0f", fed)
+                                Text(label)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(Theme.riskRed)
+                                    .fixedSize()
+                                    .offset(x: centered(w * f, width: w,
+                                                        labelWidth: labelWidth(label)))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            // The scale's top, under the END of the bar —
+                            // yielding only if a legal number lands on it.
+                            if !crowdsTheEnd(SpeedLaw.federalThresholdMph(
+                                    postedLimitMph: lawLimitMph),
+                                    top: top) {
+                                Text("\(Int(top))")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                        }
+                    }
+                    .frame(height: 14)
+                    Text("mph")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 28, alignment: .trailing)
+                }
             }
-            .frame(minWidth: golden.iconCircle)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
         .overlay(alignment: .topTrailing) {
-            minimizeButton("speed", help: "Tuck the speed away")
-                .offset(x: 6, y: -6)
+            minimizeButton("fuel", help: "Tuck the driving instruments away")
+                .padding(3)
+        }
+        .animation(model.fuelReachabilityTight
+                   ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
+                   : .default,
+                   value: tankPulse)
+        .onChange(of: model.fuelReachabilityTight, initial: true) { _, tight in
+            tankPulse = tight
         }
     }
 
@@ -369,42 +434,308 @@ struct NavigationHUD: View {
             Image(systemName: "xmark.circle.fill")
                 .scaledFont(size: 15)
                 .foregroundStyle(.secondary)
-                .background(Circle().fill(Color.white))
         }
         .buttonStyle(.plain)
         .help(help)
     }
 
-    private var fuelCluster: some View {
-        let vehicle = model.vehicle
-        let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
-        let electric = vehicle.profile?.fuelType == .electric
-        return VStack(spacing: 3) {
-            GaugeDial(fraction: .constant(fraction), alarming: model.fuelGaugeAlarming)
-                .frame(width: golden.step(2), height: golden.step(2) * 0.6)
-                .allowsHitTesting(false)
-            if let economy = averageEconomy {
-                Text(electric
-                     ? String(format: "%.1f mi/kWh", economy)
-                     : String(format: "%.0f MPG", economy))
-                    .scaledFont(size: 12, weight: .bold)
-                    .monospacedDigit()
+    /// One instrument readout under its own underlined title, so each
+    /// number says what it is without a driver having to infer it.
+    /// How tall one instrument column is — the same height as the separator
+    /// bars between them, so every column ends on the same line.
+    private var instrumentColumnHeight: CGFloat { golden.step(3) * 0.52 }
+
+    private func titled<Content: View>(_ title: String,
+                                       @ViewBuilder content: () -> Content)
+        -> some View {
+        VStack(spacing: 1) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+                .fixedSize()
+                .frame(maxWidth: .infinity)   // centered over its own column
+            Rectangle()
+                .fill(Color.secondary.opacity(0.45))
+                .frame(height: 1)
+            // The reading sits in the MIDDLE of the space left between its
+            // own underline and the foot of the separator bars. Three
+            // readings of different natural heights — two lines of text and
+            // an icon — otherwise hang from the rule at three heights.
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(height: instrumentColumnHeight)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    // MARK: live speed bar — how fast, how legal, how thriftily
+
+    /// A driving instrument: hidden for a walker and for a passenger on a
+    /// plane, bus, or train (SpeedSign.shouldShow).
+    private var showsSpeedSign: Bool {
+        SpeedSign.shouldShow(
+            isNavigating: model.mode == .navigating,
+            isWalking: model.walkingMode
+                || model.navigation.route?.isWalkingEstimate == true,
+            isPassengerTransit: model.isPassengerTransit)
+    }
+
+    /// The grade of the road underfoot, for the efficiency verdict — the
+    /// route's own measured elevation profile at the current mile.
+    private var currentGradePercent: Double {
+        guard let route = model.navigation.route else { return 0 }
+        let mile = (model.navigation.guidance?.alongMeters ?? 0) / 1609.344
+        return route.gradeProfile.first {
+            mile >= $0.startMile && mile <= $0.endMile
+        }?.gradePercent ?? 0
+    }
+
+    /// Green leaf / half-and-half / red pump, from throttle, drag and hill
+    /// (DriveEfficiency).
+    private var efficiencyVerdict: DriveEfficiency.Verdict {
+        let profile = model.vehicle.profile
+        let ratings = model.towingRatings
+        return DriveEfficiency.verdict(DriveEfficiency.Inputs(
+            speedMph: liveMph,
+            accelMphPerSec: accelMphPerSec,
+            gradePercent: currentGradePercent,
+            // Wind along the direction of travel: a headwind is air the
+            // vehicle has to push, a tailwind is help.
+            windMph: model.corridorWindMph,
+            windFromDegrees: model.corridorWindFromDegrees,
+            headingDegrees: model.location.course >= 0 ? model.location.course : nil,
+            efficientCruiseMph: DriveEfficiency.efficientCruiseMph(
+                city: profile?.cityMilesPerUnit, highway: profile?.highwayMilesPerUnit),
+            cityMPU: profile?.cityMilesPerUnit,
+            highwayMPU: profile?.highwayMilesPerUnit,
+            loadedWeightLbs: model.towVehicleWeightLbs + model.towTrailerWeightLbs > 0
+                ? model.towVehicleWeightLbs + model.towTrailerWeightLbs : nil,
+            vehicleWeightLbs: model.towVehicleWeightLbs > 0
+                ? model.towVehicleWeightLbs : ratings.gvwrLbs,
+            towing: model.towingActive,
+            fuelFraction: model.vehicle.predictedFuelFraction))
+    }
+
+    /// The limit the yellow and red lines are drawn from. The posted one
+    /// wherever the road is tagged; otherwise the ordinary limit for the
+    /// kind of road being driven, so BOTH LINES ARE ALWAYS ON THE BAR. A bar
+    /// with no lines teaches a driver nothing, and unmapped stretches are
+    /// common enough that the lines were blinking out mid-drive.
+    private var lawLimitMph: Double {
+        SpeedLaw.effectiveLimitMph(postedLimitMph: model.postedSpeedLimitMph,
+                                   speedMph: liveMph)
+    }
+
+    /// The top of the bar, which FOLLOWS the driving: it grows to keep the
+    /// current speed and both legal lines in view and shrinks back when they
+    /// fall away, so a 30 mph street doesn't leave most of the bar empty.
+    private var barTopMph: Double {
+        SpeedLaw.dynamicTopMph(speedMph: liveMph,
+                               postedLimitMph: lawLimitMph,
+                               vehicleTopSpeedMph: model.vehicle.profile?.topSpeedMph)
+    }
+
+    private var speedStanding: SpeedLaw.Standing {
+        SpeedLaw.standing(speedMph: liveMph, postedLimitMph: lawLimitMph)
+    }
+
+    /// The fill color follows the law: normal below the posted limit, yellow
+    /// once past it (a state violation), red at gross excess.
+    private var speedBarColor: Color {
+        switch speedStanding {
+        case .legal: return Theme.riskGreen
+        case .stateViolation: return Theme.riskYellow
+        case .federalViolation: return Theme.riskRed
+        }
+    }
+
+    /// The live speed bar: 0 on the left, the vehicle's top speed on the
+    /// right, ticked like a real gauge — a black half-height mark every
+    /// 10 mph and a shorter one every 5. A thick yellow line marks where
+    /// state law is broken and a thick red one excessive speed; the fill
+    /// takes the color of whichever has been passed, and passing red sets
+    /// the bar breathing. The efficiency icon rides ON TOP of the fill,
+    /// travelling with the speed it describes.
+    private var speedBar: some View {
+        let top = barTopMph
+        let fill = min(max(liveMph / max(top, 1), 0), 1)
+        let stateMph = SpeedLaw.stateThresholdMph(postedLimitMph: lawLimitMph)
+        let fedMph = SpeedLaw.federalThresholdMph(postedLimitMph: lawLimitMph)
+        let stateFrac = SpeedLaw.barFraction(stateMph, topMph: top)
+        let fedFrac = SpeedLaw.barFraction(fedMph, topMph: top)
+        let over = speedStanding == .federalViolation
+        return HStack(spacing: 8) {
+            GeometryReader { geo in
+                let w = geo.size.width
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Theme.fill(0.07))
+                    Capsule()
+                        .fill(speedBarColor)
+                        .frame(width: w * fill)
+                    // Ticks ride OVER the fill — a scale you can still read
+                    // once the bar has run past it.
+                    ticks(width: w, topMph: top)
+                    if let stateFrac {
+                        legalMarker(at: w * stateFrac, color: Theme.riskYellow,
+                                    passed: liveMph >= (stateMph ?? .infinity))
+                    }
+                    if let fedFrac {
+                        legalMarker(at: w * fedFrac, color: Theme.riskRed,
+                                    passed: over)
+                    }
+                }
+                .animation(.easeOut(duration: 0.35), value: fill)
+                .animation(.easeInOut(duration: 0.5), value: top)
             }
-            if let range = vehicle.expectedRangeMiles {
-                Text(String(format: "~%.0f mi left", range))
-                    .scaledFont(size: 10, weight: .semibold)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+            .frame(height: 14)
+            // Outlined only while yellow — the other two read on their own,
+            // and an outline everywhere would just thicken them.
+            Group {
+                if speedStanding == .stateViolation {
+                    OutlinedText(text: String(format: "%.0f", max(liveMph, 0)),
+                                 color: Theme.riskYellow,
+                                 font: .system(size: 15, weight: .heavy,
+                                               design: .rounded))
+                } else {
+                    Text(String(format: "%.0f", max(liveMph, 0)))
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(speedBarColor)
+                }
+            }
+            .frame(minWidth: 28, alignment: .trailing)
+        }
+        .shadow(color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
+                radius: over ? (overGlow ? 12 : 3) : 0)
+        // The pulse is animated ON THIS VIEW ONLY. Driving a repeatForever
+        // through withAnimation put every view updated in that transaction
+        // into the same repeating animation — which is why unrelated menus
+        // (the music picker's green rows) were seen blinking.
+        .animation(over ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+                        : .default,
+                   value: overGlow)
+        .onChange(of: over, initial: true) { _, isOver in
+            overGlow = isOver
+        }
+        .help(SpeedLaw.federalNote)
+    }
+
+    /// The speed a legal line stands for, printed under its tick.
+    private func limitLabel(_ text: String, at x: CGFloat,
+                            width: CGFloat, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .heavy))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .fixedSize()
+            .offset(x: min(max(x - 8, 0), max(width - 16, 0)), y: 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Would a threshold's label sit on top of the scale's end label?
+    private func crowdsTheEnd(_ mph: Double?, top: Double) -> Bool {
+        guard let mph, top > 0 else { return false }
+        return mph / top > 0.82
+    }
+
+    /// How wide a scale label actually is.
+    ///
+    /// The scale numbers are monospaced digits at a known size, so one
+    /// advance per character is exact rather than a guess — and a guess is
+    /// what left every number sitting a few points to the LEFT of the line
+    /// it belongs to. SF Pro's monospaced digit advance is about 0.6 em; the
+    /// outlined (yellow) labels carry a point of edge on each side.
+    private func labelWidth(_ text: String, outlined: Bool = false) -> CGFloat {
+        CGFloat(text.count) * 11 * 0.6 + (outlined ? 2 : 0)
+    }
+
+    /// Center a label on its line, kept inside the bar's own width so a
+    /// threshold near either end still reads.
+    private func centered(_ x: CGFloat, width: CGFloat, labelWidth: CGFloat)
+        -> CGFloat {
+        min(max(x - labelWidth / 2, 0), max(width - labelWidth, 0))
+    }
+
+    /// Speedometer ticks: half-height every 10 mph, quarter-height every 5.
+    private func ticks(width: CGFloat, topMph: Double) -> some View {
+        let stops = Array(stride(from: 5.0, to: topMph, by: 5.0))
+        return ZStack(alignment: .leading) {
+            ForEach(Array(stops.enumerated()), id: \.offset) { _, mph in
+                let major = mph.truncatingRemainder(dividingBy: 10) == 0
+                Rectangle()
+                    .fill(Color.black.opacity(major ? 0.7 : 0.45))
+                    .frame(width: major ? 1.5 : 1, height: major ? 7 : 4)
+                    .offset(x: width * (mph / topMph))
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Theme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-        .overlay(alignment: .topTrailing) {
-            minimizeButton("fuel", help: "Tuck the fuel gauge away")
-                .offset(x: 6, y: -6)
+    }
+
+    /// A legal threshold: full-height and thick, so it reads over the fill.
+    ///
+    /// Once the bar runs PAST a line the fill takes that line's own color
+    /// and the mark disappears into it — red on red. A line the driver has
+    /// just crossed is the one they most need to see, so a crossed mark
+    /// gets a solid white surround rather than the hairline edge.
+    private func legalMarker(at x: CGFloat, color: Color,
+                             passed: Bool = false) -> some View {
+        // The white is a BORDER, not the mark: the color still has to be
+        // the thing you see, so the core stays wider than the two edges.
+        let core: CGFloat = passed ? 6 : 3
+        let outer: CGFloat = passed ? core + 4 : core
+        return ZStack {
+            if passed {
+                Rectangle()
+                    .fill(.white)
+                    .frame(width: outer, height: 18)
+            }
+            Rectangle()
+                .fill(color)
+                .frame(width: core, height: 14)
+                .overlay(passed ? nil
+                         : Rectangle().stroke(Color.white.opacity(0.6), lineWidth: 0.5))
+        }
+        .frame(width: outer, height: 18)
+        .offset(x: max(x - outer / 2, 0))
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// How thriftily the vehicle is being driven right now. Green leaf when
+    /// it's efficient; an exhaust cloud in red when it isn't — the waste
+    /// itself, rather than a fuel pump, which is where you FIX the problem
+    /// rather than what the problem is. The middle is literally between the
+    /// two: the leaf's top corner and the exhaust's bottom corner, split by
+    /// a diagonal.
+    @ViewBuilder
+    private var efficiencyIcon: some View {
+        switch efficiencyVerdict {
+        case .efficient:
+            Image(systemName: "leaf.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Theme.riskGreen)
+                .frame(width: 24)
+                .contentTransition(.symbolEffect(.replace))
+                .help(efficiencyHelp)
+        case .wasteful:
+            // A bare cloud reads as weather; the CO2 glyph reads as exhaust.
+            Image(systemName: "carbon.dioxide.cloud.fill")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(Theme.riskRed)
+                .frame(width: 24)
+                .contentTransition(.symbolEffect(.replace))
+                .help(efficiencyHelp)
+        case .fair:
+            MixedEfficiencyIcon(size: 20)
+                .frame(width: 24)
+                .help(efficiencyHelp)
+        }
+    }
+
+    private var efficiencyHelp: String {
+        switch efficiencyVerdict {
+        case .efficient: return "Driving efficiently for this vehicle"
+        case .fair: return "Middling — some speed, throttle or hill cost"
+        case .wasteful: return "Burning fuel hard right now (throttle, speed or grade)"
         }
     }
 
@@ -433,7 +764,7 @@ struct NavigationHUD: View {
                             .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(Color.black.opacity(0.05))
+                            .background(Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -469,7 +800,7 @@ struct NavigationHUD: View {
                             .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(Color.black.opacity(0.05))
+                            .background(Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -503,7 +834,7 @@ struct NavigationHUD: View {
                         Label(fuel.rawValue, systemImage: fuel.symbol)
                             .scaledFont(size: 14, weight: .semibold)
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-                            .background(Color.black.opacity(0.05))
+                            .background(Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -699,7 +1030,7 @@ struct NavigationHUD: View {
             .padding(.horizontal, 12)
             .frame(minHeight: 32)
             .background(Theme.cta)
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.onCTA)
             .clipShape(Capsule())
         }
         .padding(8)
@@ -758,6 +1089,10 @@ struct NavigationHUD: View {
                     sendShare(name: name, phone: phone)
                 }
             }
+            // A sheet is presented into its own environment root and does
+            // NOT inherit the presenter's appearance — say it again here or
+            // settings opens bright white in a dark cab.
+            .presentationColorScheme(model.resolvedColorScheme)
             #endif
     }
 
@@ -793,7 +1128,7 @@ struct NavigationHUD: View {
                         .padding(.horizontal, 18)
                         .frame(minHeight: Theme.tapMinimum)
                         .background(Color.white)
-                        .foregroundStyle(Theme.cta)
+                        .foregroundStyle(Theme.onLight)
                         .clipShape(Capsule())
                 }
             }
@@ -801,7 +1136,7 @@ struct NavigationHUD: View {
         .padding(12)
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background(Theme.cta.opacity(0.95))
-        .foregroundStyle(.white)
+        .foregroundStyle(Theme.onCTA)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
         .onDisappear { showShareChooser = false }
@@ -845,7 +1180,7 @@ struct NavigationHUD: View {
                             .padding(.horizontal, 12)
                             .frame(minHeight: 30)
                             .background(Color.white)
-                            .foregroundStyle(Theme.cta)
+                            .foregroundStyle(Theme.onLight)
                             .clipShape(Capsule())
                     }
                     .padding(.horizontal, 10)
@@ -927,17 +1262,15 @@ struct NavigationHUD: View {
         .foregroundStyle(FlowsCore.riskBand(score: escalation.newRisk) == .red ? .white : .black)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
-        .onAppear {
-            // Reduce Motion (and photosensitivity): hold the banner at its
-            // strong opacity instead of flashing it.
-            if reduceMotion {
-                escalationPulse = true
-            } else {
-                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                    escalationPulse = true
-                }
-            }
-        }
+        // Scoped to THIS view. A repeatForever driven through withAnimation
+        // puts every view updated in the same transaction into the repeating
+        // animation — which is how a hazard pulse ended up blinking the
+        // music menu's rows. Reduce Motion (and photosensitivity) holds the
+        // banner at its strong opacity instead of breathing it.
+        .animation(reduceMotion ? nil
+                   : .easeInOut(duration: 0.55).repeatForever(autoreverses: true),
+                   value: escalationPulse)
+        .onAppear { escalationPulse = true }
         .onDisappear { escalationPulse = false }
     }
 
@@ -1014,10 +1347,12 @@ struct NavigationHUD: View {
 
     private func banner(distance: String, instruction: String,
                         rerouting: Bool, live: Bool) -> some View {
-        // Width hugs the text + symbol (capped) instead of a fixed box.
         HStack(spacing: 14) {
-            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+            // The arrow that MATCHES the words (ManeuverSymbol) — a right
+            // turn drawn beside "turn left" is worse than no icon.
+            Image(systemName: ManeuverSymbol.symbol(for: instruction))
                 .scaledFont(size: live ? 34 : 28, weight: .bold)
+                .frame(width: live ? 40 : 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text(distance)
                     .font(live
@@ -1031,18 +1366,113 @@ struct NavigationHUD: View {
                     .opacity(live ? 0.9 : 1)
                     .minimumScaleFactor(0.7)
                     .lineLimit(2)
+                // Lane guidance: real tagged lanes when OSM has them,
+                // otherwise whatever the instruction itself states.
+                if !model.upcomingLanes.isEmpty {
+                    taggedLaneStrip(model.upcomingLanes, instruction: instruction)
+                } else if let advice = LaneGuidance.advice(for: instruction) {
+                    laneStrip(advice)
+                }
             }
+            // Take the room between the icon and the compass instead of
+            // leaving it empty.
+            .frame(maxWidth: .infinity, alignment: .leading)
             if rerouting {
                 ProgressView()
             }
+            bannerCompass
         }
         .padding(14)
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-        .fixedSize(horizontal: !isCompact, vertical: false)
         .background(Theme.chrome.opacity(0.92))
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
+    }
+
+    /// The REAL lane row: one arrow per tagged lane, each drawn as the
+    /// movement that lane actually serves (OSM turn:lanes), with the lanes
+    /// that serve THIS maneuver filled green. Lanes are left-to-right in the
+    /// direction of travel, so the row reads like the road ahead.
+    private func taggedLaneStrip(_ lanes: [LaneData.Lane],
+                                 instruction: String) -> some View {
+        let side = ManeuverSymbol.side(of: instruction)
+        let lit = LaneData.recommended(lanes: lanes, maneuver: side)
+        let summary = LaneData.summary(lanes: lanes, recommended: lit)
+        return HStack(spacing: 4) {
+            ForEach(Array(lanes.enumerated()), id: \.offset) { i, lane in
+                Image(systemName: lane.symbol)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(lit.contains(i)
+                                     ? Theme.riskGreen : Color.white.opacity(0.32))
+            }
+            if let summary {
+                Text(summary)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.riskGreen)
+                    .lineLimit(1)
+                    .padding(.leading, 2)
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    /// The lanes to be in, drawn as arrows with the recommended ones filled
+    /// green — the multi-lane case (a five-lane interchange) where knowing
+    /// the turn isn't enough. Only ever drawn from what the instruction
+    /// actually says; MapKit publishes no lane data to invent it from.
+    private func laneStrip(_ advice: LaneGuidance.Advice) -> some View {
+        let total = max(advice.laneCount + 2, 3)
+        let lit = LaneGuidance.highlighted(advice: advice, total: total)
+        return HStack(spacing: 3) {
+            ForEach(0..<total, id: \.self) { i in
+                Image(systemName: lit.contains(i)
+                      ? ManeuverSymbol.symbol(for: advice.text) : "arrow.up")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(lit.contains(i)
+                                     ? Theme.riskGreen : Color.white.opacity(0.3))
+            }
+            Text(advice.text)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Theme.riskGreen)
+                .lineLimit(1)
+                .padding(.leading, 2)
+        }
+        .padding(.top, 2)
+    }
+
+    /// A compass rose on the banner's right: the needle points north while
+    /// the map turns with the road, so a glance answers "which way am I
+    /// actually headed?" without hunting for a floating control.
+    private var bannerCompass: some View {
+        let heading = CompassReading.normalized(max(model.location.course, 0))
+        return VStack(spacing: 2) {
+            ZStack {
+                // A lighter face with a rim: on the near-black banner an
+                // unrimmed circle simply disappeared.
+                Circle().fill(Color.white.opacity(0.16))
+                Circle().stroke(Color.white.opacity(0.45), lineWidth: 1)
+                Image(systemName: "location.north.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.riskRed)
+                    .rotationEffect(.degrees(-heading))
+                Text("N")
+                    .font(.system(size: 8, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .offset(y: -13)
+                    .rotationEffect(.degrees(-heading))
+            }
+            .frame(width: golden.iconCircle * 0.82, height: golden.iconCircle * 0.82)
+            // The reading in words and degrees — the part a driver can use
+            // without interpreting a needle.
+            Text(CompassReading.label(heading))
+                .font(.system(size: 10, weight: .bold))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.9))
+                .fixedSize()
+        }
+        .animation(.easeOut(duration: 0.3), value: heading)
+        .help("Heading")
     }
 
     private func firstInstruction(of route: PlannedRoute) -> String {
@@ -1074,7 +1504,6 @@ struct NavigationHUD: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
                         tripStats
-                        rangeChip
                         Spacer()
                         recenterButton
                         Spacer()
@@ -1089,7 +1518,6 @@ struct NavigationHUD: View {
                     VStack(spacing: 8) {
                         HStack(spacing: 10) {
                             tripStats
-                            rangeChip
                             Spacer()
                             recenterButton
                             endButton
@@ -1108,7 +1536,6 @@ struct NavigationHUD: View {
             } else {
                 HStack(spacing: 10) {
                     tripStats
-                    rangeChip
                     Spacer()
                     recenterButton
                     Spacer()
@@ -1143,36 +1570,34 @@ struct NavigationHUD: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    /// Remaining time + distance for the drive (live guidance, else the
-    /// route preview).
+    /// Time and distance left, side by side in one type size under a single
+    /// "Total" header whose rule spans both — one reading, not two chips.
+    /// The tank's remaining range is NOT repeated here; the gauge cluster
+    /// above already carries it.
     @ViewBuilder
     private var tripStats: some View {
-        if let g = model.navigation.guidance {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(etaText(model.adjustedRemainingTime(g.remainingTime)))
-                    .scaledFont(size: 17, weight: .bold)
-                Text(distanceText(g.remainingDistance))
-                    .font(.footnote)
+        let time = model.navigation.guidance.map {
+            model.adjustedRemainingTime($0.remainingTime)
+        } ?? model.navigation.route.map { model.adjustedRemainingTime($0.eta) }
+        let meters = model.navigation.guidance?.remainingDistance
+            ?? model.navigation.route?.distanceMeters
+        if let time, let meters {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Total remaining to destination")
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.45))
+                    .frame(height: 1)
+                HStack(spacing: 8) {
+                    Text(etaText(time))
+                    Divider().frame(height: 16)
+                    Text(distanceText(meters))
+                }
+                .font(.system(size: 17, weight: .bold))
+                .monospacedDigit()
             }
-        } else if let route = model.navigation.route {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(etaText(model.adjustedRemainingTime(route.eta)))
-                    .scaledFont(size: 17, weight: .bold)
-                Text(distanceText(route.distanceMeters))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var rangeChip: some View {
-        if let range = model.vehicle.expectedRangeMiles, model.vehicle.profile != nil {
-            Label(String(format: "~%.0f mi", range), systemImage: "fuelpump")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .help("Estimated range left in the tank")
+            .fixedSize()
         }
     }
 
@@ -1185,7 +1610,7 @@ struct NavigationHUD: View {
                 Image(systemName: "location.fill")
                     .scaledFont(size: 14, weight: .semibold)
                     .frame(width: golden.iconCircle, height: golden.iconCircle)
-                    .background(Color.black.opacity(0.06))
+                    .background(Theme.fill(0.06))
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -1200,7 +1625,7 @@ struct NavigationHUD: View {
             Image(systemName: "link.circle.fill")
                 .scaledFont(size: 14, weight: .semibold)
                 .frame(width: golden.iconCircle, height: golden.iconCircle)
-                .background(model.towingActive ? Color.brown : Color.black.opacity(0.06))
+                .background(model.towingActive ? Color.brown : Theme.fill(0.06))
                 .foregroundStyle(model.towingActive ? .white : .primary)
                 .clipShape(Circle())
         }
@@ -1217,7 +1642,7 @@ struct NavigationHUD: View {
             Image(systemName: "radio.fill")
                 .scaledFont(size: 14, weight: .semibold)
                 .frame(width: golden.iconCircle, height: golden.iconCircle)
-                .background(showRadio ? Color.brown : Color.black.opacity(0.06))
+                .background(showRadio ? Color.brown : Theme.fill(0.06))
                 .foregroundStyle(showRadio ? .white : .primary)
                 .clipShape(Circle())
         }
@@ -1269,10 +1694,12 @@ struct NavigationHUD: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .frame(minHeight: 46)
-                    .background(selected ? Theme.cta : Color.black.opacity(0.06))
-                    // The pressed-in state sits on a near-black background —
-                    // its contents must stay light, never black-on-black.
-                    .foregroundStyle(selected ? Color(white: 0.8) : Color.primary)
+                    .background(selected ? Theme.cta : Theme.fill(0.06))
+                    // The pressed-in chip is the CTA fill, so its contents
+                    // take the CTA's ink — which inverts at dusk along with
+                    // the fill. A fixed light gray here is white-on-white
+                    // after dark and black-on-black before it.
+                    .foregroundStyle(selected ? Theme.onCTA : Color.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -1316,14 +1743,34 @@ struct NavigationHUD: View {
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 10, y: 4)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
-                escalationPulse = true
-            }
-        }
+        .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true),
+                   value: escalationPulse)
+        .onAppear { escalationPulse = true }
     }
 
     /// Range is getting tight — plan a fuel stop now (vehicle range model).
+    /// A fixed enforcement camera coming up. Quiet by design — it states
+    /// the distance and gets out of the way, with no button to press,
+    /// because the only useful response is to slow down.
+    private func cameraChip(_ note: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 13, weight: .bold))
+            Text(note)
+                .font(.footnote.weight(.bold))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(Color.black.opacity(0.85))
+        .foregroundStyle(Theme.onDark)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Theme.riskYellow, lineWidth: 1.5))
+        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.25), value: note)
+    }
+
     private func fuelRecommendationChip(_ note: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "fuelpump.exclamationmark.fill")
@@ -1353,13 +1800,28 @@ struct NavigationHUD: View {
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
-    /// Default the picker to the closest available station.
+    /// Straight-line miles from the vehicle to the station the picker is
+    /// showing — nil when neither is placeable.
+    private var nearestStationMiles: Double? {
+        guard let pos = model.effectivePosition,
+              let channel = model.radio.channels.first(where: { $0.id == radioChannelID }),
+              let p = TruckerRadio.position(of: channel) else { return nil }
+        return POIRanking.meters(p.coordinate, pos) / 1609.344
+    }
+
+    /// Point the picker at the closest available station.
+    ///
+    /// While something is playing the picker must name the station actually
+    /// on the air — auto-tune moves that as the drive crosses into the next
+    /// coverage area, and a picker left on the old name would be a lie.
+    /// While nothing is playing it simply tracks the nearest transmitter, so
+    /// the default is right for wherever the vehicle IS, not for wherever it
+    /// was when the card first opened.
     private func preselectNearestStation() {
-        guard radioChannelID.isEmpty
-            || !model.radio.channels.contains(where: { $0.id == radioChannelID })
-        else { return }
-        // Default = the transmitter CLOSEST to the current GPS position; the
-        // state match is only the no-fix fallback.
+        if let playing = model.radio.playingChannelID {
+            radioChannelID = playing
+            return
+        }
         if let pos = model.effectivePosition,
            let nearest = model.radio.nearestChannel(to: pos) {
             radioChannelID = nearest.channel.id
@@ -1425,7 +1887,32 @@ struct NavigationHUD: View {
             }
             .onAppear { preselectNearestStation() }
             .onChange(of: model.currentStateCode) { _, _ in preselectNearestStation() }
-            if let status = model.radio.status {
+            // The two ways the right station changes mid-drive: the vehicle
+            // moves nearer a different transmitter, or auto-tune has already
+            // switched the one playing.
+            .onChange(of: model.nearestStationID) { _, _ in preselectNearestStation() }
+            .onChange(of: model.radio.playingChannelID) { _, _ in preselectNearestStation() }
+            // How far off the relay actually is. NOAA runs about a thousand
+            // transmitters; only ~68 of them are relayed over the internet
+            // at all, so the closest one you can LISTEN to is often a long
+            // way from the windshield. Saying the distance is the honest
+            // thing — the alerts on a relay two states over are for two
+            // states over.
+            if let miles = nearestStationMiles {
+                Text(miles < 60
+                     ? String(format: "Closest relay — %.0f mi away", miles)
+                     : String(format: "Closest relay — %.0f mi away. It covers "
+                              + "its own area, not yours; your local "
+                              + "transmitter isn't relayed online.", miles))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // Only worth a line when it says something the title doesn't —
+            // "Playing <station>" under a heading already naming the station
+            // is noise.
+            if let status = model.radio.status,
+               !status.hasPrefix("Playing ") {
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
             Divider()
@@ -1470,6 +1957,10 @@ struct NavigationHUD: View {
                     }
                 }
             }
+            // No law-enforcement row. There is no lawful, keyless feed to
+            // offer, and a paragraph explaining WHY a thing is missing takes
+            // more of the card than the thing would have — so it is simply
+            // absent, the way an unavailable channel should be.
             let overAir = TruckerRadio.frequencyGuide.filter {
                 model.radio.cabStream(for: $0.0) == nil
             }
@@ -1499,7 +1990,10 @@ struct NavigationHUD: View {
                 .onAppear {
                     guard model.radioBrowser.stations.isEmpty else { return }
                     let code = model.currentStateCode
-                    Task { await model.radioBrowser.searchNearby(stateCode: code) }
+                    Task {
+                        await model.radioBrowser.searchNearby(
+                            near: model.effectivePosition, stateCode: code)
+                    }
                 }
             HStack(spacing: 6) {
                 TextField("Search by name or genre", text: $stationSearch)
@@ -1512,7 +2006,10 @@ struct NavigationHUD: View {
                 Button("Near me") {
                     stationSearch = ""
                     let code = model.currentStateCode
-                    Task { await model.radioBrowser.searchNearby(stateCode: code) }
+                    Task {
+                        await model.radioBrowser.searchNearby(
+                            near: model.effectivePosition, stateCode: code)
+                    }
                 }
                 .buttonStyle(.plain)
                 .font(.caption.weight(.bold))
@@ -1622,8 +2119,12 @@ struct NavigationHUD: View {
                 Text(station.name)
                     .font(.caption2.weight(.semibold))
                     .lineLimit(1)
-                if !station.genre.isEmpty {
-                    Text(station.genre)
+                // Dial position first when the name carries one — "105.7
+                // FM" is what a driver would say — then the genre words.
+                let detail = [station.dialLabel, station.genre.isEmpty ? nil : station.genre]
+                    .compactMap { $0 }.joined(separator: " · ")
+                if !detail.isEmpty {
+                    Text(detail)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -1658,9 +2159,11 @@ struct NavigationHUD: View {
     @ViewBuilder
     private func icon(for kind: POIService.Kind) -> some View {
         if model.poi.isSearching && model.poi.activeKind == kind {
-            // The spinner only ever appears on the pressed (near-black)
-            // button — untinted it vanishes into the background.
-            ProgressView().controlSize(.small).tint(Color(white: 0.8))
+            // The spinner only ever appears on the PRESSED button, whose
+            // fill is the CTA — near-black by day and near-white by night.
+            // Untinted, or tinted a fixed light gray, it vanishes into one
+            // of the two.
+            ProgressView().controlSize(.small).tint(Theme.onCTA)
         } else if kind == .rest {
             BenchIcon(size: 16)   // the actual park bench
         } else {
@@ -1756,11 +2259,9 @@ struct NavigationHUD: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .help(music.trackName.isEmpty ? model.musicProvider.rawValue : music.trackName)
-            .accessibilityLabel(model.musicControllable
-                ? "Music menu — \(music.trackName.isEmpty ? model.musicProvider.displayName : music.trackName)"
-                : "Open \(model.musicProvider.displayName)")
-            if model.musicControllable {
+            .help(music.trackName.isEmpty
+                  ? model.musicProvider.displayName : music.trackName)
+            if model.musicProvider.controllable {
             Button { music.back() } label: {
                 Image(systemName: "backward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
@@ -1780,16 +2281,24 @@ struct NavigationHUD: View {
             // HONEST CONTROLS: this service can't be driven from inside
             // FLOWS on this platform (it needs the service's own kit and
             // key) — one clear "open the app" beats skip buttons that
-            // secretly just launch it.
+            // secretly just launch it. AM/FM is the exception: FLOWS plays
+            // that itself, so it says what it is rather than "open" it, and
+            // it names the station once one is on.
+            let onAir = model.radio.lastPlayed?.name
+            let isDial = model.musicProvider == .radio
             Button { model.playMusic() } label: {
-                Label("Open \(model.musicProvider.rawValue)",
-                      systemImage: "arrow.up.forward.app")
+                Label(isDial ? (onAir ?? "AM/FM radio")
+                             : "Open \(model.musicProvider.displayName)",
+                      systemImage: isDial ? "dot.radiowaves.left.and.right"
+                                          : "arrow.up.forward.app")
                     .font(.caption.weight(.semibold))
+                    .lineLimit(1)
                     .padding(.horizontal, 8)
                     .frame(height: Theme.tapMinimum)
             }
             .buttonStyle(.plain)
-            .help("Playback controls live in \(model.musicProvider.rawValue)")
+            .help(isDial ? "Open the dial"
+                         : "Playback controls live in \(model.musicProvider.displayName)")
             }
             if model.musicControllable {
             Button { music.skip() } label: {
@@ -1816,7 +2325,7 @@ struct NavigationHUD: View {
         }
         .scaledFont(size: 14, weight: .semibold)
         .padding(.horizontal, 4)
-        .background(Color.black.opacity(0.06))
+        .background(Theme.fill(0.06))
         .clipShape(Capsule())
     }
 
@@ -1925,7 +2434,7 @@ struct NavigationHUD: View {
                                 .scaledFont(size: 12, weight: .semibold)
                                 .padding(.horizontal, 10)
                                 .frame(minHeight: 30)
-                                .background(Color.black.opacity(0.05))
+                                .background(Theme.fill(0.05))
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
@@ -1987,7 +2496,7 @@ struct NavigationHUD: View {
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(provider == .appleMusic
                                         ? Theme.riskGreen.opacity(0.18)
-                                        : Color.black.opacity(0.05))
+                                        : Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -2024,7 +2533,7 @@ struct NavigationHUD: View {
             .padding(.horizontal, 8)
             .frame(minHeight: 38)
             .frame(maxWidth: .infinity)
-            .background(Color.black.opacity(0.05))
+            .background(Theme.fill(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)

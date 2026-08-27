@@ -1040,25 +1040,18 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"maxspeed\"](around:2000,"
             + "\(point.latitude),\(point.longitude));out tags 40;"
         var mph = PursuitReach.defaultSpeedMph
-        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
-            comps.queryItems = [URLQueryItem(name: "data", value: query)]
-            if let u = comps.url,
-               let (data, resp) = try? await ThrottledNet.fetch(u),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let elements = json["elements"] as? [[String: Any]] {
-                var best = 0.0
-                for el in elements {
-                    guard let tags = el["tags"] as? [String: Any],
-                          let raw = tags["maxspeed"] as? String else { continue }
-                    let digits = raw.prefix { $0.isNumber }
-                    guard let value = Double(digits) else { continue }
-                    // "55 mph" vs bare km/h numbers.
-                    let asMph = raw.lowercased().contains("mph") ? value : value / 1.609344
-                    best = max(best, min(asMph, 80))
-                }
-                if best > 0 { mph = best }
+        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            var best = 0.0
+            for el in elements {
+                guard let tags = el["tags"] as? [String: Any],
+                      let raw = tags["maxspeed"] as? String else { continue }
+                let digits = raw.prefix { $0.isNumber }
+                guard let value = Double(digits) else { continue }
+                // "55 mph" vs bare km/h numbers.
+                let asMph = raw.lowercased().contains("mph") ? value : value / 1.609344
+                best = max(best, min(asMph, 80))
             }
+            if best > 0 { mph = best }
         }
         speedCache[key] = mph
         if speedCache.count > 100 { CacheEviction.dropHalf(&speedCache) }
@@ -1084,26 +1077,137 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"maxspeed\"][\"highway\"]"
             + "(around:35,\(point.latitude),\(point.longitude));out tags 10;"
         var limit: Double?
-        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
-            comps.queryItems = [URLQueryItem(name: "data", value: query)]
-            if let u = comps.url,
-               let (data, resp) = try? await ThrottledNet.fetch(u),
-               (resp as? HTTPURLResponse)?.statusCode == 200,
-               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let elements = json["elements"] as? [[String: Any]] {
-                var best: Double?
-                for el in elements {
-                    guard let tags = el["tags"] as? [String: Any],
-                          let raw = tags["maxspeed"] as? String,
-                          let mph = SpeedSign.parseMaxspeed(raw) else { continue }
-                    best = best.map { min($0, mph) } ?? mph
-                }
-                limit = best
+        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            var best: Double?
+            for el in elements {
+                guard let tags = el["tags"] as? [String: Any],
+                      let raw = tags["maxspeed"] as? String,
+                      let mph = SpeedSign.parseMaxspeed(raw) else { continue }
+                best = best.map { min($0, mph) } ?? mph
             }
+            limit = best
         }
         postedLimitCache[key] = limit
         if postedLimitCache.count > 200 { CacheEviction.dropHalf(&postedLimitCache) }
         return limit
+    }
+
+    // MARK: one Overpass call, three mirrors
+
+    /// Overpass instances, tried in order. All EU-hosted and reputable: the
+    /// main German instance, Kumi Systems (Austria), and OpenStreetMap
+    /// France. Route coordinates go to these, so the set is deliberately
+    /// limited to trusted operators.
+    static let overpassEndpoints = ["https://overpass-api.de/api/interpreter",
+                                    "https://overpass.kumi.systems/api/interpreter",
+                                    "https://overpass.openstreetmap.fr/api/interpreter"]
+
+    /// Run an Overpass query and hand back its elements, falling down the
+    /// mirror ladder until one answers.
+    ///
+    /// A single host is not enough. The main instance rate-limits under load
+    /// and goes fully unreachable often enough that every feature behind it
+    /// — posted limits, lane guidance, clearances, cameras — quietly stops
+    /// working with no sign on screen. Observed while testing this: the
+    /// German host refused the connection outright and Kumi returned 500,
+    /// while the French mirror answered the identical query.
+    nonisolated static func overpassElements(_ query: String) async
+        -> [[String: Any]]? {
+        for endpoint in overpassEndpoints {
+            guard var comps = URLComponents(string: endpoint) else { continue }
+            comps.queryItems = [URLQueryItem(name: "data", value: query)]
+            guard let u = comps.url,
+                  let (data, resp) = try? await ThrottledNet.fetch(u),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let elements = json["elements"] as? [[String: Any]]
+            else { continue }
+            return elements
+        }
+        return nil
+    }
+
+    // MARK: fixed enforcement cameras — the only speed-trap data we may use
+
+    /// Cameras cached per ~1 km cell; they don't move, so this can be coarse
+    /// and long-lived.
+    private var cameraCache: [String: [EnforcementCameras.Camera]] = [:]
+
+    /// Automated speed and red-light cameras within `radius` of a point.
+    ///
+    /// The same Overpass source as posted limits and lane guidance. Fixed
+    /// installations only — see EnforcementCameras for why a parked officer
+    /// with a radar gun is not, and cannot be, in here.
+    ///
+    /// nil means the lookup FAILED; an empty array means the lookup worked
+    /// and there is nothing here. The caller needs the difference — blanking
+    /// the map because Overpass was briefly unreachable would quietly drop
+    /// cameras the driver is still approaching.
+    func enforcementCameras(near point: CLLocationCoordinate2D,
+                            radiusMeters: Int = 4_000) async
+        -> [EnforcementCameras.Camera]? {
+        // ~1 km cells: cameras are fixed, so a coarse key still hits.
+        let key = "\(Int(point.latitude * 100))|\(Int(point.longitude * 100))|\(radiusMeters)"
+        if let cached = cameraCache[key] { return cached }
+        let around = "(around:\(radiusMeters),\(point.latitude),\(point.longitude))"
+        let query = "[out:json][timeout:15];("
+            + "node[\"highway\"=\"speed_camera\"]\(around);"
+            + "node[\"enforcement\"]\(around);"
+            + "node[\"traffic_signals\"=\"camera\"]\(around);"
+            + ");out tags center 200;"
+        guard let elements = await LiveHazardFeedFetcher.overpassElements(query)
+        else { return nil }
+        var found: [EnforcementCameras.Camera] = []
+        for el in elements {
+            guard let raw = el["tags"] as? [String: Any] else { continue }
+            let tags = raw.compactMapValues { $0 as? String }
+            guard let kind = EnforcementCameras.kind(fromTags: tags) else { continue }
+            let center = el["center"] as? [String: Any]
+            guard let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double),
+                  let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double)
+            else { continue }
+            let id = (el["id"] as? Int).map(String.init) ?? "\(lat),\(lon)"
+            found.append(EnforcementCameras.Camera(
+                id: id,
+                coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                kind: kind,
+                limitMph: EnforcementCameras.limitMph(fromTags: tags)))
+        }
+        cameraCache[key] = found
+        if cameraCache.count > 120 { CacheEviction.dropHalf(&cameraCache) }
+        return found
+    }
+
+    // MARK: lane-level guidance — OSM turn:lanes at the maneuver
+
+    private var laneCache: [String: [LaneData.Lane]] = [:]
+
+    /// The tagged lanes on the road AT this point, left to right in the
+    /// direction of travel. OpenStreetMap's `turn:lanes` is the keyless
+    /// source of real lane-level guidance — the same Overpass endpoint this
+    /// file already uses for clearances, weight limits and speed limits.
+    /// Empty when the road isn't tagged, which is most minor streets.
+    func turnLanes(at point: CLLocationCoordinate2D) async -> [LaneData.Lane] {
+        let key = "\(Int(point.latitude * 10_000))|\(Int(point.longitude * 10_000))"
+        if let cached = laneCache[key] { return cached }
+        // Tight radius: lane tagging is per-approach, and the lanes of the
+        // cross street are the wrong answer.
+        let query = "[out:json][timeout:10];way[\"turn:lanes\"][\"highway\"]"
+            + "(around:30,\(point.latitude),\(point.longitude));out tags 5;"
+        var lanes: [LaneData.Lane] = []
+        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            // Take the most detailed tagging nearby — a slip road with
+            // one lane shouldn't outvote the mainline's five.
+            for el in elements {
+                guard let tags = el["tags"] as? [String: Any],
+                      let raw = tags["turn:lanes"] as? String else { continue }
+                let parsed = LaneData.parse(turnLanes: raw)
+                if parsed.count > lanes.count { lanes = parsed }
+            }
+        }
+        laneCache[key] = lanes
+        if laneCache.count > 200 { CacheEviction.dropHalf(&laneCache) }
+        return lanes
     }
 
     // MARK: air + UV — Open-Meteo per ~0.5° cell (30-min TTL)

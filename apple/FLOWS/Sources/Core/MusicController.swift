@@ -45,7 +45,12 @@ final class MusicController: ObservableObject {
     @Published private(set) var trackName: String = ""
 
     /// One-tap genre rows in the HUD music menu.
-    static let genreRows = ["Country", "Rock", "Pop", "Hip-Hop", "Jazz"]
+    /// The kinds offered as one-tap rows. Drawn from BroadcastRadio.Kind so
+    /// the words on the button are the same words the station filing uses —
+    /// a row that says Rock cannot quietly mean something else.
+    static let genreKinds: [BroadcastRadio.Kind] = [.country, .rock, .pop,
+                                                    .hipHop, .jazz]
+    static let genreRows = genreKinds.map(\.title)
 
     // MARK: radio as the music service (all platforms)
 

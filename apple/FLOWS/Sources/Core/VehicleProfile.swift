@@ -39,6 +39,12 @@ struct VehicleProfile: Codable, Equatable {
         [year ?? "", make, model].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
+    /// The vehicle's own top speed, when a spec supplied one — the right
+    /// end of the HUD's speed bar. Nil falls back to a sane ceiling.
+    var topSpeedMph: Double? {
+        VehicleSpecs.spec(make: make, model: model)?.topSpeedMph
+    }
+
     /// Full-tank range at rated economy, before habit adjustments.
     var ratedRangeMiles: Double { tankCapacityUnits * ratedMilesPerUnit }
 

@@ -210,7 +210,7 @@ struct GasGaugeCard: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 14)
                     .frame(minHeight: 38)
-                    .background(Color.black.opacity(0.06))
+                    .background(Theme.fill(0.06))
                     .clipShape(Capsule())
                 Spacer()
                 Button(String(format: "It was at %.0f%% — filled up", fraction * 100)) {
@@ -221,7 +221,7 @@ struct GasGaugeCard: View {
                 .padding(.horizontal, 14)
                 .frame(minHeight: 38)
                 .background(Theme.cta)
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.onCTA)
                 .clipShape(Capsule())
             }
         }
@@ -245,6 +245,8 @@ struct GaugeDial: View {
     @Binding var fraction: Double
     /// Set while the tank is low enough to demand action — the arc pulses.
     var alarming = false
+    /// The big refuel dial labels its quartiles; the small HUD one doesn't.
+    var showsQuartileLabels = true
     @State private var alarmPulse = false
 
     private var levelColor: Color {
@@ -264,7 +266,7 @@ struct GaugeDial: View {
                 // Arc E (left) → F (right).
                 Circle()
                     .trim(from: 0.5, to: 1.0)
-                    .stroke(Color.black.opacity(0.15), style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .stroke(Theme.fill(0.15), style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .frame(width: radius * 2, height: radius * 2)
                     .position(center)
                 Circle()
@@ -283,9 +285,10 @@ struct GaugeDial: View {
                         p.addLine(to: outer)
                     }
                     .stroke(Color.secondary, lineWidth: 2)
-                    // Quartile ticks carry small percent labels (E and F
-                    // name the two ends themselves).
-                    if i > 0, i < 4 {
+                    // Quartile percent callouts belong on the big refuel
+                    // dial, not the small HUD one — at instrument size they
+                    // crowd the needle and read as clutter.
+                    if showsQuartileLabels, i > 0, i < 4 {
                         Text("\(i * 25)%")
                             .scaledFont(size: 8, weight: .semibold)
                             .foregroundStyle(.secondary)
@@ -427,11 +430,12 @@ struct TowingCard: View {
         }
         .floatingCard()
         .frame(maxWidth: golden.cardMax)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                flash = true
-            }
-        }
+        // Scoped to THIS view — see the note on the escalation card: a
+        // repeatForever run through withAnimation catches every view in the
+        // transaction, not just the one being pulsed.
+        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true),
+                   value: flash)
+        .onAppear { flash = true }
     }
 
     private func ratingBadge(_ label: String, _ value: Double?, violated: Bool) -> some View {
@@ -444,7 +448,7 @@ struct TowingCard: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background((violated ? Theme.riskRed.opacity(0.12) : Color.black.opacity(0.05)))
+        .background((violated ? Theme.riskRed.opacity(0.12) : Theme.fill(0.05)))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -600,7 +604,7 @@ struct StarsAndBucks: View {
                     ForEach(0..<5) { i in
                         Text("$")
                             .scaledFont(size: 11, weight: .heavy)
-                            .foregroundStyle(i < tier ? dollarColor : Color.black.opacity(0.15))
+                            .foregroundStyle(i < tier ? dollarColor : Theme.fill(0.15))
                     }
                     Text(" \(currency)")
                         .scaledFont(size: 8, weight: .semibold)

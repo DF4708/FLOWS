@@ -82,7 +82,10 @@ enum CameraZoom {
             let visibleWidth = max(fit.size.width, fit.size.height / windowAspect)
             fit.origin.x -= visibleWidth * panelFraction / 2
         }
-        return fit
+        // Whatever the shift does, the WHOLE route must remain inside the
+        // framed rect — selecting a card should always show the entire
+        // route, zooming out if that is what it takes.
+        return fit.union(rect)
     }
 
     /// Flight altitude by phase, from the distance to the NEAREST of the two

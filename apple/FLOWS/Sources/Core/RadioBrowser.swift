@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import Foundation
 
 /// AM/FM station search over the radio-browser.info COMMUNITY directory
@@ -33,8 +34,17 @@ final class RadioBrowser: ObservableObject {
         let genre: String
         /// Community votes — the ranking the directory maintains.
         let votes: Int
+        /// Transmitter position, when the directory lists one — what makes
+        /// "local radio" mean the broadcaster down the road.
+        var latitude: Double?
+        var longitude: Double?
 
         var id: String { url }
+
+        /// The dial position hiding in the station's name ("105.7 FM"), or
+        /// nil when the name carries no frequency. It is what makes this
+        /// read like a radio rather than a playlist.
+        var dialLabel: String? { BroadcastRadio.dialLabel(from: name) }
 
         /// Bridge into the trucker-radio player (one shared AVPlayer path —
         /// tuning an AM/FM stream stops a NOAA relay and vice versa).
@@ -54,10 +64,84 @@ final class RadioBrowser: ObservableObject {
 
     static let allServersURL = "https://all.api.radio-browser.info/json/servers"
 
-    /// Top-voted stations for the state the vehicle is in (nationwide list
-    /// when the state is unknown — no GPS fix yet).
-    func searchNearby(stateCode: String?) async {
+    /// How far out a "nearby" search reaches: about the span of a day's
+    /// driving. Far enough that the dial doesn't empty out in open country,
+    /// near enough that everything on it is plausibly a station you could
+    /// have heard on the way.
+    nonisolated static let nearbyRadiusMeters = 400_000
+
+    /// Stations around the vehicle, nearest first.
+    ///
+    /// The search is by DISTANCE, not by state, because a state query stops
+    /// at the line — which is exactly wrong for a driver. Half of Madison's
+    /// real dial broadcasts from Illinois, and someone crossing into Iowa
+    /// should not watch their stations vanish at the river. Distance also
+    /// means every result carries a position, so nearest-first is exact
+    /// rather than a guess. The state list stays as the fallback for when
+    /// there is no fix, or the geo index has nothing here.
+    func searchNearby(near position: CLLocationCoordinate2D?,
+                      stateCode: String?) async {
+        status = "Finding stations…"
+        guard let host = await ensureHost() else {
+            status = "Station list didn't load. Check the connection and try again."
+            return
+        }
+        if let position,
+           let found = await fetchStations(
+               Self.searchURL(host: host, state: nil, name: nil,
+                              near: position)), !found.isEmpty {
+            stations = Self.rankedNearest(found, near: position)
+            status = nil
+            return
+        }
         await run(state: stateCode.flatMap { Self.stateName($0) }, name: nil)
+    }
+
+    /// Stations of one KIND, nearest first.
+    ///
+    /// The directory's own tag search is too loose to trust on its own: a
+    /// "christian rock" station answers a tag search for `rock`, and a
+    /// "sports talk" station answers one for `talk`. Every row that comes
+    /// back is re-filed through BroadcastRadio.kind, whose match order puts
+    /// the narrow kinds first, and anything that lands somewhere else is
+    /// dropped. Asking for Rock gets rock.
+    func searchGenre(_ kind: BroadcastRadio.Kind,
+                     near position: CLLocationCoordinate2D?) async {
+        status = "Finding stations…"
+        guard let host = await ensureHost() else {
+            status = "Station list didn't load. Check the connection and try again."
+            return
+        }
+        var found: [Station] = []
+        for word in kind.tagWords.prefix(3) {
+            guard let batch = await fetchStations(
+                Self.searchURL(host: host, state: nil, name: nil,
+                               tag: word, near: position)) else { continue }
+            found += batch
+        }
+        var seen = Set<String>()
+        let filed = found.filter {
+            BroadcastRadio.kind(forTags: $0.genre) == kind && seen.insert($0.id).inserted
+        }
+        stations = position.map { Self.rankedNearest(filed, near: $0) } ?? filed
+        status = stations.isEmpty
+            ? "No \(kind.title.lowercased()) stations near you right now." : nil
+    }
+
+    /// Nearest transmitter first; the directory's vote order decides between
+    /// stations it can't place. "Local radio" means the broadcaster down the
+    /// road, not the most-voted stream three states away.
+    nonisolated static func rankedNearest(_ found: [Station],
+                                          near position: CLLocationCoordinate2D)
+        -> [Station] {
+        let ranked = BroadcastRadio.ranked(found.map {
+            BroadcastRadio.Station(id: $0.id, name: $0.name, url: $0.url,
+                                   tags: $0.genre, latitude: $0.latitude,
+                                   longitude: $0.longitude, bitrate: $0.votes,
+                                   kind: BroadcastRadio.kind(forTags: $0.genre) ?? .pop)
+        }, near: position)
+        let byID = Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return ranked.compactMap { byID[$0.id] }
     }
 
     /// Free-text search across all US stations. The field promises "name
@@ -154,7 +238,8 @@ final class RadioBrowser: ObservableObject {
     /// community-vote order. `state`, `name`, and `tag` (genre) are the
     /// three search modes.
     nonisolated static func searchURL(host: String, state: String?,
-                                      name: String?, tag: String? = nil) -> URL? {
+                                      name: String?, tag: String? = nil,
+                                      near: CLLocationCoordinate2D? = nil) -> URL? {
         // .urlQueryAllowed leaves & = + literal (the Yelp lesson) — use a
         // strict component set for the free-text term.
         var allowed = CharacterSet.urlQueryAllowed
@@ -169,6 +254,10 @@ final class RadioBrowser: ObservableObject {
         }
         if let tag, let t = tag.addingPercentEncoding(withAllowedCharacters: allowed) {
             query += "&tag=\(t)"
+        }
+        if let near {
+            query += "&geo_lat=\(near.latitude)&geo_long=\(near.longitude)"
+                + "&geo_distance=\(nearbyRadiusMeters)"
         }
         return URL(string: "https://\(host)/json/stations/search?\(query)")
     }
@@ -207,7 +296,9 @@ final class RadioBrowser: ObservableObject {
             return Station(name: name,
                            url: url,
                            genre: genreWords(fromTags: row["tags"] as? String ?? ""),
-                           votes: row["votes"] as? Int ?? 0)
+                           votes: row["votes"] as? Int ?? 0,
+                           latitude: row["geo_lat"] as? Double,
+                           longitude: row["geo_long"] as? Double)
         }
     }
 

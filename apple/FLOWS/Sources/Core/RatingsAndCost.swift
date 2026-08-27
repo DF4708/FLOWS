@@ -36,6 +36,15 @@ enum RatingsAndCost {
     enum Country: String, CaseIterable {
         case us, canada, mexico
 
+        /// ISO code the Radio Browser directory keys stations by.
+        var radioBrowserCode: String {
+            switch self {
+            case .us: return "US"
+            case .canada: return "CA"
+            case .mexico: return "MX"
+            }
+        }
+
         var currencySymbol: String {
             switch self {
             case .us: return "US$"

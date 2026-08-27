@@ -34,6 +34,9 @@ struct VehicleSpec: Equatable, Identifiable {
     /// from the weight/towing heuristic instead
     /// (`FilterLimits.vehicleDefaultMaxGradeDegrees`).
     var publishedMaxGradePercent: Double? = nil
+    /// Manufacturer top speed (mph) where published — the right end of the
+    /// HUD speed bar. Most entries leave it nil and take the default.
+    var topSpeedMph: Double? = nil
 
     var id: String { "\(make) \(model)" }
 

@@ -127,7 +127,7 @@ struct PlannerPanel: View {
                     .scaledFont(size: 16)
                     .frame(minHeight: Theme.tapMinimum)
                     .padding(.horizontal, 14)
-                    .background(Color.black.opacity(0.04))
+                    .background(Theme.fill(0.04))
                     .clipShape(Capsule())
                     .contentShape(Capsule())
                     .focused($focusedField, equals: .destination)
@@ -160,7 +160,7 @@ struct PlannerPanel: View {
                         .scaledFont(size: 20, weight: .semibold)
                         .foregroundStyle(destinationIsFavorite ? Color.yellow : Color.secondary)
                         .frame(width: 56, height: Theme.tapMinimum)
-                        .background(Color.black.opacity(0.04))
+                        .background(Theme.fill(0.04))
                         .clipShape(Capsule())
                 }
                 .accessibilityLabel(destinationIsFavorite
@@ -187,6 +187,8 @@ struct PlannerPanel: View {
                         Task { await plan() }
                     }
                 }
+                .background(Theme.fill(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
             // Source row: GPS by default, tap to override. When there's no
@@ -229,7 +231,7 @@ struct PlannerPanel: View {
                     .scaledFont(size: 16)
                     .frame(minHeight: Theme.tapMinimum)
                     .padding(.horizontal, 14)
-                    .background(Color.black.opacity(0.04))
+                    .background(Theme.fill(0.04))
                     .clipShape(Capsule())
                     .contentShape(Capsule())
                     .focused($focusedField, equals: .source)
@@ -378,9 +380,12 @@ struct PlannerPanel: View {
     /// CameraZoom.framedRect (pure, tested).
     static func choicesCameraRect(_ rect: MKMapRect,
                                   panelOnTop: Bool = false,
-                                  windowAspect: Double = 2.0) -> MKMapRect {
+                                  windowAspect: Double = 2.0,
+                                  panelFraction: Double
+                                    = CameraZoom.choicesPanelFraction) -> MKMapRect {
         CameraZoom.framedRect(rect, panelOnTop: panelOnTop,
-                              windowAspect: windowAspect)
+                              windowAspect: windowAspect,
+                              panelFraction: panelFraction)
     }
 
     /// Plain-words error text — never surface raw framework errors like
@@ -416,7 +421,9 @@ struct PlannerPanel: View {
                         camera = .rect(Self.choicesCameraRect(
                         first.route.polyline.boundingMapRect,
                         panelOnTop: panelOnTop,
-                        windowAspect: golden.size.height / max(golden.size.width, 1)))
+                        windowAspect: golden.size.height / max(golden.size.width, 1),
+                        panelFraction: panelOnTop ? golden.choicesPanelFraction
+                                                  : CameraZoom.choicesPanelFraction))
                     }
                 } else {
                     errorMessage = "Couldn't plan to \(fav.name) — no GPS fix or no route."
@@ -428,7 +435,7 @@ struct PlannerPanel: View {
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 34)
-                .background(Color.black.opacity(0.05))
+                .background(Theme.fill(0.05))
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -505,7 +512,9 @@ struct PlannerPanel: View {
                     camera = .rect(Self.choicesCameraRect(
                         first.route.polyline.boundingMapRect,
                         panelOnTop: panelOnTop,
-                        windowAspect: golden.size.height / max(golden.size.width, 1)))
+                        windowAspect: golden.size.height / max(golden.size.width, 1),
+                        panelFraction: panelOnTop ? golden.choicesPanelFraction
+                                                  : CameraZoom.choicesPanelFraction))
                 }
             }
         } catch {

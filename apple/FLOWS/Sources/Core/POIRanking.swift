@@ -353,21 +353,40 @@ enum StoreCategory: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    /// Brand-augmented queries: MKLocalSearch name-matches national chains far
-    /// more reliably than category words alone (plain "electronics store"
-    /// missed Best Buy; "auto parts store" missed AutoZone).
-    var searchQuery: String {
+    /// SEPARATE queries, one per term — not one string of brand names.
+    /// MKLocalSearch matches a query as a PHRASE, so "grocery supermarket
+    /// Publix Kroger Safeway Aldi" matched no business at all: nothing is
+    /// called that. Issuing the generic word and each chain as their own
+    /// searches is what actually finds them ("no stores found" on routes
+    /// lined with stores).
+    var searchQueries: [String] {
         switch self {
-        case .grocery: return "grocery supermarket Publix Kroger Safeway Aldi"
-        case .general: return "Walmart Target Costco department store"
-        case .hardware: return "hardware Home Depot Lowe's Ace Menards"
-        case .electronics: return "electronics store Best Buy"
-        case .pets: return "pet store PetSmart Petco pet supplies"
-        case .gun: return "gun shop firearms sporting goods Bass Pro Cabela's"
-        case .auto: return "auto parts AutoZone O'Reilly Advance NAPA"
-        case .clothing: return "clothing store TJ Maxx Ross Kohl's"
+        case .grocery:
+            return ["grocery store", "supermarket", "Publix", "Kroger",
+                    "Safeway", "Aldi", "Trader Joe's", "Whole Foods"]
+        case .general:
+            return ["Walmart", "Target", "Costco", "department store",
+                    "Sam's Club", "dollar store"]
+        case .hardware:
+            return ["hardware store", "Home Depot", "Lowe's", "Ace Hardware",
+                    "Menards", "Tractor Supply"]
+        case .electronics:
+            return ["electronics store", "Best Buy", "Apple Store"]
+        case .pets:
+            return ["pet store", "PetSmart", "Petco", "pet supplies"]
+        case .gun:
+            return ["gun shop", "firearms dealer", "sporting goods",
+                    "Bass Pro Shops", "Cabela's"]
+        case .auto:
+            return ["auto parts store", "AutoZone", "O'Reilly Auto Parts",
+                    "Advance Auto Parts", "NAPA Auto Parts"]
+        case .clothing:
+            return ["clothing store", "TJ Maxx", "Ross", "Kohl's", "Old Navy"]
         }
     }
+
+    /// The single-string form, for callers that want one label.
+    var searchQuery: String { searchQueries.first ?? rawValue }
 
     var symbol: String {
         switch self {

@@ -92,12 +92,20 @@ final class AppModel: ObservableObject {
     /// between towns, saved to disk so losing signal (or force-quitting in
     /// the middle of nowhere) still leaves the way home on screen.
     let corridors = OfflineCorridorStore()
+    /// Learns how much longer drives REALLY take by time of day and weather,
+    /// from this device's own completed trips (TrafficLearning).
+    let trafficModel = TrafficDelayModel()
+    /// Learns what this vehicle really gets on the roads this driver really
+    /// drives (RoadEfficiencyLearning) — feeds range, fuel timing, routes.
+    let roadEfficiency = RoadEfficiencyModel()
     let riskField = RiskFieldService()
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
     let radio = TruckerRadio()
     /// AM/FM station search (radio-browser.info community directory) —
-    /// plays through the same TruckerRadio AVPlayer path.
+    /// plays through the same TruckerRadio AVPlayer path, so CarPlay, the
+    /// lock screen and Siri all drive one player. Station SELECTION —
+    /// which genre, which of them are actually local — is BroadcastRadio.
     let radioBrowser = RadioBrowser()
     let crash = CrashDetectionService()
     /// Prior long-trip share recipients (on-device only) — suggestion ranking.
@@ -149,21 +157,83 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: dark mode by the sun, not by the clock
+
+    /// True while it is dark out WHERE THE DRIVER IS. Drives the whole app's
+    /// appearance: a white card is painful in a dark cab and a dark one is
+    /// unreadable in daylight, and the hour that divides them is different
+    /// in Miami in June than in Fairbanks in December.
+    @Published private(set) var isNight = false
+    /// Honor an explicit choice over the sun. nil = follow the daylight.
+    @Published var appearanceOverride: Bool? =
+        UserDefaults.standard.object(forKey: "flows.darkOverride") as? Bool {
+        didSet {
+            UserDefaults.standard.set(appearanceOverride, forKey: "flows.darkOverride")
+            refreshDaylight()
+        }
+    }
+    private var daylightTimer: Timer?
+
+    deinit {
+        // The daylight timer reschedules itself; without this it sits in the
+        // run loop until its next fire even though nothing is left to tell.
+        daylightTimer?.invalidate()
+    }
+
+    /// The appearance the window should use, or nil to follow the system
+    /// when there is no position to compute dusk from yet.
+    var resolvedColorScheme: ColorScheme? {
+        if let appearanceOverride { return appearanceOverride ? .dark : .light }
+        guard effectivePosition != nil else { return nil }
+        return isNight ? .dark : .light
+    }
+
+    /// Recompute now, and schedule the next look for the exact moment of the
+    /// next dawn or dusk — so the switch lands ON the boundary instead of up
+    /// to a poll-interval late. Capped at an hour so a long drive west (or a
+    /// crossed time zone) still gets rechecked.
+    func refreshDaylight() {
+        guard let pos = effectivePosition else {
+            // No fix yet. Don't give up — look again shortly, or the app sits
+            // in daylight colors for the first seconds of a night launch and
+            // then snaps dark once a fix lands.
+            daylightTimer?.invalidate()
+            daylightTimer = Timer.scheduledTimer(withTimeInterval: 3,
+                                                 repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.refreshDaylight() }
+            }
+            return
+        }
+        let night = DaylightClock.isNight(at: pos)
+        if night != isNight { isNight = night }
+        daylightTimer?.invalidate()
+        let next = DaylightClock.nextChange(at: pos)
+        let delay = min(max(next.timeIntervalSinceNow, 1), 3_600)
+        daylightTimer = Timer.scheduledTimer(withTimeInterval: delay,
+                                             repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.refreshDaylight() }
+        }
+    }
+
+    /// The transmitter closest to where the vehicle is NOW, whether or not
+    /// the radio is playing. Published so the radio card's picker follows
+    /// the drive instead of standing on the station that was closest when
+    /// the card first opened.
+    @Published private(set) var nearestStationID: String?
+
     /// Auto-switch to the CLOSEST NOAA transmitter as the driver moves, with
     /// hysteresis: only retune when the new station is meaningfully (20%)
     /// closer than the one playing, so the tuner doesn't flap on the boundary
     /// between two coverage circles.
     func retuneRadioIfNeeded(at position: CLLocationCoordinate2D) {
-        guard radioAutoSwitch, radio.playingChannelID != nil,
-              let nearest = radio.nearestChannel(to: position),
-              nearest.channel.id != radio.playingChannelID else { return }
-        if let current = radio.channels.first(where: { $0.id == radio.playingChannelID }),
-           let la = current.latitude, let lo = current.longitude {
-            let currentDist = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: la, longitude: lo), position)
-            guard nearest.meters < currentDist * 0.8 else { return }
-        }
-        radio.play(nearest.channel)
+        // Track the nearest station even when nothing is playing — the card
+        // reads this to keep its default honest. The app still never starts
+        // audio by itself.
+        let closest = radio.nearestChannel(to: position)?.channel.id
+        if closest != nearestStationID { nearestStationID = closest }
+        guard radioAutoSwitch, let next = radio.retuneTarget(for: position)
+        else { return }
+        radio.play(next)
     }
 
     /// TomTom key (free tier: developer.tomtom.com) → live station fuel
@@ -533,7 +603,15 @@ final class AppModel: ObservableObject {
     /// Menus tucked into the top-right icon tray (double-tap a menu's grab
     /// bar). On the model so rotation can't forget them; cleared when the
     /// screen changes underneath them (new plan, GO, trip end).
-    @Published var collapsedPanels: Set<String> = []
+    @Published var collapsedPanels: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: "flows.collapsedPanels") ?? []) {
+        didSet {
+            // A driver who tucked something away meant it — remember across
+            // sessions rather than springing it back on the next launch.
+            UserDefaults.standard.set(Array(collapsedPanels),
+                                      forKey: "flows.collapsedPanels")
+        }
+    }
 
     // MARK: music provider
 
@@ -541,9 +619,12 @@ final class AppModel: ObservableObject {
     /// (MPMusicPlayerController on iOS/CarPlay; Music.app on macOS). Every
     /// other service opens its own app — in-app control there needs that
     /// service's SDK.
+    /// Defaults to the radio already in the dash: it needs no account and no
+    /// subscription, so a driver who has told us nothing still gets audio.
+    /// The first play press asks which service they'd rather use.
     @Published var musicProvider: MusicProvider = MusicProvider(
         rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .appleMusic {
+    ) ?? .radio {
         didSet {
             UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
             musicProviderChosen = true
@@ -586,7 +667,16 @@ final class AppModel: ObservableObject {
     /// the first station plays, next/previous walk the rest, exactly like
     /// a playlist. No subscription, no account.
     func playGenreRadio(_ genre: String, spokenPrefix: String? = nil) async {
-        await radioBrowser.search(text: genre)
+        // A named kind gets the filed search (tag hits re-checked against
+        // BroadcastRadio's match order, nearest first); anything else the
+        // driver says falls back to free text.
+        if let kind = MusicController.genreKinds.first(where: {
+            $0.title.caseInsensitiveCompare(genre) == .orderedSame
+        }) {
+            await radioBrowser.searchGenre(kind, near: effectivePosition)
+        } else {
+            await radioBrowser.search(text: genre)
+        }
         let channels = radioBrowser.stations.map(\.channel)
         guard !channels.isEmpty else {
             VoiceAnnouncer.shared.announce(
@@ -985,7 +1075,8 @@ final class AppModel: ObservableObject {
         let code = currentStateCode
         Task { [weak self] in
             guard let self else { return }
-            await self.radioBrowser.searchNearby(stateCode: code)
+            await self.radioBrowser.searchNearby(
+                near: self.effectivePosition, stateCode: code)
             let channels = self.radioBrowser.stations.map(\.channel)
             guard !channels.isEmpty else {
                 VoiceAnnouncer.shared.announce("No stations found nearby yet.")
@@ -1017,6 +1108,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Set when something (the play button, the provider picker) wants the
+    /// EMERGENCY radio card open; the HUD consumes and clears it.
+    @Published var showRadioCardRequested = false
+
     /// First-play choice: remember it, then do what play was about to do.
     func chooseMusicProvider(_ provider: MusicProvider) {
         cancelOfflineHandoff()   // their pick outranks a pending switch-back
@@ -1027,6 +1122,16 @@ final class AppModel: ObservableObject {
         } else {
             provider.openApp()
         }
+    }
+
+    /// Menus tied to the CURRENT trip: these come back when the screen
+    /// changes under them. Instruments the driver chose to tuck away (the
+    /// gauge cluster, the map key) are deliberately NOT here — a preference
+    /// set once should survive the next plan, and the next launch.
+    private static let transientPanels = ["planner", "routes", "sliders", "stops"]
+
+    private func restoreTransientPanels() {
+        collapsedPanels.subtract(Self.transientPanels)
     }
 
     /// Close every floating panel or menu a map click can sit under —
@@ -1278,7 +1383,33 @@ final class AppModel: ObservableObject {
     func addStopDelay(seconds: Double = 3600) { stopDelaySeconds += seconds }
     /// The ETA the HUD shows: guidance baseline + unplanned stop time.
     func adjustedRemainingTime(_ baseline: Double) -> Double {
-        TripNeeds.adjustedRemainingSeconds(baseline: baseline, stopDelaySeconds: stopDelaySeconds)
+        // Unplanned stopped time, then what this device has LEARNED about
+        // this hour in this weather (TrafficLearning) — the model returns
+        // 1.0 until it has seen enough trips to be worth listening to, so a
+        // fresh install shows the router's own number unchanged.
+        let learned = baseline * trafficModel.factor(
+            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+            roadClass: currentRoadClass, weather: currentTrafficWeather)
+        return TripNeeds.adjustedRemainingSeconds(baseline: learned,
+                                                  stopDelaySeconds: stopDelaySeconds)
+    }
+
+    /// The learned travel time for a route being CHOSEN — so the delay this
+    /// device has actually measured steers which route looks fastest, not
+    /// only the number shown once driving.
+    func learnedETA(for route: PlannedRoute) -> Double {
+        let worst = route.familyPeaks
+            .filter { $0.value >= FlowsCore.riskGreenMin }
+            .max(by: { $0.value < $1.value })?.key
+        // Judge the route by the roads it's actually made of: a highway run
+        // reads the pooled highway learning, a cross-town errand reads this
+        // neighbourhood's own.
+        let avgMph = route.eta > 0
+            ? (route.distanceMeters / 1609.344) / (route.eta / 3600) : 30
+        return route.eta * trafficModel.factor(
+            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+            roadClass: RoadClass.from(averageMph: avgMph),
+            weather: TrafficWeather.from(family: worst))
     }
 
     // MARK: trip needs (recurring fuel/food/rest cadences)
@@ -1645,7 +1776,7 @@ final class AppModel: ObservableObject {
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
             vehicle, radio, radioBrowser, vehicleLink, smartcar, crash,
-            breadcrumbs, corridors,
+            breadcrumbs, corridors, trafficModel, roadEfficiency,
         ]
         for child in children {
             (child.objectWillChange as? ObservableObjectPublisher)?
@@ -1751,6 +1882,13 @@ final class AppModel: ObservableObject {
                 // Speed history feeds the crash decision — kept in every
                 // mode so an impact right at GO still has "before" speed.
                 self.recordSpeed(fix)
+                // Follow the closest NOAA transmitter in EVERY mode: parked
+                // at home the emergency-radio card should already name the
+                // local station, not one from wherever the app last ran.
+                self.retuneRadioIfNeeded(at: fix.coordinate)
+                // Dusk and dawn move with the vehicle as well as the clock —
+                // a day's drive north or west shifts them by real minutes.
+                self.refreshDaylight()
                 guard self.mode == .navigating else { return }
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),
@@ -1761,24 +1899,27 @@ final class AppModel: ObservableObject {
                 DrivingProfileStore.shared.updateDriving(
                     averageSpeedMph: self.vehicle.averageSpeedMph,
                     idleFraction: self.vehicle.idleFraction)
+                self.recordRoadEfficiency(deltaMeters: min(delta, 500), fix: fix)
                 self.recordDailyDriving(deltaMeters: min(delta, 500))
                 self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
                 self.updateFuelRecommendation()
                 self.updateFuelWarning()   // last-chance matching-fuel stops
                 self.updatePostedSpeedLimit(fix)   // the HUD speed sign
+                self.updateUpcomingLanes()         // lane row at the maneuver
+                self.updateCorridorWind(near: fix.coordinate)
                 // Saved corridors age out as they stop being useful:
                 // arrived, left far behind, or simply stale.
                 self.corridors.prune(position: fix.coordinate)
                 self.updateDrivingClocks(fix: fix)
                 self.updateSteepGrade()
+                // Fixed speed and red-light cameras on the road ahead — the
+                // only enforcement data any app may lawfully carry.
+                self.updateEnforcementCameras(fix)
                 // Towing is live during the trip, not a trip-start snapshot:
                 // re-poll telemetry (a trailer hitched mid-trip auto-toggles
                 // towing mode) and surface limit violations as a warning once.
                 self.checkTowingSignal()
                 self.updateTowingWarning()
-                // Follow the closest NOAA transmitter as the truck moves
-                // (20% hysteresis inside — no boundary flapping).
-                self.retuneRadioIfNeeded(at: fix.coordinate)
                 // A long WALKING ESTIMATE keeps its big-picture road geometry
                 // for direction, but the stretch right in front of the walker
                 // is refreshed with Apple's real pedestrian network as they go.
@@ -2061,6 +2202,8 @@ final class AppModel: ObservableObject {
     private var limitLookupTask: Task<Void, Never>?
     private var lastLimitLookup = Date.distantPast
     private var lastLimitPoint: CLLocationCoordinate2D?
+    /// The maneuver step the last lookup belonged to — a new step re-checks.
+    private var lastLimitStep: Int?
 
     /// True while the traveler is a PASSENGER (plane, bus, train) rather
     /// than driving — no speed sign for them.
@@ -2080,10 +2223,18 @@ final class AppModel: ObservableObject {
             if postedSpeedLimitMph != nil { postedSpeedLimitMph = nil }
             return
         }
+        // Responsive enough that the yellow and red lines are already there
+        // as the driver turns onto a new road: a short block is ~80 m, so
+        // waiting 150 m and 15 s meant driving a whole street unmarked.
         let moved = lastLimitPoint.map {
-            POIRanking.meters($0, fix.coordinate) > 150
+            POIRanking.meters($0, fix.coordinate) > 60
         } ?? true
-        guard moved, Date().timeIntervalSince(lastLimitLookup) > 15 else { return }
+        let stale = Date().timeIntervalSince(lastLimitLookup) > 8
+        // A brand-new maneuver means a new road is imminent — look again
+        // even if the vehicle has barely moved since the last check.
+        let newStep = navigation.guidance?.stepIndex != lastLimitStep
+        guard (moved && stale) || newStep else { return }
+        lastLimitStep = navigation.guidance?.stepIndex
         lastLimitLookup = Date()
         lastLimitPoint = fix.coordinate
         let point = fix.coordinate
@@ -2094,6 +2245,108 @@ final class AppModel: ObservableObject {
             // Keep the last known limit when this stretch has no tag —
             // blanking the sign every unmapped block would flicker.
             if limit != nil { self.postedSpeedLimitMph = limit }
+        }
+    }
+
+    // MARK: fixed enforcement cameras on the road ahead
+
+    /// Automated speed and red-light cameras near the vehicle — drawn on the
+    /// map, and called out on the approach.
+    @Published private(set) var enforcementCameras: [EnforcementCameras.Camera] = []
+    /// The one to warn about right now, with how far off it is.
+    @Published private(set) var cameraWarning: String?
+    private var cameraLookupTask: Task<Void, Never>?
+    private var lastCameraLookup: CLLocationCoordinate2D?
+    /// Cameras already spoken for, so a slow approach isn't announced twice.
+    /// Bounded: a cross-country drive passes hundreds, and a set that only
+    /// ever grows is a slow leak. Cameras are fixed, so the oldest entries
+    /// are also the furthest behind and the safest to forget.
+    private var announcedCameras: [String] = []
+    private static let announcedCameraMemory = 200
+
+    /// Refresh the camera list as the vehicle moves into new ground, and
+    /// keep the live warning in step with every fix.
+    private func updateEnforcementCameras(_ fix: CLLocation) {
+        guard mode == .navigating, !walkingMode, !isPassengerTransit else {
+            if !enforcementCameras.isEmpty { enforcementCameras = [] }
+            if cameraWarning != nil { cameraWarning = nil }
+            return
+        }
+        // A 4 km fetch re-run every 2 km always has ground ahead of it.
+        let moved = lastCameraLookup.map {
+            POIRanking.meters($0, fix.coordinate) > 2_000
+        } ?? true
+        if moved {
+            lastCameraLookup = fix.coordinate
+            let point = fix.coordinate
+            cameraLookupTask?.cancel()
+            cameraLookupTask = Task { [weak self] in
+                let found = await LiveHazardFeedFetcher.shared
+                    .enforcementCameras(near: point)
+                guard let self, !Task.isCancelled, self.mode == .navigating,
+                      let found else { return }
+                self.enforcementCameras = found
+            }
+        }
+        let heading = fix.course >= 0 ? fix.course : nil
+        guard let next = EnforcementCameras.imminent(among: enforcementCameras,
+                                                     at: fix.coordinate,
+                                                     headingDegrees: heading) else {
+            if cameraWarning != nil { cameraWarning = nil }
+            return
+        }
+        let mph = max(fix.speed, 0) * 2.236936
+        cameraWarning = EnforcementCameras.warning(
+            for: next.camera, meters: next.meters,
+            speedMph: mph, postedLimitMph: postedSpeedLimitMph)
+        // Say it once per camera, and only when the driver is actually over
+        // the limit it enforces — a camera you are already legal for is a
+        // map icon, not an interruption.
+        let limit = next.camera.limitMph ?? postedSpeedLimitMph
+        if let limit, mph > limit + SpeedLaw.stateToleranceMph,
+           !announcedCameras.contains(next.camera.id) {
+            announcedCameras.append(next.camera.id)
+            if announcedCameras.count > Self.announcedCameraMemory {
+                announcedCameras.removeFirst(
+                    announcedCameras.count - Self.announcedCameraMemory)
+            }
+            DriveVoice.shared.speak(next.camera.kind.title + " ahead")
+        }
+    }
+
+    // MARK: lane-level guidance for the upcoming maneuver
+
+    /// The tagged lanes on the approach to the next maneuver, left to right
+    /// (OSM turn:lanes via Overpass). Empty when the road isn't tagged.
+    @Published private(set) var upcomingLanes: [LaneData.Lane] = []
+    private var laneLookupTask: Task<Void, Never>?
+    private var laneLookupStep = -1
+
+    /// Fetch lanes once per maneuver, and only when one is close enough to
+    /// matter — lane guidance three miles out is noise, and the tagging is
+    /// per-approach anyway.
+    private func updateUpcomingLanes() {
+        guard mode == .navigating, !walkingMode, !isPassengerTransit,
+              let g = navigation.guidance else {
+            if !upcomingLanes.isEmpty { upcomingLanes = [] }
+            laneLookupStep = -1
+            return
+        }
+        // A new maneuver resets the row; the same one isn't re-fetched.
+        if g.stepIndex != laneLookupStep {
+            laneLookupStep = g.stepIndex
+            upcomingLanes = []
+        }
+        guard upcomingLanes.isEmpty, g.distanceToManeuver < 1_600,
+              let point = navigation.coordinateAhead(meters: g.distanceToManeuver)
+        else { return }
+        let step = g.stepIndex
+        laneLookupTask?.cancel()
+        laneLookupTask = Task { [weak self] in
+            let lanes = await LiveHazardFeedFetcher.shared.turnLanes(at: point)
+            guard let self, !Task.isCancelled, self.mode == .navigating,
+                  self.navigation.guidance?.stepIndex == step else { return }
+            self.upcomingLanes = lanes
         }
     }
 
@@ -2155,6 +2408,17 @@ final class AppModel: ObservableObject {
     private var lastFuelScan = Date.distantPast
     /// Cleared when the driver dismisses; re-armed when the level worsens.
     private var dismissedFuelWarningLevel: FuelWarning.Level = .none
+
+    /// True while the driver is NEAR the line where too few stations selling
+    /// their fuel remain reachable — one step before the last-chance banner.
+    /// Drives the slow red tank pulse on the instrument line.
+    var fuelReachabilityTight: Bool {
+        if fuelWarningLevel != .none { return true }
+        guard let range = vehicle.expectedRangeMiles else { return false }
+        // Approaching the reserve is the same condition the reachable-station
+        // count is about to collapse under.
+        return range <= VehicleProfile.reserveMiles * 2
+    }
 
     /// True while the tank is low enough that the gauge should blink red.
     var fuelGaugeAlarming: Bool {
@@ -2306,7 +2570,7 @@ final class AppModel: ObservableObject {
         transitOptions = [:]
         activeTransitModes = []
         hybridOption = nil
-        collapsedPanels = []   // fresh choices bring tucked menus back
+        restoreTransientPanels()   // fresh choices bring the trip menus back
         highlightedRouteID = routes.first?.id
         mode = .choosing
         filterCardsHidden = false   // fresh choices bring the slider card back
@@ -2390,13 +2654,17 @@ final class AppModel: ObservableObject {
             routeChoices.sort {
                 // Near-equal ETA → prefer the lower balanced risk (band + identified
                 // ZIP exposure), not the band alone.
-                // Near-equal ETA is PROPORTIONAL to the trip (RouteService
-                // .etaTieTolerance) — a flat 5 minutes meant safety could
-                // never win a short trip and almost always won a long one.
+                // Rank on the LEARNED time, not the router's raw estimate:
+                // a corridor this device has repeatedly found slow at this
+                // hour should stop winning on paper. Near-equal is
+                // PROPORTIONAL to the trip (RouteService.etaTieTolerance) —
+                // a flat five minutes meant safety could never win a short
+                // trip and almost always won a long one.
+                let (a, b) = (self.learnedETA(for: $0), self.learnedETA(for: $1))
                 let tolerance = RouteService.etaTieTolerance(
-                    shorterETA: Swift.min($0.eta, $1.eta))
-                if abs($0.eta - $1.eta) < tolerance { return $0.rankingRisk < $1.rankingRisk }
-                return $0.eta < $1.eta
+                    shorterETA: Swift.min(a, b))
+                if abs(a - b) < tolerance { return $0.rankingRisk < $1.rankingRisk }
+                return a < b
             }
             ensureHighlightValid()
             // Retry routes whose weather fetches came back incomplete (NWS
@@ -3005,11 +3273,16 @@ final class AppModel: ObservableObject {
         stopDelaySeconds = 0
         tripShareOffered = false   // new trip → the share banner may show once
         tripSharePrompt = false
-        collapsedPanels = []   // the drive starts with its menus in reach
+        restoreTransientPanels()   // the drive starts with its menus in reach
         // Carry the road ahead offline for trips between towns: if signal
         // drops (or the app is reopened out in the country), the way onward
         // is already on disk. Short in-town hops aren't stored.
         recordOfflineCorridor(for: route)
+        // Start the delay model's training pair: what we promised, and when.
+        tripPredictedSeconds = route.eta
+        tripStartedAt = Date()
+        tripStartArea = location.coordinate.map(TrafficArea.init)
+        tripDistanceMeters = route.distanceMeters
         mode = .navigating
         startLeg(route)
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
@@ -3065,8 +3338,20 @@ final class AppModel: ObservableObject {
         fuelRecommendation = nil
         clearFuelWarning()
         limitLookupTask?.cancel()
+        laneLookupTask?.cancel()
+        upcomingLanes = []
+        laneLookupStep = -1
         postedSpeedLimitMph = nil
         lastLimitPoint = nil
+        lastLimitStep = nil
+        // Enforcement cameras belong to the trip too: leaving them up drops
+        // a stale chip into planning mode, and keeping the spoken-for list
+        // would silence a camera the next trip drives past again.
+        cameraLookupTask?.cancel()
+        enforcementCameras = []
+        cameraWarning = nil
+        lastCameraLookup = nil
+        announcedCameras.removeAll()
         refuelPrompt = false
         refuelPromptShownAt = nil
         upcomingSteepGrade = nil
@@ -3076,8 +3361,10 @@ final class AppModel: ObservableObject {
         lastClockFix = nil
         tripSharePrompt = false
         tripShareOffered = false
-        collapsedPanels = []   // back to planning with nothing tucked away
+        restoreTransientPanels()   // back to planning with the trip menus out
         corridors.prune(position: location.coordinate)   // arrived → let it go
+        learnTripDuration()   // teach the delay model what this drive cost
+        roadEfficiency.flush()   // bank the last measured stretch
         mode = .planning
         watch.sendEnded()
     }
@@ -3376,7 +3663,17 @@ final class AppModel: ObservableObject {
                 request.transportType = .automobile
                 request.departureDate = Date()
                 guard let eta = try? await MKDirections(request: request).calculateETA() else { continue }
-                let delay = (eta.expectedTravelTime - scaledBaseline) / 60
+                let liveDelay = (eta.expectedTravelTime - scaledBaseline) / 60
+                // The live probe sees traffic that exists NOW; the learned
+                // model knows what this hour in this weather usually costs.
+                // Take the worse of the two, so a corridor that reliably
+                // backs up at 5pm warns before the queue has formed.
+                let learned = Double(self.trafficModel.predictedDelayMinutes(
+                    routerSeconds: scaledBaseline,
+                    area: TrafficArea(fix),
+                    roadClass: self.currentRoadClass,
+                    weather: self.currentTrafficWeather))
+                let delay = max(liveDelay, learned)
                 let newDelay = (delay >= 8 && self.notifyTraffic)
                     ? Int(delay.rounded()) : nil
                 // Announce a FRESH offer once (not every re-measure of the
@@ -3407,6 +3704,104 @@ final class AppModel: ObservableObject {
                 self.trafficDelayMinutes = newDelay
             }
         }
+    }
+
+    /// Measure what this stretch of road actually cost: the fuel burned
+    /// covering it at the economy the vehicle was achieving. Filed by
+    /// neighbourhood and road class (RoadEfficiencyLearning).
+    private func recordRoadEfficiency(deltaMeters: Double, fix: CLLocation) {
+        guard let profile = vehicle.profile, deltaMeters > 0 else { return }
+        let miles = deltaMeters / 1609.344
+        let mph = max(fix.speed, 0) * 2.236936
+        // The vehicle's speed-aware curve is the best per-instant estimate of
+        // burn rate available without an OBD fuel-flow reading; measuring
+        // against it is what surfaces the road's OWN penalty (hills, lights,
+        // this driver's habits) rather than re-deriving the curve.
+        let instantMPU = profile.milesPerUnit(atSpeedMph: mph)
+        guard instantMPU > 0 else { return }
+        roadEfficiency.record(deltaMiles: miles,
+                              unitsBurned: miles / instantMPU,
+                              area: TrafficArea(fix.coordinate),
+                              roadClass: RoadClass.from(averageMph: mph))
+    }
+
+    /// The economy to PLAN with here: measured where this device has driven
+    /// enough to know, the vehicle's rated curve everywhere else.
+    var plannedEconomyMPU: Double? {
+        guard let profile = vehicle.profile else { return nil }
+        return roadEfficiency.economy(
+            ratedMilesPerUnit: profile.ratedMilesPerUnit,
+            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+            roadClass: currentRoadClass)
+    }
+
+    /// Live wind on the corridor, from the forecast the risk engine already
+    /// fetched — speed and the direction it blows FROM. Feeds the efficiency
+    /// score, where a headwind is air the vehicle has to push.
+    @Published private(set) var corridorWindMph: Double = 0
+    @Published private(set) var corridorWindFromDegrees: Double?
+
+    private var windLookupTask: Task<Void, Never>?
+    private var lastWindLookup = Date.distantPast
+
+    /// Refresh the wind on this stretch — slow cadence, since wind is a
+    /// weather-scale quantity, and it only feeds the efficiency icon.
+    private func updateCorridorWind(near point: CLLocationCoordinate2D) {
+        guard mode == .navigating,
+              Date().timeIntervalSince(lastWindLookup) > 300 else { return }
+        lastWindLookup = Date()
+        windLookupTask?.cancel()
+        windLookupTask = Task { [weak self] in
+            guard let c = await NWSForecastFetcher.shared.conditions(at: point),
+                  let self, !Task.isCancelled else { return }
+            self.corridorWindMph = c.windMph ?? 0
+            self.corridorWindFromDegrees = c.windFromDegrees
+        }
+    }
+
+    /// The coarse weather bucket the delay model learns on, from the risk
+    /// engine's own corridor scoring — no new data source.
+    var currentTrafficWeather: TrafficWeather {
+        let worst = navigation.route?.familyPeaks
+            .filter { $0.value >= FlowsCore.riskGreenMin }
+            .max(by: { $0.value < $1.value })?.key
+        return TrafficWeather.from(family: worst)
+    }
+
+    /// What this route was predicted to take when the driver accepted it —
+    /// the "predicted" half of the delay model's training pair.
+    private var tripPredictedSeconds: Double?
+    private var tripStartedAt: Date?
+    /// Where the trip began — which neighbourhood's learning it belongs to.
+    private var tripStartArea: TrafficArea?
+    private var tripDistanceMeters: Double = 0
+
+    /// The kind of road being driven right now, from the vehicle's own
+    /// rolling average speed.
+    var currentRoadClass: RoadClass {
+        RoadClass.from(averageMph: vehicle.averageSpeedMph)
+    }
+
+    /// Fold the finished trip into the learned model: what the router
+    /// promised vs. what the clock actually showed.
+    private func learnTripDuration() {
+        defer {
+            tripPredictedSeconds = nil; tripStartedAt = nil
+            tripStartArea = nil; tripDistanceMeters = 0
+        }
+        guard let predicted = tripPredictedSeconds, let started = tripStartedAt else { return }
+        let actual = Date().timeIntervalSince(started) - stopDelaySeconds
+        // Only whole trips teach anything: a drive abandoned after two
+        // minutes says nothing about how long the route takes.
+        guard actual > 300, actual < predicted * 4 else { return }
+        // Classify by the trip's own average pace, and file local roads
+        // under the neighbourhood they were driven in.
+        let miles = tripDistanceMeters / 1609.344
+        let avgMph = actual > 0 ? miles / (actual / 3600) : 0
+        trafficModel.record(predictedSeconds: predicted, actualSeconds: actual,
+                            area: tripStartArea ?? .pooled,
+                            roadClass: RoadClass.from(averageMph: avgMph),
+                            weather: currentTrafficWeather)
     }
 
     /// Traffic chip's action: swap to the currently-fastest hydrated route.
