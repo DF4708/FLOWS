@@ -93,6 +93,9 @@ final class AppModel: ObservableObject {
     /// Learns how much longer drives REALLY take by time of day and weather,
     /// from this device's own completed trips (TrafficLearning).
     let trafficModel = TrafficDelayModel()
+    /// Learns what this vehicle really gets on the roads this driver really
+    /// drives (RoadEfficiencyLearning) — feeds range, fuel timing, routes.
+    let roadEfficiency = RoadEfficiencyModel()
     let riskField = RiskFieldService()
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
@@ -438,7 +441,15 @@ final class AppModel: ObservableObject {
     /// Menus tucked into the top-right icon tray (double-tap a menu's grab
     /// bar). On the model so rotation can't forget them; cleared when the
     /// screen changes underneath them (new plan, GO, trip end).
-    @Published var collapsedPanels: Set<String> = []
+    @Published var collapsedPanels: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: "flows.collapsedPanels") ?? []) {
+        didSet {
+            // A driver who tucked something away meant it — remember across
+            // sessions rather than springing it back on the next launch.
+            UserDefaults.standard.set(Array(collapsedPanels),
+                                      forKey: "flows.collapsedPanels")
+        }
+    }
 
     // MARK: music provider
 
@@ -487,6 +498,16 @@ final class AppModel: ObservableObject {
         } else {
             provider.openApp()
         }
+    }
+
+    /// Menus tied to the CURRENT trip: these come back when the screen
+    /// changes under them. Instruments the driver chose to tuck away (the
+    /// gauge cluster, the map key) are deliberately NOT here — a preference
+    /// set once should survive the next plan, and the next launch.
+    private static let transientPanels = ["planner", "routes", "sliders", "stops"]
+
+    private func restoreTransientPanels() {
+        collapsedPanels.subtract(Self.transientPanels)
     }
 
     /// Close every floating panel or menu a map click can sit under —
@@ -1064,7 +1085,7 @@ final class AppModel: ObservableObject {
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
             vehicle, radio, vehicleLink, smartcar, crash, breadcrumbs,
-            corridors, trafficModel,
+            corridors, trafficModel, roadEfficiency,
         ]
         for child in children {
             (child.objectWillChange as? ObservableObjectPublisher)?
@@ -1129,6 +1150,7 @@ final class AppModel: ObservableObject {
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),
                                        deltaMeters: min(delta, 500))   // GPS jump guard
+                self.recordRoadEfficiency(deltaMeters: min(delta, 500), fix: fix)
                 self.recordDailyDriving(deltaMeters: min(delta, 500))
                 self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
                 self.updateFuelRecommendation()
@@ -1524,6 +1546,17 @@ final class AppModel: ObservableObject {
     /// Cleared when the driver dismisses; re-armed when the level worsens.
     private var dismissedFuelWarningLevel: FuelWarning.Level = .none
 
+    /// True while the driver is NEAR the line where too few stations selling
+    /// their fuel remain reachable — one step before the last-chance banner.
+    /// Drives the slow red tank pulse on the instrument line.
+    var fuelReachabilityTight: Bool {
+        if fuelWarningLevel != .none { return true }
+        guard let range = vehicle.expectedRangeMiles else { return false }
+        // Approaching the reserve is the same condition the reachable-station
+        // count is about to collapse under.
+        return range <= VehicleProfile.reserveMiles * 2
+    }
+
     /// True while the tank is low enough that the gauge should blink red.
     var fuelGaugeAlarming: Bool {
         guard let fraction = vehicle.predictedFuelFraction else { return false }
@@ -1668,7 +1701,7 @@ final class AppModel: ObservableObject {
         transitOptions = [:]
         activeTransitModes = []
         hybridOption = nil
-        collapsedPanels = []   // fresh choices bring tucked menus back
+        restoreTransientPanels()   // fresh choices bring the trip menus back
         highlightedRouteID = routes.first?.id
         mode = .choosing
         filterCardsHidden = false   // fresh choices bring the slider card back
@@ -2209,7 +2242,7 @@ final class AppModel: ObservableObject {
         stopDelaySeconds = 0
         tripShareOffered = false   // new trip → the share banner may show once
         tripSharePrompt = false
-        collapsedPanels = []   // the drive starts with its menus in reach
+        restoreTransientPanels()   // the drive starts with its menus in reach
         // Carry the road ahead offline for trips between towns: if signal
         // drops (or the app is reopened out in the country), the way onward
         // is already on disk. Short in-town hops aren't stored.
@@ -2284,9 +2317,10 @@ final class AppModel: ObservableObject {
         lastClockFix = nil
         tripSharePrompt = false
         tripShareOffered = false
-        collapsedPanels = []   // back to planning with nothing tucked away
+        restoreTransientPanels()   // back to planning with the trip menus out
         corridors.prune(position: location.coordinate)   // arrived → let it go
         learnTripDuration()   // teach the delay model what this drive cost
+        roadEfficiency.flush()   // bank the last measured stretch
         mode = .planning
         watch.sendEnded()
     }
@@ -2593,6 +2627,35 @@ final class AppModel: ObservableObject {
                     ? Int(delay.rounded()) : nil
             }
         }
+    }
+
+    /// Measure what this stretch of road actually cost: the fuel burned
+    /// covering it at the economy the vehicle was achieving. Filed by
+    /// neighbourhood and road class (RoadEfficiencyLearning).
+    private func recordRoadEfficiency(deltaMeters: Double, fix: CLLocation) {
+        guard let profile = vehicle.profile, deltaMeters > 0 else { return }
+        let miles = deltaMeters / 1609.344
+        let mph = max(fix.speed, 0) * 2.236936
+        // The vehicle's speed-aware curve is the best per-instant estimate of
+        // burn rate available without an OBD fuel-flow reading; measuring
+        // against it is what surfaces the road's OWN penalty (hills, lights,
+        // this driver's habits) rather than re-deriving the curve.
+        let instantMPU = profile.milesPerUnit(atSpeedMph: mph)
+        guard instantMPU > 0 else { return }
+        roadEfficiency.record(deltaMiles: miles,
+                              unitsBurned: miles / instantMPU,
+                              area: TrafficArea(fix.coordinate),
+                              roadClass: RoadClass.from(averageMph: mph))
+    }
+
+    /// The economy to PLAN with here: measured where this device has driven
+    /// enough to know, the vehicle's rated curve everywhere else.
+    var plannedEconomyMPU: Double? {
+        guard let profile = vehicle.profile else { return nil }
+        return roadEfficiency.economy(
+            ratedMilesPerUnit: profile.ratedMilesPerUnit,
+            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+            roadClass: currentRoadClass)
     }
 
     /// The coarse weather bucket the delay model learns on, from the risk

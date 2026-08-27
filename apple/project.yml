@@ -280,6 +280,7 @@ targets:
       - path: FLOWS/Sources/Core/SpeedLaw.swift
       - path: FLOWS/Sources/Core/DriveEfficiency.swift
       - path: FLOWS/Sources/Core/TrafficLearning.swift
+      - path: FLOWS/Sources/Core/RoadEfficiencyLearning.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
       - path: FLOWSTests
     settings:

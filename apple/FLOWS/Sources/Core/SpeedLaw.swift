@@ -85,28 +85,26 @@ enum SpeedLaw {
         return v
     }
 
-    /// The bar's own floor: below this the scale is uselessly cramped, and
-    /// a stopped vehicle would otherwise get a zero-width bar.
-    static let minTopMph = 30.0
-    /// Headroom above the fastest thing that must stay visible, so the fill
-    /// never sits pinned against the right end.
-    static let headroom = 1.25
+    /// Headroom above anything that must stay visible, so a line or the
+    /// fill never sits jammed against the right end.
+    static let headroom = 1.15
 
-    /// The top of the bar RIGHT NOW. The scale follows the driving instead
-    /// of standing still: it grows to keep the current speed and both legal
-    /// lines in view, and shrinks back when they fall away, so a 30 mph
-    /// street doesn't leave three-quarters of the bar permanently empty.
-    /// Rounded to a clean 10 so the number stops flickering, and never past
-    /// the vehicle's own maximum.
+    /// The top of the bar. It STARTS at the vehicle's own maximum (or 120
+    /// when nothing is known) and only ever ZOOMS OUT from there — if the
+    /// driver passes the red line, or a road's thresholds land beyond the
+    /// vehicle's rated top, the scale widens to keep the current speed and
+    /// BOTH legal lines inside the bar. It never narrows below the default,
+    /// so the scale a driver learns to read stays put.
     static func dynamicTopMph(speedMph: Double,
                               postedLimitMph: Double?,
                               vehicleTopSpeedMph: Double?) -> Double {
+        let base = barTopMph(vehicleTopSpeedMph: vehicleTopSpeedMph)
         let mustShow = max(speedMph,
                            stateThresholdMph(postedLimitMph: postedLimitMph) ?? 0,
                            federalThresholdMph(postedLimitMph: postedLimitMph) ?? 0)
-        let target = (mustShow * headroom / 10).rounded(.up) * 10
-        let ceiling = barTopMph(vehicleTopSpeedMph: vehicleTopSpeedMph)
-        return min(max(target, minTopMph), ceiling)
+        guard mustShow * headroom > base else { return base }
+        // Widen in clean tens so the number doesn't flicker mid-acceleration.
+        return (mustShow * headroom / 10).rounded(.up) * 10
     }
 
     /// Where a threshold sits along the bar, 0…1 — nil when it's off the end.

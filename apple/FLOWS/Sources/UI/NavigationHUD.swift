@@ -48,6 +48,8 @@ struct NavigationHUD: View {
     @State private var lastFixMph: Double = 0
     /// Breathing phase for the over-the-red-line speed glow.
     @State private var overGlow = false
+    /// Slow phase for the low-reachable-fuel tank.
+    @State private var tankPulse = false
 
 
     var body: some View {
@@ -312,20 +314,49 @@ struct NavigationHUD: View {
                     Divider().frame(height: golden.step(3) * 0.40)
                     efficiencyIcon
                 }
+                // A slow red pulse the moment the driver is near the line
+                // where too few stations selling their fuel remain reachable
+                // — the situation the last-chance warning exists for, made
+                // visible before the banner has to shout.
+                if model.fuelReachabilityTight {
+                    Divider().frame(height: golden.step(3) * 0.40)
+                    Image(systemName: "fuelpump.fill")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(Theme.riskRed.opacity(tankPulse ? 1 : 0.15))
+                        .frame(width: 22)
+                        .help("Few fuel stops left within your range")
+                }
             }
             .fixedSize(horizontal: true, vertical: false)
             if showsSpeedSign {
                 speedBar
-                // The scale's ends, under the bar where they belong.
-                HStack {
+                // One line under the bar: the scale's ends and both legal
+                // speeds, each in its own color, at a size that reads.
+                HStack(spacing: 0) {
                     Text("0")
-                    Spacer()
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 6)
+                    if let state = SpeedLaw.stateThresholdMph(
+                        postedLimitMph: model.postedSpeedLimitMph) {
+                        Text(String(format: "%.0f", state))
+                            .foregroundStyle(Theme.riskYellow)
+                            // Yellow on white needs an outline to be legible.
+                            .shadow(color: .black, radius: 0.6)
+                            .shadow(color: .black.opacity(0.7), radius: 1.2)
+                        Spacer(minLength: 6)
+                    }
+                    if let fed = SpeedLaw.federalThresholdMph(
+                        postedLimitMph: model.postedSpeedLimitMph) {
+                        Text(String(format: "%.0f", fed))
+                            .foregroundStyle(Theme.riskRed)
+                        Spacer(minLength: 6)
+                    }
                     Text("\(Int(barTopMph)) mph")
+                        .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.top, 8)          // below the legal-line numbers
-                .padding(.trailing, 36)    // clear of the live readout
+                .font(.system(size: 11, weight: .bold))
+                .monospacedDigit()
+                .padding(.trailing, 36)   // clear of the live readout
             }
         }
         .padding(.horizontal, 10)
@@ -336,6 +367,15 @@ struct NavigationHUD: View {
         .overlay(alignment: .topTrailing) {
             minimizeButton("fuel", help: "Tuck the driving instruments away")
                 .padding(3)
+        }
+        .onChange(of: model.fuelReachabilityTight, initial: true) { _, tight in
+            if tight {
+                withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                    tankPulse = true
+                }
+            } else {
+                withAnimation(.default) { tankPulse = false }
+            }
         }
     }
 
@@ -440,15 +480,6 @@ struct NavigationHUD: View {
                     }
                     if let fedFrac {
                         legalMarker(at: w * fedFrac, color: Theme.riskRed)
-                    }
-                    // Each legal line says what speed it stands for.
-                    if let stateFrac, let stateMph {
-                        limitLabel(String(format: "%.0f", stateMph),
-                                   at: w * stateFrac, width: w, color: Theme.riskYellow)
-                    }
-                    if let fedFrac, let fedMph {
-                        limitLabel(String(format: "%.0f", fedMph),
-                                   at: w * fedFrac, width: w, color: Theme.riskRed)
                     }
                 }
                 .animation(.easeOut(duration: 0.35), value: fill)
@@ -1129,9 +1160,10 @@ struct NavigationHUD: View {
             if rerouting {
                 ProgressView()
             }
-            // Push the maneuver left and the compass right, so the two read
-            // as separate instruments rather than one crowded strip.
-            Spacer(minLength: 12)
+            // The maneuver expands into the banner; a fixed gap is all that
+            // separates it from the compass, so no space is wasted between.
+            Spacer(minLength: 0)
+                .frame(maxWidth: .infinity)
             bannerCompass
         }
         .padding(14)
@@ -1206,7 +1238,6 @@ struct NavigationHUD: View {
                 ViewThatFits(in: .horizontal) {
                     HStack(spacing: 10) {
                         tripStats
-                        rangeChip
                         Spacer()
                         recenterButton
                         Spacer()
@@ -1221,7 +1252,6 @@ struct NavigationHUD: View {
                     VStack(spacing: 8) {
                         HStack(spacing: 10) {
                             tripStats
-                            rangeChip
                             Spacer()
                             recenterButton
                             endButton
@@ -1240,7 +1270,6 @@ struct NavigationHUD: View {
             } else {
                 HStack(spacing: 10) {
                     tripStats
-                    rangeChip
                     Spacer()
                     recenterButton
                     Spacer()
@@ -1275,36 +1304,34 @@ struct NavigationHUD: View {
         .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    /// Remaining time + distance for the drive (live guidance, else the
-    /// route preview).
+    /// Time and distance left, side by side in one type size under a single
+    /// "Total" header whose rule spans both — one reading, not two chips.
+    /// The tank's remaining range is NOT repeated here; the gauge cluster
+    /// above already carries it.
     @ViewBuilder
     private var tripStats: some View {
-        if let g = model.navigation.guidance {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(etaText(model.adjustedRemainingTime(g.remainingTime)))
-                    .font(.system(size: 17, weight: .bold))
-                Text(distanceText(g.remainingDistance))
-                    .font(.footnote)
+        let time = model.navigation.guidance.map {
+            model.adjustedRemainingTime($0.remainingTime)
+        } ?? model.navigation.route.map { model.adjustedRemainingTime($0.eta) }
+        let meters = model.navigation.guidance?.remainingDistance
+            ?? model.navigation.route?.distanceMeters
+        if let time, let meters {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Total")
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(.secondary)
+                Rectangle()
+                    .fill(Color.secondary.opacity(0.45))
+                    .frame(height: 1)
+                HStack(spacing: 8) {
+                    Text(etaText(time))
+                    Divider().frame(height: 16)
+                    Text(distanceText(meters))
+                }
+                .font(.system(size: 17, weight: .bold))
+                .monospacedDigit()
             }
-        } else if let route = model.navigation.route {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(etaText(model.adjustedRemainingTime(route.eta)))
-                    .font(.system(size: 17, weight: .bold))
-                Text(distanceText(route.distanceMeters))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var rangeChip: some View {
-        if let range = model.vehicle.expectedRangeMiles, model.vehicle.profile != nil {
-            Label(String(format: "~%.0f mi", range), systemImage: "fuelpump")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .help("Estimated range left in the tank")
+            .fixedSize()
         }
     }
 

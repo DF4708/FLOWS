@@ -1813,10 +1813,12 @@ private struct PlanningChrome: View {
                 if model.mode == .choosing {
                     TripSummaryPill()
                     FilterSlidersCard()
-                    // Height/φ² cap: the choices list never claims the
-                    // window's majority — the map keeps it.
+                    // Tall enough for the FIRST CARD in full (a route the
+                    // driver can't read whole is no choice at all), and
+                    // taller on displays with the room to spare.
                     RouteChoicesView(camera: $camera)
-                        .frame(maxHeight: golden.panelMaxHeight)
+                        .frame(maxHeight: max(golden.panelMaxHeight,
+                                              golden.firstCardMinHeight))
                     Spacer()
                 } else {
                     Spacer()
