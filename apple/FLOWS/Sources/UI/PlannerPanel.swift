@@ -91,7 +91,7 @@ struct PlannerPanel: View {
                     .font(.system(size: 16))
                     .frame(minHeight: Theme.tapMinimum)
                     .padding(.horizontal, 14)
-                    .background(Color.black.opacity(0.04))
+                    .background(Theme.fill(0.04))
                     .clipShape(Capsule())
                     .contentShape(Capsule())
                     .focused($focusedField, equals: .destination)
@@ -124,7 +124,7 @@ struct PlannerPanel: View {
                         .font(.system(size: 20, weight: .semibold))
                         .foregroundStyle(destinationIsFavorite ? Color.yellow : Color.secondary)
                         .frame(width: 56, height: Theme.tapMinimum)
-                        .background(Color.black.opacity(0.04))
+                        .background(Theme.fill(0.04))
                         .clipShape(Capsule())
                 }
                 .menuIndicator(.hidden)
@@ -169,7 +169,7 @@ struct PlannerPanel: View {
                     }
                 }
                 }
-                .background(Color.black.opacity(0.03))
+                .background(Theme.fill(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
@@ -208,7 +208,7 @@ struct PlannerPanel: View {
                     .font(.system(size: 16))
                     .frame(minHeight: Theme.tapMinimum)
                     .padding(.horizontal, 14)
-                    .background(Color.black.opacity(0.04))
+                    .background(Theme.fill(0.04))
                     .clipShape(Capsule())
                     .contentShape(Capsule())
                     .focused($focusedField, equals: .source)
@@ -330,7 +330,7 @@ struct PlannerPanel: View {
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 34)
-                .background(Color.black.opacity(0.05))
+                .background(Theme.fill(0.05))
                 .clipShape(Capsule())
         }
         .buttonStyle(.plain)

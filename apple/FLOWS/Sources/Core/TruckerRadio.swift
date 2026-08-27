@@ -175,6 +175,9 @@ final class TruckerRadio: ObservableObject {
 
     private var statusObservation: NSKeyValueObservation?
     private var failureObserver: NSObjectProtocol?
+    /// Called when playback starts, so the AM/FM dial can stand down — one
+    /// car, one pair of speakers.
+    var willStartPlaying: (() -> Void)?
 
     func play(_ channel: Channel) {
         guard let url = channel.streamURL else {
@@ -182,6 +185,7 @@ final class TruckerRadio: ObservableObject {
                 + "for the cab radio, or add a relay URL in trucker_radio.json."
             return
         }
+        willStartPlaying?()
         stop()
         #if os(iOS)
         // Without an active playback session iOS keeps AVPlayer SILENT —

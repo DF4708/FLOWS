@@ -288,6 +288,8 @@ targets:
       - path: FLOWS/Sources/Core/ManeuverSymbol.swift
       - path: FLOWS/Sources/Core/LaneData.swift
       - path: FLOWS/Sources/Core/RadioTuning.swift
+      - path: FLOWS/Sources/Core/DaylightClock.swift
+      - path: FLOWS/Sources/Core/BroadcastRadio.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
       - path: FLOWSTests
     settings:

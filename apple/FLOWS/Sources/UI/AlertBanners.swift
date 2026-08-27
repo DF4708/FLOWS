@@ -195,7 +195,7 @@ struct GasGaugeCard: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 14)
                     .frame(minHeight: 38)
-                    .background(Color.black.opacity(0.06))
+                    .background(Theme.fill(0.06))
                     .clipShape(Capsule())
                 Spacer()
                 Button(String(format: "It was at %.0f%% — filled up", fraction * 100)) {
@@ -206,7 +206,7 @@ struct GasGaugeCard: View {
                 .padding(.horizontal, 14)
                 .frame(minHeight: 38)
                 .background(Theme.cta)
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.onCTA)
                 .clipShape(Capsule())
             }
         }
@@ -251,7 +251,7 @@ struct GaugeDial: View {
                 // Arc E (left) → F (right).
                 Circle()
                     .trim(from: 0.5, to: 1.0)
-                    .stroke(Color.black.opacity(0.15), style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                    .stroke(Theme.fill(0.15), style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .frame(width: radius * 2, height: radius * 2)
                     .position(center)
                 Circle()
@@ -432,7 +432,7 @@ struct TowingCard: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background((violated ? Theme.riskRed.opacity(0.12) : Color.black.opacity(0.05)))
+        .background((violated ? Theme.riskRed.opacity(0.12) : Theme.fill(0.05)))
         .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -588,7 +588,7 @@ struct StarsAndBucks: View {
                     ForEach(0..<5) { i in
                         Text("$")
                             .font(.system(size: 11, weight: .heavy))
-                            .foregroundStyle(i < tier ? dollarColor : Color.black.opacity(0.15))
+                            .foregroundStyle(i < tier ? dollarColor : Theme.fill(0.15))
                     }
                     Text(" \(currency)")
                         .font(.system(size: 8, weight: .semibold))

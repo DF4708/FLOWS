@@ -342,7 +342,14 @@ struct ContentView: View {
             VehicleEditorSheet()
                 .environmentObject(model)
         }
-        .preferredColorScheme(.light)   // cards/theme are light-designed; adaptive materials later
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
+        // Light by day, dark by night, on the sun at the driver's own
+        // position — see DaylightClock. Settings can pin either one.
+        .preferredColorScheme(model.resolvedColorScheme)
+        .onAppear { model.refreshDaylight() }
         .onReceive(model.navigation.$guidance) { guidance in
             // Navigation camera: chase the GPS fix at the engine's altitude —
             // but never fight the user; a manual pan pauses following until
@@ -423,6 +430,10 @@ struct ContentView: View {
             SettingsSheet()
                 .environmentObject(model)
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         #endif
         .onChange(of: model.mode) { previous, mode in
             switch mode {
@@ -479,6 +490,10 @@ struct ContentView: View {
             DemoAlertsView()
                 .environmentObject(model)
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         .onAppear {
             switch ProcessInfo.processInfo.environment["FLOWS_DEMO"] {
             case "gallery":
@@ -1246,9 +1261,9 @@ struct ContentView: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
                             .background(ranked.id == model.poi.selected?.id
-                                        ? Theme.cta : Color.white)
+                                        ? Theme.cta : Theme.cardBackground)
                             .foregroundStyle(ranked.id == model.poi.selected?.id
-                                             ? .white : .primary)
+                                             ? Theme.onCTA : Color.primary)
                             .clipShape(Capsule())
                             .overlay(Capsule().stroke(Theme.cta, lineWidth: 1))
                             .shadow(radius: 2)
@@ -1376,7 +1391,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: model.poi.activeKind?.symbol ?? "mappin")
                 .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(isSelected ? Theme.onCTA : Color.white)
                 .frame(width: 28, height: 28)
                 .background(isSelected ? Theme.cta : Color.gray)
                 .clipShape(Circle())
@@ -1568,7 +1583,7 @@ struct ContentView: View {
                     .padding(.horizontal, 12)
                     .frame(minHeight: 34)
                     .background(Theme.cta)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.onCTA)
                     .clipShape(Capsule())
                 Button { model.vehicleOnboardingDismissed = true } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
@@ -2195,6 +2210,27 @@ struct SettingsSheet: View {
                 .foregroundStyle(.secondary)
 
             Divider()
+            Text("Screen light")
+                .font(.system(size: 14, weight: .semibold))
+            Picker("Screen light", selection: Binding(
+                get: { model.appearanceOverride },
+                set: { model.appearanceOverride = $0 })) {
+                Text("Follow the sun").tag(Bool?.none)
+                Text("Always light").tag(Bool?.some(false))
+                Text("Always dark").tag(Bool?.some(true))
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            Text(model.appearanceOverride == nil
+                 ? "Bright by day and dark by night, on the sunset and sunrise "
+                   + "where you are — not on a set hour. Dusk in Miami in June "
+                   + "and dusk in Fairbanks in December are hours apart."
+                 : "Pinned. Pick \"Follow the sun\" to have it change on its own "
+                   + "at dusk and dawn.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
             Text("Vehicle limits")
                 .font(.system(size: 14, weight: .semibold))
             HStack {
@@ -2592,6 +2628,10 @@ struct SettingsSheet: View {
             DemoAlertsView()
                 .environmentObject(model)
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         #if os(iOS)
         .sheet(isPresented: $showContactPicker) {
             ContactPicker { name, phone in
@@ -2599,6 +2639,10 @@ struct SettingsSheet: View {
                 model.emergencyContactPhone = phone
             }
         }
+        // A sheet is presented into its own environment root and does
+        // NOT inherit the presenter's appearance — say it again here or
+        // settings opens bright white in a dark cab.
+        .presentationColorScheme(model.resolvedColorScheme)
         #endif
     }
 }

@@ -13,11 +13,62 @@ import SwiftUI
 /// pill controls (border-radius 999px), near-black CTA (#111), floating white
 /// cards at 95% opacity, and the FLOWS risk palette.
 enum Theme {
-    // styles.css: .search-button / .route-button { background:#111 }
-    static let cta = Color(red: 0x11 / 255.0, green: 0x11 / 255.0, blue: 0x11 / 255.0)
-    // styles.css: rgba(255,255,255,0.95) floating cards
-    static let cardBackground = Color.white.opacity(0.95)
-    static let cardShadow = Color.black.opacity(0.14)
+    /// A color that changes with the light. One definition, two values —
+    /// the platform resolves whichever the current appearance calls for, so
+    /// every card and chip using these tokens turns over at dusk without
+    /// each view having to ask what time it is.
+    static func adaptive(light: Color, dark: Color) -> Color {
+        #if os(iOS) || os(tvOS)
+        return Color(UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(dark) : UIColor(light) })
+        #elseif os(macOS)
+        return Color(NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(dark) : NSColor(light)
+        })
+        #else
+        return light
+        #endif
+    }
+
+    // styles.css: .search-button / .route-button { background:#111 }.
+    // After dark the near-black pill would vanish into a near-black card,
+    // so it flips to near-white with dark lettering — same weight on the
+    // screen, opposite ink.
+    static let cta = adaptive(
+        light: Color(red: 0x11 / 255.0, green: 0x11 / 255.0, blue: 0x11 / 255.0),
+        dark: Color(red: 0xEC / 255.0, green: 0xED / 255.0, blue: 0xEF / 255.0))
+    /// Lettering ON a CTA pill — the inverse of whatever the pill is.
+    static let onCTA = adaptive(light: .white,
+                                dark: Color(red: 0x0B / 255.0, green: 0x0E / 255.0,
+                                            blue: 0x12 / 255.0))
+    // styles.css: rgba(255,255,255,0.95) floating cards. At night the same
+    // card is near-black at the same opacity, so the map still reads through
+    // it and the text on it is light-on-dark rather than a white slab in a
+    // dark car.
+    static let cardBackground = adaptive(
+        light: Color.white.opacity(0.95),
+        dark: Color(red: 0x14 / 255.0, green: 0x17 / 255.0,
+                    blue: 0x1C / 255.0).opacity(0.95))
+    static let cardShadow = adaptive(light: Color.black.opacity(0.14),
+                                     dark: Color.black.opacity(0.5))
+
+    /// The faint wash behind a chip, a row, or a bar track. It must be a
+    /// TINT OF THE OPPOSITE ink: black at 6% is invisible on a dark card,
+    /// which is how a dark mode ends up as a field of unmarked rectangles.
+    static func fill(_ level: Double) -> Color {
+        adaptive(light: Color.black.opacity(level),
+                 dark: Color.white.opacity(min(level * 2.2, 0.5)))
+    }
+
+    /// A surface that is deliberately dark in BOTH appearances — the
+    /// maneuver banner, map badges — and the lettering that goes on it.
+    static let onDark = Color.white
+    /// …and its opposite: lettering on a surface that stays WHITE in both
+    /// appearances, such as a pill sitting on a saturated alert banner.
+    /// Fixed on purpose — an adaptive ink here turns white-on-white at dusk.
+    static let onLight = Color(red: 0x11 / 255.0, green: 0x11 / 255.0,
+                               blue: 0x11 / 255.0)
     // R/risk_constants.R + rust risk.rs palette
     static let riskGreen = Color(red: 0x2e / 255.0, green: 0xcc / 255.0, blue: 0x71 / 255.0)
     static let riskYellow = Color(red: 0xf1 / 255.0, green: 0xc4 / 255.0, blue: 0x0f / 255.0)
@@ -105,7 +156,7 @@ struct PillCTAStyle: ButtonStyle {
             .font(.system(size: 16, weight: .bold))
             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
             .background(Theme.cta.opacity(configuration.isPressed ? 0.75 : 1.0))
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.onCTA)
             .clipShape(Capsule())
     }
 }
@@ -124,6 +175,16 @@ struct FloatingCard: ViewModifier {
 }
 
 extension View {
+    /// Carry the app's day/night appearance into a SHEET.
+    ///
+    /// `preferredColorScheme` set on the content that presents a sheet does
+    /// not reach the sheet: it is presented into its own environment root.
+    /// Without this, settings and the vehicle editor open bright white at
+    /// two in the morning while everything behind them is dark.
+    func presentationColorScheme(_ scheme: ColorScheme?) -> some View {
+        preferredColorScheme(scheme)
+    }
+
     func floatingCard() -> some View { modifier(FloatingCard()) }
     /// A menu that minimizes instead of vanishing: its X button tucks it
     /// into a small round icon at the window's top right (CollapsedPanelTray

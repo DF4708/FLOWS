@@ -519,7 +519,7 @@ struct RouteChoicesView: View {
                 .font(.system(size: golden.iconSmall * 0.46, weight: .bold))
                 .foregroundStyle(isOn ? .white : .primary)
                 .frame(width: golden.iconSmall, height: golden.iconSmall)
-                .background(isOn ? tint : Color.black.opacity(0.06))
+                .background(isOn ? tint : Theme.fill(0.06))
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
@@ -1014,8 +1014,8 @@ struct RouteChoicesView: View {
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                        .background(active ? Theme.cta : Color.black.opacity(0.05))
-                        .foregroundStyle(active ? .white : .primary)
+                        .background(active ? Theme.cta : Theme.fill(0.05))
+                        .foregroundStyle(active ? Theme.onCTA : Color.primary)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -1304,7 +1304,7 @@ private struct RouteCard: View {
                             .buttonStyle(.plain)
                             .frame(width: 72, height: 36)
                             .background(Theme.cta)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.onCTA)
                             .clipShape(Capsule())
                     } else {
                         HStack(spacing: 6) {
@@ -1314,7 +1314,7 @@ private struct RouteCard: View {
                                 .foregroundStyle(.secondary)
                         }
                         .frame(width: 92, height: 36)
-                        .background(Color.black.opacity(0.06))
+                        .background(Theme.fill(0.06))
                         .clipShape(Capsule())
                         .help("GO unlocks when weather risk scoring completes")
                     }
@@ -1579,7 +1579,7 @@ private struct RouteCard: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .background(Color.black.opacity(0.06))
+            .background(Theme.fill(0.06))
             .clipShape(Capsule())
         } else {
             // Labeled so it can't be misread against the peak line: this is

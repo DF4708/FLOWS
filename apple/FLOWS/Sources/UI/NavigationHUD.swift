@@ -33,6 +33,8 @@ struct NavigationHUD: View {
     /// Radio card visibility (trucker radio in trucker mode, emergency
     /// radio otherwise — same card, same relays).
     @State private var showRadio = false
+    /// The AM/FM dial — a different card from the emergency radio above.
+    @State private var showBroadcast = false
     /// Long-trip share banner: recipient list expanded / contacts sheet up.
     @State private var showShareChooser = false
     @State private var showShareContactPicker = false
@@ -208,6 +210,9 @@ struct NavigationHUD: View {
             // model or the HUD, so the fits/scrolls swap loses nothing.
             ScrollWhenTight {
                 VStack(spacing: 8) {
+                    if showBroadcast {
+                        broadcastRadioCard
+                    }
                     if showRadio {
                         radioCard
                     }
@@ -241,6 +246,11 @@ struct NavigationHUD: View {
             showRadio = true
             model.showRadioCardRequested = false
         }
+        .onChange(of: model.showBroadcastRadioRequested) { _, wants in
+            guard wants else { return }
+            showBroadcast = true
+            model.showBroadcastRadioRequested = false
+        }
         .onReceive(model.location.$latest) { fix in
             guard let fix else { return }
             let mph = max(fix.speed, 0) * 2.236936
@@ -270,7 +280,7 @@ struct NavigationHUD: View {
     /// Any floating card open above the bottom bar (radio, music, pickers,
     /// the stop list) — these get the fuel cluster's room in short windows.
     private var floatingCardOpen: Bool {
-        showRadio || showMusicMenu || model.showMusicProviderPrompt
+        showRadio || showBroadcast || showMusicMenu || model.showMusicProviderPrompt
             || model.poi.pendingFoodChoice || model.poi.pendingStoreChoice
             || model.poi.pendingFuelChoice || !model.poi.results.isEmpty
     }
@@ -300,7 +310,7 @@ struct NavigationHUD: View {
                     .frame(width: golden.step(3) * 0.8, height: golden.step(3) * 0.5)
                     .allowsHitTesting(false)
                 if let economy = averageEconomy {
-                    Divider().frame(height: golden.step(3) * 0.52)
+                    Divider().frame(height: instrumentColumnHeight)
                     titled("Average") {
                         Text(electric
                              ? String(format: "%.1f mi/kWh", economy)
@@ -310,7 +320,7 @@ struct NavigationHUD: View {
                     }
                 }
                 if let range = vehicle.expectedRangeMiles {
-                    Divider().frame(height: golden.step(3) * 0.52)
+                    Divider().frame(height: instrumentColumnHeight)
                     titled("Fuel Tank") {
                         Text(String(format: "%.0f mi left", range))
                             .font(.system(size: 13, weight: .semibold))
@@ -318,11 +328,11 @@ struct NavigationHUD: View {
                     }
                 }
                 if showsSpeedSign {
-                    Divider().frame(height: golden.step(3) * 0.52)
+                    Divider().frame(height: instrumentColumnHeight)
                     titled("Efficiency") { efficiencyIcon }
                 }
                 if model.fuelReachabilityTight {
-                    Divider().frame(height: golden.step(3) * 0.52)
+                    Divider().frame(height: instrumentColumnHeight)
                     Image(systemName: "fuelpump.fill")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Theme.riskRed.opacity(tankPulse ? 1 : 0.15))
@@ -350,8 +360,7 @@ struct NavigationHUD: View {
                             if let state = SpeedLaw.stateThresholdMph(
                                 postedLimitMph: lawLimitMph),
                                let f = SpeedLaw.barFraction(state, topMph: top) {
-                                let label = limitTilde
-                                    + String(format: "%.0f", state)
+                                let label = String(format: "%.0f", state)
                                 OutlinedText(text: label,
                                              color: Theme.riskYellow,
                                              font: .system(size: 11, weight: .bold))
@@ -364,8 +373,7 @@ struct NavigationHUD: View {
                             if let fed = SpeedLaw.federalThresholdMph(
                                 postedLimitMph: lawLimitMph),
                                let f = SpeedLaw.barFraction(fed, topMph: top) {
-                                let label = limitTilde
-                                    + String(format: "%.0f", fed)
+                                let label = String(format: "%.0f", fed)
                                 Text(label)
                                     .font(.system(size: 11, weight: .bold))
                                     .monospacedDigit()
@@ -431,6 +439,10 @@ struct NavigationHUD: View {
 
     /// One instrument readout under its own underlined title, so each
     /// number says what it is without a driver having to infer it.
+    /// How tall one instrument column is — the same height as the separator
+    /// bars between them, so every column ends on the same line.
+    private var instrumentColumnHeight: CGFloat { golden.step(3) * 0.52 }
+
     private func titled<Content: View>(_ title: String,
                                        @ViewBuilder content: () -> Content)
         -> some View {
@@ -443,9 +455,14 @@ struct NavigationHUD: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.45))
                 .frame(height: 1)
+            // The reading sits in the MIDDLE of the space left between its
+            // own underline and the foot of the separator bars. Three
+            // readings of different natural heights — two lines of text and
+            // an icon — otherwise hang from the rule at three heights.
             content()
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(height: instrumentColumnHeight)
         .fixedSize(horizontal: true, vertical: false)
     }
 
@@ -507,12 +524,6 @@ struct NavigationHUD: View {
                                    speedMph: liveMph)
     }
 
-    /// `~` in front of a line's number when it came from the estimate rather
-    /// than a sign — the app never claims to have read one it hasn't.
-    private var limitTilde: String {
-        SpeedLaw.isEstimated(postedLimitMph: model.postedSpeedLimitMph) ? "~" : ""
-    }
-
     /// The top of the bar, which FOLLOWS the driving: it grows to keep the
     /// current speed and both legal lines in view and shrinks back when they
     /// fall away, so a 30 mph street doesn't leave most of the bar empty.
@@ -555,7 +566,7 @@ struct NavigationHUD: View {
             GeometryReader { geo in
                 let w = geo.size.width
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.black.opacity(0.07))
+                    Capsule().fill(Theme.fill(0.07))
                     Capsule()
                         .fill(speedBarColor)
                         .frame(width: w * fill)
@@ -563,10 +574,12 @@ struct NavigationHUD: View {
                     // once the bar has run past it.
                     ticks(width: w, topMph: top)
                     if let stateFrac {
-                        legalMarker(at: w * stateFrac, color: Theme.riskYellow)
+                        legalMarker(at: w * stateFrac, color: Theme.riskYellow,
+                                    passed: liveMph >= (stateMph ?? .infinity))
                     }
                     if let fedFrac {
-                        legalMarker(at: w * fedFrac, color: Theme.riskRed)
+                        legalMarker(at: w * fedFrac, color: Theme.riskRed,
+                                    passed: over)
                     }
                 }
                 .animation(.easeOut(duration: 0.35), value: fill)
@@ -657,13 +670,32 @@ struct NavigationHUD: View {
     }
 
     /// A legal threshold: full-height and thick, so it reads over the fill.
-    private func legalMarker(at x: CGFloat, color: Color) -> some View {
-        Rectangle()
-            .fill(color)
-            .frame(width: 3, height: 14)
-            .overlay(Rectangle().stroke(Color.white.opacity(0.6), lineWidth: 0.5))
-            .offset(x: max(x - 1.5, 0))
-            .frame(maxWidth: .infinity, alignment: .leading)
+    ///
+    /// Once the bar runs PAST a line the fill takes that line's own color
+    /// and the mark disappears into it — red on red. A line the driver has
+    /// just crossed is the one they most need to see, so a crossed mark
+    /// gets a solid white surround rather than the hairline edge.
+    private func legalMarker(at x: CGFloat, color: Color,
+                             passed: Bool = false) -> some View {
+        // The white is a BORDER, not the mark: the color still has to be
+        // the thing you see, so the core stays wider than the two edges.
+        let core: CGFloat = passed ? 6 : 3
+        let outer: CGFloat = passed ? core + 4 : core
+        return ZStack {
+            if passed {
+                Rectangle()
+                    .fill(.white)
+                    .frame(width: outer, height: 18)
+            }
+            Rectangle()
+                .fill(color)
+                .frame(width: core, height: 14)
+                .overlay(passed ? nil
+                         : Rectangle().stroke(Color.white.opacity(0.6), lineWidth: 0.5))
+        }
+        .frame(width: outer, height: 18)
+        .offset(x: max(x - outer / 2, 0))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// How thriftily the vehicle is being driven right now. Green leaf when
@@ -730,7 +762,7 @@ struct NavigationHUD: View {
                             .font(.system(size: 13, weight: .semibold))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(Color.black.opacity(0.05))
+                            .background(Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -766,7 +798,7 @@ struct NavigationHUD: View {
                             .font(.system(size: 13, weight: .semibold))
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(Color.black.opacity(0.05))
+                            .background(Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -800,7 +832,7 @@ struct NavigationHUD: View {
                         Label(fuel.rawValue, systemImage: fuel.symbol)
                             .font(.system(size: 14, weight: .semibold))
                             .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-                            .background(Color.black.opacity(0.05))
+                            .background(Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -967,7 +999,7 @@ struct NavigationHUD: View {
             .padding(.horizontal, 12)
             .frame(minHeight: 32)
             .background(Theme.cta)
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.onCTA)
             .clipShape(Capsule())
         }
         .padding(8)
@@ -1026,6 +1058,10 @@ struct NavigationHUD: View {
                     sendShare(name: name, phone: phone)
                 }
             }
+            // A sheet is presented into its own environment root and does
+            // NOT inherit the presenter's appearance — say it again here or
+            // settings opens bright white in a dark cab.
+            .presentationColorScheme(model.resolvedColorScheme)
             #endif
     }
 
@@ -1061,7 +1097,7 @@ struct NavigationHUD: View {
                         .padding(.horizontal, 18)
                         .frame(minHeight: Theme.tapMinimum)
                         .background(Color.white)
-                        .foregroundStyle(Theme.cta)
+                        .foregroundStyle(Theme.onLight)
                         .clipShape(Capsule())
                 }
             }
@@ -1069,7 +1105,7 @@ struct NavigationHUD: View {
         .padding(12)
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
         .background(Theme.cta.opacity(0.95))
-        .foregroundStyle(.white)
+        .foregroundStyle(Theme.onCTA)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
         .onDisappear { showShareChooser = false }
@@ -1113,7 +1149,7 @@ struct NavigationHUD: View {
                             .padding(.horizontal, 12)
                             .frame(minHeight: 30)
                             .background(Color.white)
-                            .foregroundStyle(Theme.cta)
+                            .foregroundStyle(Theme.onLight)
                             .clipShape(Capsule())
                     }
                     .padding(.horizontal, 10)
@@ -1539,7 +1575,7 @@ struct NavigationHUD: View {
                 Image(systemName: "location.fill")
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: golden.iconCircle, height: golden.iconCircle)
-                    .background(Color.black.opacity(0.06))
+                    .background(Theme.fill(0.06))
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -1554,7 +1590,7 @@ struct NavigationHUD: View {
             Image(systemName: "link.circle.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .frame(width: golden.iconCircle, height: golden.iconCircle)
-                .background(model.towingActive ? Color.brown : Color.black.opacity(0.06))
+                .background(model.towingActive ? Color.brown : Theme.fill(0.06))
                 .foregroundStyle(model.towingActive ? .white : .primary)
                 .clipShape(Circle())
         }
@@ -1571,7 +1607,7 @@ struct NavigationHUD: View {
             Image(systemName: "radio.fill")
                 .font(.system(size: 14, weight: .semibold))
                 .frame(width: golden.iconCircle, height: golden.iconCircle)
-                .background(showRadio ? Color.brown : Color.black.opacity(0.06))
+                .background(showRadio ? Color.brown : Theme.fill(0.06))
                 .foregroundStyle(showRadio ? .white : .primary)
                 .clipShape(Circle())
         }
@@ -1620,10 +1656,12 @@ struct NavigationHUD: View {
                     .padding(.horizontal, 11)
                     .padding(.vertical, 5)
                     .frame(minHeight: 46)
-                    .background(selected ? Theme.cta : Color.black.opacity(0.06))
-                    // The pressed-in state sits on a near-black background —
-                    // its contents must stay light, never black-on-black.
-                    .foregroundStyle(selected ? Color(white: 0.8) : Color.primary)
+                    .background(selected ? Theme.cta : Theme.fill(0.06))
+                    // The pressed-in chip is the CTA fill, so its contents
+                    // take the CTA's ink — which inverts at dusk along with
+                    // the fill. A fixed light gray here is white-on-white
+                    // after dark and black-on-black before it.
+                    .foregroundStyle(selected ? Theme.onCTA : Color.primary)
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -1736,6 +1774,113 @@ struct NavigationHUD: View {
     /// in trucker mode, emergency radio for everyone else — same relays),
     /// plus the frequency guide for a physical radio. (The HUD's shared
     /// card region scrolls this when the window is short.)
+    /// AM/FM — the dial, not the weather band.
+    ///
+    /// A driver picks a KIND of station, not a station: nobody knows the
+    /// call letters in a town they're passing through. Back and forward then
+    /// walk the local stations of that kind, wrapping at both ends, exactly
+    /// like the seek buttons on a car radio — and they never leave the kind,
+    /// so seeking past the last country station lands on the first one
+    /// rather than on talk radio.
+    private var broadcastRadioCard: some View {
+        let tuner = model.broadcast
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("AM/FM radio", systemImage: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 15, weight: .bold))
+                Spacer()
+                Button { showBroadcast = false } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Tuck the radio away — it keeps playing")
+            }
+            // The kinds this area actually broadcasts. An empty kind is not
+            // offered, so no press lands on silence.
+            if tuner.availableKinds.isEmpty {
+                Text(tuner.loading
+                     ? "Finding stations near you…"
+                     : "No stations found here yet — they arrive with signal.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(tuner.availableKinds) { kind in
+                            let on = kind == tuner.kind
+                            Button { tuner.kind = kind } label: {
+                                Label(kind.title, systemImage: kind.symbol)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(on ? Theme.cta : Theme.fill(0.06))
+                                    .foregroundStyle(on ? Theme.onCTA : Color.primary)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                // Station name, dial position, and the seek pair.
+                HStack(spacing: 10) {
+                    Button { tuner.previous() } label: {
+                        Image(systemName: "backward.end.fill")
+                            .font(.system(size: 20))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(tuner.stations.isEmpty)
+                    .help("Previous \(tuner.kind.title) station")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(tuner.playing?.name
+                             ?? tuner.stations.first?.name
+                             ?? "No station")
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1)
+                            .foregroundStyle(tuner.playing == nil ? .secondary : .primary)
+                        if let dial = (tuner.playing ?? tuner.stations.first)?.dialLabel {
+                            Text(dial)
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button { tuner.next() } label: {
+                        Image(systemName: "forward.end.fill")
+                            .font(.system(size: 20))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(tuner.stations.isEmpty)
+                    .help("Next \(tuner.kind.title) station")
+                    Button {
+                        if tuner.playing != nil {
+                            tuner.stop()
+                        } else {
+                            tuner.play(tuner.stations.first)
+                        }
+                    } label: {
+                        Image(systemName: tuner.playing != nil
+                              ? "stop.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(Theme.riskGreen)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(tuner.stations.isEmpty)
+                }
+                if let status = tuner.status {
+                    Text(status).font(.caption).foregroundStyle(.secondary)
+                } else if !tuner.stations.isEmpty {
+                    Text("\(tuner.stations.count) \(tuner.kind.title.lowercased()) "
+                         + "stations near you")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .floatingCard()
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+        .onAppear { model.broadcast.catalogue(near: model.effectivePosition) }
+    }
+
     private var radioCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -1854,20 +1999,10 @@ struct NavigationHUD: View {
                     }
                 }
             }
-            // The question every driver asks of a radio card. Answering it
-            // is better than leaving a silent gap — and the answer is that
-            // there is no lawful, keyless feed to offer.
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "shield.slash")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Text("Local law enforcement: not available. Most departments "
-                     + "now encrypt dispatch, several states restrict scanner "
-                     + "use in a moving vehicle, and the public relay services "
-                     + "don't license rebroadcast in an app.")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
+            // No law-enforcement row. There is no lawful, keyless feed to
+            // offer, and a paragraph explaining WHY a thing is missing takes
+            // more of the card than the thing would have — so it is simply
+            // absent, the way an unavailable channel should be.
             let overAir = TruckerRadio.frequencyGuide.filter {
                 model.radio.cabStream(for: $0.0) == nil
             }
@@ -1986,12 +2121,13 @@ struct NavigationHUD: View {
                 }
                 .frame(width: 30, height: 30)
                 .background(model.musicProvider.controllable && music.artwork != nil
-                            ? Color.black.opacity(0.08)
+                            ? Theme.fill(0.08)
                             : model.musicProvider.badgeColor)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
-            .help(music.trackName.isEmpty ? model.musicProvider.rawValue : music.trackName)
+            .help(music.trackName.isEmpty
+                  ? model.musicProvider.displayName : music.trackName)
             if model.musicProvider.controllable {
             Button { music.back() } label: {
                 Image(systemName: "backward.fill")
@@ -2010,16 +2146,24 @@ struct NavigationHUD: View {
             // HONEST CONTROLS: this service can't be driven from inside
             // FLOWS on this platform (it needs the service's own kit and
             // key) — one clear "open the app" beats skip buttons that
-            // secretly just launch it.
+            // secretly just launch it. AM/FM is the exception: FLOWS plays
+            // that itself, so it says what it is rather than "open" it, and
+            // it names the station once one is on.
+            let onAir = model.broadcast.playing?.name
+            let isDial = model.musicProvider == .localRadio
             Button { model.playMusic() } label: {
-                Label("Open \(model.musicProvider.rawValue)",
-                      systemImage: "arrow.up.forward.app")
+                Label(isDial ? (onAir ?? "AM/FM radio")
+                             : "Open \(model.musicProvider.displayName)",
+                      systemImage: isDial ? "dot.radiowaves.left.and.right"
+                                          : "arrow.up.forward.app")
                     .font(.caption.weight(.semibold))
+                    .lineLimit(1)
                     .padding(.horizontal, 8)
                     .frame(height: Theme.tapMinimum)
             }
             .buttonStyle(.plain)
-            .help("Playback controls live in \(model.musicProvider.rawValue)")
+            .help(isDial ? "Open the dial"
+                         : "Playback controls live in \(model.musicProvider.displayName)")
             }
             if model.musicProvider.controllable {
             Button { music.skip() } label: {
@@ -2040,7 +2184,7 @@ struct NavigationHUD: View {
         }
         .font(.system(size: 14, weight: .semibold))
         .padding(.horizontal, 4)
-        .background(Color.black.opacity(0.06))
+        .background(Theme.fill(0.06))
         .clipShape(Capsule())
     }
 
@@ -2077,7 +2221,7 @@ struct NavigationHUD: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 10)
                                 .frame(minHeight: 30)
-                                .background(Color.black.opacity(0.05))
+                                .background(Theme.fill(0.05))
                                 .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
@@ -2115,7 +2259,7 @@ struct NavigationHUD: View {
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(provider == .appleMusic
                                         ? Theme.riskGreen.opacity(0.18)
-                                        : Color.black.opacity(0.05))
+                                        : Theme.fill(0.05))
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
@@ -2149,7 +2293,7 @@ struct NavigationHUD: View {
             .padding(.horizontal, 8)
             .frame(minHeight: 38)
             .frame(maxWidth: .infinity)
-            .background(Color.black.opacity(0.05))
+            .background(Theme.fill(0.05))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)

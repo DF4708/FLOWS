@@ -100,6 +100,9 @@ final class AppModel: ObservableObject {
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
     let radio = TruckerRadio()
+    /// AM/FM broadcast radio — what the driver listens to. Separate from
+    /// `radio`, which carries NOAA weather and highway advisories.
+    let broadcast = BroadcastRadioTuner()
     let crash = CrashDetectionService()
     /// Prior long-trip share recipients (on-device only) — suggestion ranking.
     let shareHistory = ShareHistoryStore()
@@ -147,6 +150,58 @@ final class AppModel: ObservableObject {
         if let nearest = radio.nearestChannel(stateCode: stateCode),
            nearest.id != radio.playingChannelID {
             radio.play(nearest)
+        }
+    }
+
+    // MARK: dark mode by the sun, not by the clock
+
+    /// True while it is dark out WHERE THE DRIVER IS. Drives the whole app's
+    /// appearance: a white card is painful in a dark cab and a dark one is
+    /// unreadable in daylight, and the hour that divides them is different
+    /// in Miami in June than in Fairbanks in December.
+    @Published private(set) var isNight = false
+    /// Honor an explicit choice over the sun. nil = follow the daylight.
+    @Published var appearanceOverride: Bool? =
+        UserDefaults.standard.object(forKey: "flows.darkOverride") as? Bool {
+        didSet {
+            UserDefaults.standard.set(appearanceOverride, forKey: "flows.darkOverride")
+            refreshDaylight()
+        }
+    }
+    private var daylightTimer: Timer?
+
+    /// The appearance the window should use, or nil to follow the system
+    /// when there is no position to compute dusk from yet.
+    var resolvedColorScheme: ColorScheme? {
+        if let appearanceOverride { return appearanceOverride ? .dark : .light }
+        guard effectivePosition != nil else { return nil }
+        return isNight ? .dark : .light
+    }
+
+    /// Recompute now, and schedule the next look for the exact moment of the
+    /// next dawn or dusk — so the switch lands ON the boundary instead of up
+    /// to a poll-interval late. Capped at an hour so a long drive west (or a
+    /// crossed time zone) still gets rechecked.
+    func refreshDaylight() {
+        guard let pos = effectivePosition else {
+            // No fix yet. Don't give up — look again shortly, or the app sits
+            // in daylight colors for the first seconds of a night launch and
+            // then snaps dark once a fix lands.
+            daylightTimer?.invalidate()
+            daylightTimer = Timer.scheduledTimer(withTimeInterval: 3,
+                                                 repeats: false) { [weak self] _ in
+                Task { @MainActor in self?.refreshDaylight() }
+            }
+            return
+        }
+        let night = DaylightClock.isNight(at: pos)
+        if night != isNight { isNight = night }
+        daylightTimer?.invalidate()
+        let next = DaylightClock.nextChange(at: pos)
+        let delay = min(max(next.timeIntervalSinceNow, 1), 3_600)
+        daylightTimer = Timer.scheduledTimer(withTimeInterval: delay,
+                                             repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.refreshDaylight() }
         }
     }
 
@@ -489,10 +544,11 @@ final class AppModel: ObservableObject {
             showMusicProviderPrompt = true
             return
         }
-        // Broadcast radio plays through FLOWS's own relay card — there is no
-        // app to hand off to.
+        // AM/FM is played BY FLOWS — its own dial, not a hand-off to an
+        // app, and not the emergency radio.
         if musicProvider == .localRadio {
-            showRadioCardRequested = true
+            showBroadcastRadioRequested = true
+            broadcast.catalogue(near: effectivePosition)
             return
         }
         if musicProvider.controllable {
@@ -503,15 +559,19 @@ final class AppModel: ObservableObject {
     }
 
     /// Set when something (the play button, the provider picker) wants the
-    /// radio card open; the HUD consumes and clears it.
+    /// EMERGENCY radio card open; the HUD consumes and clears it.
     @Published var showRadioCardRequested = false
+    /// The same, for the AM/FM dial. Two separate cards on purpose: one is
+    /// warnings, the other is what you listen to.
+    @Published var showBroadcastRadioRequested = false
 
     /// First-play choice: remember it, then do what play was about to do.
     func chooseMusicProvider(_ provider: MusicProvider) {
         musicProvider = provider
         showMusicProviderPrompt = false
         if provider == .localRadio {
-            showRadioCardRequested = true
+            showBroadcastRadioRequested = true
+            broadcast.catalogue(near: effectivePosition)
         } else if provider.controllable {
             MusicController.shared.playPause()
         } else {
@@ -1101,9 +1161,13 @@ final class AppModel: ObservableObject {
             }
             return "emergency shelter"
         }
+        // One car, one pair of speakers: starting either radio silences the
+        // other, rather than layering weather alerts over a country station.
+        broadcast.willStartPlaying = { [weak self] in self?.radio.stop() }
+        radio.willStartPlaying = { [weak self] in self?.broadcast.stop() }
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
-            vehicle, radio, vehicleLink, smartcar, crash, breadcrumbs,
+            vehicle, radio, broadcast, vehicleLink, smartcar, crash, breadcrumbs,
             corridors, trafficModel, roadEfficiency,
         ]
         for child in children {
@@ -1169,6 +1233,12 @@ final class AppModel: ObservableObject {
                 // at home the emergency-radio card should already name the
                 // local station, not one from wherever the app last ran.
                 self.retuneRadioIfNeeded(at: fix.coordinate)
+                // The local dial changes as you cross a state; refetch only
+                // after a real move (the tuner keeps its own threshold).
+                self.broadcast.catalogue(near: fix.coordinate)
+                // Dusk and dawn move with the vehicle as well as the clock —
+                // a day's drive north or west shifts them by real minutes.
+                self.refreshDaylight()
                 guard self.mode == .navigating else { return }
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),
