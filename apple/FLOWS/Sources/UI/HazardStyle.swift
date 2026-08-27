@@ -102,6 +102,15 @@ enum HazardStyle {
         }
     }
 
+    // MARK: which hazard names an area
+
+    /// The family that should NAME an area — see `HazardRanking`, which
+    /// holds the rule itself so it can be tested without SwiftUI.
+    static func dominantFamily(_ families: [String: Double],
+                               floor: Double = 0.45) -> String? {
+        HazardRanking.dominantFamily(families, floor: floor)
+    }
+
     // MARK: striped fill
 
     /// Tiled diagonal-stripe ShapeStyle: transparent + colored stripes, so
@@ -157,5 +166,52 @@ enum HazardStyle {
         case .yellow: return Theme.riskYellow
         case .red: return Theme.riskRed
         }
+    }
+}
+
+/// A dispatch call heard on the local feed: a small circular pin the size
+/// of the vehicle marker, with a slow glow pulsing around its edge in the
+/// call's own colour.
+///
+/// Deliberately quiet. These are transcribed from radio traffic, so they
+/// carry less certainty than an official alert and must not shout over one
+/// — no banner, no sound, no ETA change. They appear, they fade, they go.
+struct ScannerIncidentPin: View {
+    let incident: ScannerIncidents.Incident
+    @State private var glow = false
+
+    private var color: Color {
+        switch incident.kind.colorName {
+        case "red": return Theme.riskRed
+        case "orange": return .orange
+        case "green": return Theme.riskGreen
+        case "yellow": return Theme.riskYellow
+        case "purple": return .purple
+        default: return .blue
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(color.opacity(glow ? 0.75 : 0.15), lineWidth: glow ? 6 : 2)
+                .frame(width: 26, height: 26)
+                .blur(radius: 3)
+            Circle()
+                .fill(color)
+                .frame(width: 22, height: 22)
+            Image(systemName: incident.kind.symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(Theme.onDark)
+        }
+        .overlay(Circle().stroke(.white, lineWidth: 1.5).frame(width: 22, height: 22))
+        .shadow(radius: 2)
+        // Scoped to THIS view — a repeatForever driven through withAnimation
+        // catches every view in the transaction, not just the pulsing one.
+        .animation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true),
+                   value: glow)
+        .onAppear { glow = true }
+        .help("\(incident.kind.title) — heard on the local feed near \(incident.placeText)")
+        .accessibilityLabel("\(incident.kind.title) reported near \(incident.placeText)")
     }
 }

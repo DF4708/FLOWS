@@ -107,6 +107,9 @@ final class AppModel: ObservableObject {
     /// lock screen and Siri all drive one player. Station SELECTION —
     /// which genre, which of them are actually local — is BroadcastRadio.
     let radioBrowser = RadioBrowser()
+    /// Dispatch traffic transcribed ON THIS DEVICE into temporary map pins.
+    /// Off unless the operator supplied a feed list — see ScannerListener.
+    let scanner = ScannerListener()
     let crash = CrashDetectionService()
     /// Prior long-trip share recipients (on-device only) — suggestion ranking.
     let shareHistory = ShareHistoryStore()
@@ -1423,6 +1426,18 @@ final class AppModel: ObservableObject {
         refuelPrompt = true
     }
 
+    /// Scanner pins worth drawing: still live, and near the driver or the
+    /// route corridor. Everything else has either expired or is somebody
+    /// else's town.
+    var visibleScannerIncidents: [ScannerIncidents.Incident] {
+        ScannerIncidents.visible(scanner.incidents,
+                                 near: effectivePosition,
+                                 corridor: navigation.route.map {
+                                     RouteService.samplePoints(of: $0.route.polyline,
+                                                               everyMeters: 15_000)
+                                 } ?? [])
+    }
+
     // MARK: how the vehicle is drawn on the map
 
     /// Body shape for the map marker. Defaults to the driver's own vehicle —
@@ -1915,7 +1930,7 @@ final class AppModel: ObservableObject {
         }
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
-            vehicle, radio, radioBrowser, vehicleLink, smartcar, crash,
+            vehicle, radio, radioBrowser, scanner, vehicleLink, smartcar, crash,
             breadcrumbs, corridors, trafficModel, roadEfficiency,
         ]
         for child in children {
@@ -2029,6 +2044,8 @@ final class AppModel: ObservableObject {
                 // Dusk and dawn move with the vehicle as well as the clock —
                 // a day's drive north or west shifts them by real minutes.
                 self.refreshDaylight()
+                // Follow the dispatch feed covering wherever we are now.
+                self.scanner.listen(near: fix.coordinate)
                 guard self.mode == .navigating else { return }
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 self.vehicle.recordFix(speedMps: max(fix.speed, 0),

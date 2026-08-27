@@ -147,10 +147,17 @@ struct ContentView: View {
         zctaOverlays = zctaRings.keys.sorted().compactMap { code in
             guard let ring = zctaRings[code] else { return nil }
             let c = Self.centroid(of: ring)
-            // Decorate-then-min: the comparator form computed each distance
-            // twice per comparison across every (ring × hazard) pair.
-            let near = elevated.map { ($0, POIRanking.meters($0.coordinate, c)) }
-                .min(by: { $0.1 < $1.1 })?.0
+            // The ring's WORST hazard, which is what the stripes claim to
+            // show — the code used to take the merely NEAREST one, so a mild
+            // reading beside the centroid could name a ZIP that had something
+            // far worse inside it. Points inside the ring are the ring's own;
+            // if none fell inside, fall back to the nearest.
+            let inside = elevated.filter {
+                HazardFeedScores.pointInPolygon($0.coordinate, ring)
+            }
+            let near = inside.max(by: { $0.realized < $1.realized })
+                ?? elevated.map { ($0, POIRanking.meters($0.coordinate, c)) }
+                    .min(by: { $0.1 < $1.1 })?.0
             let hatch = Self.hatchLines(ring, spacingDeg: 0.012)
             return RiskAreaOverlay(id: code, ring: ring,
                                    score: near?.realized ?? worstAll,
@@ -713,12 +720,15 @@ struct ContentView: View {
                             // over the blended forecast, since it's the distinct
                             // danger a driver most needs named. Otherwise use the
                             // forecast-dominant kind.
-                            let acute = ["fire", "seismic", "air", "radiation",
-                                         "volcanic", "avalanche", "tropical", "tsunami"]
+                            // The WORST hazard here names the area, comparing
+                            // every family on the same footing — see
+                            // HazardStyle.dominantFamily. Storms and flooding
+                            // used to be excluded from naming entirely, so a
+                            // middling fire reading labelled a ZIP surrounded
+                            // by severe storms FIRE.
                             var kind: HazardKind
-                            if let top = families.filter({ acute.contains($0.key) })
-                                .max(by: { $0.value < $1.value }), top.value >= 0.45 {
-                                kind = HazardStyle.kind(forFamily: top.key)
+                            if let top = HazardStyle.dominantFamily(families) {
+                                kind = HazardStyle.kind(forFamily: top)
                             } else {
                                 kind = Self.dominantKind(c, latitude: lat, longitude: lon)
                             }
@@ -1151,6 +1161,16 @@ struct ContentView: View {
                     }
                     .overlay(Circle().stroke(.white, lineWidth: 2))
                     .shadow(radius: 3)
+                }
+            }
+
+            // Dispatch calls heard on the local feed and transcribed on this
+            // device — small pins, the size of the vehicle marker, that fade
+            // out on their own. Colour by kind: blue police, red medical,
+            // orange fire.
+            ForEach(model.visibleScannerIncidents) { incident in
+                Annotation("", coordinate: incident.coordinate) {
+                    ScannerIncidentPin(incident: incident)
                 }
             }
 
@@ -2423,6 +2443,33 @@ struct SettingsSheet: View {
                  + "rule drives the Siri and CarPlay buttons.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Divider()
+            Text("Emergency radio on the map")
+                .font(.system(size: 14, weight: .semibold))
+            if model.scanner.available {
+                Toggle("Show calls heard nearby", isOn: Binding(
+                    get: { model.scanner.enabled },
+                    set: { model.scanner.enabled = $0 }))
+                    .font(.caption)
+                Text("Local dispatch is transcribed ON THIS PHONE — the audio "
+                     + "is never uploaded, saved, or played. Calls show as "
+                     + "small pins near you and along your route, and fade "
+                     + "out on their own. Heard on a radio, so treat them as "
+                     + "a heads-up, not a fact.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let status = model.scanner.status {
+                    Text(status).font(.caption2).foregroundStyle(.secondary)
+                }
+            } else {
+                Text("No feed list is set up on this device, so there is "
+                     + "nothing to listen to. Feeds come from whoever holds "
+                     + "the listening agreement — drop a scanner_feeds.json "
+                     + "into the app's Application Support folder.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Divider()
             Text("Your vehicle on the map")

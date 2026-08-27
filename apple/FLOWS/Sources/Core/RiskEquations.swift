@@ -342,3 +342,49 @@ enum RouteRiskBand {
         FlowsCore.riskBand(score: peak) == .red ? max(weighted, peak) : weighted
     }
 }
+
+
+/// Which hazard gets to NAME an area on the map.
+enum HazardRanking {
+    /// Hazards that are a DISTINCT named danger rather than a reading on a
+    /// dial — the thing a driver most needs called by its name when scores
+    /// are close. They get a nudge, not a veto.
+    static let acuteFamilies: Set<String> = [
+        "fire", "seismic", "air", "radiation", "volcanic",
+        "avalanche", "tropical", "tsunami",
+    ]
+
+    /// How much an acute hazard is favoured when scores are close. Small on
+    /// purpose: enough to win a tie, nowhere near enough to beat a hazard
+    /// that is materially worse.
+    static let acuteNudge = 0.05
+
+    /// The family that should NAME an area, comparing every hazard on the
+    /// same footing.
+    ///
+    /// This used to be a hard priority tier: any "acute" family at 0.45 took
+    /// the icon, and `convective` and `qpf_flood` weren't in the list at all
+    /// — so storms and flooding could never name an area no matter how bad
+    /// they were. A Georgia ZIP with a middling fire-weather reading and
+    /// severe storms and flooding around it came out labelled FIRE. The same
+    /// bug applied to every hazard on that list, not just fire: a 0.45 air
+    /// or tropical reading equally outranked a 0.9 storm.
+    ///
+    /// Now the highest score wins, with acute hazards carrying a small
+    /// nudge for ties. Returns nil when nothing is elevated enough to name.
+    static func dominantFamily(_ families: [String: Double],
+                               floor: Double = 0.45) -> String? {
+        let ranked = families
+            .filter { $0.value >= floor }
+            .max { a, b in
+                weight(family: a.key, score: a.value)
+                    < weight(family: b.key, score: b.value)
+            }
+        return ranked?.key
+    }
+
+    private static func weight(family: String, score: Double) -> Double {
+        score + (acuteFamilies.contains(family) ? acuteNudge : 0)
+    }
+
+}

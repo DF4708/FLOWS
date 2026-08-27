@@ -75,7 +75,10 @@ targets:
         NSSpeechRecognitionUsageDescription: >-
           Understands short spoken answers ("yes", "no", "I'm okay") and
           asks ("classic country", "the weather radio") to crash check-ins,
-          route questions, and the music and radio mic buttons.
+          route questions, and the music and radio mic buttons. If you turn
+          on emergency-radio pins, it also reads local dispatch calls ON
+          THIS PHONE to mark them on the map — that audio is never uploaded,
+          saved, or played aloud.
         NSMotionUsageDescription: >-
           Crash detection watches for sudden impacts while navigating.
         NSBluetoothAlwaysUsageDescription: >-
@@ -316,6 +319,7 @@ targets:
       - path: FLOWS/Sources/Core/EnforcementCameras.swift
       - path: FLOWS/Sources/Core/ShelterPolicy.swift
       - path: FLOWS/Sources/Core/VehicleTrack.swift
+      - path: FLOWS/Sources/Core/ScannerIncidents.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
       - path: FLOWS/Sources/Core/TruckerRadio.swift
       - path: FLOWS/Sources/Core/RadioBrowser.swift
