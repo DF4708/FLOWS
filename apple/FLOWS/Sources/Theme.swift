@@ -183,6 +183,82 @@ struct OutlinedText: View {
     }
 }
 
+/// The middle rung of the efficiency ladder, drawn as literally half of
+/// each neighbour: the leaf's corner above a diagonal, the exhaust's corner
+/// below it. A generic "average" glyph said nothing about which two states
+/// it sits between; this one shows them.
+///
+/// The whole thing carries a solid black outline (eight offset copies), so
+/// the yellow-green and red read against a light card at instrument size.
+struct MixedEfficiencyIcon: View {
+    var size: CGFloat = 20
+
+    /// Upper-left of the diagonal — the leaf's corner.
+    private struct UpperLeft: Shape {
+        func path(in r: CGRect) -> Path {
+            Path { p in
+                p.move(to: CGPoint(x: r.minX, y: r.minY))
+                p.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+                p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+                p.closeSubpath()
+            }
+        }
+    }
+
+    /// Lower-right of the diagonal — the exhaust's corner.
+    private struct LowerRight: Shape {
+        func path(in r: CGRect) -> Path {
+            Path { p in
+                p.move(to: CGPoint(x: r.maxX, y: r.minY))
+                p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+                p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+                p.closeSubpath()
+            }
+        }
+    }
+
+    private static let offsets: [(CGFloat, CGFloat)] = [
+        (-1, 0), (1, 0), (0, -1), (0, 1),
+        (-1, -1), (1, -1), (-1, 1), (1, 1),
+    ]
+
+    private var halves: some View {
+        ZStack {
+            Image(systemName: "leaf.fill")
+                .font(.system(size: size, weight: .bold))
+                .foregroundStyle(Theme.riskGreen)
+                .clipShape(UpperLeft())
+            Image(systemName: "smoke.fill")
+                .font(.system(size: size, weight: .bold))
+                .foregroundStyle(Theme.riskRed)
+                .clipShape(LowerRight())
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            // Solid outline: the same eight-offset trick the yellow numbers
+            // use, since a thin two-color glyph needs an edge to read.
+            ForEach(Array(Self.offsets.enumerated()), id: \.offset) { _, o in
+                halves
+                    .foregroundStyle(.black)
+                    .colorMultiply(.black)
+                    .offset(x: o.0, y: o.1)
+            }
+            halves
+            // The dividing slash itself, bottom-left to top-right.
+            GeometryReader { geo in
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: geo.size.height))
+                    p.addLine(to: CGPoint(x: geo.size.width, y: 0))
+                }
+                .stroke(Color.black, lineWidth: 1.6)
+            }
+        }
+        .frame(width: size * 1.15, height: size * 1.15)
+    }
+}
+
 /// Scrolls only when the content is too tall for the space offered — tall
 /// cards keep their natural size when there's room and become scrollable in
 /// short windows (a phone on its side) instead of being clipped.

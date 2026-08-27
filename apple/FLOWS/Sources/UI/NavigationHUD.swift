@@ -295,31 +295,29 @@ struct NavigationHUD: View {
                     .frame(width: golden.step(3) * 0.8, height: golden.step(3) * 0.5)
                     .allowsHitTesting(false)
                 if let economy = averageEconomy {
-                    Divider().frame(height: golden.step(3) * 0.40)
-                    Text(electric
-                         ? String(format: "%.1f mi/kWh", economy)
-                         : String(format: "%.0f MPG", economy))
-                        .font(.system(size: 13, weight: .semibold))
-                        .monospacedDigit()
+                    Divider().frame(height: golden.step(3) * 0.52)
+                    titled("Average") {
+                        Text(electric
+                             ? String(format: "%.1f mi/kWh", economy)
+                             : String(format: "%.0f MPG", economy))
+                            .font(.system(size: 13, weight: .semibold))
+                            .monospacedDigit()
+                    }
                 }
                 if let range = vehicle.expectedRangeMiles {
-                    Divider().frame(height: golden.step(3) * 0.40)
-                    Text(String(format: "%.0f mi left", range))
-                        .font(.system(size: 13, weight: .semibold))
-                        .monospacedDigit()
+                    Divider().frame(height: golden.step(3) * 0.52)
+                    titled("Fuel Tank") {
+                        Text(String(format: "%.0f mi left", range))
+                            .font(.system(size: 13, weight: .semibold))
+                            .monospacedDigit()
+                    }
                 }
-                // How thriftily this is being driven, at a size that can
-                // actually be read — riding the bar it was too small.
                 if showsSpeedSign {
-                    Divider().frame(height: golden.step(3) * 0.40)
-                    efficiencyIcon
+                    Divider().frame(height: golden.step(3) * 0.52)
+                    titled("Efficiency") { efficiencyIcon }
                 }
-                // A slow red pulse the moment the driver is near the line
-                // where too few stations selling their fuel remain reachable
-                // — the situation the last-chance warning exists for, made
-                // visible before the banner has to shout.
                 if model.fuelReachabilityTight {
-                    Divider().frame(height: golden.step(3) * 0.40)
+                    Divider().frame(height: golden.step(3) * 0.52)
                     Image(systemName: "fuelpump.fill")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(Theme.riskRed.opacity(tankPulse ? 1 : 0.15))
@@ -419,6 +417,24 @@ struct NavigationHUD: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+
+    /// One instrument readout under its own underlined title, so each
+    /// number says what it is without a driver having to infer it.
+    private func titled<Content: View>(_ title: String,
+                                       @ViewBuilder content: () -> Content)
+        -> some View {
+        VStack(spacing: 1) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.secondary)
+                .fixedSize()
+            Rectangle()
+                .fill(Color.secondary.opacity(0.45))
+                .frame(height: 1)
+            content()
+        }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: live speed bar — how fast, how legal, how thriftily
@@ -596,28 +612,41 @@ struct NavigationHUD: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// How thriftily the vehicle is being driven right now — its own
-    /// readout on the instrument line, switching live between leaf, neutral
-    /// and pump.
+    /// How thriftily the vehicle is being driven right now. Green leaf when
+    /// it's efficient; an exhaust cloud in red when it isn't — the waste
+    /// itself, rather than a fuel pump, which is where you FIX the problem
+    /// rather than what the problem is. The middle is literally between the
+    /// two: the leaf's top corner and the exhaust's bottom corner, split by
+    /// a diagonal.
+    @ViewBuilder
     private var efficiencyIcon: some View {
-        let (symbol, tint): (String, Color) = switch efficiencyVerdict {
-        case .efficient: ("leaf.fill", Theme.riskGreen)
-        case .fair: ("equal.circle.fill", Theme.riskYellow)
-        case .wasteful: ("fuelpump.fill", Theme.riskRed)
+        switch efficiencyVerdict {
+        case .efficient:
+            Image(systemName: "leaf.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Theme.riskGreen)
+                .frame(width: 24)
+                .contentTransition(.symbolEffect(.replace))
+                .help(efficiencyHelp)
+        case .wasteful:
+            Image(systemName: "smoke.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(Theme.riskRed)
+                .frame(width: 24)
+                .contentTransition(.symbolEffect(.replace))
+                .help(efficiencyHelp)
+        case .fair:
+            MixedEfficiencyIcon(size: 20)
+                .frame(width: 24)
+                .help(efficiencyHelp)
         }
-        return Image(systemName: symbol)
-            .font(.system(size: 18, weight: .bold))
-            .foregroundStyle(tint)
-            .frame(width: 22)
-            .contentTransition(.symbolEffect(.replace))
-            .help(efficiencyHelp)
     }
 
     private var efficiencyHelp: String {
         switch efficiencyVerdict {
         case .efficient: return "Driving efficiently for this vehicle"
         case .fair: return "Middling — some speed, throttle or hill cost"
-        case .wasteful: return "Heavy on fuel right now (throttle, speed or grade)"
+        case .wasteful: return "Burning fuel hard right now (throttle, speed or grade)"
         }
     }
 
