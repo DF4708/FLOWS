@@ -1066,6 +1066,45 @@ actor LiveHazardFeedFetcher {
         return limit
     }
 
+    // MARK: lane-level guidance — OSM turn:lanes at the maneuver
+
+    private var laneCache: [String: [LaneData.Lane]] = [:]
+
+    /// The tagged lanes on the road AT this point, left to right in the
+    /// direction of travel. OpenStreetMap's `turn:lanes` is the keyless
+    /// source of real lane-level guidance — the same Overpass endpoint this
+    /// file already uses for clearances, weight limits and speed limits.
+    /// Empty when the road isn't tagged, which is most minor streets.
+    func turnLanes(at point: CLLocationCoordinate2D) async -> [LaneData.Lane] {
+        let key = "\(Int(point.latitude * 10_000))|\(Int(point.longitude * 10_000))"
+        if let cached = laneCache[key] { return cached }
+        // Tight radius: lane tagging is per-approach, and the lanes of the
+        // cross street are the wrong answer.
+        let query = "[out:json][timeout:10];way[\"turn:lanes\"][\"highway\"]"
+            + "(around:30,\(point.latitude),\(point.longitude));out tags 5;"
+        var lanes: [LaneData.Lane] = []
+        if var comps = URLComponents(string: "https://overpass-api.de/api/interpreter") {
+            comps.queryItems = [URLQueryItem(name: "data", value: query)]
+            if let u = comps.url,
+               let (data, resp) = try? await ThrottledNet.fetch(u),
+               (resp as? HTTPURLResponse)?.statusCode == 200,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let elements = json["elements"] as? [[String: Any]] {
+                // Take the most detailed tagging nearby — a slip road with
+                // one lane shouldn't outvote the mainline's five.
+                for el in elements {
+                    guard let tags = el["tags"] as? [String: Any],
+                          let raw = tags["turn:lanes"] as? String else { continue }
+                    let parsed = LaneData.parse(turnLanes: raw)
+                    if parsed.count > lanes.count { lanes = parsed }
+                }
+            }
+        }
+        laneCache[key] = lanes
+        if laneCache.count > 200 { CacheEviction.dropHalf(&laneCache) }
+        return lanes
+    }
+
     // MARK: air + UV — Open-Meteo per ~0.5° cell (30-min TTL)
 
     private struct AirCell { let aqi: Double?; let uv: Double?; let fetched: Date }

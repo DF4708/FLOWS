@@ -330,30 +330,54 @@ struct NavigationHUD: View {
             .fixedSize(horizontal: true, vertical: false)
             if showsSpeedSign {
                 speedBar
-                // One line under the bar: the scale's ends and both legal
-                // speeds, each in its own color, at a size that reads.
-                HStack(spacing: 0) {
-                    Text("0")
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 6)
-                    if let state = SpeedLaw.stateThresholdMph(
-                        postedLimitMph: model.postedSpeedLimitMph) {
-                        OutlinedText(text: String(format: "%.0f", state),
-                                     color: Theme.riskYellow,
-                                     font: .system(size: 11, weight: .bold))
-                        Spacer(minLength: 6)
+                // The scale's ends and both legal speeds, each positioned
+                // UNDER ITS OWN LINE rather than spread evenly — a number
+                // that doesn't sit beneath its mark is worse than none.
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let top = barTopMph
+                    ZStack(alignment: .leading) {
+                        Text("0")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let state = SpeedLaw.stateThresholdMph(
+                            postedLimitMph: model.postedSpeedLimitMph),
+                           let f = SpeedLaw.barFraction(state, topMph: top) {
+                            OutlinedText(text: String(format: "%.0f", state),
+                                         color: Theme.riskYellow,
+                                         font: .system(size: 11, weight: .bold))
+                                .fixedSize()
+                                .offset(x: centered(w * f, width: w))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if let fed = SpeedLaw.federalThresholdMph(
+                            postedLimitMph: model.postedSpeedLimitMph),
+                           let f = SpeedLaw.barFraction(fed, topMph: top) {
+                            Text(String(format: "%.0f", fed))
+                                .font(.system(size: 11, weight: .bold))
+                                .monospacedDigit()
+                                .foregroundStyle(Theme.riskRed)
+                                .fixedSize()
+                                .offset(x: centered(w * f, width: w))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        // The scale's top, unless a legal number is sitting
+                        // there — two numbers in one place is worse than one.
+                        // The legal line wins; it's the one being driven to.
+                        if !crowdsTheEnd(SpeedLaw.federalThresholdMph(
+                                postedLimitMph: model.postedSpeedLimitMph), top: top),
+                           !crowdsTheEnd(SpeedLaw.stateThresholdMph(
+                                postedLimitMph: model.postedSpeedLimitMph), top: top) {
+                            Text("\(Int(top)) mph")
+                                .font(.system(size: 11, weight: .bold))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
                     }
-                    if let fed = SpeedLaw.federalThresholdMph(
-                        postedLimitMph: model.postedSpeedLimitMph) {
-                        Text(String(format: "%.0f", fed))
-                            .foregroundStyle(Theme.riskRed)
-                        Spacer(minLength: 6)
-                    }
-                    Text("\(Int(barTopMph)) mph")
-                        .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 11, weight: .bold))
-                .monospacedDigit()
+                .frame(height: 14)
                 .padding(.trailing, 36)   // clear of the live readout
             }
         }
@@ -525,6 +549,19 @@ struct NavigationHUD: View {
             .fixedSize()
             .offset(x: min(max(x - 8, 0), max(width - 16, 0)), y: 14)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Would a threshold's label sit on top of the scale's end label?
+    private func crowdsTheEnd(_ mph: Double?, top: Double) -> Bool {
+        guard let mph, top > 0 else { return false }
+        return mph / top > 0.82
+    }
+
+    /// Center a label on its line, kept inside the bar's own width so a
+    /// threshold near either end still reads.
+    private func centered(_ x: CGFloat, width: CGFloat, labelWidth: CGFloat = 22)
+        -> CGFloat {
+        min(max(x - labelWidth / 2, 0), max(width - labelWidth, 0))
     }
 
     /// Speedometer ticks: half-height every 10 mph, quarter-height every 5.
@@ -1167,8 +1204,11 @@ struct NavigationHUD: View {
                     .opacity(live ? 0.9 : 1)
                     .minimumScaleFactor(0.7)
                     .lineLimit(2)
-                // Lane guidance, but ONLY when the instruction states it.
-                if let advice = LaneGuidance.advice(for: instruction) {
+                // Lane guidance: real tagged lanes when OSM has them,
+                // otherwise whatever the instruction itself states.
+                if !model.upcomingLanes.isEmpty {
+                    taggedLaneStrip(model.upcomingLanes, instruction: instruction)
+                } else if let advice = LaneGuidance.advice(for: instruction) {
                     laneStrip(advice)
                 }
             }
@@ -1186,6 +1226,33 @@ struct NavigationHUD: View {
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
+    }
+
+    /// The REAL lane row: one arrow per tagged lane, each drawn as the
+    /// movement that lane actually serves (OSM turn:lanes), with the lanes
+    /// that serve THIS maneuver filled green. Lanes are left-to-right in the
+    /// direction of travel, so the row reads like the road ahead.
+    private func taggedLaneStrip(_ lanes: [LaneData.Lane],
+                                 instruction: String) -> some View {
+        let side = ManeuverSymbol.side(of: instruction)
+        let lit = LaneData.recommended(lanes: lanes, maneuver: side)
+        let summary = LaneData.summary(lanes: lanes, recommended: lit)
+        return HStack(spacing: 4) {
+            ForEach(Array(lanes.enumerated()), id: \.offset) { i, lane in
+                Image(systemName: lane.symbol)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(lit.contains(i)
+                                     ? Theme.riskGreen : Color.white.opacity(0.32))
+            }
+            if let summary {
+                Text(summary)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.riskGreen)
+                    .lineLimit(1)
+                    .padding(.leading, 2)
+            }
+        }
+        .padding(.top, 2)
     }
 
     /// The lanes to be in, drawn as arrows with the recommended ones filled

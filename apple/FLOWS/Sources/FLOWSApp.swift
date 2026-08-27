@@ -1156,6 +1156,7 @@ final class AppModel: ObservableObject {
                 self.updateFuelRecommendation()
                 self.updateFuelWarning()   // last-chance matching-fuel stops
                 self.updatePostedSpeedLimit(fix)   // the HUD speed sign
+                self.updateUpcomingLanes()         // lane row at the maneuver
                 // Saved corridors age out as they stop being useful:
                 // arrived, left far behind, or simply stale.
                 self.corridors.prune(position: fix.coordinate)
@@ -1484,6 +1485,42 @@ final class AppModel: ObservableObject {
             // Keep the last known limit when this stretch has no tag —
             // blanking the sign every unmapped block would flicker.
             if limit != nil { self.postedSpeedLimitMph = limit }
+        }
+    }
+
+    // MARK: lane-level guidance for the upcoming maneuver
+
+    /// The tagged lanes on the approach to the next maneuver, left to right
+    /// (OSM turn:lanes via Overpass). Empty when the road isn't tagged.
+    @Published private(set) var upcomingLanes: [LaneData.Lane] = []
+    private var laneLookupTask: Task<Void, Never>?
+    private var laneLookupStep = -1
+
+    /// Fetch lanes once per maneuver, and only when one is close enough to
+    /// matter — lane guidance three miles out is noise, and the tagging is
+    /// per-approach anyway.
+    private func updateUpcomingLanes() {
+        guard mode == .navigating, !walkingMode, !isPassengerTransit,
+              let g = navigation.guidance else {
+            if !upcomingLanes.isEmpty { upcomingLanes = [] }
+            laneLookupStep = -1
+            return
+        }
+        // A new maneuver resets the row; the same one isn't re-fetched.
+        if g.stepIndex != laneLookupStep {
+            laneLookupStep = g.stepIndex
+            upcomingLanes = []
+        }
+        guard upcomingLanes.isEmpty, g.distanceToManeuver < 1_600,
+              let point = navigation.coordinateAhead(meters: g.distanceToManeuver)
+        else { return }
+        let step = g.stepIndex
+        laneLookupTask?.cancel()
+        laneLookupTask = Task { [weak self] in
+            let lanes = await LiveHazardFeedFetcher.shared.turnLanes(at: point)
+            guard let self, !Task.isCancelled, self.mode == .navigating,
+                  self.navigation.guidance?.stepIndex == step else { return }
+            self.upcomingLanes = lanes
         }
     }
 
@@ -2306,6 +2343,9 @@ final class AppModel: ObservableObject {
         fuelRecommendation = nil
         clearFuelWarning()
         limitLookupTask?.cancel()
+        laneLookupTask?.cancel()
+        upcomingLanes = []
+        laneLookupStep = -1
         postedSpeedLimitMph = nil
         lastLimitPoint = nil
         refuelPrompt = false
