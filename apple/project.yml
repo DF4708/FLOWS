@@ -119,6 +119,13 @@ targets:
         # un-installable rather than merely CarPlay-less.
         # Test with: Simulator.app ▸ I/O ▸ External Displays ▸ CarPlay.
         CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]: FLOWS/Entitlements/FLOWS-iOS-Simulator.entitlements
+        # Device signing. The simulator needs none, which is why this target
+        # had none — but installing on a real phone does. Automatic style so
+        # Xcode keeps the team profile current (it renews on its own);
+        # xcodebuild is passed -allowProvisioningUpdates to let it.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: 3T5JWQ4XW4
+        CODE_SIGN_IDENTITY[sdk=iphoneos*]: "Apple Development"
         # Static-link the Rust core per SDK — the device and
         # simulator need their own cross-compiled slices. `-u` force-keeps the
         # C symbol so FlowsCore's loader resolves it (Swift fallback otherwise).
