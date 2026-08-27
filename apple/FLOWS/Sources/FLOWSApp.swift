@@ -90,6 +90,9 @@ final class AppModel: ObservableObject {
     /// between towns, saved to disk so losing signal (or force-quitting in
     /// the middle of nowhere) still leaves the way home on screen.
     let corridors = OfflineCorridorStore()
+    /// Learns how much longer drives REALLY take by time of day and weather,
+    /// from this device's own completed trips (TrafficLearning).
+    let trafficModel = TrafficDelayModel()
     let riskField = RiskFieldService()
     let favorites = FavoritesStore()
     let vehicle = VehicleStore()
@@ -691,7 +694,23 @@ final class AppModel: ObservableObject {
     func addStopDelay(seconds: Double = 3600) { stopDelaySeconds += seconds }
     /// The ETA the HUD shows: guidance baseline + unplanned stop time.
     func adjustedRemainingTime(_ baseline: Double) -> Double {
-        TripNeeds.adjustedRemainingSeconds(baseline: baseline, stopDelaySeconds: stopDelaySeconds)
+        // Unplanned stopped time, then what this device has LEARNED about
+        // this hour in this weather (TrafficLearning) — the model returns
+        // 1.0 until it has seen enough trips to be worth listening to, so a
+        // fresh install shows the router's own number unchanged.
+        let learned = baseline * trafficModel.factor(weather: currentTrafficWeather)
+        return TripNeeds.adjustedRemainingSeconds(baseline: learned,
+                                                  stopDelaySeconds: stopDelaySeconds)
+    }
+
+    /// The learned travel time for a route being CHOSEN — so the delay this
+    /// device has actually measured steers which route looks fastest, not
+    /// only the number shown once driving.
+    func learnedETA(for route: PlannedRoute) -> Double {
+        let worst = route.familyPeaks
+            .filter { $0.value >= FlowsCore.riskGreenMin }
+            .max(by: { $0.value < $1.value })?.key
+        return route.eta * trafficModel.factor(weather: TrafficWeather.from(family: worst))
     }
 
     // MARK: trip needs (recurring fuel/food/rest cadences)
@@ -1035,7 +1054,7 @@ final class AppModel: ObservableObject {
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
             vehicle, radio, vehicleLink, smartcar, crash, breadcrumbs,
-            corridors,
+            corridors, trafficModel,
         ]
         for child in children {
             (child.objectWillChange as? ObservableObjectPublisher)?
@@ -1667,8 +1686,12 @@ final class AppModel: ObservableObject {
             routeChoices.sort {
                 // Near-equal ETA → prefer the lower balanced risk (band + identified
                 // ZIP exposure), not the band alone.
-                if abs($0.eta - $1.eta) < 300 { return $0.rankingRisk < $1.rankingRisk }
-                return $0.eta < $1.eta
+                // Rank on the LEARNED time, not the router's raw estimate:
+                // a corridor this device has repeatedly found slow at this
+                // hour should stop winning on paper.
+                let (a, b) = (self.learnedETA(for: $0), self.learnedETA(for: $1))
+                if abs(a - b) < 300 { return $0.rankingRisk < $1.rankingRisk }
+                return a < b
             }
             ensureHighlightValid()
             // Retry routes whose weather fetches came back incomplete (NWS
@@ -2181,6 +2204,9 @@ final class AppModel: ObservableObject {
         // drops (or the app is reopened out in the country), the way onward
         // is already on disk. Short in-town hops aren't stored.
         recordOfflineCorridor(for: route)
+        // Start the delay model's training pair: what we promised, and when.
+        tripPredictedSeconds = route.eta
+        tripStartedAt = Date()
         mode = .navigating
         startLeg(route)
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
@@ -2248,6 +2274,7 @@ final class AppModel: ObservableObject {
         tripShareOffered = false
         collapsedPanels = []   // back to planning with nothing tucked away
         corridors.prune(position: location.coordinate)   // arrived → let it go
+        learnTripDuration()   // teach the delay model what this drive cost
         mode = .planning
         watch.sendEnded()
     }
@@ -2539,11 +2566,45 @@ final class AppModel: ObservableObject {
                 request.transportType = .automobile
                 request.departureDate = Date()
                 guard let eta = try? await MKDirections(request: request).calculateETA() else { continue }
-                let delay = (eta.expectedTravelTime - scaledBaseline) / 60
+                let liveDelay = (eta.expectedTravelTime - scaledBaseline) / 60
+                // The live probe sees traffic that exists NOW; the learned
+                // model knows what this hour in this weather usually costs.
+                // Take the worse of the two, so a corridor that reliably
+                // backs up at 5pm warns before the queue has formed.
+                let learned = Double(self.trafficModel.predictedDelayMinutes(
+                    routerSeconds: scaledBaseline, weather: self.currentTrafficWeather))
+                let delay = max(liveDelay, learned)
                 self.trafficDelayMinutes = (delay >= 8 && self.notifyTraffic)
                     ? Int(delay.rounded()) : nil
             }
         }
+    }
+
+    /// The coarse weather bucket the delay model learns on, from the risk
+    /// engine's own corridor scoring — no new data source.
+    var currentTrafficWeather: TrafficWeather {
+        let worst = navigation.route?.familyPeaks
+            .filter { $0.value >= FlowsCore.riskGreenMin }
+            .max(by: { $0.value < $1.value })?.key
+        return TrafficWeather.from(family: worst)
+    }
+
+    /// What this route was predicted to take when the driver accepted it —
+    /// the "predicted" half of the delay model's training pair.
+    private var tripPredictedSeconds: Double?
+    private var tripStartedAt: Date?
+
+    /// Fold the finished trip into the learned model: what the router
+    /// promised vs. what the clock actually showed.
+    private func learnTripDuration() {
+        defer { tripPredictedSeconds = nil; tripStartedAt = nil }
+        guard let predicted = tripPredictedSeconds, let started = tripStartedAt else { return }
+        let actual = Date().timeIntervalSince(started) - stopDelaySeconds
+        // Only whole trips teach anything: a drive abandoned after two
+        // minutes says nothing about how long the route takes.
+        guard actual > 300, actual < predicted * 4 else { return }
+        trafficModel.record(predictedSeconds: predicted, actualSeconds: actual,
+                            weather: currentTrafficWeather)
     }
 
     /// Traffic chip's action: swap to the currently-fastest hydrated route.

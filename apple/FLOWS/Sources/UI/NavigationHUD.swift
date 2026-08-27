@@ -46,6 +46,8 @@ struct NavigationHUD: View {
     @State private var accelMphPerSec: Double = 0
     @State private var lastFixTime: Date?
     @State private var lastFixMph: Double = 0
+    /// Breathing phase for the over-the-red-line speed glow.
+    @State private var overGlow = false
 
 
     var body: some View {
@@ -61,11 +63,10 @@ struct NavigationHUD: View {
             // In a SHORT window an open floating card takes the cluster's
             // room — the driver just asked for that card, and the gauge
             // returns the moment it closes.
-            if isCompact, !(isShort && floatingCardOpen) {
-                HStack(alignment: .top, spacing: 8) {
-                    if showsSpeedSign { speedSign }
+            if isCompact, showsFuelCluster, !(isShort && floatingCardOpen) {
+                HStack {
                     Spacer()
-                    if showsFuelCluster { fuelCluster }
+                    fuelCluster
                 }
             }
             if let warning = model.imminentWarning {
@@ -232,13 +233,6 @@ struct NavigationHUD: View {
                 fuelCluster
             }
         }
-        // Regular layouts pin the speed pair to the opposite corner, so it
-        // never crowds the gauge.
-        .overlay(alignment: .topLeading) {
-            if !isCompact, showsSpeedSign {
-                speedSign
-            }
-        }
         .padding(golden.pad)
         .onReceive(model.location.$latest) { fix in
             guard let fix else { return }
@@ -284,69 +278,44 @@ struct NavigationHUD: View {
             idleFraction: model.vehicle.idleFraction) / profile.tankCapacityUnits
     }
 
-    // MARK: live speed pair — posted limit beside actual speed
-
-    /// A driving instrument, so it hides for a walker and for a passenger
-    /// on a plane, bus, or train (SpeedSign.shouldShow).
-    private var showsSpeedSign: Bool {
-        !model.collapsedPanels.contains("speed")
-        && SpeedSign.shouldShow(
-            isNavigating: model.mode == .navigating,
-            isWalking: model.walkingMode
-                || model.navigation.route?.isWalkingEstimate == true,
-            isPassengerTransit: model.isPassengerTransit)
-    }
-
-    /// The posted limit and the speedometer, side by side: a US-style
-    /// speed-limit plate next to the live reading, which turns yellow a few
-    /// mph over the limit and red well over it (SpeedSign.judge).
-    private var speedSign: some View {
-        let limit = model.postedSpeedLimitMph
-        let judgment = SpeedSign.judge(speedMph: liveMph, limitMph: limit)
-        let speedColor: Color = switch judgment {
-        case .under: .primary
-        case .slightlyOver: Theme.riskYellow
-        case .over: Theme.riskRed
-        }
-        return HStack(spacing: 6) {
-            // The posted plate — white, black border, the shape a driver
-            // already reads at a glance. Blank while OSM has no limit here.
-            VStack(spacing: 0) {
-                Text("SPEED")
-                    .font(.system(size: golden.iconSmall * 0.24, weight: .bold))
-                Text("LIMIT")
-                    .font(.system(size: golden.iconSmall * 0.24, weight: .bold))
-                Text(limit.map { String(format: "%.0f", $0) } ?? "–")
-                    .font(.system(size: golden.iconSmall * 0.62, weight: .heavy))
-                    .monospacedDigit()
+    /// Gauge, economy and range on ONE line in ONE type size, divided
+    /// rather than stacked — three readings, one glance — with the live
+    /// speed bar riding directly beneath them.
+    private var fuelCluster: some View {
+        let vehicle = model.vehicle
+        let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
+        let electric = vehicle.profile?.fuelType == .electric
+        return VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                GaugeDial(fraction: .constant(fraction), alarming: model.fuelGaugeAlarming)
+                    .frame(width: golden.step(3), height: golden.step(3) * 0.62)
+                    .allowsHitTesting(false)
+                if let economy = averageEconomy {
+                    Divider().frame(height: golden.step(3) * 0.40)
+                    Text(electric
+                         ? String(format: "%.1f mi/kWh", economy)
+                         : String(format: "%.0f MPG", economy))
+                        .font(.system(size: 13, weight: .semibold))
+                        .monospacedDigit()
+                }
+                if let range = vehicle.expectedRangeMiles {
+                    Divider().frame(height: golden.step(3) * 0.40)
+                    Text(String(format: "%.0f mi left", range))
+                        .font(.system(size: 13, weight: .semibold))
+                        .monospacedDigit()
+                }
             }
-            .foregroundStyle(.black)
-            .frame(width: golden.iconCircle, height: golden.iconCircle * 1.28)
-            .background(Color.white)
-            .overlay(RoundedRectangle(cornerRadius: 5)
-                .stroke(Color.black, lineWidth: 2))
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            // The speedometer.
-            VStack(spacing: 0) {
-                Text(String(format: "%.0f", max(liveMph, 0)))
-                    .font(.system(size: golden.iconCircle * 0.55, weight: .heavy,
-                                  design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(speedColor)
-                Text("mph")
-                    .font(.system(size: golden.iconSmall * 0.28, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(minWidth: golden.iconCircle)
+            .fixedSize(horizontal: true, vertical: false)
+            if showsSpeedSign { speedBar }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
         .overlay(alignment: .topTrailing) {
-            minimizeButton("speed", help: "Tuck the speed away")
-                .offset(x: 6, y: -6)
+            minimizeButton("fuel", help: "Tuck the driving instruments away")
+                .padding(3)
         }
     }
 
@@ -360,42 +329,155 @@ struct NavigationHUD: View {
             Image(systemName: "xmark.circle.fill")
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
-                .background(Circle().fill(Color.white))
         }
         .buttonStyle(.plain)
         .help(help)
     }
 
-    private var fuelCluster: some View {
-        let vehicle = model.vehicle
-        let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
-        let electric = vehicle.profile?.fuelType == .electric
-        return VStack(spacing: 3) {
-            GaugeDial(fraction: .constant(fraction), alarming: model.fuelGaugeAlarming)
-                .frame(width: golden.step(2), height: golden.step(2) * 0.6)
-                .allowsHitTesting(false)
-            if let economy = averageEconomy {
-                Text(electric
-                     ? String(format: "%.1f mi/kWh", economy)
-                     : String(format: "%.0f MPG", economy))
-                    .font(.system(size: 12, weight: .bold))
-                    .monospacedDigit()
+    // MARK: live speed bar — how fast, how legal, how thriftily
+
+    /// A driving instrument: hidden for a walker and for a passenger on a
+    /// plane, bus, or train (SpeedSign.shouldShow).
+    private var showsSpeedSign: Bool {
+        SpeedSign.shouldShow(
+            isNavigating: model.mode == .navigating,
+            isWalking: model.walkingMode
+                || model.navigation.route?.isWalkingEstimate == true,
+            isPassengerTransit: model.isPassengerTransit)
+    }
+
+    /// The grade of the road underfoot, for the efficiency verdict — the
+    /// route's own measured elevation profile at the current mile.
+    private var currentGradePercent: Double {
+        guard let route = model.navigation.route else { return 0 }
+        let mile = (model.navigation.guidance?.alongMeters ?? 0) / 1609.344
+        return route.gradeProfile.first {
+            mile >= $0.startMile && mile <= $0.endMile
+        }?.gradePercent ?? 0
+    }
+
+    /// Green leaf / half-and-half / red pump, from throttle, drag and hill
+    /// (DriveEfficiency).
+    private var efficiencyVerdict: DriveEfficiency.Verdict {
+        DriveEfficiency.verdict(
+            speedMph: liveMph,
+            accelMphPerSec: accelMphPerSec,
+            gradePercent: currentGradePercent,
+            efficientCruiseMph: DriveEfficiency.efficientCruiseMph(
+                city: model.vehicle.profile?.cityMilesPerUnit,
+                highway: model.vehicle.profile?.highwayMilesPerUnit))
+    }
+
+    /// The top of the bar: the vehicle's own maximum, else 120.
+    private var barTopMph: Double {
+        SpeedLaw.barTopMph(vehicleTopSpeedMph: model.vehicle.profile?.topSpeedMph)
+    }
+
+    private var speedStanding: SpeedLaw.Standing {
+        SpeedLaw.standing(speedMph: liveMph, postedLimitMph: model.postedSpeedLimitMph)
+    }
+
+    /// The fill color follows the law: normal below the posted limit, yellow
+    /// once past it (a state violation), red at gross excess.
+    private var speedBarColor: Color {
+        switch speedStanding {
+        case .legal: return Theme.riskGreen
+        case .stateViolation: return Theme.riskYellow
+        case .federalViolation: return Theme.riskRed
+        }
+    }
+
+    /// The live speed bar: 0 on the left, the vehicle's top speed on the
+    /// right, a thick yellow line where state law is broken and a thick red
+    /// one at excessive speed. Passing red sets the whole bar breathing.
+    private var speedBar: some View {
+        let top = barTopMph
+        let fill = min(max(liveMph / max(top, 1), 0), 1)
+        let stateFrac = SpeedLaw.barFraction(
+            SpeedLaw.stateThresholdMph(postedLimitMph: model.postedSpeedLimitMph),
+            topMph: top)
+        let fedFrac = SpeedLaw.barFraction(
+            SpeedLaw.federalThresholdMph(postedLimitMph: model.postedSpeedLimitMph),
+            topMph: top)
+        let over = speedStanding == .federalViolation
+        return HStack(spacing: 6) {
+            // Leading icon: how thriftily this is being driven right now.
+            efficiencyIcon
+            GeometryReader { geo in
+                let w = geo.size.width
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.black.opacity(0.08))
+                    Capsule()
+                        .fill(speedBarColor)
+                        .frame(width: w * fill)
+                    // The two legal lines, drawn over the fill.
+                    if let stateFrac {
+                        marker(at: w * stateFrac, color: Theme.riskYellow)
+                    }
+                    if let fedFrac {
+                        marker(at: w * fedFrac, color: Theme.riskRed)
+                    }
+                }
+                .animation(.easeOut(duration: 0.35), value: fill)
             }
-            if let range = vehicle.expectedRangeMiles {
-                Text(String(format: "~%.0f mi left", range))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+            .frame(height: 12)
+            .overlay(alignment: .leading) {
+                Text("0").font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary).offset(y: 12)
+            }
+            .overlay(alignment: .trailing) {
+                Text("\(Int(top))").font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary).offset(y: 12)
+            }
+            Text(String(format: "%.0f", max(liveMph, 0)))
+                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(speedBarColor)
+                .frame(minWidth: 26, alignment: .trailing)
+        }
+        // Breathing waveform glow once past the red line — the one state
+        // that should reach a driver who isn't looking straight at it.
+        .shadow(color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
+                radius: over ? (overGlow ? 12 : 3) : 0)
+        .onChange(of: over, initial: true) { _, isOver in
+            if isOver {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                    overGlow = true
+                }
+            } else {
+                withAnimation(.default) { overGlow = false }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Theme.cardBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-        .overlay(alignment: .topTrailing) {
-            minimizeButton("fuel", help: "Tuck the fuel gauge away")
-                .offset(x: 6, y: -6)
+        .help(SpeedLaw.federalNote)
+    }
+
+    private func marker(at x: CGFloat, color: Color) -> some View {
+        Rectangle()
+            .fill(color)
+            .frame(width: 3)
+            .offset(x: max(x - 1.5, 0))
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The efficiency icon leading the bar.
+    private var efficiencyIcon: some View {
+        let (symbol, tint): (String, Color) = switch efficiencyVerdict {
+        case .efficient: ("leaf.fill", Theme.riskGreen)
+        case .fair: ("equal.circle.fill", Theme.riskYellow)
+        case .wasteful: ("fuelpump.fill", Theme.riskRed)
+        }
+        return Image(systemName: symbol)
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(tint)
+            .frame(width: 18)
+            .help(efficiencyHelp)
+    }
+
+    private var efficiencyHelp: String {
+        switch efficiencyVerdict {
+        case .efficient: return "Driving efficiently for this vehicle"
+        case .fair: return "Middling — some speed, throttle or hill cost"
+        case .wasteful: return "Heavy on fuel right now (throttle, speed or grade)"
         }
     }
 
@@ -991,6 +1073,9 @@ struct NavigationHUD: View {
             if rerouting {
                 ProgressView()
             }
+            // The compass lives IN the directions banner: it belongs with
+            // the maneuver, and it has no corner of the map left to sit in.
+            bannerCompass
         }
         .padding(14)
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
@@ -999,6 +1084,29 @@ struct NavigationHUD: View {
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
+    }
+
+    /// A compass rose on the banner's right: the needle points north while
+    /// the map turns with the road, so a glance answers "which way am I
+    /// actually headed?" without hunting for a floating control.
+    private var bannerCompass: some View {
+        let heading = max(model.location.course, 0)
+        return ZStack {
+            Circle().fill(Color.white.opacity(0.14))
+            // North needle, counter-rotated against the vehicle's heading.
+            Image(systemName: "location.north.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Theme.riskRed)
+                .rotationEffect(.degrees(-heading))
+            Text("N")
+                .font(.system(size: 8, weight: .heavy))
+                .foregroundStyle(.white)
+                .offset(y: -13)
+                .rotationEffect(.degrees(-heading))
+        }
+        .frame(width: golden.iconCircle * 0.82, height: golden.iconCircle * 0.82)
+        .animation(.easeOut(duration: 0.3), value: heading)
+        .help("North")
     }
 
     private func firstInstruction(of route: PlannedRoute) -> String {

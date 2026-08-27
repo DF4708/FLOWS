@@ -252,17 +252,6 @@ struct ContentView: View {
     /// a short (sideways) window is mostly planner, and behind the
     /// first-launch vehicle card. Tucking those menus away (collapse)
     /// brings the legend back.
-    /// Where the compass sits below the top-left occupant. The map ignores
-    /// the safe area, so these clear the whole stack above it: status bar +
-    /// instruction banner while driving, status bar + legend while it's up,
-    /// status bar alone otherwise. Golden steps of the window, like the rest
-    /// of the chrome.
-    private var compassTopInset: CGFloat {
-        // Below the banner AND below the speed plate, which shares this
-        // corner while driving.
-        golden.topClear * 3 + golden.iconCircle * 1.5
-    }
-
     private var legendHasRoom: Bool {
         guard model.mode != .navigating else { return false }
         guard !model.collapsedPanels.contains("legend") else { return false }
@@ -377,9 +366,24 @@ struct ContentView: View {
         // never fights the camera; a pan pauses it, and picking the plane
         // card again resumes.
         .onReceive(model.location.$latest.compactMap { $0 }) { fix in
-            guard model.mode != .navigating, cameraFollows, fix.speed > 0.7,
-                  let camera = flightCamera(for: fix) else { return }
-            moveCamera(.camera(camera))
+            guard model.mode != .navigating, cameraFollows else { return }
+            // Flying: the phase camera owns the view.
+            if fix.speed > 0.7, let camera = flightCamera(for: fix) {
+                moveCamera(.camera(camera))
+                return
+            }
+            // Otherwise: once the device is actually MOVING, turn the map to
+            // face the direction of travel, the same as during a guided
+            // drive. Parked, it stays north-up — a heading from a standing
+            // GPS fix is noise, and a map that spins at the curb is worse
+            // than one that doesn't move.
+            guard fix.speed > 2.2, fix.course >= 0,
+                  let region = visibleRegion else { return }
+            let distance = max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
+            moveCamera(.camera(MapCamera(centerCoordinate: fix.coordinate,
+                                         distance: distance,
+                                         heading: fix.course,
+                                         pitch: 0)))
         }
         .onChange(of: model.transitItinerary?.mode) { _, mode in
             if mode == "Plane" { cameraFollows = true }
@@ -1276,27 +1280,10 @@ struct ContentView: View {
                                          pitch: on ? 55 : 0)))
         }
         // MapKit's own compass lives top-right, where the phone's status
-        // icons (battery, signal, Wi-Fi) cover it — turn the built-ins off
-        // and place our own.
+        // icons cover it — the built-ins stay off. While driving the
+        // directions banner carries a compass instead (NavigationHUD);
+        // a north-up planning map has nothing to report.
         .mapControls { }
-        // Compass top-LEFT, clear of whatever owns that corner: the
-        // instruction banner while navigating, the legend when it's up, the
-        // status bar otherwise. (MapKit only draws a compass on a rotated
-        // map, so in practice this is the driving case.)
-        .overlay(alignment: .topLeading) {
-            // Travel only: parked on the planning map it just crowded the
-            // risk key, and a north-up planning map has nothing to report.
-            if model.mode == .navigating {
-            MapCompass(scope: mapScope)
-                // Always drawn: the default compass auto-hides at north-up,
-                // and a driver glancing for "which way am I pointed" should
-                // find it in the same place every time.
-                .mapControlVisibility(.visible)
-                .scaleEffect(1.35)
-                .padding(.top, compassTopInset)
-                .padding(.leading, golden.padCard)
-            }
-        }
         // No network: routing can't help, but the breadcrumb trail can. The
         // banner names the situation and offers the way back — the recorded
         // trail draws entirely offline (MapKit shows recently-cached tiles).
@@ -2095,8 +2082,8 @@ struct CollapsedPanelTray: View {
         PanelBadge(id: "sliders", symbol: "slider.horizontal.3", name: "Vehicle limits"),
         PanelBadge(id: "stops", symbol: "list.bullet", name: "Stop list"),
         PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
-        PanelBadge(id: "speed", symbol: "speedometer", name: "Speed"),
-        PanelBadge(id: "fuel", symbol: "fuelpump", name: "Fuel gauge"),
+        PanelBadge(id: "fuel", symbol: "gauge.with.dots.needle.bottom.50percent",
+                   name: "Driving instruments"),
     ]
 
     var body: some View {
@@ -2110,8 +2097,10 @@ struct CollapsedPanelTray: View {
         // Stacked right under the gear, one pad apart, in the same
         // top-right column — no dead gap. While navigating the gear lives
         // in the bottom bar, so the tray takes the corner itself.
+        // Clear of whatever owns the top-right: the instruction banner
+        // while driving, the settings gear while planning.
         .padding(.top, model.mode == .navigating
-                 ? golden.pad
+                 ? golden.topClear * 3
                  : golden.pad * 2 + golden.iconCircle)
         .padding(.trailing, golden.pad)
     }
