@@ -1125,9 +1125,14 @@ struct RouteChoicesView: View {
         // Same framing rule as the first plan: grow the rect on whichever
         // side the panel covers, so the route lands in the map the driver
         // can actually see (PlannerPanel.choicesCameraRect).
+        // A route whose line hasn't arrived yet has a NULL bounding rect,
+        // which the camera reads as 0,0 — the Atlantic off Africa. Leave the
+        // map where it is rather than jumping there.
+        guard let rect = CameraZoom.usableRect(route.route.polyline.boundingMapRect)
+        else { return }
         withAnimation {
             camera = .rect(CameraZoom.framedRect(
-                route.route.polyline.boundingMapRect,
+                rect,
                 panelOnTop: panelOnTop,
                 windowAspect: golden.size.height / max(golden.size.width, 1),
                 panelFraction: panelOnTop ? golden.choicesPanelFraction

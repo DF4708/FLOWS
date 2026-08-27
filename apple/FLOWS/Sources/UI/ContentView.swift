@@ -46,6 +46,13 @@ struct ContentView: View {
     /// camera's heading-up rotation — the marker must rotate relative to the
     /// world's rotation, not assume a panned camera is north-up.
     @State private var cameraHeading: Double = 0
+    /// Where the vehicle marker is DRAWN. Slid toward each new fix rather
+    /// than snapped to it — see VehicleTrack.
+    @State private var drawnFix: CLLocationCoordinate2D?
+    @State private var drawnHeading: Double?
+    @State private var lastFixAt: Date?
+    /// Pitch the chase camera last used, for picking the marker's aspect.
+    @State private var cameraPitch: Double = 0
     /// Set while THIS view moves the camera, so onMapCameraChange can tell
     /// our animations from the user's gestures.
     @State private var programmaticCameraMove = Date.distantPast
@@ -369,12 +376,21 @@ struct ContentView: View {
                model.location.course >= 0 {
                 chaseEngaged = true
             }
+            let heading = chaseEngaged && model.location.course >= 0
+                ? model.location.course : 0
+            let distance = model.cameraAltitude(
+                auto: chaseEngaged ? g.cameraAltitude : g.cameraAltitude * 1.4)
+            // Keep the vehicle in the middle of the map the driver can SEE,
+            // not the middle of the map behind the chrome. The offset moves
+            // the aim point only — the zoom is untouched, so a banner opening
+            // or closing never changes it.
             moveCamera(.camera(MapCamera(
-                centerCoordinate: coord,
-                distance: model.cameraAltitude(
-                    auto: chaseEngaged ? g.cameraAltitude : g.cameraAltitude * 1.4),
-                heading: chaseEngaged && model.location.course >= 0
-                    ? model.location.course : 0,
+                centerCoordinate: CameraZoom.chaseCenter(
+                    vehicle: coord, headingDegrees: heading,
+                    distanceMeters: distance,
+                    topCover: chromeTopFraction, bottomCover: chromeBottomFraction),
+                distance: distance,
+                heading: heading,
                 pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
         }
         // FLIGHT camera: with the plane option chosen, the map follows the
@@ -425,6 +441,11 @@ struct ContentView: View {
                 rect = rect.union(MKMapRect(
                     origin: MKMapPoint(me), size: MKMapSize(width: 1, height: 1)))
             }
+            // While DRIVING with follow on, nothing but the driver or the
+            // guidance chase moves the camera. A stop appearing in a list —
+            // which is what opening or closing an alert does — must not
+            // yank the map out from under the vehicle or change its zoom.
+            guard !(model.mode == .navigating && cameraFollows) else { return }
             cameraFollows = false   // let the driver inspect; re-center restores
             moveCamera(.rect(rect.insetBy(dx: -rect.width * 0.4 - 3000,
                                           dy: -rect.height * 0.4 - 3000)))
@@ -462,7 +483,7 @@ struct ContentView: View {
             case .planning where previous == .navigating:
                 // Ending a trip: zoom back out to the corridor (or the user)
                 // instead of stranding the camera at street level.
-                if let rect = model.lastRouteRect {
+                if let rect = model.lastRouteRect.flatMap(CameraZoom.usableRect) {
                     moveCamera(.rect(rect.insetBy(dx: -rect.width * 0.2,
                                                   dy: -rect.height * 0.2)))
                 } else if let me = model.location.coordinate {
@@ -940,7 +961,16 @@ struct ContentView: View {
                 }
             }
             if model.walkingMode { return ("figure.walk", .green) }
-            return ("car.fill", .blue)
+            // The driver's own vehicle, drawn from the angle the camera is
+            // actually looking from: the roof flat on the map, the back when
+            // following behind, the front when the camera faces it. Flat art
+            // swapped per aspect, not a 3D model — which is all a marker
+            // this size needs to read as having a direction.
+            let aspect = VehicleAspect.forCamera(
+                pitchDegrees: cameraPitch,
+                relativeBearing: cameraHeading - (drawnHeading ?? cameraHeading))
+            return (model.vehicleShape.symbol(aspect),
+                    Self.markerColor(model.vehicleColorName))
         }()
         // Heading-up camera already rotates the WORLD to the course — rotating
         // the marker again pointed it wrong by 2×course. On a free camera,
@@ -1075,7 +1105,7 @@ struct ContentView: View {
             // tram/bus when a transit itinerary is active. Rotates with the
             // course while navigating so the car points down the road.
             if let here = model.location.coordinate {
-                Annotation("", coordinate: here) {
+                Annotation("", coordinate: drawnFix ?? here) {
                     travelerMarker
                 }
                 // Fuel-reach ring: ONLY once the tank is 75%+ empty — the
@@ -1396,9 +1426,33 @@ struct ContentView: View {
         // a pan keeps it hitting. `.continuous` would make every frame a memo
         // miss running a full grid select (at continental zoom, a sort of all
         // ~33k entries per frame).
+        .onReceive(model.location.$latest.compactMap { $0 }) { fix in
+            // Slide to the new fix instead of teleporting. A large step is
+            // the GPS correcting itself (leaving a tunnel), and animating
+            // across that would draw the car through buildings — so that
+            // one snaps.
+            let now = Date()
+            let gap = lastFixAt.map { now.timeIntervalSince($0) } ?? 1
+            lastFixAt = now
+            drawnHeading = VehicleTrack.heading(courseDegrees: fix.course,
+                                                speedMps: max(fix.speed, 0),
+                                                previous: drawnHeading)
+            guard let previous = drawnFix else {
+                drawnFix = fix.coordinate
+                return
+            }
+            if VehicleTrack.shouldAnimate(from: previous, to: fix.coordinate) {
+                withAnimation(.linear(duration: VehicleTrack.slideSeconds(gap: gap))) {
+                    drawnFix = fix.coordinate
+                }
+            } else {
+                drawnFix = fix.coordinate
+            }
+        }
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
             cameraHeading = context.camera.heading
+            cameraPitch = context.camera.pitch
             refreshViewportHazards(context.region)
 
             // A camera settle we didn't initiate while navigating = the user
@@ -1416,6 +1470,34 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
     }
+
+    /// The driver's chosen marker colour, by name so the setting survives
+    /// as a word rather than a packed number.
+    static func markerColor(_ name: String) -> Color {
+        switch name {
+        case "red": return .red
+        case "green": return .green
+        case "orange": return .orange
+        case "purple": return .purple
+        case "yellow": return .yellow
+        case "gray": return .gray
+        case "black": return .black
+        default: return .blue
+        }
+    }
+
+    /// Share of the window the top chrome covers while driving: the
+    /// directions banner, plus the instrument cluster when it's up.
+    private var chromeTopFraction: Double {
+        var f = 0.16                                   // directions banner
+        if model.vehicle.profile != nil,
+           !model.collapsedPanels.contains("fuel") { f += 0.10 }
+        if model.imminentWarning != nil { f += 0.12 }
+        return f
+    }
+
+    /// …and the drive bar at the bottom.
+    private var chromeBottomFraction: Double { 0.22 }
 
     /// Hand the camera to the driver: any deliberate gesture — drag, pinch,
     /// rotate — stops the automatic zoom and heading-up chase until the
@@ -2225,6 +2307,38 @@ struct WelcomeCard: View {
 }
 
 struct SettingsSheet: View {
+    /// Body shape for the map marker — "Match my vehicle" reads it from the
+    /// make, model and weight already on file.
+    private var vehicleShapePicker: some View {
+        Picker("Shape", selection: Binding(
+            get: { model.vehicleShapeOverride },
+            set: { model.vehicleShapeOverride = $0 })) {
+            Text("Match my vehicle").tag(VehicleShape?.none)
+            ForEach(VehicleShape.allCases) { shape in
+                Text(shape.title).tag(VehicleShape?.some(shape))
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+    }
+
+    private var vehicleColorRow: some View {
+        HStack(spacing: 8) {
+            ForEach(AppModel.vehicleColorChoices, id: \.self) { name in
+                let chosen = model.vehicleColorName == name
+                Button { model.vehicleColorName = name } label: {
+                    Circle()
+                        .fill(ContentView.markerColor(name))
+                        .frame(width: 24, height: 24)
+                        .overlay(Circle().stroke(chosen ? Color.primary : Color.clear,
+                                                 lineWidth: 2.5))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(name) vehicle marker")
+            }
+        }
+    }
+
     @EnvironmentObject private var model: AppModel
     @State private var showDemoGallery = false
     @State private var showContactPicker = false
@@ -2300,6 +2414,17 @@ struct SettingsSheet: View {
                  + "sources. No other music service lets outside apps "
                  + "control it, so the rest open in their own app. The same "
                  + "rule drives the Siri and CarPlay buttons.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+            Text("Your vehicle on the map")
+                .font(.system(size: 14, weight: .semibold))
+            vehicleShapePicker
+            vehicleColorRow
+            Text("The marker is drawn from the angle the camera is looking "
+                 + "from — the roof flat on the map, the back when following "
+                 + "behind. Shape starts from the vehicle you entered.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

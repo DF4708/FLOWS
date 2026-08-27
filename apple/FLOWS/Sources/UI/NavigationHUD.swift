@@ -43,6 +43,8 @@ struct NavigationHUD: View {
     @State private var shelterTick = Date()
     /// AM/FM search field text (radio-browser.info directory).
     @State private var stationSearch = ""
+    /// The AM/FM kind currently on the dial, so its chip reads as chosen.
+    @State private var radioGenre: BroadcastRadio.Kind?
     /// Long-trip share banner: recipient list expanded / contacts sheet up.
     @State private var showShareChooser = false
     @State private var showShareContactPicker = false
@@ -1981,10 +1983,12 @@ struct NavigationHUD: View {
                     }
                 }
                 .labelsHidden()
-                // The menu picker wraps its label at a narrow intrinsic
-                // width even with the whole row free to its right —
-                // fixedSize lets the station name run on one line.
-                .fixedSize()
+                // One line, and allowed to SHRINK rather than being forced
+                // to its intrinsic width: fixedSize in a narrow card pushed
+                // "NOAA WX IL-Dixon: KZZ55" past the edge and the label came
+                // out crushed together and unreadable.
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 Button {
                     if model.radio.playingChannelID != nil {
                         model.radio.stop()
@@ -2114,16 +2118,43 @@ struct NavigationHUD: View {
                             near: model.effectivePosition, stateCode: code)
                     }
                 }
+            // Pick a KIND and it plays. Nobody knows the call letters in a
+            // town they're passing through, and picking a genre that then
+            // sits there waiting for a second tap is a step for nothing —
+            // so choosing one tunes its nearest station straight away and
+            // loads the rest as the queue. The player arrows then walk that
+            // list, wrapping from the last back to the first.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(BroadcastRadio.Kind.allCases) { kind in
+                        let on = radioGenre == kind
+                        Button { playGenre(kind) } label: {
+                            Label(kind.title, systemImage: kind.symbol)
+                                .scaledFont(size: 11, weight: .semibold)
+                                .lineLimit(1)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(on ? Theme.cta : Theme.fill(0.06))
+                                .foregroundStyle(on ? Theme.onCTA : Color.primary)
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Play \(kind.title) radio")
+                    }
+                }
+            }
             HStack(spacing: 6) {
                 TextField("Search by name or genre", text: $stationSearch)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
                     .onSubmit {
                         let query = stationSearch
+                        radioGenre = nil
                         Task { await model.radioBrowser.search(text: query) }
                     }
                 Button("Near me") {
                     stationSearch = ""
+                    radioGenre = nil
                     let code = model.currentStateCode
                     Task {
                         await model.radioBrowser.searchNearby(
@@ -2232,6 +2263,19 @@ struct NavigationHUD: View {
 
     /// One AM/FM search result: name + genre words, and the same brown
     /// play/stop control as the relay rows.
+    /// Choosing a genre: fetch its stations near here, then start the first
+    /// one and hand the whole list to the player as the queue.
+    private func playGenre(_ kind: BroadcastRadio.Kind) {
+        radioGenre = kind
+        stationSearch = ""
+        Task {
+            await model.radioBrowser.searchGenre(kind, near: model.effectivePosition)
+            let channels = model.radioBrowser.stations.map(\.channel)
+            guard !channels.isEmpty else { return }
+            model.radio.playQueue(channels, label: kind.title)
+        }
+    }
+
     private func amfmStationRow(_ station: RadioBrowser.Station) -> some View {
         HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 0) {
@@ -2381,13 +2425,22 @@ struct NavigationHUD: View {
             .help(music.trackName.isEmpty
                   ? model.musicProvider.displayName : music.trackName)
             if model.musicProvider.controllable {
-            Button { music.back() } label: {
+            Button {
+                // Radio walks its own station queue, and starts one when
+                // there isn't one yet — the arrows are never dead.
+                if model.musicProvider == .radio {
+                    model.radioStep(forward: false)
+                } else {
+                    music.back()
+                }
+            } label: {
                 Image(systemName: "backward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }
             .buttonStyle(.plain)
-            .help("Previous track")
-            .accessibilityLabel("Previous track")
+            .help(model.musicProvider == .radio ? "Previous station" : "Previous track")
+            .accessibilityLabel(model.musicProvider == .radio
+                                ? "Previous station" : "Previous track")
             // Shows PAUSE while playing (press to stop), PLAY while paused.
             Button { model.playMusic() } label: {
                 Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
@@ -2420,7 +2473,13 @@ struct NavigationHUD: View {
                          : "Playback controls live in \(model.musicProvider.displayName)")
             }
             if model.musicControllable {
-            Button { music.skip() } label: {
+            Button {
+                if model.musicProvider == .radio {
+                    model.radioStep(forward: true)
+                } else {
+                    music.skip()
+                }
+            } label: {
                 Image(systemName: "forward.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }

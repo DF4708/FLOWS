@@ -416,10 +416,11 @@ struct PlannerPanel: View {
             Task {
                 isWorking = true
                 defer { isWorking = false }
-                if let planned = await model.planToFavorite(fav), let first = planned.first {
+                if let planned = await model.planToFavorite(fav), let first = planned.first,
+                   let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect) {
                     withAnimation {
                         camera = .rect(Self.choicesCameraRect(
-                        first.route.polyline.boundingMapRect,
+                        rect,
                         panelOnTop: panelOnTop,
                         windowAspect: golden.size.height / max(golden.size.width, 1),
                         panelFraction: panelOnTop ? golden.choicesPanelFraction
@@ -507,10 +508,13 @@ struct PlannerPanel: View {
                 to: to.0, toName: to.1)
             model.present(routes: planned)
             // Frame the full corridor while choosing.
-            if let first = planned.first {
+            // A null bounding rect (geometry not in yet) would frame the
+            // camera on 0,0 — the Atlantic off Africa.
+            if let first = planned.first,
+               let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect) {
                 withAnimation {
                     camera = .rect(Self.choicesCameraRect(
-                        first.route.polyline.boundingMapRect,
+                        rect,
                         panelOnTop: panelOnTop,
                         windowAspect: golden.size.height / max(golden.size.width, 1),
                         panelFraction: panelOnTop ? golden.choicesPanelFraction

@@ -57,6 +57,22 @@ enum CameraZoom {
     /// filter grid, and the route list (itself capped at height/φ²).
     static let choicesPanelFraction = 0.5
 
+    /// A route rect worth pointing a camera at, or nil.
+    ///
+    /// `MKPolyline.boundingMapRect` on an EMPTY polyline is null — and a
+    /// null rect fed to the camera reads as latitude 0, longitude 0, which
+    /// is in the Atlantic off West Africa. That is the "why is it showing me
+    /// Africa and Europe" jump: a route whose geometry hadn't arrived yet
+    /// (or a transit leg with no drawn line) got framed at the null island.
+    /// A degenerate speck is rejected for the same reason — there is nothing
+    /// there to look at.
+    static func usableRect(_ rect: MKMapRect) -> MKMapRect? {
+        guard !rect.isNull, !rect.isEmpty,
+              rect.size.width.isFinite, rect.size.height.isFinite,
+              rect.size.width > 1, rect.size.height > 1 else { return nil }
+        return rect
+    }
+
     /// Frame a route so it lands in the map the driver can actually SEE,
     /// rather than behind the choices panel.
     ///
@@ -86,6 +102,50 @@ enum CameraZoom {
         // framed rect — selecting a card should always show the entire
         // route, zooming out if that is what it takes.
         return fit.union(rect)
+    }
+
+    /// Where to point the camera so the VEHICLE lands in the middle of the
+    /// band of map the driver can actually see.
+    ///
+    /// The map runs full-bleed under the chrome: the directions banner and
+    /// the instrument cluster cover the top, the drive bar covers the
+    /// bottom. Centering on the vehicle therefore puts it in the middle of
+    /// the WHOLE map, which is behind the banner — the driver ends up
+    /// looking at their own position through a card. Shifting the camera's
+    /// target along the heading slides the vehicle down into the open band
+    /// without touching the zoom, which is the part that must not change.
+    ///
+    /// `topCover` and `bottomCover` are the fractions of the window the
+    /// chrome occupies. Returns the vehicle itself when nothing is covered.
+    static func chaseCenter(vehicle: CLLocationCoordinate2D,
+                            headingDegrees: Double,
+                            distanceMeters: Double,
+                            topCover: Double,
+                            bottomCover: Double) -> CLLocationCoordinate2D {
+        let top = min(max(topCover, 0), 0.45)
+        let bottom = min(max(bottomCover, 0), 0.45)
+        // Middle of the open band, as a fraction down the window.
+        let visibleMiddle = (top + (1 - bottom)) / 2
+        let shiftFraction = visibleMiddle - 0.5
+        guard abs(shiftFraction) > 0.001, distanceMeters > 0 else { return vehicle }
+        // The camera's vertical span is on the order of its distance; a
+        // fraction of that is how far to move the aim point. Pushing the aim
+        // FORWARD along the heading drops the vehicle further down-screen.
+        let meters = shiftFraction * distanceMeters
+        return offset(vehicle, metersAlong: headingDegrees, meters: meters)
+    }
+
+    /// A coordinate `meters` away from `from` along a compass bearing.
+    static func offset(_ from: CLLocationCoordinate2D,
+                       metersAlong bearingDegrees: Double,
+                       meters: Double) -> CLLocationCoordinate2D {
+        let rad = Double.pi / 180
+        let north = cos(bearingDegrees * rad) * meters
+        let east = sin(bearingDegrees * rad) * meters
+        let dLat = north / 111_320
+        let dLon = east / (111_320 * max(cos(from.latitude * rad), 0.01))
+        return CLLocationCoordinate2D(latitude: from.latitude + dLat,
+                                      longitude: from.longitude + dLon)
     }
 
     /// Flight altitude by phase, from the distance to the NEAREST of the two

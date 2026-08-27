@@ -1075,7 +1075,21 @@ final class AppModel: ObservableObject {
 
     /// Press play with radio as the service and no history: the stations
     /// around here, as a queue.
-    private func playLocalStationsRadio() {
+    /// Forward/back on the mini player when the radio is the service.
+    ///
+    /// The transport walks a QUEUE, and the queue is empty until something
+    /// loads one — so before any station had been picked, the arrows had
+    /// nothing to step through and appeared dead. Pressing one now starts
+    /// the local dial and plays, which is what the driver meant by it.
+    func radioStep(forward: Bool) {
+        guard radio.queue.isEmpty else {
+            _ = forward ? radio.nextStation() : radio.previousStation()
+            return
+        }
+        playLocalStationsRadio()
+    }
+
+    func playLocalStationsRadio() {
         let code = currentStateCode
         Task { [weak self] in
             guard let self else { return }
@@ -1407,6 +1421,39 @@ final class AppModel: ObservableObject {
               refuelCheckInsEnabled, notifyFuel,
               StaleGauge.wentStale(lastUsed: last, now: now) else { return }
         refuelPrompt = true
+    }
+
+    // MARK: how the vehicle is drawn on the map
+
+    /// Body shape for the map marker. Defaults to the driver's own vehicle —
+    /// an 18 wheeler shouldn't be drawn as a hatchback — and is overridable
+    /// in Settings.
+    @Published var vehicleShapeOverride: VehicleShape? = UserDefaults.standard
+        .string(forKey: "flows.vehicleShape").flatMap(VehicleShape.init(rawValue:)) {
+        didSet {
+            UserDefaults.standard.set(vehicleShapeOverride?.rawValue,
+                                      forKey: "flows.vehicleShape")
+        }
+    }
+
+    /// Marker colour, as an SF-friendly name so the choice survives as a
+    /// word rather than a packed number.
+    @Published var vehicleColorName: String = UserDefaults.standard
+        .string(forKey: "flows.vehicleColor") ?? "blue" {
+        didSet { UserDefaults.standard.set(vehicleColorName, forKey: "flows.vehicleColor") }
+    }
+
+    static let vehicleColorChoices = ["blue", "red", "green", "orange",
+                                      "purple", "yellow", "gray", "black"]
+
+    /// The shape actually drawn: the override when set, otherwise whatever
+    /// matches the vehicle on file.
+    var vehicleShape: VehicleShape {
+        vehicleShapeOverride
+            ?? VehicleShape.matching(make: vehicle.profile?.make,
+                                     model: vehicle.profile?.model,
+                                     gvwrLbs: vehicle.profile?.gvwrLbs,
+                                     isTrucker: truckerUI)
     }
 
     // MARK: sheltering in place
