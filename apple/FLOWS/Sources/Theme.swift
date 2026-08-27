@@ -74,10 +74,15 @@ struct GoldenScale: Equatable {
     /// Tallest a stacked panel may grow (height/φ²) — the map keeps the
     /// majority of the window.
     var panelMaxHeight: CGFloat { size.height / (Theme.phi * Theme.phi) }
-    /// The least a choices panel may be: enough for the trip pill, the
-    /// filter grid and one WHOLE route card. A card cut in half is not a
-    /// choice a driver can make. Bigger windows get φ-proportioned room.
-    var firstCardMinHeight: CGFloat { min(size.height * 0.62, 460) }
+    /// The choices panel's share of the window: enough for the trip pill,
+    /// the filter grid and a whole route card, and no more — the map below
+    /// still has to show the route being chosen. Cards snap to their own
+    /// edges inside it, so the panel never slices one in half.
+    var choicesPanelHeight: CGFloat { min(max(size.height * 0.46, 300), 520) }
+    /// The same share as a FRACTION, for framing the route clear of it.
+    var choicesPanelFraction: Double {
+        size.height > 0 ? Double(choicesPanelHeight / size.height) : 0.46
+    }
     /// List scroll cap inside HUD cards (height/φ³).
     var listMaxHeight: CGFloat { size.height / pow(Theme.phi, 3) }
 }

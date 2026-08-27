@@ -1452,6 +1452,8 @@ final class AppModel: ObservableObject {
     private var limitLookupTask: Task<Void, Never>?
     private var lastLimitLookup = Date.distantPast
     private var lastLimitPoint: CLLocationCoordinate2D?
+    /// The maneuver step the last lookup belonged to — a new step re-checks.
+    private var lastLimitStep: Int?
 
     /// True while the traveler is a PASSENGER (plane, bus, train) rather
     /// than driving — no speed sign for them.
@@ -1471,10 +1473,18 @@ final class AppModel: ObservableObject {
             if postedSpeedLimitMph != nil { postedSpeedLimitMph = nil }
             return
         }
+        // Responsive enough that the yellow and red lines are already there
+        // as the driver turns onto a new road: a short block is ~80 m, so
+        // waiting 150 m and 15 s meant driving a whole street unmarked.
         let moved = lastLimitPoint.map {
-            POIRanking.meters($0, fix.coordinate) > 150
+            POIRanking.meters($0, fix.coordinate) > 60
         } ?? true
-        guard moved, Date().timeIntervalSince(lastLimitLookup) > 15 else { return }
+        let stale = Date().timeIntervalSince(lastLimitLookup) > 8
+        // A brand-new maneuver means a new road is imminent — look again
+        // even if the vehicle has barely moved since the last check.
+        let newStep = navigation.guidance?.stepIndex != lastLimitStep
+        guard (moved && stale) || newStep else { return }
+        lastLimitStep = navigation.guidance?.stepIndex
         lastLimitLookup = Date()
         lastLimitPoint = fix.coordinate
         let point = fix.coordinate
@@ -2348,6 +2358,7 @@ final class AppModel: ObservableObject {
         laneLookupStep = -1
         postedSpeedLimitMph = nil
         lastLimitPoint = nil
+        lastLimitStep = nil
         refuelPrompt = false
         refuelPromptShownAt = nil
         upcomingSteepGrade = nil

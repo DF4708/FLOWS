@@ -275,9 +275,12 @@ struct PlannerPanel: View {
     /// CameraZoom.framedRect (pure, tested).
     static func choicesCameraRect(_ rect: MKMapRect,
                                   panelOnTop: Bool = false,
-                                  windowAspect: Double = 2.0) -> MKMapRect {
+                                  windowAspect: Double = 2.0,
+                                  panelFraction: Double
+                                    = CameraZoom.choicesPanelFraction) -> MKMapRect {
         CameraZoom.framedRect(rect, panelOnTop: panelOnTop,
-                              windowAspect: windowAspect)
+                              windowAspect: windowAspect,
+                              panelFraction: panelFraction)
     }
 
     /// Plain-words error text — never surface raw framework errors like
@@ -313,7 +316,9 @@ struct PlannerPanel: View {
                         camera = .rect(Self.choicesCameraRect(
                         first.route.polyline.boundingMapRect,
                         panelOnTop: panelOnTop,
-                        windowAspect: golden.size.height / max(golden.size.width, 1)))
+                        windowAspect: golden.size.height / max(golden.size.width, 1),
+                        panelFraction: panelOnTop ? golden.choicesPanelFraction
+                                                  : CameraZoom.choicesPanelFraction))
                     }
                 } else {
                     errorMessage = "Couldn't plan to \(fav.name) — no GPS fix or no route."
@@ -391,7 +396,9 @@ struct PlannerPanel: View {
                     camera = .rect(Self.choicesCameraRect(
                         first.route.polyline.boundingMapRect,
                         panelOnTop: panelOnTop,
-                        windowAspect: golden.size.height / max(golden.size.width, 1)))
+                        windowAspect: golden.size.height / max(golden.size.width, 1),
+                        panelFraction: panelOnTop ? golden.choicesPanelFraction
+                                                  : CameraZoom.choicesPanelFraction))
                 }
             }
         } catch {

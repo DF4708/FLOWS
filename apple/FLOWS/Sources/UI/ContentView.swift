@@ -1813,12 +1813,10 @@ private struct PlanningChrome: View {
                 if model.mode == .choosing {
                     TripSummaryPill()
                     FilterSlidersCard()
-                    // Tall enough for the FIRST CARD in full (a route the
-                    // driver can't read whole is no choice at all), and
-                    // taller on displays with the room to spare.
+                    // Enough for a whole route card, and no more: the map
+                    // below still has to show the route being chosen.
                     RouteChoicesView(camera: $camera)
-                        .frame(maxHeight: max(golden.panelMaxHeight,
-                                              golden.firstCardMinHeight))
+                        .frame(maxHeight: golden.choicesPanelHeight)
                     Spacer()
                 } else {
                     Spacer()
@@ -2555,12 +2553,18 @@ struct SettingsSheet: View {
             Divider()
             Text("Attribution & licenses")
                 .font(.system(size: 14, weight: .semibold))
-            Text("Places (fuel, food, lodging, medical, transit): Foursquare "
+            Text("Maps, routing, search and traffic: Apple Maps — "
+                 + "© Apple Inc. and its data providers. The Apple logo and "
+                 + "Legal link on the map are required by Apple's terms and "
+                 + "cannot be removed by an app; tapping Legal there opens "
+                 + "Apple's full notices.\n"
+                 + "Places (fuel, food, lodging, medical, transit): Foursquare "
                  + "Open Source Places, © Foursquare Labs, Inc., licensed under "
                  + "Apache License 2.0.\n"
-                 + "Low-bridge clearances and water features: © OpenStreetMap "
-                 + "contributors, available under the Open Database License (ODbL) "
-                 + "— openstreetmap.org/copyright.\n"
+                 + "Low-bridge clearances, weight limits, posted speed limits "
+                 + "and lane guidance: © OpenStreetMap contributors, available "
+                 + "under the Open Database License (ODbL) — "
+                 + "openstreetmap.org/copyright.\n"
                  + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
                  + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
                  + "data. FLOWS is not affiliated with any of these agencies.")

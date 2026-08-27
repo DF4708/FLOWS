@@ -910,7 +910,11 @@ struct RouteChoicesView: View {
                             onGo: { model.select(route: route) })
                     }
                 }
+                // Cards align to their own edges, so scrolling never leaves
+                // one sliced across the panel's bottom.
+                .scrollTargetLayout()
             }
+            .scrollTargetBehavior(.viewAligned)
         }
         .collapsibleMenu("routes")
         .floatingCard()
@@ -1091,10 +1095,12 @@ struct RouteChoicesView: View {
         // side the panel covers, so the route lands in the map the driver
         // can actually see (PlannerPanel.choicesCameraRect).
         withAnimation {
-            camera = .rect(PlannerPanel.choicesCameraRect(
+            camera = .rect(CameraZoom.framedRect(
                 route.route.polyline.boundingMapRect,
                 panelOnTop: panelOnTop,
-                windowAspect: golden.size.height / max(golden.size.width, 1)))
+                windowAspect: golden.size.height / max(golden.size.width, 1),
+                panelFraction: panelOnTop ? golden.choicesPanelFraction
+                                          : CameraZoom.choicesPanelFraction))
         }
     }
 }

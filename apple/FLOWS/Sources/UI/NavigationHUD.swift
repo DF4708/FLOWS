@@ -333,52 +333,57 @@ struct NavigationHUD: View {
                 // The scale's ends and both legal speeds, each positioned
                 // UNDER ITS OWN LINE rather than spread evenly — a number
                 // that doesn't sit beneath its mark is worse than none.
-                GeometryReader { geo in
-                    let w = geo.size.width
-                    let top = barTopMph
-                    ZStack(alignment: .leading) {
-                        Text("0")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if let state = SpeedLaw.stateThresholdMph(
-                            postedLimitMph: model.postedSpeedLimitMph),
-                           let f = SpeedLaw.barFraction(state, topMph: top) {
-                            OutlinedText(text: String(format: "%.0f", state),
-                                         color: Theme.riskYellow,
-                                         font: .system(size: 11, weight: .bold))
-                                .fixedSize()
-                                .offset(x: centered(w * f, width: w))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        if let fed = SpeedLaw.federalThresholdMph(
-                            postedLimitMph: model.postedSpeedLimitMph),
-                           let f = SpeedLaw.barFraction(fed, topMph: top) {
-                            Text(String(format: "%.0f", fed))
+                // "mph" lives out in the readout column, under the current
+                // speed, so it can never crowd the scale's top number.
+                HStack(spacing: 8) {
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        let top = barTopMph
+                        ZStack(alignment: .leading) {
+                            Text("0")
                                 .font(.system(size: 11, weight: .bold))
-                                .monospacedDigit()
-                                .foregroundStyle(Theme.riskRed)
-                                .fixedSize()
-                                .offset(x: centered(w * f, width: w))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        // The scale's top, unless a legal number is sitting
-                        // there — two numbers in one place is worse than one.
-                        // The legal line wins; it's the one being driven to.
-                        if !crowdsTheEnd(SpeedLaw.federalThresholdMph(
-                                postedLimitMph: model.postedSpeedLimitMph), top: top),
-                           !crowdsTheEnd(SpeedLaw.stateThresholdMph(
-                                postedLimitMph: model.postedSpeedLimitMph), top: top) {
-                            Text("\(Int(top)) mph")
-                                .font(.system(size: 11, weight: .bold))
-                                .monospacedDigit()
                                 .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            if let state = SpeedLaw.stateThresholdMph(
+                                postedLimitMph: model.postedSpeedLimitMph),
+                               let f = SpeedLaw.barFraction(state, topMph: top) {
+                                OutlinedText(text: String(format: "%.0f", state),
+                                             color: Theme.riskYellow,
+                                             font: .system(size: 11, weight: .bold))
+                                    .fixedSize()
+                                    .offset(x: centered(w * f, width: w))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            if let fed = SpeedLaw.federalThresholdMph(
+                                postedLimitMph: model.postedSpeedLimitMph),
+                               let f = SpeedLaw.barFraction(fed, topMph: top) {
+                                Text(String(format: "%.0f", fed))
+                                    .font(.system(size: 11, weight: .bold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(Theme.riskRed)
+                                    .fixedSize()
+                                    .offset(x: centered(w * f, width: w))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            // The scale's top, under the END of the bar —
+                            // yielding only if a legal number lands on it.
+                            if !crowdsTheEnd(SpeedLaw.federalThresholdMph(
+                                    postedLimitMph: model.postedSpeedLimitMph),
+                                    top: top) {
+                                Text("\(Int(top))")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
                         }
                     }
+                    .frame(height: 14)
+                    Text("mph")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(minWidth: 28, alignment: .trailing)
                 }
-                .frame(height: 14)
-                .padding(.trailing, 36)   // clear of the live readout
             }
         }
         .padding(.horizontal, 10)
@@ -493,10 +498,12 @@ struct NavigationHUD: View {
                 let w = geo.size.width
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.black.opacity(0.07))
-                    ticks(width: w, topMph: top)
                     Capsule()
                         .fill(speedBarColor)
                         .frame(width: w * fill)
+                    // Ticks ride OVER the fill — a scale you can still read
+                    // once the bar has run past it.
+                    ticks(width: w, topMph: top)
                     if let stateFrac {
                         legalMarker(at: w * stateFrac, color: Theme.riskYellow)
                     }
@@ -571,7 +578,7 @@ struct NavigationHUD: View {
             ForEach(Array(stops.enumerated()), id: \.offset) { _, mph in
                 let major = mph.truncatingRemainder(dividingBy: 10) == 0
                 Rectangle()
-                    .fill(Color.black.opacity(major ? 0.55 : 0.3))
+                    .fill(Color.black.opacity(major ? 0.7 : 0.45))
                     .frame(width: major ? 1.5 : 1, height: major ? 7 : 4)
                     .offset(x: width * (mph / topMph))
                     .frame(maxWidth: .infinity, alignment: .leading)
