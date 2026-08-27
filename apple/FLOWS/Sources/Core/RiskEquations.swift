@@ -320,3 +320,25 @@ enum RiskEquations {
         return nil
     }
 }
+
+
+/// How a whole route's risk band is decided from its pieces.
+enum RouteRiskBand {
+    /// The band to LABEL a route with.
+    ///
+    /// Normally this is the distance-weighted average: what fraction of the
+    /// miles you actually travel sit at what risk. A minority yellow stretch
+    /// should not paint an otherwise clear trip yellow.
+    ///
+    /// A RED peak is different, and is a floor rather than an average. You
+    /// cannot average your way out of a tornado warning: two miles of it in
+    /// the middle of a twenty-mile trip is not a green trip, and diluting it
+    /// is how the same corridor came out full red for driving and half green
+    /// for walking — the two modes sample the same ground at different
+    /// densities, so any average disagrees with itself between them. A
+    /// life-safety hazard on the path is the same hazard whichever way you
+    /// are travelling.
+    static func displayed(weighted: Double, peak: Double) -> Double {
+        FlowsCore.riskBand(score: peak) == .red ? max(weighted, peak) : weighted
+    }
+}

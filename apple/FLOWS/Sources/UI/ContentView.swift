@@ -173,6 +173,13 @@ struct ContentView: View {
             if inCONUS, ringCentroids.contains(where: {
                 POIRanking.meters($0, pt.coordinate) < viewportHazardRadius * 2
             }) { return false }   // same risk area as an already-drawn ZIP
+            // Inside the US a hull blob is a PLACEHOLDER for a ZIP boundary
+            // that hasn't resolved yet. Drawing it means a big rough box
+            // appears and then visibly snaps into the real outline a moment
+            // later — the "large risk boxes before they settle" flicker.
+            // Wait for the boundary instead; outside CONUS the blob is the
+            // permanent answer, so it still draws immediately.
+            if inCONUS, !model.riskField.loaded { return false }
             return true
         }
         let blobs = RiskBlob.clusters(unresolved.map(\.coordinate),

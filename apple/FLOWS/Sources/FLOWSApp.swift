@@ -3149,9 +3149,14 @@ final class AppModel: ObservableObject {
         // worst SECTION is real information, but it lives in peakRisk (risk
         // strip + key points + escalation), not in the whole-route label.
         let totalLen = r.riskSegments.reduce(0.0) { $0 + $1.lengthMeters }
-        r.weatherRisk = totalLen > 0
+        let weighted = totalLen > 0
             ? r.riskSegments.reduce(0.0) { $0 + $1.risk * $1.lengthMeters } / totalLen
             : avg
+        // …except that a RED peak is a floor, not something to average away.
+        // See RouteRiskBand: a tornado warning across the corridor is the
+        // same hazard whether you drive it or walk it, and averaging let the
+        // two modes disagree about the same ground.
+        r.weatherRisk = RouteRiskBand.displayed(weighted: weighted, peak: peak)
 
         // Second truth for RANKING (not the display band): sustained exposure to
         // the ZIP's IDENTIFIED risk — the R engine's modeled field, later refined
