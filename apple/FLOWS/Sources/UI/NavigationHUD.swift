@@ -287,8 +287,10 @@ struct NavigationHUD: View {
         let electric = vehicle.profile?.fuelType == .electric
         return VStack(spacing: 6) {
             HStack(spacing: 8) {
-                GaugeDial(fraction: .constant(fraction), alarming: model.fuelGaugeAlarming)
-                    .frame(width: golden.step(3), height: golden.step(3) * 0.62)
+                GaugeDial(fraction: .constant(fraction),
+                          alarming: model.fuelGaugeAlarming,
+                          showsQuartileLabels: false)
+                    .frame(width: golden.step(3) * 0.8, height: golden.step(3) * 0.5)
                     .allowsHitTesting(false)
                 if let economy = averageEconomy {
                     Divider().frame(height: golden.step(3) * 0.40)
@@ -306,7 +308,18 @@ struct NavigationHUD: View {
                 }
             }
             .fixedSize(horizontal: true, vertical: false)
-            if showsSpeedSign { speedBar }
+            if showsSpeedSign {
+                speedBar
+                // The scale's ends, under the bar where they belong.
+                HStack {
+                    Text("0")
+                    Spacer()
+                    Text("\(Int(barTopMph)) mph")
+                }
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.trailing, 36)   // clear of the live readout
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -388,8 +401,12 @@ struct NavigationHUD: View {
     }
 
     /// The live speed bar: 0 on the left, the vehicle's top speed on the
-    /// right, a thick yellow line where state law is broken and a thick red
-    /// one at excessive speed. Passing red sets the whole bar breathing.
+    /// right, ticked like a real gauge — a black half-height mark every
+    /// 10 mph and a shorter one every 5. A thick yellow line marks where
+    /// state law is broken and a thick red one excessive speed; the fill
+    /// takes the color of whichever has been passed, and passing red sets
+    /// the bar breathing. The efficiency icon rides ON TOP of the fill,
+    /// travelling with the speed it describes.
     private var speedBar: some View {
         let top = barTopMph
         let fill = min(max(liveMph / max(top, 1), 0), 1)
@@ -400,43 +417,37 @@ struct NavigationHUD: View {
             SpeedLaw.federalThresholdMph(postedLimitMph: model.postedSpeedLimitMph),
             topMph: top)
         let over = speedStanding == .federalViolation
-        return HStack(spacing: 6) {
-            // Leading icon: how thriftily this is being driven right now.
-            efficiencyIcon
+        return HStack(spacing: 8) {
             GeometryReader { geo in
                 let w = geo.size.width
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color.black.opacity(0.08))
+                    Capsule().fill(Color.black.opacity(0.07))
+                    // Tick marks, drawn under the fill so the bar reads as a
+                    // scale rather than a bare progress strip.
+                    ticks(width: w, topMph: top)
                     Capsule()
                         .fill(speedBarColor)
                         .frame(width: w * fill)
-                    // The two legal lines, drawn over the fill.
                     if let stateFrac {
-                        marker(at: w * stateFrac, color: Theme.riskYellow)
+                        legalMarker(at: w * stateFrac, color: Theme.riskYellow)
                     }
                     if let fedFrac {
-                        marker(at: w * fedFrac, color: Theme.riskRed)
+                        legalMarker(at: w * fedFrac, color: Theme.riskRed)
                     }
+                    // The efficiency icon floats at the head of the fill.
+                    efficiencyIcon
+                        .offset(x: min(max(w * fill - 9, 0), w - 18), y: -13)
                 }
                 .animation(.easeOut(duration: 0.35), value: fill)
             }
-            .frame(height: 12)
-            .overlay(alignment: .leading) {
-                Text("0").font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary).offset(y: 12)
-            }
-            .overlay(alignment: .trailing) {
-                Text("\(Int(top))").font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary).offset(y: 12)
-            }
+            .frame(height: 14)
             Text(String(format: "%.0f", max(liveMph, 0)))
                 .font(.system(size: 15, weight: .heavy, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(speedBarColor)
-                .frame(minWidth: 26, alignment: .trailing)
+                .frame(minWidth: 28, alignment: .trailing)
         }
-        // Breathing waveform glow once past the red line — the one state
-        // that should reach a driver who isn't looking straight at it.
+        .padding(.top, 10)   // room for the floating icon
         .shadow(color: over ? Theme.riskRed.opacity(overGlow ? 0.9 : 0.15) : .clear,
                 radius: over ? (overGlow ? 12 : 3) : 0)
         .onChange(of: over, initial: true) { _, isOver in
@@ -451,15 +462,32 @@ struct NavigationHUD: View {
         .help(SpeedLaw.federalNote)
     }
 
-    private func marker(at x: CGFloat, color: Color) -> some View {
+    /// Speedometer ticks: half-height every 10 mph, quarter-height every 5.
+    private func ticks(width: CGFloat, topMph: Double) -> some View {
+        let stops = Array(stride(from: 5.0, to: topMph, by: 5.0))
+        return ZStack(alignment: .leading) {
+            ForEach(Array(stops.enumerated()), id: \.offset) { _, mph in
+                let major = mph.truncatingRemainder(dividingBy: 10) == 0
+                Rectangle()
+                    .fill(Color.black.opacity(major ? 0.55 : 0.3))
+                    .frame(width: major ? 1.5 : 1, height: major ? 7 : 4)
+                    .offset(x: width * (mph / topMph))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// A legal threshold: full-height and thick, so it reads over the fill.
+    private func legalMarker(at x: CGFloat, color: Color) -> some View {
         Rectangle()
             .fill(color)
-            .frame(width: 3)
+            .frame(width: 3, height: 14)
+            .overlay(Rectangle().stroke(Color.white.opacity(0.6), lineWidth: 0.5))
             .offset(x: max(x - 1.5, 0))
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The efficiency icon leading the bar.
+    /// The efficiency icon that rides the bar.
     private var efficiencyIcon: some View {
         let (symbol, tint): (String, Color) = switch efficiencyVerdict {
         case .efficient: ("leaf.fill", Theme.riskGreen)
@@ -467,9 +495,11 @@ struct NavigationHUD: View {
         case .wasteful: ("fuelpump.fill", Theme.riskRed)
         }
         return Image(systemName: symbol)
-            .font(.system(size: 13, weight: .bold))
+            .font(.system(size: 11, weight: .bold))
             .foregroundStyle(tint)
-            .frame(width: 18)
+            .padding(2)
+            .background(Circle().fill(Theme.cardBackground))
+            .shadow(color: Theme.cardShadow, radius: 2, y: 1)
             .help(efficiencyHelp)
     }
 

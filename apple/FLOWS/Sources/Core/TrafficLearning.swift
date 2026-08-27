@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import Foundation
 
 /// On-device learned traffic delay: how much longer a drive ACTUALLY takes
@@ -43,7 +44,44 @@ enum TrafficWeather: String, Codable, CaseIterable {
     }
 }
 
-/// One (hour-of-week bucket × weather) cell of learned delay.
+/// The kind of road a trip mostly ran on. They are learned differently on
+/// purpose: LOCAL roads are what daily driving is made of, and their delays
+/// are intensely place-specific (this town's lights, this street's school
+/// run), so they are learned per neighbourhood. HIGHWAY delay behaves far
+/// more alike everywhere — rush hour on an interstate is rush hour — so
+/// highways pool into ONE nationwide cell, which is what lets a lifetime of
+/// local commuting inform an occasional cross-country drive.
+enum RoadClass: String, Codable, CaseIterable {
+    case local, highway
+
+    /// A trip is "highway" when it averaged highway speed — the honest
+    /// signal available without map-matching every leg.
+    static func from(averageMph: Double) -> RoadClass {
+        averageMph >= 45 ? .highway : .local
+    }
+}
+
+/// Which neighbourhood a local trip belongs to: ~11 km cells, the same
+/// quantization RouteKey uses, so "the drive I always take" groups together.
+/// Highways deliberately share one key (`pooled`) regardless of where they
+/// are, so their learning transfers to roads this device has never driven.
+struct TrafficArea: Hashable, Codable {
+    let lat: Int, lon: Int
+
+    init(_ c: CLLocationCoordinate2D) {
+        func q(_ v: Double) -> Int { Int((v * 10).rounded()) }
+        lat = q(c.latitude); lon = q(c.longitude)
+    }
+
+    private init(lat: Int, lon: Int) { self.lat = lat; self.lon = lon }
+
+    /// The shared cell every highway trip lands in.
+    static let pooled = TrafficArea(lat: 9_999, lon: 9_999)
+
+    var key: String { self == Self.pooled ? "any" : "\(lat)_\(lon)" }
+}
+
+/// One (area × road class × hour-of-week × weather) cell of learned delay.
 struct DelayCell: Codable, Equatable {
     /// Decaying sum of observed delay RATIOS (actual ÷ predicted).
     var weightedSum = 0.0
@@ -82,18 +120,24 @@ struct TrafficDelayStore: Codable, Equatable {
         return "\(weekend ? "we" : "wd")\(block)"
     }
 
-    static func key(weekday: Int, hour: Int, weather: TrafficWeather) -> String {
-        "\(bucket(weekday: weekday, hour: hour))|\(weather.rawValue)"
+    static func key(area: TrafficArea, roadClass: RoadClass,
+                    weekday: Int, hour: Int, weather: TrafficWeather) -> String {
+        // Highways pool nationwide; local roads stay in their own area.
+        let a = roadClass == .highway ? TrafficArea.pooled : area
+        return "\(a.key)|\(roadClass.rawValue)|"
+            + "\(bucket(weekday: weekday, hour: hour))|\(weather.rawValue)"
     }
 
     /// Fold one completed trip in: how long it really took vs. the estimate.
     mutating func record(predictedSeconds: Double, actualSeconds: Double,
+                         area: TrafficArea, roadClass: RoadClass,
                          weekday: Int, hour: Int, weather: TrafficWeather,
                          now: Double) {
         guard predictedSeconds > 60, actualSeconds > 0 else { return }
         decay(to: now)
         let ratio = min(max(actualSeconds / predictedSeconds, 0.5), 3.0)
-        let k = Self.key(weekday: weekday, hour: hour, weather: weather)
+        let k = Self.key(area: area, roadClass: roadClass,
+                         weekday: weekday, hour: hour, weather: weather)
         var cell = cells[k] ?? DelayCell()
         cell.weightedSum += ratio
         cell.weight += 1
@@ -119,31 +163,49 @@ struct TrafficDelayStore: Codable, Equatable {
 
     /// The learned multiplier for a departure: 1.0 means "no reason to think
     /// this differs from the router's estimate".
-    func factor(weekday: Int, hour: Int, weather: TrafficWeather) -> Double {
-        let k = Self.key(weekday: weekday, hour: hour, weather: weather)
-        guard let cell = cells[k], cell.count >= Self.confidentAfter else { return 1.0 }
-        return min(max(cell.mean, Self.minFactor), Self.maxFactor)
+    /// The learned multiplier, preferring the most specific evidence that has
+    /// earned confidence: this neighbourhood's own local roads first, then
+    /// the pooled highway learning (which is what carries a local driver's
+    /// experience onto a long trip), then no adjustment at all.
+    func factor(area: TrafficArea, roadClass: RoadClass,
+                weekday: Int, hour: Int, weather: TrafficWeather) -> Double {
+        let ladder: [(TrafficArea, RoadClass)] = roadClass == .highway
+            ? [(TrafficArea.pooled, .highway)]
+            : [(area, .local), (TrafficArea.pooled, .highway)]
+        for (a, c) in ladder {
+            let k = Self.key(area: a, roadClass: c, weekday: weekday,
+                             hour: hour, weather: weather)
+            if let cell = cells[k], cell.count >= Self.confidentAfter {
+                return min(max(cell.mean, Self.minFactor), Self.maxFactor)
+            }
+        }
+        return 1.0
     }
 
     /// The ETA this model expects, and the delay it implies.
-    func adjustedSeconds(routerSeconds: Double,
+    func adjustedSeconds(routerSeconds: Double, area: TrafficArea,
+                         roadClass: RoadClass,
                          weekday: Int, hour: Int, weather: TrafficWeather) -> Double {
-        routerSeconds * factor(weekday: weekday, hour: hour, weather: weather)
+        routerSeconds * factor(area: area, roadClass: roadClass,
+                               weekday: weekday, hour: hour, weather: weather)
     }
 
     /// Extra minutes over the router's estimate — what the driver is shown.
-    func predictedDelayMinutes(routerSeconds: Double,
-                               weekday: Int, hour: Int,
+    func predictedDelayMinutes(routerSeconds: Double, area: TrafficArea,
+                               roadClass: RoadClass, weekday: Int, hour: Int,
                                weather: TrafficWeather) -> Int {
-        let extra = adjustedSeconds(routerSeconds: routerSeconds, weekday: weekday,
+        let extra = adjustedSeconds(routerSeconds: routerSeconds, area: area,
+                                    roadClass: roadClass, weekday: weekday,
                                     hour: hour, weather: weather) - routerSeconds
         return Int((extra / 60).rounded())
     }
 
     /// How many trips back this cell — the UI only speaks up once the model
     /// has earned it.
-    func isConfident(weekday: Int, hour: Int, weather: TrafficWeather) -> Bool {
-        (cells[Self.key(weekday: weekday, hour: hour, weather: weather)]?.count ?? 0)
+    func isConfident(area: TrafficArea, roadClass: RoadClass,
+                     weekday: Int, hour: Int, weather: TrafficWeather) -> Bool {
+        (cells[Self.key(area: area, roadClass: roadClass, weekday: weekday,
+                        hour: hour, weather: weather)]?.count ?? 0)
             >= Self.confidentAfter
     }
 }
@@ -168,28 +230,33 @@ final class TrafficDelayModel: ObservableObject {
 
     /// Learn from a finished trip.
     func record(predictedSeconds: Double, actualSeconds: Double,
+                area: TrafficArea, roadClass: RoadClass,
                 weather: TrafficWeather, at date: Date = Date()) {
         let cal = Calendar.current
         store.record(predictedSeconds: predictedSeconds, actualSeconds: actualSeconds,
+                     area: area, roadClass: roadClass,
                      weekday: cal.component(.weekday, from: date),
                      hour: cal.component(.hour, from: date),
                      weather: weather, now: date.timeIntervalSince1970)
         persist()
     }
 
-    /// The learned multiplier for leaving now in this weather.
-    func factor(weather: TrafficWeather, at date: Date = Date()) -> Double {
+    /// The learned multiplier for driving HERE, on this kind of road, now.
+    func factor(area: TrafficArea, roadClass: RoadClass,
+                weather: TrafficWeather, at date: Date = Date()) -> Double {
         let cal = Calendar.current
-        return store.factor(weekday: cal.component(.weekday, from: date),
+        return store.factor(area: area, roadClass: roadClass,
+                            weekday: cal.component(.weekday, from: date),
                             hour: cal.component(.hour, from: date), weather: weather)
     }
 
     /// Minutes of delay this model expects on top of the router's ETA.
-    func predictedDelayMinutes(routerSeconds: Double, weather: TrafficWeather,
+    func predictedDelayMinutes(routerSeconds: Double, area: TrafficArea,
+                               roadClass: RoadClass, weather: TrafficWeather,
                                at date: Date = Date()) -> Int {
         let cal = Calendar.current
         return store.predictedDelayMinutes(
-            routerSeconds: routerSeconds,
+            routerSeconds: routerSeconds, area: area, roadClass: roadClass,
             weekday: cal.component(.weekday, from: date),
             hour: cal.component(.hour, from: date), weather: weather)
     }

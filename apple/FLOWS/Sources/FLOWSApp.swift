@@ -698,7 +698,9 @@ final class AppModel: ObservableObject {
         // this hour in this weather (TrafficLearning) — the model returns
         // 1.0 until it has seen enough trips to be worth listening to, so a
         // fresh install shows the router's own number unchanged.
-        let learned = baseline * trafficModel.factor(weather: currentTrafficWeather)
+        let learned = baseline * trafficModel.factor(
+            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+            roadClass: currentRoadClass, weather: currentTrafficWeather)
         return TripNeeds.adjustedRemainingSeconds(baseline: learned,
                                                   stopDelaySeconds: stopDelaySeconds)
     }
@@ -710,7 +712,15 @@ final class AppModel: ObservableObject {
         let worst = route.familyPeaks
             .filter { $0.value >= FlowsCore.riskGreenMin }
             .max(by: { $0.value < $1.value })?.key
-        return route.eta * trafficModel.factor(weather: TrafficWeather.from(family: worst))
+        // Judge the route by the roads it's actually made of: a highway run
+        // reads the pooled highway learning, a cross-town errand reads this
+        // neighbourhood's own.
+        let avgMph = route.eta > 0
+            ? (route.distanceMeters / 1609.344) / (route.eta / 3600) : 30
+        return route.eta * trafficModel.factor(
+            area: location.coordinate.map(TrafficArea.init) ?? .pooled,
+            roadClass: RoadClass.from(averageMph: avgMph),
+            weather: TrafficWeather.from(family: worst))
     }
 
     // MARK: trip needs (recurring fuel/food/rest cadences)
@@ -2207,6 +2217,8 @@ final class AppModel: ObservableObject {
         // Start the delay model's training pair: what we promised, and when.
         tripPredictedSeconds = route.eta
         tripStartedAt = Date()
+        tripStartArea = location.coordinate.map(TrafficArea.init)
+        tripDistanceMeters = route.distanceMeters
         mode = .navigating
         startLeg(route)
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
@@ -2572,7 +2584,10 @@ final class AppModel: ObservableObject {
                 // Take the worse of the two, so a corridor that reliably
                 // backs up at 5pm warns before the queue has formed.
                 let learned = Double(self.trafficModel.predictedDelayMinutes(
-                    routerSeconds: scaledBaseline, weather: self.currentTrafficWeather))
+                    routerSeconds: scaledBaseline,
+                    area: TrafficArea(fix),
+                    roadClass: self.currentRoadClass,
+                    weather: self.currentTrafficWeather))
                 let delay = max(liveDelay, learned)
                 self.trafficDelayMinutes = (delay >= 8 && self.notifyTraffic)
                     ? Int(delay.rounded()) : nil
@@ -2593,17 +2608,35 @@ final class AppModel: ObservableObject {
     /// the "predicted" half of the delay model's training pair.
     private var tripPredictedSeconds: Double?
     private var tripStartedAt: Date?
+    /// Where the trip began — which neighbourhood's learning it belongs to.
+    private var tripStartArea: TrafficArea?
+    private var tripDistanceMeters: Double = 0
+
+    /// The kind of road being driven right now, from the vehicle's own
+    /// rolling average speed.
+    var currentRoadClass: RoadClass {
+        RoadClass.from(averageMph: vehicle.averageSpeedMph)
+    }
 
     /// Fold the finished trip into the learned model: what the router
     /// promised vs. what the clock actually showed.
     private func learnTripDuration() {
-        defer { tripPredictedSeconds = nil; tripStartedAt = nil }
+        defer {
+            tripPredictedSeconds = nil; tripStartedAt = nil
+            tripStartArea = nil; tripDistanceMeters = 0
+        }
         guard let predicted = tripPredictedSeconds, let started = tripStartedAt else { return }
         let actual = Date().timeIntervalSince(started) - stopDelaySeconds
         // Only whole trips teach anything: a drive abandoned after two
         // minutes says nothing about how long the route takes.
         guard actual > 300, actual < predicted * 4 else { return }
+        // Classify by the trip's own average pace, and file local roads
+        // under the neighbourhood they were driven in.
+        let miles = tripDistanceMeters / 1609.344
+        let avgMph = actual > 0 ? miles / (actual / 3600) : 0
         trafficModel.record(predictedSeconds: predicted, actualSeconds: actual,
+                            area: tripStartArea ?? .pooled,
+                            roadClass: RoadClass.from(averageMph: avgMph),
                             weather: currentTrafficWeather)
     }
 

@@ -230,6 +230,8 @@ struct GaugeDial: View {
     @Binding var fraction: Double
     /// Set while the tank is low enough to demand action — the arc pulses.
     var alarming = false
+    /// The big refuel dial labels its quartiles; the small HUD one doesn't.
+    var showsQuartileLabels = true
     @State private var alarmPulse = false
 
     private var levelColor: Color {
@@ -268,9 +270,10 @@ struct GaugeDial: View {
                         p.addLine(to: outer)
                     }
                     .stroke(Color.secondary, lineWidth: 2)
-                    // Quartile ticks carry small percent labels (E and F
-                    // name the two ends themselves).
-                    if i > 0, i < 4 {
+                    // Quartile percent callouts belong on the big refuel
+                    // dial, not the small HUD one — at instrument size they
+                    // crowd the needle and read as clutter.
+                    if showsQuartileLabels, i > 0, i < 4 {
                         Text("\(i * 25)%")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(.secondary)
