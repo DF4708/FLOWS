@@ -2672,7 +2672,11 @@ struct NavigationHUD: View {
                             .scaledFont(size: 12, weight: .semibold)
                             .lineLimit(1)
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(provider == .appleMusic
+                            // Highlight what is ACTUALLY picked. This was
+                            // hard-wired to Apple Music, so the card told a
+                            // driver on AM/FM that Apple Music was their
+                            // service.
+                            .background(provider == model.musicProvider
                                         ? Theme.riskGreen.opacity(0.18)
                                         : Theme.fill(0.05))
                             .clipShape(Capsule())

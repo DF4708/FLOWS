@@ -206,9 +206,19 @@ final class DestinationSearch: NSObject, ObservableObject {
         /// and plan without a geocoder round trip.
         var coordinate: CLLocationCoordinate2D? = nil
         var distanceMeters: Double? = nil
-        /// The text to plan against (title + locality).
+        /// The text to plan against.
+        ///
+        /// Only a COMPLETION's subtitle is locality context ("Augusta, GA")
+        /// worth folding into the query. The other kinds use the subtitle as
+        /// a badge — "Recent", "Exact map point", or the reason a prediction
+        /// was made — and appending one of those produced queries like
+        /// "Sun Prairie, Recent", which geocodes to nothing and shows the
+        /// driver "couldn't find that place" for a town they visit weekly.
+        /// Those rows all carry their own `coordinate` anyway, so they never
+        /// needed a geocoder round trip in the first place.
         var searchText: String {
-            subtitle.isEmpty ? title : "\(title), \(subtitle)"
+            guard kind == .completion, !subtitle.isEmpty else { return title }
+            return "\(title), \(subtitle)"
         }
 
         static func == (lhs: Suggestion, rhs: Suggestion) -> Bool {

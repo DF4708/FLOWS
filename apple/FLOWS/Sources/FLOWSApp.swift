@@ -1112,14 +1112,27 @@ final class AppModel: ObservableObject {
     /// Play pressed: gate on the one-time provider ask, then play through
     /// the chosen service (Apple Music in-app; other services open their app).
     func playMusic() {
-        guard musicProviderChosen else {
-            showMusicProviderPrompt = true
+        // The radio needs no ask. It is FLOWS's own player — no account, no
+        // subscription, no other app — so pressing play on it plays, and
+        // pressing pause on a station that is audibly on the air pauses it.
+        //
+        // Asking here is what made this button look broken: the provider
+        // question fires while nothing has been explicitly PICKED, and the
+        // radio is a default rather than a pick. So a driver whose station
+        // was already playing (the arrows start one) pressed pause and got
+        // a "what do you play music with?" card instead — every time.
+        if musicProvider == .radio {
+            if radio.playingChannelID == nil, radio.lastPlayed == nil {
+                playLocalStationsRadio()   // nothing tuned yet
+            } else {
+                MusicController.shared.playPause()
+            }
             return
         }
-        // Radio with nothing tuned yet: start with what's on the air here.
-        if musicProvider == .radio, radio.playingChannelID == nil,
-           radio.lastPlayed == nil {
-            playLocalStationsRadio()
+        // Every other service opens an app or needs an account, so the
+        // one-time ask still earns its place there.
+        guard musicProviderChosen else {
+            showMusicProviderPrompt = true
             return
         }
         if musicControllable {

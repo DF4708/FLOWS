@@ -239,3 +239,46 @@ final class HazardDominanceTests: XCTestCase {
         }
     }
 }
+
+/// What a suggestion row actually plans against.
+final class DestinationSuggestionTests: XCTestCase {
+
+    private func suggestion(_ title: String, _ subtitle: String,
+                            _ kind: DestinationSearch.Suggestion.Kind)
+        -> DestinationSearch.Suggestion {
+        DestinationSearch.Suggestion(title: title, subtitle: subtitle, kind: kind)
+    }
+
+    func testACompletionFoldsItsLocalityIntoTheQuery() {
+        // "Publix Super Market, Augusta, GA" is a better query than the name
+        // alone — that subtitle really is locality context.
+        XCTAssertEqual(
+            suggestion("Publix Super Market", "Augusta, GA", .completion).searchText,
+            "Publix Super Market, Augusta, GA")
+    }
+
+    func testARecentDoesNotPlanAgainstItsOwnBadge() {
+        // The bug: a recent's subtitle is the word "Recent", so the query
+        // became "Sun Prairie, Recent" — which geocodes to nothing, and the
+        // driver got "couldn't find that place" for a town they visit
+        // every week.
+        XCTAssertEqual(suggestion("Sun Prairie", "Recent", .recent).searchText,
+                       "Sun Prairie")
+    }
+
+    func testAPredictionDoesNotPlanAgainstItsReason() {
+        XCTAssertEqual(
+            suggestion("Home", "where you usually go at this hour", .predicted)
+                .searchText, "Home")
+    }
+
+    func testACoordinateRowDoesNotPlanAgainstItsLabel() {
+        XCTAssertEqual(
+            suggestion("43.0731, -89.4012", "Exact map point", .coordinate)
+                .searchText, "43.0731, -89.4012")
+    }
+
+    func testATitleOnlyRowIsUnchanged() {
+        XCTAssertEqual(suggestion("Madison", "", .completion).searchText, "Madison")
+    }
+}
