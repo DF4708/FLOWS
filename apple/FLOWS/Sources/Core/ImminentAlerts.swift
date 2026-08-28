@@ -34,6 +34,12 @@ enum ImminentAlerts {
     enum Action: Equatable {
         /// Life-safety warning ahead — open shelters for THIS hazard now.
         case shelter
+        /// An AMBER-family or law-enforcement alert: a described vehicle or
+        /// person to WATCH FOR. Just as urgent as a shelter warning, and
+        /// carried with the same red weight — but you do not take cover from
+        /// a child abduction, so it offers no shelter and no "get inside"
+        /// advice. It shows the description and the official link.
+        case lookout
         /// Short-lived elevated risk — recommend a rest-area wait.
         case restArea
         /// Elevated but not actionable — banner only.
@@ -54,11 +60,21 @@ enum ImminentAlerts {
         "law enforcement warning", "civil emergency",
     ]
 
+    /// Alerts that describe a PERSON or VEHICLE to look out for, rather
+    /// than a hazard to take cover from.
+    static let lookoutKeywords: [String] = [
+        "child abduction", "amber alert", "blue alert", "silver alert",
+        "endangered", "missing person", "law enforcement warning",
+    ]
+
     /// Classify one alert the vehicle is about to enter.
     static func classify(
         event: String, severityScore: Double, expires: Date?, now: Date = Date()
     ) -> Action {
         let lower = event.lowercased()
+        // Checked before the life-safety sweep: these ARE red events, but
+        // the response is to watch the road, not to get indoors.
+        if lookoutKeywords.contains(where: { lower.contains($0) }) { return .lookout }
         if redEventKeywords.contains(where: { lower.contains($0) })
             || FlowsCore.riskBand(score: severityScore) == .red {
             return .shelter

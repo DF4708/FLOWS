@@ -136,3 +136,46 @@ final class ShelterPolicyTests: XCTestCase {
         XCTAssertFalse(StaleGauge.wentStale(lastUsed: nil))
     }
 }
+
+/// What the app tells a driver to DO about each kind of alert.
+final class AlertActionTests: XCTestCase {
+
+    func testAChildAbductionIsAThingToWatchForNotShelterFrom() {
+        // The bug this exists for: an AMBER alert offered a "Shelter here"
+        // button and advised "get inside any open building". You do not take
+        // cover from a child abduction — you watch the road and call 911.
+        for event in ["Child Abduction Emergency", "AMBER Alert",
+                      "Blue Alert", "Silver Alert"] {
+            XCTAssertEqual(ImminentAlerts.classify(event: event,
+                                                   severityScore: 0.95,
+                                                   expires: nil), .lookout, event)
+        }
+    }
+
+    func testARealHazardStillOffersShelter() {
+        XCTAssertEqual(ImminentAlerts.classify(event: "Tornado Warning",
+                                               severityScore: 0.95,
+                                               expires: nil), .shelter)
+    }
+
+    func testALookoutIsCheckedBeforeTheLifeSafetySweep() {
+        // "Law enforcement warning" is on BOTH lists; the lookout reading
+        // has to win, or it comes back as a shelter alert again.
+        XCTAssertEqual(ImminentAlerts.classify(event: "Law Enforcement Warning",
+                                               severityScore: 0.9,
+                                               expires: nil), .lookout)
+    }
+
+    func testATransientStormStillSuggestsWaitingItOut() {
+        XCTAssertEqual(
+            ImminentAlerts.classify(event: "Wind Advisory", severityScore: 0.7,
+                                    expires: Date().addingTimeInterval(3600)),
+            .restArea)
+    }
+
+    func testQuietWeatherIsJustMonitored() {
+        XCTAssertEqual(ImminentAlerts.classify(event: "Frost Advisory",
+                                               severityScore: 0.3,
+                                               expires: nil), .monitor)
+    }
+}

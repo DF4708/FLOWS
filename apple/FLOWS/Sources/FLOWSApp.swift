@@ -384,7 +384,7 @@ final class AppModel: ObservableObject {
             headline: headline,
             detail: detail,
             sourceURL: URL(string: "https://www.missingkids.org/amber"),
-            action: .shelter,
+            action: .lookout,
             etaSeconds: 300,
             vehicleEntity: describesEntity
                 ? AlertEntityParser.vehicle(in: headline + " " + detail) : nil,
@@ -3713,7 +3713,8 @@ final class AppModel: ObservableObject {
         }
         // A displayed RED alert holds the banner until pressed — a lower
         // alert never replaces it silently.
-        if imminentWarning?.action == .shelter, imminentWarning?.alertID != warning.alertID,
+        if imminentWarning?.action == .shelter || imminentWarning?.action == .lookout,
+           imminentWarning?.alertID != warning.alertID,
            action != .shelter { return }
         if imminentWarning != warning { imminentWarning = warning }
         // Red alert → the shelter list for THIS hazard opens itself, once.

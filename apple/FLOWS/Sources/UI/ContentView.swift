@@ -1142,7 +1142,11 @@ struct ContentView: View {
             // RED ALERT incident: symbol at the described location, ringed by
             // how far a vehicle could have driven since the incident at the
             // speeds nearby roads allow — the circle GROWS with time.
-            if let warning = model.imminentWarning, warning.action == .shelter,
+            // The reach circle is about a thing that MOVES — a fleeing
+            // vehicle as much as a spreading hazard — so a lookout alert
+            // draws it too.
+            if let warning = model.imminentWarning,
+               warning.action == .shelter || warning.action == .lookout,
                let incident = warning.incidentCoordinate {
                 let _ = redAlertTick   // re-evaluate as time passes
                 let elapsed = Date().timeIntervalSince(warning.onset ?? Date())

@@ -53,7 +53,10 @@ enum BroadcastRadio {
             switch self {
             case .news: return "newspaper.fill"
             case .country: return "guitars.fill"
-            case .rock: return "guitars"
+            // Not another guitar: "guitars" and "guitars.fill" are the
+            // same drawing at chip size, so Country and Rock were
+            // indistinguishable in the picker.
+            case .rock: return "amplifier"
             case .pop: return "music.note"
             case .hipHop: return "waveform"
             case .oldies: return "backward.end.fill"

@@ -52,13 +52,24 @@ final class SafetyAndGradeTests: XCTestCase {
     }
 
     func testEmergencyBroadcastsClassifyRed() {
+        // These all carry full RED weight. Which red they get differs by
+        // what a driver can actually do: you take cover from a hazard, and
+        // you watch the road for a described vehicle or person — so the
+        // AMBER family reads as `.lookout` and offers no shelter button.
         let now = Date(timeIntervalSince1970: 1_750_000_000)
         for event in ["Child Abduction Emergency", "AMBER Alert",
                       "Law Enforcement Warning", "Blue Alert", "Civil Emergency Message"] {
-            XCTAssertEqual(
-                ImminentAlerts.classify(event: event, severityScore: 0.5, expires: nil, now: now),
-                .shelter, "\(event) must go red (press-to-dismiss card)")
+            let action = ImminentAlerts.classify(
+                event: event, severityScore: 0.5, expires: nil, now: now)
+            XCTAssertTrue(action == .shelter || action == .lookout,
+                          "\(event) must go red (press-to-dismiss card)")
         }
+        // …and a civil emergency, which is a hazard rather than a person to
+        // look for, stays on the shelter side.
+        XCTAssertEqual(
+            ImminentAlerts.classify(event: "Civil Emergency Message",
+                                    severityScore: 0.5, expires: nil, now: now),
+            .shelter)
     }
 
     // MARK: crash logic

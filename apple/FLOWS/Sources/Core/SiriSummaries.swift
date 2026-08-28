@@ -98,6 +98,7 @@ enum SiriSummaries {
         } else {
             switch action {
             case .shelter: out += " FLOWS is showing shelter options."
+            case .lookout: out += " Watch for it, and call 911 — don't approach."
             case .restArea: out += " Consider waiting it out at a rest area."
             case .monitor: out += " Check the FLOWS screen when it's safe."
             }

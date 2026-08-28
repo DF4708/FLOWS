@@ -43,7 +43,14 @@ struct ImminentBannerView: View {
 
     @Environment(\.openURL) private var openURL
 
-    private var isRed: Bool { warning.action == .shelter }
+    /// Both of these carry full red weight — a child abduction is as
+    /// urgent as a tornado. They differ only in what you DO about it.
+    private var isRed: Bool {
+        warning.action == .shelter || warning.action == .lookout
+    }
+
+    /// Only a hazard you can take cover from gets shelter wording.
+    private var offersShelter: Bool { warning.action == .shelter }
 
     /// What sheltering means for THIS hazard, in the words of the button.
     private var shelterKind: ShelterPolicy.Kind {
@@ -100,7 +107,7 @@ struct ImminentBannerView: View {
                     Text(warning.headline)
                         .scaledFont(size: 13, weight: .semibold)
                         .lineLimit(2)
-                    if isRed {
+                    if offersShelter {
                         // One plain line saying what to actually do — an
                         // ordinary building for weather you wait out inside,
                         // a solid one when the wind is the story, the
@@ -140,6 +147,10 @@ struct ImminentBannerView: View {
                 }
                 Spacer()
                 switch warning.action {
+                case .lookout:
+                    // Nothing to press: the description above is the whole
+                    // point, and the official link is already on this row.
+                    EmptyView()
                 case .shelter:
                     if let onShelterDelay {
                         // Pressing this means "read, and I'm stopping" — it
@@ -494,7 +505,7 @@ struct DemoAlertsView: View {
             alertID: "gallery-amber", event: "Child Abduction Emergency",
             headline: headline, detail: detail,
             sourceURL: URL(string: "https://www.missingkids.org/amber"),
-            action: .shelter, etaSeconds: 300,
+            action: .lookout, etaSeconds: 300,
             vehicleEntity: AlertEntityParser.vehicle(in: headline + " " + detail),
             personEntity: AlertEntityParser.person(in: detail))
     }
