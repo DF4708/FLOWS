@@ -287,7 +287,9 @@ struct ContentView: View {
     private var legendHasRoom: Bool {
         guard model.mode != .navigating else { return false }
         guard !model.collapsedPanels.contains("legend") else { return false }
-        guard isCompact else { return true }
+        // Wide layouts used to return true unconditionally, so on an
+        // 11-inch iPad in portrait the key ran under the centred planner.
+        guard isCompact else { return golden.legendFits }
         if model.needsVehicleOnboarding { return false }
         if model.mode == .choosing {
             return model.collapsedPanels.contains("routes")
@@ -303,6 +305,40 @@ struct ContentView: View {
                     golden = GoldenScale(size: size)
                 }
         }
+    }
+
+    /// How much room the bottom chrome actually needs.
+    ///
+    /// Driving shows the drive bar (two rows plus the stop strip); planning
+    /// shows the planner. One value, derived once, instead of a different
+    /// guess at each call site.
+    private var bottomSlotClearance: CGFloat {
+        model.mode == .navigating ? golden.bottomClear * 2.6 : golden.bottomClear
+    }
+
+    /// Every card that floats above the bottom bar, stacked in one column
+    /// so two of them can never cover each other. Most urgent last, so it
+    /// sits nearest the driver's eye above the bar.
+    @ViewBuilder
+    private var bottomCardSlot: some View {
+        VStack(spacing: 8) {
+            Spacer()
+            if let stop = model.poi.touristDetail {
+                TouristStopCard(stop: stop) { model.poi.touristDetail = nil }
+                    .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            }
+            if let info = hazardInfo {
+                hazardCard(info)
+            }
+            if model.showTowingCard {
+                TowingCard()
+            }
+            if model.crash.state != .idle {
+                CrashCheckInCard()
+            }
+        }
+        .padding(.horizontal, golden.padCard)
+        .padding(.bottom, bottomSlotClearance)
     }
 
     private var mainStack: some View {
@@ -330,32 +366,16 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, golden.padCard)
             }
-            if model.showTowingCard {
-                VStack {
-                    Spacer()
-                    // Clear of the drive bar: the bar is two rows plus the
-                    // stop strip on a phone, and one bottomClear left the
-                    // towing sliders sitting on top of it.
-                    TowingCard()
-                        .padding(.bottom, model.mode == .navigating
-                                 ? golden.bottomClear * 2.6 : golden.bottomClear)
-                }
-                .padding(.horizontal, golden.padCard)
-            }
-            if let info = hazardInfo {
-                hazardSummaryCard(info)
-            }
-            // Tapped tourist star → its stop card (same slot as the hazard
-            // card: bottom-center, clear of the bars).
-            if let stop = model.poi.touristDetail {
-                VStack {
-                    Spacer()
-                    TouristStopCard(stop: stop) { model.poi.touristDetail = nil }
-                        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-                        .padding(.bottom, golden.bottomClear)
-                }
-                .padding(.horizontal, golden.padCard)
-            }
+            // ONE bottom slot for every floating card.
+            //
+            // These used to be four independent ZStack siblings, each with
+            // its own Spacer and its own hand-tuned bottom padding —
+            // bottomClear here, bottomClear × 2.6 there. Any two showing at
+            // once landed on top of each other, and none of the guesses
+            // matched the real bar height, which changes with mode and
+            // device. Stacking them in one slot with ONE clearance is what
+            // makes that impossible rather than merely unlikely.
+            bottomCardSlot
             #if os(macOS)
             // Settings floats as a panel instead of a modal sheet, so a
             // click on the map (or Done) closes it — click-off behavior.
@@ -363,9 +383,6 @@ struct ContentView: View {
                 settingsPanel
             }
             #endif
-            if model.crash.state != .idle {
-                CrashCheckInCard()
-            }
         }
         .sheet(isPresented: $model.showVehicleEditor) {
             VehicleEditorSheet()
@@ -1678,11 +1695,12 @@ struct ContentView: View {
 
     /// The tapped symbol's story: hazard type, band, the R engine's hazard
     /// summary for that ZIP (or the active alert event), where it is.
-    private func hazardSummaryCard(_ info: HazardTapInfo) -> some View {
+    /// The tapped-hazard card. Anchoring belongs to `bottomCardSlot` — this
+    /// only says what the card IS.
+    private func hazardCard(_ info: HazardTapInfo) -> some View {
         let fieldSummary = model.riskField.summary(at: info.coordinate)
         let band = info.score.map { FlowsCore.riskBand(score: $0) }
-        return VStack {
-            Spacer()
+        return Group {
             HStack(spacing: 10) {
                 Image(systemName: info.kind.symbol)
                     .scaledFont(size: 22, weight: .bold)
@@ -1744,9 +1762,7 @@ struct ContentView: View {
             }
             .floatingCard()
             .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-            .padding(.bottom, golden.bottomClear)   // clear of bottom bars
         }
-        .padding(.horizontal, golden.padCard)
     }
 
     #if os(macOS)
@@ -3312,14 +3328,14 @@ private struct LegendCard: View {
                         .init(color: Theme.riskRed, location: 0.92),
                     ],
                     startPoint: .leading, endPoint: .trailing)
-                    .frame(width: golden.legendWidth, height: 8)
+                    .frame(width: golden.legendDrawWidth, height: 8)
                     .clipShape(Capsule())
                 HStack {
                     Text("Clear").scaledFont(size: 8)
                     Spacer()
                     Text("Severe").scaledFont(size: 8)
                 }
-                .frame(width: golden.legendWidth)
+                .frame(width: golden.legendDrawWidth)
                 .foregroundStyle(.secondary)
             }
             // A colour ramp says nothing to a screen reader, and nothing to
@@ -3351,12 +3367,12 @@ private struct LegendCard: View {
                         .accessibilityElement(children: .combine)
                     }
                 }
-                .frame(width: golden.legendWidth * 1.1)
+                .frame(width: golden.legendDrawWidth)
             }
         }
         // The key hugs its own content — without a width the header's
         // spacer would stretch the whole card across the window.
-        .frame(width: golden.legendWidth * 1.1)
+        .frame(width: golden.legendDrawWidth)
         .padding(golden.padCard)
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -3716,9 +3732,10 @@ struct CrashCheckInCard: View {
     @Environment(\.golden) private var golden
 
     var body: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            VStack(alignment: .leading, spacing: 10) {
+        // Anchoring belongs to the shared bottom slot — this only says what
+        // the card IS.
+        VStack(alignment: .leading, spacing: 10) {
+            Group {
                 Label("Possible crash detected", systemImage: "car.side.rear.and.collision.and.car.side.front")
                     .scaledFont(size: 17, weight: .heavy)
                 if case .checkingIn(let attempt) = model.crash.state {
@@ -3790,14 +3807,12 @@ struct CrashCheckInCard: View {
                         .clipShape(Capsule())
                 }
             }
-            .padding(golden.padCard)
-            .frame(maxWidth: golden.cardMax)
-            .background(Theme.riskRed.opacity(0.97))
-            .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-            .shadow(color: Theme.cardShadow, radius: 18, y: 6)
-            .padding(.bottom, golden.step(5))
         }
-        .padding(.horizontal, golden.padCard)
+        .padding(golden.padCard)
+        .frame(maxWidth: golden.cardMax)
+        .background(Theme.riskRed.opacity(0.97))
+        .foregroundStyle(.white)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .shadow(color: Theme.cardShadow, radius: 18, y: 6)
     }
 }

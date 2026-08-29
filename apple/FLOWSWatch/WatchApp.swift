@@ -117,8 +117,14 @@ struct WatchNavView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
             .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
-            .padding(.top, 2)
+            // Inset from the BEZEL, not just from the clock. A watch face is
+            // heavily rounded, so a card run edge-to-edge has its corners
+            // clipped by the glass and the text sits right against it. The
+            // top padding keeps it clear of the system clock.
+            .padding(.horizontal, 6)
+            .padding(.top, 4)
         }
         .onChange(of: link.vehicle?.latitude) { _, _ in
             guard let v = link.vehicle else { return }

@@ -248,3 +248,50 @@ final class PanelFramingTests: XCTestCase {
         XCTAssertEqual(unshifted.midY, route.midY, accuracy: 1)
     }
 }
+
+/// Chrome that has to share the bottom of the screen without colliding.
+final class ChromeFitTests: XCTestCase {
+
+    private func scale(_ w: CGFloat, _ h: CGFloat) -> GoldenScale {
+        GoldenScale(size: CGSize(width: w, height: h))
+    }
+
+    func testTheMapKeyNeverReachesUnderACentredPanel() {
+        // The reported overlap: an 11-inch iPad in portrait draws the key
+        // bottom-left and the planner bottom-centre, and the key's natural
+        // width was wider than the gap between them.
+        for (w, h) in [(834.0, 1210.0), (1024.0, 1366.0), (768.0, 1024.0)] {
+            let g = scale(w, h)
+            let panelLeftEdge = (w - g.sidePanel) / 2
+            let keyRightEdge = g.pad + g.legendOuterWidth
+            XCTAssertLessThanOrEqual(keyRightEdge, panelLeftEdge,
+                                     "key overlaps the panel at \(w)×\(h)")
+        }
+    }
+
+    func testAWideWindowGivesTheKeyAComfortableWidth() {
+        // It is capped to the gutter on every real window size — the point
+        // is that a big window leaves a comfortably readable key, not that
+        // the cap never bites.
+        let g = scale(1600, 1000)
+        XCTAssertTrue(g.legendFits)
+        XCTAssertGreaterThan(g.legendDrawWidth, 300)
+    }
+
+    func testTheKeyWidensWithTheWindow() {
+        XCTAssertGreaterThan(scale(1600, 1000).legendDrawWidth,
+                             scale(900, 700).legendDrawWidth)
+    }
+
+    func testAGutterTooNarrowToReadHidesTheKeyEntirely() {
+        // Squeezing the key into a sliver is worse than not showing it.
+        let g = scale(500, 900)
+        XCTAssertFalse(g.legendFits)
+    }
+
+    func testTheGutterIsNeverNegative() {
+        for w in stride(from: 200.0, through: 1600.0, by: 100) {
+            XCTAssertGreaterThanOrEqual(scale(w, 900).leftGutter, 0, "at \(w)")
+        }
+    }
+}
