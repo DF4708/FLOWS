@@ -73,8 +73,21 @@ enum CameraZoom {
         return rect
     }
 
+    /// Which edge of the window the chrome covers, so a framed route can be
+    /// pushed clear of it.
+    enum PanelEdge {
+        /// Panel across the top — route slides down-screen.
+        case top
+        /// Panel across the bottom — route slides up-screen. This is what a
+        /// phone uses: the map's top half is the most valuable space on the
+        /// screen, so the cards live at the bottom near the thumb.
+        case bottom
+        /// Panel down one side (wide layouts) — route slides sideways.
+        case leading
+    }
+
     /// Frame a route so it lands in the map the driver can actually SEE,
-    /// rather than behind the choices panel.
+    /// rather than behind the panel.
     ///
     /// This SHIFTS the camera rather than growing the rect. Growing doesn't
     /// work: MapKit fits a rect by its constraining dimension, and a typical
@@ -82,19 +95,25 @@ enum CameraZoom {
     /// height changes nothing until it dwarfs the width, which would zoom the
     /// route into uselessness. Shifting the rect's center by a slice of the
     /// FITTED span keeps the zoom exactly as it was and simply slides the
-    /// route out from under the panel: north for a top panel (MKMapRect y
-    /// runs southward, so north is a smaller origin.y), west for a side one.
+    /// route out from under the panel.
+    ///
+    /// MKMapRect's y runs SOUTHWARD, so moving the aim point north (a
+    /// smaller origin.y) pushes the route down the screen, clear of a top
+    /// panel; moving it south lifts the route above a bottom panel.
     static func framedRect(_ rect: MKMapRect,
-                           panelOnTop: Bool,
+                           panelEdge: PanelEdge,
                            windowAspect: Double,
                            panelFraction: Double = choicesPanelFraction) -> MKMapRect {
         var fit = rect.insetBy(dx: -rect.width * 0.2, dy: -rect.height * 0.2)
         guard windowAspect > 0, panelFraction > 0 else { return fit }
-        if panelOnTop {
-            // The north-south span actually on screen once fitted.
+        switch panelEdge {
+        case .top:
             let visibleHeight = max(fit.size.height, fit.size.width * windowAspect)
             fit.origin.y -= visibleHeight * panelFraction / 2
-        } else {
+        case .bottom:
+            let visibleHeight = max(fit.size.height, fit.size.width * windowAspect)
+            fit.origin.y += visibleHeight * panelFraction / 2
+        case .leading:
             let visibleWidth = max(fit.size.width, fit.size.height / windowAspect)
             fit.origin.x -= visibleWidth * panelFraction / 2
         }

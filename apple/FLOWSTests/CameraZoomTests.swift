@@ -79,7 +79,7 @@ final class CameraZoomTests: XCTestCase {
     }
 
     func testTopPanelPushesTheRouteDownIntoTheOpenMap() {
-        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: true,
+        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .top,
                                            windowAspect: 2.17)
         // The camera centers NORTH of the route (smaller y), so the route
         // draws lower on screen — below the panel.
@@ -95,7 +95,7 @@ final class CameraZoomTests: XCTestCase {
         // The bug this replaces: growing a width-constrained rect's height
         // moved the route by nothing. The shift must scale with the FITTED
         // span (width × aspect), not the route's own hairline height.
-        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: true,
+        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .top,
                                            windowAspect: 2.17)
         let shift = wideRoute.midY - framed.midY
         XCTAssertGreaterThan(shift, wideRoute.size.height * 10,
@@ -103,14 +103,14 @@ final class CameraZoomTests: XCTestCase {
     }
 
     func testSidePanelPushesTheRouteRight() {
-        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: false,
+        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .leading,
                                            windowAspect: 2.17)
         XCTAssertLessThan(framed.midX, wideRoute.midX)
         XCTAssertEqual(framed.midY, wideRoute.midY, accuracy: 1)
     }
 
     func testNoPanelNoShift() {
-        let framed = CameraZoom.framedRect(wideRoute, panelOnTop: true,
+        let framed = CameraZoom.framedRect(wideRoute, panelEdge: .top,
                                            windowAspect: 2.17, panelFraction: 0)
         XCTAssertEqual(framed.midY, wideRoute.midY, accuracy: 1)
     }

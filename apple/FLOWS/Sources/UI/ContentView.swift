@@ -53,6 +53,15 @@ struct ContentView: View {
     @State private var lastFixAt: Date?
     /// Pitch the chase camera last used, for picking the marker's aspect.
     @State private var cameraPitch: Double = 0
+    /// What the CHASE just asked the camera for.
+    ///
+    /// `onMapCameraChange` only reports a settle, which is too late and too
+    /// coarse to dress the vehicle marker: at GO the camera pitches forward
+    /// immediately while the settle callback still says pitch 0, so the
+    /// marker showed the roof view from behind the car. The chase knows the
+    /// angle it just requested, so it records it and the marker uses that;
+    /// a free pan falls back to the settled values.
+    @State private var chaseAngle: (heading: Double, pitch: Double)?
     /// Set while THIS view moves the camera, so onMapCameraChange can tell
     /// our animations from the user's gestures.
     @State private var programmaticCameraMove = Date.distantPast
@@ -310,7 +319,14 @@ struct ContentView: View {
             CollapsedPanelTray()
             // (Re-center now lives in the middle of the bottom bar.)
             if model.mode == .planning, model.needsVehicleOnboarding {
-                vehicleOnboardingCard
+                // Above the planner at the BOTTOM. This is a nag card, and
+                // a nag card has no business covering the road ahead — the
+                // top of the map is the most valuable space on the screen.
+                VStack {
+                    Spacer()
+                    vehicleOnboardingCard
+                        .padding(.bottom, golden.bottomClear * 2.2)
+                }
             }
             // A red alert matters while PLANNING too — same banner as the HUD.
             if model.mode != .navigating, let warning = model.imminentWarning {
@@ -398,6 +414,8 @@ struct ContentView: View {
             // not the middle of the map behind the chrome. The offset moves
             // the aim point only — the zoom is untouched, so a banner opening
             // or closing never changes it.
+            let pitch: Double = chaseEngaged ? (model.show3DMap ? 66 : 55) : 0
+            chaseAngle = (heading, pitch)
             moveCamera(.camera(MapCamera(
                 centerCoordinate: CameraZoom.chaseCenter(
                     vehicle: coord, headingDegrees: heading,
@@ -405,7 +423,7 @@ struct ContentView: View {
                     topCover: chromeTopFraction, bottomCover: chromeBottomFraction),
                 distance: distance,
                 heading: heading,
-                pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
+                pitch: pitch)))
         }
         // FLIGHT camera: with the plane option chosen, the map follows the
         // traveler by phase — airport-close like walking (before takeoff and
@@ -983,18 +1001,28 @@ struct ContentView: View {
             // following behind, the front when the camera faces it. Flat art
             // swapped per aspect, not a 3D model — which is all a marker
             // this size needs to read as having a direction.
+            // The angle the CHASE just set, when it owns the camera —
+            // otherwise the last settled one from a free pan.
+            let camHeading = chaseAngle?.heading ?? cameraHeading
+            let camPitch = chaseAngle?.pitch ?? cameraPitch
             let aspect = VehicleAspect.forCamera(
-                pitchDegrees: cameraPitch,
-                relativeBearing: cameraHeading - (drawnHeading ?? cameraHeading))
+                pitchDegrees: camPitch,
+                relativeBearing: camHeading - (drawnHeading ?? camHeading))
             return (model.vehicleShape.symbol(aspect),
                     Self.markerColor(model.vehicleColorName))
         }()
         // Heading-up camera already rotates the WORLD to the course — rotating
         // the marker again pointed it wrong by 2×course. On a free camera,
-        // rotate by course MINUS the retained camera heading: a pan mid-drive
+        // rotate by heading MINUS the retained camera heading: a pan mid-drive
         // keeps the heading-up world, so assuming north-up re-created the
         // double-rotation this comment warns about.
-        let rotate = model.mode == .navigating && model.location.course >= 0
+        //
+        // The heading used is the marker's OWN smoothed one, the same value
+        // that picked the drawing above — a raw course reading here would
+        // let the icon's rotation and its front/back/side view disagree, and
+        // would jitter on GPS course noise the smoothing exists to absorb.
+        let markerHeading = drawnHeading
+        let rotate = model.mode == .navigating && markerHeading != nil
             && !cameraFollows
         return Image(systemName: symbol)
             .scaledFont(size: 15, weight: .bold)
@@ -1004,7 +1032,8 @@ struct ContentView: View {
             .clipShape(Circle())
             .overlay(Circle().stroke(.white, lineWidth: 2.5))
             .shadow(radius: 3)
-            .rotationEffect(.degrees(rotate ? model.location.course - cameraHeading : 0))
+            .rotationEffect(.degrees(
+                rotate ? (markerHeading ?? 0) - cameraHeading : 0))
     }
 
     /// Which itinerary leg the traveler is currently ON: nearest leg polyline
@@ -1536,6 +1565,8 @@ struct ContentView: View {
     /// worse than one that never moved on its own.
     private func releaseCameraToUser() {
         guard cameraFollows else { return }
+        chaseAngle = nil        // the driver owns the angle now
+
         guard model.mode == .navigating
             || model.transitItinerary?.mode == "Plane" else { return }
         cameraFollows = false
@@ -1756,8 +1787,6 @@ struct ContentView: View {
             }
             .floatingCard()
             .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-            .padding(.top, golden.topClear)   // below the Map Filter pill
-            Spacer()
         }
         .padding(.horizontal, golden.padCard)
     }
@@ -1958,16 +1987,20 @@ private struct PlanningChrome: View {
         if isCompact {
             VStack {
                 HStack { Spacer(); SettingsGear() }   // gear top-right
+                // EVERYTHING ELSE HANGS FROM THE BOTTOM. The top of a phone
+                // screen is the most valuable map there is — it is the road
+                // ahead — so no card is allowed to sit up there and the
+                // whole choosing stack drops to the thumb end, the same way
+                // the planner always has.
+                Spacer()
                 if model.mode == .choosing {
                     TripSummaryPill()
                     FilterSlidersCard()
                     // Enough for a whole route card, and no more: the map
-                    // below still has to show the route being chosen.
+                    // above still has to show the route being chosen.
                     RouteChoicesView(camera: $camera)
                         .frame(maxHeight: golden.choicesPanelHeight)
-                    Spacer()
                 } else {
-                    Spacer()
                     PlannerPanel(camera: $camera)     // planner bottom-center
                 }
             }

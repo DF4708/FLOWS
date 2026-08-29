@@ -19,13 +19,17 @@ struct RouteChoicesView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
     @Binding var camera: MapCameraPosition
-    /// Compact stacks this panel across the top (map below it); regular
-    /// puts it down the left side. Decides which way a framed route grows.
+    /// Compact stacks this panel across the BOTTOM (the map's top half is
+    /// the most valuable space on the screen, and the cards sit near the
+    /// thumb); regular puts it down the left side. Decides which way a
+    /// framed route is shifted to clear it.
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
-    private var panelOnTop: Bool { sizeClass == .compact }
+    private var panelEdge: CameraZoom.PanelEdge {
+        sizeClass == .compact ? .bottom : .leading
+    }
     #else
-    private let panelOnTop = false
+    private let panelEdge = CameraZoom.PanelEdge.leading
     #endif
 
     private var choices: [PlannedRoute] { model.filteredChoices }
@@ -1133,9 +1137,9 @@ struct RouteChoicesView: View {
         withAnimation {
             camera = .rect(CameraZoom.framedRect(
                 rect,
-                panelOnTop: panelOnTop,
+                panelEdge: panelEdge,
                 windowAspect: golden.size.height / max(golden.size.width, 1),
-                panelFraction: panelOnTop ? golden.choicesPanelFraction
+                panelFraction: panelEdge == .bottom ? golden.choicesPanelFraction
                                           : CameraZoom.choicesPanelFraction))
         }
     }

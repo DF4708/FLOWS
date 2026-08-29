@@ -19,13 +19,16 @@ struct PlannerPanel: View {
     @Environment(\.golden) private var golden
     @Binding var camera: MapCameraPosition
     /// Compact layouts stack the choices panel ACROSS THE TOP, so a framed
-    /// route has to sit in the map below it; regular layouts put the panel
-    /// down the left side instead.
+    /// route has to sit in the map ABOVE it — the top of the screen is the
+    /// most valuable map space, so the cards live at the bottom near the
+    /// thumb. Regular layouts put the panel down the left side instead.
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var sizeClass
-    private var panelOnTop: Bool { sizeClass == .compact }
+    private var panelEdge: CameraZoom.PanelEdge {
+        sizeClass == .compact ? .bottom : .leading
+    }
     #else
-    private let panelOnTop = false
+    private let panelEdge = CameraZoom.PanelEdge.leading
     #endif
 
     @State private var searchQuery = ""
@@ -379,11 +382,11 @@ struct PlannerPanel: View {
     /// Frame a route for the choosing layout — the geometry lives in
     /// CameraZoom.framedRect (pure, tested).
     static func choicesCameraRect(_ rect: MKMapRect,
-                                  panelOnTop: Bool = false,
+                                  panelEdge: CameraZoom.PanelEdge = .leading,
                                   windowAspect: Double = 2.0,
                                   panelFraction: Double
                                     = CameraZoom.choicesPanelFraction) -> MKMapRect {
-        CameraZoom.framedRect(rect, panelOnTop: panelOnTop,
+        CameraZoom.framedRect(rect, panelEdge: panelEdge,
                               windowAspect: windowAspect,
                               panelFraction: panelFraction)
     }
@@ -421,9 +424,9 @@ struct PlannerPanel: View {
                     withAnimation {
                         camera = .rect(Self.choicesCameraRect(
                         rect,
-                        panelOnTop: panelOnTop,
+                        panelEdge: panelEdge,
                         windowAspect: golden.size.height / max(golden.size.width, 1),
-                        panelFraction: panelOnTop ? golden.choicesPanelFraction
+                        panelFraction: panelEdge == .bottom ? golden.choicesPanelFraction
                                                   : CameraZoom.choicesPanelFraction))
                     }
                 } else {
@@ -515,9 +518,9 @@ struct PlannerPanel: View {
                 withAnimation {
                     camera = .rect(Self.choicesCameraRect(
                         rect,
-                        panelOnTop: panelOnTop,
+                        panelEdge: panelEdge,
                         windowAspect: golden.size.height / max(golden.size.width, 1),
-                        panelFraction: panelOnTop ? golden.choicesPanelFraction
+                        panelFraction: panelEdge == .bottom ? golden.choicesPanelFraction
                                                   : CameraZoom.choicesPanelFraction))
                 }
             }

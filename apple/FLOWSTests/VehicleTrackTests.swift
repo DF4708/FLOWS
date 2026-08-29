@@ -196,3 +196,55 @@ final class VehicleTrackTests: XCTestCase {
         XCTAssertEqual(kept?.size.width, rect.size.width)
     }
 }
+
+/// Framing a route clear of whichever edge the chrome covers.
+final class PanelFramingTests: XCTestCase {
+    /// A route rect somewhere with room around it.
+    private let route = MKMapRect(x: 40_000_000, y: 90_000_000,
+                                  width: 400_000, height: 200_000)
+
+    private func framed(_ edge: CameraZoom.PanelEdge) -> MKMapRect {
+        CameraZoom.framedRect(route, panelEdge: edge,
+                              windowAspect: 2.0, panelFraction: 0.4)
+    }
+
+    func testABottomPanelLiftsTheRouteUpTheScreen() {
+        // MKMapRect y runs SOUTHWARD, so aiming further south puts the route
+        // higher on screen — clear of cards sitting at the thumb end.
+        // Measured at the CENTRE: the union with the route deliberately
+        // clamps the origin so the whole line stays framed.
+        XCTAssertGreaterThan(framed(.bottom).midY, route.midY)
+    }
+
+    func testATopPanelPushesTheRouteDownTheScreen() {
+        XCTAssertLessThan(framed(.top).midY, route.midY)
+    }
+
+    func testTheTwoVerticalEdgesShiftOppositeWays() {
+        XCTAssertGreaterThan(framed(.bottom).midY, framed(.top).midY)
+    }
+
+    func testASidePanelShiftsSidewaysNotVertically() {
+        let side = framed(.leading)
+        XCTAssertLessThan(side.midX, route.midX)
+        XCTAssertEqual(side.midY, route.midY, accuracy: 1)
+    }
+
+    func testTheWHOLERouteSurvivesEveryShift() {
+        // Whatever the shift does, selecting a card must still show the
+        // entire route — that is what the union is for.
+        for edge in [CameraZoom.PanelEdge.top, .bottom, .leading] {
+            let f = framed(edge)
+            XCTAssertLessThanOrEqual(f.minX, route.minX, "\(edge) clipped the west end")
+            XCTAssertGreaterThanOrEqual(f.maxX, route.maxX, "\(edge) clipped the east end")
+            XCTAssertLessThanOrEqual(f.minY, route.minY, "\(edge) clipped the north end")
+            XCTAssertGreaterThanOrEqual(f.maxY, route.maxY, "\(edge) clipped the south end")
+        }
+    }
+
+    func testNoPanelMeansNoShift() {
+        let unshifted = CameraZoom.framedRect(route, panelEdge: .bottom,
+                                              windowAspect: 2.0, panelFraction: 0)
+        XCTAssertEqual(unshifted.midY, route.midY, accuracy: 1)
+    }
+}
