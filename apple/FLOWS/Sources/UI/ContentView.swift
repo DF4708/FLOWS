@@ -318,16 +318,6 @@ struct ContentView: View {
             // icons; a tap brings the menu back.
             CollapsedPanelTray()
             // (Re-center now lives in the middle of the bottom bar.)
-            if model.mode == .planning, model.needsVehicleOnboarding {
-                // Above the planner at the BOTTOM. This is a nag card, and
-                // a nag card has no business covering the road ahead — the
-                // top of the map is the most valuable space on the screen.
-                VStack {
-                    Spacer()
-                    vehicleOnboardingCard
-                        .padding(.bottom, golden.bottomClear * 2.2)
-                }
-            }
             // A red alert matters while PLANNING too — same banner as the HUD.
             if model.mode != .navigating, let warning = model.imminentWarning {
                 VStack {
@@ -1759,38 +1749,6 @@ struct ContentView: View {
         .padding(.horizontal, golden.padCard)
     }
 
-    /// First-launch vehicle prompt: range tracking needs to know the truck.
-    private var vehicleOnboardingCard: some View {
-        VStack {
-            HStack(spacing: 10) {
-                Image(systemName: "car.fill")
-                    .scaledFont(size: 20)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Add your vehicle")
-                        .scaledFont(size: 14, weight: .bold)
-                    Text("Track range from mpg + tank size + how you drive, and get fuel stops before you need them.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Button("Add vehicle") { model.showVehicleEditor = true }
-                    .scaledFont(size: 13, weight: .heavy)
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 34)
-                    .background(Theme.cta)
-                    .foregroundStyle(Theme.onCTA)
-                    .clipShape(Capsule())
-                Button { model.vehicleOnboardingDismissed = true } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .floatingCard()
-            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-        }
-        .padding(.horizontal, golden.padCard)
-    }
-
     #if os(macOS)
     /// Settings as a floating top-right panel (under the gear). The map's
     /// click-off tap closes it; panel clicks land on the panel itself.
@@ -1977,6 +1935,74 @@ struct ContentView: View {
 /// Planning-mode chrome: planner card + route choices, placed per platform.
 /// While choosing, the planner collapses to a compact trip pill so the map
 /// and the route list get the space.
+
+/// First-launch vehicle prompt: range tracking needs to know the truck.
+///
+/// A standalone view because it is stacked directly above the planner in
+/// BOTH layouts — a nag card has no business covering the road ahead, and
+/// letting the planner's own stack place it beats guessing a bottom padding
+/// that lands mid-map on a tablet.
+private struct VehicleOnboardingCard: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.golden) private var golden
+
+    private var blurb: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Add your vehicle")
+                .scaledFont(size: 14, weight: .bold)
+            Text("Track range from mpg + tank size + how you drive, and "
+                 + "get fuel stops before you need them.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var addButton: some View {
+        Button("Add vehicle") { model.showVehicleEditor = true }
+            .scaledFont(size: 13, weight: .heavy)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 34)
+            .background(Theme.cta)
+            .foregroundStyle(Theme.onCTA)
+            .clipShape(Capsule())
+    }
+
+    private var dismiss: some View {
+        Button { model.vehicleOnboardingDismissed = true } label: {
+            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Dismiss the vehicle prompt")
+    }
+
+    var body: some View {
+        // One row where there is room, two where there isn't. Sharing the
+        // planner's column on a tablet is narrower than the full width this
+        // card used to get at the top, and four things abreast in that
+        // column wrapped "Add your / vehicle" down the middle.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                Image(systemName: "car.fill").scaledFont(size: 20)
+                blurb
+                addButton
+                dismiss
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Image(systemName: "car.fill").scaledFont(size: 20)
+                    blurb
+                    Spacer(minLength: 0)
+                    dismiss
+                }
+                addButton.frame(maxWidth: .infinity)
+            }
+        }
+        .floatingCard()
+    }
+}
+
 private struct PlanningChrome: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
@@ -2001,6 +2027,7 @@ private struct PlanningChrome: View {
                     RouteChoicesView(camera: $camera)
                         .frame(maxHeight: golden.choicesPanelHeight)
                 } else {
+                    if model.needsVehicleOnboarding { VehicleOnboardingCard() }
                     PlannerPanel(camera: $camera)     // planner bottom-center
                 }
             }
@@ -2025,9 +2052,15 @@ private struct PlanningChrome: View {
                         .padding(.top, golden.topClear)   // clear of the gear
                     }
                 } else {
-                    // Planner bottom-center.
+                    // Planner bottom-center, with the vehicle nag stacked
+                    // directly above it rather than floating on a
+                    // phone-tuned padding that lands mid-map on a tablet.
                     VStack {
                         Spacer()
+                        if model.needsVehicleOnboarding {
+                            VehicleOnboardingCard()
+                                .frame(width: golden.sidePanel)
+                        }
                         PlannerPanel(camera: $camera)
                             .frame(width: golden.sidePanel)
                     }
