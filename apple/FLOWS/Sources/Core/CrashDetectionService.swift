@@ -40,7 +40,6 @@ final class CrashDetectionService: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published private(set) var impactTime: Date?
-    @Published private(set) var lastTranscript: String?
 
     /// Set by AppModel: where we are + what we drive + medical notes.
     var context: () -> (coordinate: CLLocationCoordinate2D?,
@@ -300,7 +299,6 @@ final class CrashDetectionService: ObservableObject {
             let transcript = result.bestTranscription.formattedString
             let isFinal = result.isFinal
             Task { @MainActor in
-                self.lastTranscript = transcript
                 switch CrashLogic.interpretReply(transcript) {
                 // "I need help" → act on the earliest partial (erring toward help
                 // is always safe). "I'm okay" → only stand down on the FINAL

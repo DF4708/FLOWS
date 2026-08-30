@@ -649,17 +649,6 @@ struct NavigationHUD: View {
     }
 
     /// The speed a legal line stands for, printed under its tick.
-    private func limitLabel(_ text: String, at x: CGFloat,
-                            width: CGFloat, color: Color) -> some View {
-        Text(text)
-            .font(.system(size: 8, weight: .heavy))
-            .monospacedDigit()
-            .foregroundStyle(color)
-            .fixedSize()
-            .offset(x: min(max(x - 8, 0), max(width - 16, 0)), y: 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     /// Would a threshold's label sit on top of the scale's end label?
     private func crowdsTheEnd(_ mph: Double?, top: Double) -> Bool {
         guard let mph, top > 0 else { return false }

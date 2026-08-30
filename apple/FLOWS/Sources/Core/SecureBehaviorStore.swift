@@ -163,11 +163,15 @@ enum SecureBehaviorStore {
         try? FileManager.default.removeItem(at: url)
     }
 
-    /// "Erase what FLOWS has learned about me" — shred every behavior file
-    /// AND drop the key, so any copy that escaped (a backup made before the
-    /// key existed, a forensic image) is permanently undecryptable.
-    static func eraseAll(files: [URL]) {
-        for f in files { shred(f) }
+    /// Drop the encryption key, so any copy of a behavior file that escaped
+    /// — a backup, a forensic image — is permanently undecryptable.
+    ///
+    /// Shredding the plaintext is not enough on its own: each store shreds
+    /// its OWN file when the driver erases, but until the key goes too, an
+    /// escaped ciphertext is still readable. This is the last step of
+    /// "erase everything FLOWS has learned", and without it that promise
+    /// was only half kept.
+    static func destroyKey() {
         SecItemDelete([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

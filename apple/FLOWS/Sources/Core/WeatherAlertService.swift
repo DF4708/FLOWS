@@ -694,13 +694,6 @@ final class WeatherAlertService: ObservableObject {
         case failed
     }
 
-    nonisolated private static let rfc822Parser: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
-        return f
-    }()
-
     /// WMO Alert Hub national CAP alerts for Mexico + Central America + the
     /// Caribbean. The country's active alerts (with polygons) are fetched and
     /// cached ONCE per country by `WMOAlertCache`; here we just keep the ones

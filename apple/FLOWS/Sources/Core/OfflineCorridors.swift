@@ -92,10 +92,6 @@ enum CorridorRetention {
     /// roads are dense, and a driver who loses the app can see where they
     /// are. Corridors earn their place on the open road between places.
     static let minTripMeters: CLLocationDistance = 25_000
-    /// How far from a town's center still counts as "in town" — the part of
-    /// a trip we do NOT need to carry offline.
-    static let cityRadiusMeters: CLLocationDistance = 12_000
-
     static func worthSaving(tripMeters: CLLocationDistance) -> Bool {
         tripMeters >= minTripMeters
     }

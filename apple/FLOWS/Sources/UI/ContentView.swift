@@ -1501,9 +1501,21 @@ struct ContentView: View {
             let now = Date()
             let gap = lastFixAt.map { now.timeIntervalSince($0) } ?? 1
             lastFixAt = now
-            drawnHeading = VehicleTrack.heading(courseDegrees: fix.course,
+            // Ease toward the new course rather than snapping to it. GPS
+            // course steps in whole degrees and jumps at a turn, so a marker
+            // pinned straight to it flicks round; easing the short way makes
+            // the turn read as a turn. (Crossing north eases 10°, not 350° —
+            // VehicleTrack.easedHeading.)
+            let reported = VehicleTrack.heading(courseDegrees: fix.course,
                                                 speedMps: max(fix.speed, 0),
                                                 previous: drawnHeading)
+            if let reported, let current = drawnHeading {
+                drawnHeading = VehicleTrack.easedHeading(from: current,
+                                                         to: reported,
+                                                         fraction: 0.45)
+            } else {
+                drawnHeading = reported
+            }
             guard let previous = drawnFix else {
                 drawnFix = fix.coordinate
                 return
@@ -3045,13 +3057,22 @@ struct SettingsSheet: View {
                 .scaledFont(size: 14, weight: .semibold)
             Text("Weather alerts: NWS api.weather.gov — live, re-checked every "
                  + "4 min while driving. Risk field: FLOWS 20-year NOAA Storm "
-                 + "Events climatology baseline (see generated time in Map Filter). "
+                 + "Events climatology baseline. "
                  + "Elevation/grades: USGS EPQS, fetched per plan, cached. Low "
                  + "bridges: OpenStreetMap maxheight via Overpass, per plan. "
                  + "Floodplain: FEMA NFHL zones, per plan. "
                  + "Unknown data never excludes a route.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            // The risk map's vintage. The text above used to point at a
+            // "generated time in Map Filter" that nothing ever displayed —
+            // the value was published and never read. A stale climatology is
+            // worth knowing about, so it says so here.
+            if let generated = model.riskField.generatedUTC {
+                Text("Risk field generated \(generated).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             Divider()
             Text("Your everyday area")
@@ -3121,6 +3142,12 @@ struct SettingsSheet: View {
                         model.recents.erase()
                         ChoiceLogStore.shared.erase()
                         DrivingProfileStore.shared.erase()
+                        // Last: drop the key. Each store shreds its own
+                        // plaintext above, but until the key goes with it an
+                        // escaped ciphertext is still readable — and this
+                        // button promises the app is "back to knowing
+                        // nothing".
+                        SecureBehaviorStore.destroyKey()
                         erasedConfirmation = true
                     } label: {
                         Label("Erase everything FLOWS has learned",

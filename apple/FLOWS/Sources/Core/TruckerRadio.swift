@@ -307,9 +307,6 @@ final class TruckerRadio: ObservableObject {
     /// annotation promises is real rather than asserted.
     private nonisolated(unsafe) var failureObserver: NSObjectProtocol?
     private nonisolated(unsafe) var stallObserver: NSObjectProtocol?
-    /// Called when playback starts, so the AM/FM dial can stand down — one
-    /// car, one pair of speakers.
-    var willStartPlaying: (() -> Void)?
 
     /// Tear the relay down with the object: an emergency radio that goes
     /// away mid-broadcast otherwise leaves an AVPlayer running with nothing
@@ -353,7 +350,6 @@ final class TruckerRadio: ObservableObject {
                 + "for the cab radio, or add a relay URL in trucker_radio.json."
             return
         }
-        willStartPlaying?()
         stop()
         #if os(iOS)
         // Without an active playback session iOS keeps AVPlayer SILENT —

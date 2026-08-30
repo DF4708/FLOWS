@@ -37,26 +37,6 @@ final class RiskFieldService: ObservableObject {
         let ring: [CLLocationCoordinate2D]?
     }
 
-    /// Same keys/order as the web PRIMARY_MAP_CHOICES (global.R).
-    static let familyDisplayNames: [String: String] = [
-        "environmental": "Normalized environmental risk",
-        "wind": "Wind risk",
-        "qpf_flood": "Flood risk",
-        "winter": "Winter risk",
-        "fire": "Fire risk",
-        "convective": "Storm risk",
-        "heat": "Heat risk",
-        "cold": "Cold risk",
-        "air": "Air / smoke risk",
-        "radiation": "Radiation / UV risk",
-        "seismic": "Seismic risk",
-        // Live-feed acute families (scored from primary feeds, not the export).
-        "tropical": "Tropical storm risk",
-        "volcanic": "Volcanic risk",
-        "avalanche": "Avalanche risk",
-        "tsunami": "Tsunami risk",
-    ]
-
     @Published private(set) var loaded = false
     @Published private(set) var families: [String] = []
     @Published private(set) var generatedUTC: String?
