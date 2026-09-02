@@ -786,3 +786,60 @@ Deferred with reasons recorded in the audit artifact: Swift grid
 flattening + ZipEntry hot/cold split (medium, has brute-force equality
 tests to gate it), CH up-graph CSR flatten, RAPTOR cross-query scratch
 (NA-scale), PGO, the god-file split.
+
+## The review pass: what a promise costs when nothing enforces it
+
+Four findings from the September 2026 review, and the shape they share.
+
+**A promise with no mechanism behind it decays silently.** "Erase
+everything FLOWS has learned" reached five behaviour stores and missed
+four — the breadcrumb trail, the cached offline corridors, and the
+learned traffic-delay and road-efficiency models. Those four were the
+most sensitive data the app holds, being a record of where the driver
+physically went, and they were plain-text JSON with no eraser at all.
+Nothing broke; nothing warned. Each was added later than the button,
+and adding a store simply did not require touching the eraser.
+
+Worse, the previous commit's own message claimed each store shredded
+its plaintext. That was true of the five that were wired and false of
+the four that were not, and it was written without checking. **Do not
+assert in a commit message what you have not read.** A confident
+sentence about coverage is exactly the thing a reviewer will trust
+instead of re-deriving.
+
+The general rule: when a user-facing promise spans a growing set of
+files, the set must be a list the code walks, not a series of call
+sites a future author is expected to remember.
+
+**A variable named for an intention is not that intention.** The fuel
+scan collected stations inside a straight-line radius, stored them as
+`ahead`, and carried a comment saying stations behind were excluded.
+Nothing checked direction. A driver with 50 miles of range whose only
+nearby pumps were already passed was told options remained, and the
+last-chance warning — whose entire job is to fire before reachable
+options run out — stayed quiet. The name and the comment were the only
+things making it look correct, and both were free to write.
+
+**didSet does not fire for a restored value.** A persisted
+`towingActive` came back true at launch with every towing route filter
+off, because the side effects lived in the property observer and
+restoration writes the backing store. A driver who quit while towing
+relaunched into an app that knew it was towing and would still route
+under a low bridge. Launch is not a write; anything a setter does for
+correctness has to be done again at init.
+
+**A merge can hand one feature another feature's state.** AM/FM plays
+through the weather radio's player but is not in its channel list, so
+auto-tune read a music station as "playing something unplaceable" and
+the tuning rule — correct in isolation, for a relay with no published
+coordinates — yielded to the nearest transmitter. Music was swapped for
+NOAA on the next GPS fix. Neither piece was wrong alone. The bug lived
+in the assumption that everything in the player was a weather channel.
+
+**On the review itself.** The first attempt fanned out 382 agents and
+died on a session limit with 18 complete, and its "refuted" count was
+an artifact of findings that had received zero votes — a number that
+looked like a result and was not one. The four fixes above came from
+reading the code by hand. Scale bought a bigger candidate list, not
+more confirmed bugs; verification is the expensive half and it does not
+parallelize away.

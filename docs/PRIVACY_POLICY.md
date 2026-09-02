@@ -40,7 +40,12 @@ device and stored only on your device:
   - the trips you complete — start and end areas, week of year, and the
     weather risk actually encountered versus what was predicted;
   - how you drive: your typical speed and idling, and how your real
-    arrival times compare to the estimate.
+    arrival times compare to the estimate;
+  - a trail of the roads you have actually driven, and the map data
+    cached along the corridors you drive often, so those roads still
+    work with no signal;
+  - how long stretches of road actually take you at each hour, and how
+    much fuel each one actually costs you.
 
   This is the most personal data in the app — over time it is a map of
   your life — so it is treated that way. **All of it is encrypted at rest
@@ -57,6 +62,15 @@ device and stored only on your device:
   Settings → **"What FLOWS has learned about you"** shows exactly what is
   stored and erases all of it in one press. Erasing also destroys the
   encryption key, so any copy that escaped stays unreadable.
+
+  "All of it" is meant literally, and is now enforced rather than
+  asserted: every file in this list is written through one store, and
+  the erase button walks that same list. An earlier build failed this —
+  the four items covering where you have physically driven were written
+  as plain text and had no eraser at all, so the most sensitive data
+  here outlived the button that promises otherwise. Anything a driver
+  can be told is erased must be erased by code that cannot be
+  forgotten when a new store is added.
 - **Medical notes and connected-account secrets** — stored in the device
   Keychain (never synced, never included in backups). Medical notes appear
   only in the crash-report message YOU send.

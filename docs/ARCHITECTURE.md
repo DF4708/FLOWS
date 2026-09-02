@@ -413,8 +413,18 @@ the map, the route scorer, and the live corridor monitor):
   `Core/SecureBehaviorStore.swift`: AES-GCM sealed with a 256-bit key in
   the Keychain, `AfterFirstUnlockThisDeviceOnly` (background training
   works; never synced, never in a backup). Plaintext stores from earlier
-  builds are upgraded in place. Settings exposes the full inventory and
-  a one-press erase that also destroys the key.
+  builds are upgraded in place by `readMigrating`. Settings exposes the
+  full inventory and a one-press erase that also destroys the key.
+
+  The set is nine files, and it is a checklist, not a convention: the
+  five learning stores above plus the four that record where the driver
+  physically drove — `BreadcrumbTrail`, `OfflineCorridors`,
+  `TrafficLearning`, `RoadEfficiencyLearning`. Those four shipped as
+  plain text with no eraser for several builds, because a new store
+  could be added without anything forcing a look at the erase path.
+  **Adding a store means adding an `erase()` and calling it from the
+  erase button.** Nothing enforces this at compile time yet; until
+  something does, it is the first thing to check when a store appears.
 - **Phase 2b (future, documented not built)** — a GNN over the trip
   graph, Rust-trained, executed in Swift via MLTensor/BNNS on the ANE
   (see [`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md)). The trip
