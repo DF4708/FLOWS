@@ -473,8 +473,16 @@ final class TruckerRadio: ObservableObject {
     /// stay where it is (nothing playing, already closest, or the next one
     /// isn't meaningfully closer).
     func retuneTarget(for position: CLLocationCoordinate2D) -> Channel? {
-        let playing = channels.first { $0.id == playingChannelID }
-        let coordinate = playing.flatMap { Self.position(of: $0)?.coordinate }
+        // Auto-tune follows NOAA TRANSMITTERS, and only those. An AM/FM
+        // station plays through this same player but is not in `channels`,
+        // so it used to read as "playing something unplaceable" — and
+        // RadioTuning treats unplaceable as yielding to any located station.
+        // The result was that a driver listening to music had it swapped for
+        // weather radio on the next GPS fix, every fix, forever.
+        guard let playingChannelID,
+              let playing = channels.first(where: { $0.id == playingChannelID })
+        else { return nil }
+        let coordinate = Self.position(of: playing)?.coordinate
         guard let id = RadioTuning.retarget(playingID: playingChannelID,
                                             playingCoordinate: coordinate,
                                             position: position,

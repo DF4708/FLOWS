@@ -3142,6 +3142,16 @@ struct SettingsSheet: View {
                         model.recents.erase()
                         ChoiceLogStore.shared.erase()
                         DrivingProfileStore.shared.erase()
+                        // Where the driver has actually BEEN. These four were
+                        // missing: the breadcrumb trail, the saved offline
+                        // corridors, and the two learned models are all
+                        // location history, and none of them was reached by
+                        // this button — nor helped by destroying the key,
+                        // since all four were written as plaintext.
+                        model.breadcrumbs.erase()
+                        model.corridors.erase()
+                        model.trafficModel.erase()
+                        model.roadEfficiency.erase()
                         // Last: drop the key. Each store shreds its own
                         // plaintext above, but until the key goes with it an
                         // escaped ciphertext is still readable — and this

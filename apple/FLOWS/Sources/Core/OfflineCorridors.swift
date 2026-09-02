@@ -139,7 +139,7 @@ final class OfflineCorridorStore: ObservableObject {
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_corridors.json")
-        if let data = try? Data(contentsOf: url),
+        if let data = SecureBehaviorStore.readMigrating(url),
            let saved = try? JSONDecoder().decode([SavedCorridor].self, from: data) {
             // Age out on load too — a phone left in a drawer for a month
             // should come back with nothing stale on it.
@@ -184,7 +184,18 @@ final class OfflineCorridorStore: ObservableObject {
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(corridors) else { return }
-        try? data.write(to: url, options: .atomic)
+        _ = SecureBehaviorStore.save(corridors, to: url)
+    }
+
+    /// "Erase everything FLOWS has learned" reaches this too.
+    ///
+    /// It did not used to. This file was written as PLAINTEXT JSON and had no
+    /// eraser at all, so a record of where the driver has been outlived the
+    /// button that promises the app is "back to knowing nothing" — and
+    /// destroying the encryption key did nothing for it, because it was never
+    /// encrypted in the first place.
+    func erase() {
+        corridors = []
+        SecureBehaviorStore.shred(url)
     }
 }

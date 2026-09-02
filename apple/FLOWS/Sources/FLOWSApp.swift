@@ -307,8 +307,7 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(towingActive, forKey: "flows.towingActive")
             vehicle.towingActive = towingActive
-            let safety: Set<RouteFilter> = [.mountainGrades, .lowBridges,
-                                            .bridgeWeight, .noHighWinds]
+            let safety = RouteFilter.towingSafety
             if towingActive {
                 routeFilters.formUnion(safety)
             } else {
@@ -1957,6 +1956,14 @@ final class AppModel: ObservableObject {
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
         }
         vehicle.towingActive = towingActive
+        // …and the FILTERS towing implies. didSet does not fire for the value
+        // restored from UserDefaults, so a driver who quit while towing came
+        // back with towing "on" and every towing route-safety filter off —
+        // routed under a low bridge by an app that knew it was towing.
+        if towingActive {
+            routeFilters.formUnion(RouteFilter.towingSafety)
+            applyVehicleMaxGradeDefault()
+        }
         checkTowingSignal()   // and at app start
         // Grade slider default follows the vehicle until the driver moves the
         // slider — seed it now and re-derive whenever the vehicle changes.
@@ -2681,13 +2688,22 @@ final class AppModel: ObservableObject {
         else { return nil }
         var stations: [FuelWarning.Station] = []
         var byName: [String: MKMapItem] = [:]
+        // The road still to be driven, sampled — ahead-ness is measured
+        // against this when a route exists. `ahead` used to be a plain radius
+        // around the vehicle, which counted stations BEHIND it as reachable
+        // and kept the last-chance warning quiet while the driver ran dry.
+        let routeAhead = navigation.route.map {
+            RouteService.samplePoints(of: $0.route.polyline, everyMeters: 4_000)
+        } ?? []
+        let course = location.course
         for item in items {
             let name = item.name ?? fuel.rawValue
-            // AHEAD along the route, not merely nearby: a station behind the
-            // vehicle is not a chance to refuel.
             let coord = item.placemark.coordinate
             let ahead = POIRanking.meters(here, coord) / 1609.344
             guard ahead <= rangeMiles else { continue }
+            guard FuelWarning.isReachable(station: coord, from: here,
+                                          courseDegrees: course,
+                                          routeAhead: routeAhead) else { continue }
             // Live station price when a feed has one, else the state
             // estimate — the same ladder the stop list uses.
             let price = await poi.livePriceProvider(coord, fuel)

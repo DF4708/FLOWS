@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import Foundation
 
 /// The fuel gauge's color curve and the "stop for fuel NOW" decision — pure,
@@ -55,6 +56,57 @@ enum FuelWarning {
     /// The warning fires while this many (or fewer) matching stations are
     /// still reachable — enough that the driver can pick one, few enough
     /// that the next stretch could strand them.
+    /// How wide a cone counts as "on the road ahead" when there is no route
+    /// to measure along — the same 100° either side the camera warning uses.
+    /// Wide enough to keep a station just off a bend, narrow enough to
+    /// exclude one the driver has already passed.
+    static let aheadConeDegrees = 100.0
+
+    /// Is this station somewhere the driver can still REACH, or one they
+    /// have already driven past?
+    ///
+    /// This exists because the scan used to keep any station within a
+    /// straight-line radius and call the result "ahead". A station five
+    /// miles BEHIND passed that test exactly like one five miles in front,
+    /// so the last-chance warning counted unreachable pumps toward "you
+    /// still have options" and stayed silent — the precise failure the
+    /// warning exists to prevent.
+    ///
+    /// With a route, ahead-ness is measured against the road actually being
+    /// driven: the station must be near a sample the vehicle has not reached
+    /// yet. Without one, it falls back to the direction of travel. With
+    /// neither — parked, no course, no route — nothing can be ruled out, so
+    /// everything is kept rather than silently dropping real options.
+    static func isReachable(station: CLLocationCoordinate2D,
+                            from here: CLLocationCoordinate2D,
+                            courseDegrees: Double,
+                            routeAhead: [CLLocationCoordinate2D],
+                            corridorMeters: Double = 8_000) -> Bool {
+        if !routeAhead.isEmpty {
+            return routeAhead.contains {
+                POIRanking.meters(station, $0) <= corridorMeters
+            }
+        }
+        guard courseDegrees >= 0 else { return true }
+        let bearing = bearingDegrees(from: here, to: station)
+        var delta = (bearing - courseDegrees).truncatingRemainder(dividingBy: 360)
+        if delta > 180 { delta -= 360 }
+        if delta < -180 { delta += 360 }
+        return abs(delta) <= aheadConeDegrees
+    }
+
+    /// Compass bearing from one point to another, 0..<360.
+    static func bearingDegrees(from a: CLLocationCoordinate2D,
+                               to b: CLLocationCoordinate2D) -> Double {
+        let rad = Double.pi / 180
+        let dLon = (b.longitude - a.longitude) * rad
+        let y = sin(dLon) * cos(b.latitude * rad)
+        let x = cos(a.latitude * rad) * sin(b.latitude * rad)
+            - sin(a.latitude * rad) * cos(b.latitude * rad) * cos(dLon)
+        let deg = atan2(y, x) / rad
+        return deg < 0 ? deg + 360 : deg
+    }
+
     static let warnAtReachableCount = 3
 
     enum Level: Equatable {

@@ -135,7 +135,7 @@ final class RoadEfficiencyModel: ObservableObject {
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_road_efficiency.json")
-        if let data = try? Data(contentsOf: url),
+        if let data = SecureBehaviorStore.readMigrating(url),
            let saved = try? JSONDecoder().decode(RoadEfficiencyStore.self, from: data) {
             store = saved
         }
@@ -185,7 +185,18 @@ final class RoadEfficiencyModel: ObservableObject {
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(store) else { return }
-        try? data.write(to: url, options: .atomic)
+        _ = SecureBehaviorStore.save(store, to: url)
+    }
+
+    /// "Erase everything FLOWS has learned" reaches this too.
+    ///
+    /// It did not used to. This file was written as PLAINTEXT JSON and had no
+    /// eraser at all, so a record of where the driver has been outlived the
+    /// button that promises the app is "back to knowing nothing" — and
+    /// destroying the encryption key did nothing for it, because it was never
+    /// encrypted in the first place.
+    func erase() {
+        store = RoadEfficiencyStore()
+        SecureBehaviorStore.shred(url)
     }
 }

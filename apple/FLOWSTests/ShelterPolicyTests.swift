@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import XCTest
 
 /// What counts as shelter from a given hazard, and how long to sit it out.
@@ -177,5 +178,97 @@ final class AlertActionTests: XCTestCase {
         XCTAssertEqual(ImminentAlerts.classify(event: "Frost Advisory",
                                                severityScore: 0.3,
                                                expires: nil), .monitor)
+    }
+}
+
+/// Reachability: a station you have already driven past is not an option.
+final class FuelReachabilityTests: XCTestCase {
+    private let here = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
+
+    private func north(_ km: Double) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: here.latitude + km * 1000 / 111_320,
+                               longitude: here.longitude)
+    }
+
+    func testAStationBehindTheVehicleIsNotReachable() {
+        // The bug: the scan kept any station inside a straight-line radius
+        // and called it "ahead", so pumps already passed counted toward
+        // "you still have options" and the last-chance warning stayed quiet.
+        XCTAssertFalse(FuelWarning.isReachable(
+            station: north(-8), from: here, courseDegrees: 0, routeAhead: []))
+    }
+
+    func testAStationAheadIsReachable() {
+        XCTAssertTrue(FuelWarning.isReachable(
+            station: north(8), from: here, courseDegrees: 0, routeAhead: []))
+    }
+
+    func testAStationJustOffABendStaysReachable() {
+        // 60° off the nose is still the road ahead, not behind.
+        let offBend = CLLocationCoordinate2D(latitude: here.latitude + 0.04,
+                                             longitude: here.longitude + 0.06)
+        XCTAssertTrue(FuelWarning.isReachable(
+            station: offBend, from: here, courseDegrees: 0, routeAhead: []))
+    }
+
+    func testWithARouteTheROUTEDecidesNotTheHeading() {
+        // Route runs south while the vehicle momentarily points north (a
+        // turn in progress). The station on the route is still reachable.
+        XCTAssertTrue(FuelWarning.isReachable(
+            station: north(-8), from: here, courseDegrees: 0,
+            routeAhead: [north(-4), north(-8), north(-12)]))
+    }
+
+    func testAStationFarOffTheRouteCorridorIsNotReachable() {
+        XCTAssertFalse(FuelWarning.isReachable(
+            station: north(60), from: here, courseDegrees: -1,
+            routeAhead: [north(-4), north(-8)]))
+    }
+
+    func testParkedWithNoCourseAndNoRouteKeepsEverything() {
+        // Nothing can be ruled out, so nothing is — silently dropping real
+        // options would be the worse error.
+        XCTAssertTrue(FuelWarning.isReachable(
+            station: north(-8), from: here, courseDegrees: -1, routeAhead: []))
+    }
+}
+
+/// Auto-tune must follow weather transmitters without stealing music.
+final class RadioAutoTuneTests: XCTestCase {
+    private let here = CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40)
+
+    private func station(_ id: String, _ lat: Double) -> RadioTuning.Station {
+        RadioTuning.Station(id: id,
+                            coordinate: CLLocationCoordinate2D(latitude: lat,
+                                                               longitude: -89.40))
+    }
+
+    func testAnUnplaceablePlayingStationStillYieldsAtTheTuningLayer() {
+        // The pure rule is unchanged and correct for a NOAA relay with no
+        // coordinates — the FIX lives in TruckerRadio, which no longer asks
+        // about a station that isn't a weather channel at all.
+        XCTAssertEqual(RadioTuning.retarget(
+            playingID: "no-coords", playingCoordinate: nil, position: here,
+            stations: [station("madison", 43.07)]), "madison")
+    }
+
+    func testATransmitterAlreadyNearestStaysPut() {
+        XCTAssertNil(RadioTuning.retarget(
+            playingID: "madison",
+            playingCoordinate: CLLocationCoordinate2D(latitude: 43.07, longitude: -89.40),
+            position: here, stations: [station("madison", 43.07)]))
+    }
+}
+
+/// Towing forces route-safety filters — including at launch.
+final class TowingFilterTests: XCTestCase {
+    func testTowingCarriesTheFullSafetySet() {
+        // A rig under tow must not be routed over a mountain grade, under a
+        // low bridge, across a weight-limited one, or into a crosswind.
+        let s = RouteFilter.towingSafety
+        XCTAssertTrue(s.contains(.mountainGrades))
+        XCTAssertTrue(s.contains(.lowBridges))
+        XCTAssertTrue(s.contains(.bridgeWeight))
+        XCTAssertTrue(s.contains(.noHighWinds))
     }
 }

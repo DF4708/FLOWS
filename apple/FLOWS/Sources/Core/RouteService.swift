@@ -256,6 +256,16 @@ enum RouteFilter: String, CaseIterable, Identifiable {
         }
     }
 }
+extension RouteFilter {
+    /// The filters towing forces on: a rig under tow must not be sent over a
+    /// mountain grade, under a low bridge, across a weight-limited one, or
+    /// into a crosswind. Lives here so the launch path and the towing toggle
+    /// read the SAME set — they used to hold separate copies, and the launch
+    /// path simply never applied its one.
+    static let towingSafety: Set<RouteFilter> =
+        [.mountainGrades, .lowBridges, .bridgeWeight, .noHighWinds]
+}
+
 
 /// Continent-scale route planning WITHOUT a client-side road graph.
 ///

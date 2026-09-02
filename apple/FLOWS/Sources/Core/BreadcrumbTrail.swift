@@ -42,7 +42,7 @@ final class BreadcrumbTrail: ObservableObject {
             for: .applicationSupportDirectory, in: .userDomainMask,
             appropriateFor: nil, create: true)) ?? URL(fileURLWithPath: NSTemporaryDirectory())
         url = dir.appendingPathComponent("flows_breadcrumbs.json")
-        if let data = try? Data(contentsOf: url),
+        if let data = SecureBehaviorStore.readMigrating(url),
            let raw = try? JSONDecoder().decode([[Double]].self, from: data) {
             points = raw.compactMap {
                 $0.count >= 2 ? CLLocationCoordinate2D(latitude: $0[0], longitude: $0[1]) : nil
@@ -88,8 +88,18 @@ final class BreadcrumbTrail: ObservableObject {
     private func persist() {
         sinceSave = 0
         let raw = points.map { [$0.latitude, $0.longitude] }
-        if let data = try? JSONEncoder().encode(raw) {
-            try? data.write(to: url, options: .atomic)
-        }
+        _ = SecureBehaviorStore.save(raw, to: url)
+    }
+
+    /// "Erase everything FLOWS has learned" reaches this too.
+    ///
+    /// It did not used to. This file was written as PLAINTEXT JSON and had no
+    /// eraser at all, so a record of where the driver has been outlived the
+    /// button that promises the app is "back to knowing nothing" — and
+    /// destroying the encryption key did nothing for it, because it was never
+    /// encrypted in the first place.
+    func erase() {
+        points = []
+        SecureBehaviorStore.shred(url)
     }
 }
