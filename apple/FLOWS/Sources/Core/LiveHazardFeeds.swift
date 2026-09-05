@@ -1074,8 +1074,13 @@ actor LiveHazardFeedFetcher {
         // block, coarse enough that a 1 Hz drive isn't a query per fix.
         let key = "\(Int(point.latitude * 10_000))|\(Int(point.longitude * 10_000))"
         if let cached = postedLimitCache[key] { return cached }
+        // The mirror gets a ~20 m cell, not the fix: the vehicle's exact
+        // position was leaving the phone several hundred times an hour. The
+        // search radius grows by the cell's half-diagonal so the road under
+        // the car is still inside it.
+        let (qlat, qlon) = LiveHazardFeedFetcher.coarse(point)
         let query = "[out:json][timeout:10];way[\"maxspeed\"][\"highway\"]"
-            + "(around:35,\(point.latitude),\(point.longitude));out tags 10;"
+            + "(around:50,\(qlat),\(qlon));out tags 10;"
         var limit: Double?
         if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
             var best: Double?
@@ -1111,6 +1116,12 @@ actor LiveHazardFeedFetcher {
     /// working with no sign on screen. Observed while testing this: the
     /// German host refused the connection outright and Kumi returned 500,
     /// while the French mirror answered the identical query.
+    /// A point snapped to a ~20 m grid (0.0002°), for queries that must not
+    /// carry the exact fix. Callers widen their radius by ~15 m to cover it.
+    nonisolated static func coarse(_ p: CLLocationCoordinate2D) -> (Double, Double) {
+        ((p.latitude * 5_000).rounded() / 5_000, (p.longitude * 5_000).rounded() / 5_000)
+    }
+
     nonisolated static func overpassElements(_ query: String) async
         -> [[String: Any]]? {
         for endpoint in overpassEndpoints {
@@ -1253,8 +1264,9 @@ actor LiveHazardFeedFetcher {
         if let cached = laneCache[key] { return cached }
         // Tight radius: lane tagging is per-approach, and the lanes of the
         // cross street are the wrong answer.
+        let (qlat, qlon) = LiveHazardFeedFetcher.coarse(point)   // see postedLimitMph
         let query = "[out:json][timeout:10];way[\"turn:lanes\"][\"highway\"]"
-            + "(around:30,\(point.latitude),\(point.longitude));out tags 5;"
+            + "(around:45,\(qlat),\(qlon));out tags 5;"
         var lanes: [LaneData.Lane] = []
         // A FAILED fetch must not be cached. This used to fall through and
         // store the empty array whether or not the query came back, so one

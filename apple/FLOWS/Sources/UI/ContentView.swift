@@ -1123,13 +1123,15 @@ struct ContentView: View {
             guard let poly = leg.polyline else { continue }
             let n = poly.pointCount
             guard n > 0 else { continue }
-            var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid,
-                                                  count: n)
-            poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+            // Read only the ~24 vertices the sample touches — this copied
+            // every leg's whole polyline on each render to look at one in
+            // twenty-four of it.
             var d = Double.greatestFiniteMagnitude
+            var one = CLLocationCoordinate2D()
             var i = 0
             while i < n {
-                d = min(d, POIRanking.meters(coords[i], here))
+                poly.getCoordinates(&one, range: NSRange(location: i, length: 1))
+                d = min(d, POIRanking.meters(one, here))
                 i += max(n / 24, 1)
             }
             if best == nil || d < best!.1 { best = (leg, d) }
@@ -1483,7 +1485,7 @@ struct ContentView: View {
         // Rockies don't). Toggling off levels it back.
         // Corridor ZIP areas follow the active route (highlight in choosing,
         // the driven route in navigation) and refresh when hydration lands.
-        .task(id: "\(model.highlightedRouteID?.uuidString ?? "")|\(model.navigation.route?.id.uuidString ?? "")|\(model.routeChoices.filter(\.weatherScored).count)") {
+        .task(id: "\(model.highlightedRouteID?.uuidString ?? "")|\(model.navigation.route?.id.uuidString ?? "")|\(model.routeChoices.filter(\.weatherScored).count)|\(model.routeMetadataVersion)") {
             let active = model.mode == .navigating
                 ? model.navigation.route
                 : model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
@@ -2434,7 +2436,11 @@ struct CollapsedPanelTray: View {
     ]
 
     var body: some View {
-        let tucked = Self.panels.filter { model.collapsedPanels.contains($0.id) }
+        // In the order they were put away — the pile the driver built, not
+        // the order this list happens to declare them in.
+        let tucked = model.collapsedPanels.order.compactMap { id in
+            Self.panels.first { $0.id == id }
+        }
         VStack(spacing: 8) {
             ForEach(tucked) { panel in
                 badgeButton(panel)

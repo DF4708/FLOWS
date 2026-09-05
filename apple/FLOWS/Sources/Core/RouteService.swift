@@ -579,3 +579,43 @@ enum RouteError: LocalizedError {
         }
     }
 }
+
+/// Which route earns the trucker badge.
+///
+/// A KNOWN low bridge DISQUALIFIES a route — it is not a 3-point penalty
+/// to be outweighed by highways and gentle grades. A route failing a 13'6"
+/// clearance check once scored 6 and could tie or beat a clearance-passing
+/// route, i.e. the badge could point a semi at a bridge it cannot clear.
+/// Unknown clearance data still passes (the app-wide "unknown never
+/// excludes" rule). If nothing clears, no route earns the badge: silence
+/// is honest, badging an impassable route is not. Pure, pinned by tests.
+enum TruckerDesignation {
+    struct Candidate: Equatable {
+        let id: UUID
+        /// Passes every known clearance on the route (unknown = passes).
+        let clearsBridges: Bool
+        let hasHighways: Bool
+        let avoidsHighways: Bool
+        let gradeOK: Bool
+        let windOK: Bool
+        let eta: TimeInterval
+    }
+
+    static func score(_ c: Candidate) -> Double {
+        var s = 0.0
+        if c.hasHighways && !c.avoidsHighways { s += 3 }
+        if c.gradeOK { s += 2 }
+        if c.windOK { s += 1 }
+        return s
+    }
+
+    /// Best score, then shortest ETA; nil when no candidate clears.
+    static func pick(_ candidates: [Candidate]) -> UUID? {
+        candidates
+            .filter(\.clearsBridges)
+            .map { (id: $0.id, score: score($0), eta: $0.eta) }
+            .min { $0.score != $1.score ? $0.score > $1.score : $0.eta < $1.eta }?
+            .id
+    }
+}
+

@@ -992,7 +992,8 @@ struct NavigationHUD: View {
                 .foregroundStyle(.secondary)
                 if ranked.rating != nil || ranked.costTier != nil {
                     StarsAndBucks(stars: ranked.rating, costTier: ranked.costTier,
-                                  currency: model.costCountry.currencySymbol)
+                                  currency: model.costCountry.currencySymbol,
+                                  url: ranked.businessURL)
                 }
             }
             Spacer()

@@ -613,12 +613,19 @@ final class AppModel: ObservableObject {
     /// Menus tucked into the top-right icon tray (double-tap a menu's grab
     /// bar). On the model so rotation can't forget them; cleared when the
     /// screen changes underneath them (new plan, GO, trip end).
-    @Published var collapsedPanels: Set<String> = Set(
+    ///
+    /// ORDERED, like a stack of pancakes under the gear: closing a panel
+    /// puts its icon at the BOTTOM of the pile, below the ones closed
+    /// earlier; opening one takes its icon out of the pile. The gear always
+    /// holds the first position. This used to be a Set rendered in a fixed
+    /// list order, so the column never reflected what the driver had
+    /// actually just put away.
+    @Published var collapsedPanels = PanelStack(
         UserDefaults.standard.stringArray(forKey: "flows.collapsedPanels") ?? []) {
         didSet {
             // A driver who tucked something away meant it — remember across
             // sessions rather than springing it back on the next launch.
-            UserDefaults.standard.set(Array(collapsedPanels),
+            UserDefaults.standard.set(collapsedPanels.order,
                                       forKey: "flows.collapsedPanels")
         }
     }
@@ -1192,6 +1199,33 @@ final class AppModel: ObservableObject {
     /// set once should survive the next plan, and the next launch.
     private static let transientPanels = ["planner", "routes", "sliders", "stops"]
 
+    /// The minimized-panel pile. Same call surface as the Set it replaced
+    /// (contains / insert / remove / subtract) so no caller changed; the
+    /// difference is that ORDER is kept, newest-closed last.
+    struct PanelStack: Equatable {
+        private(set) var order: [String] = []
+        init(_ ids: [String] = []) { ids.forEach { _ = insert($0) } }
+        var isEmpty: Bool { order.isEmpty }
+        func contains(_ id: String) -> Bool { order.contains(id) }
+        /// Close a panel: its icon goes to the bottom of the pile.
+        @discardableResult
+        mutating func insert(_ id: String) -> (inserted: Bool, memberAfterInsert: String) {
+            if order.contains(id) { return (false, id) }
+            order.append(id)
+            return (true, id)
+        }
+        /// Open a panel: its icon leaves the pile.
+        @discardableResult
+        mutating func remove(_ id: String) -> String? {
+            guard let i = order.firstIndex(of: id) else { return nil }
+            return order.remove(at: i)
+        }
+        mutating func subtract<S: Sequence>(_ ids: S) where S.Element == String {
+            let gone = Set(ids)
+            order.removeAll { gone.contains($0) }
+        }
+    }
+
     private func restoreTransientPanels() {
         collapsedPanels.subtract(Self.transientPanels)
     }
@@ -1286,13 +1320,17 @@ final class AppModel: ObservableObject {
         // app-wide "unknown never excludes" rule), so on corridors without
         // OSM height tags — the common case — every candidate remains
         // eligible and the badge behaves as before.
-        func clears(_ r: PlannedRoute) -> Bool { semi.passesClearances(r.clearancesMeters) }
-        func score(_ r: PlannedRoute) -> Double {
-            var s = 0.0
-            if r.hasHighways && r.planKind != .avoidHighways { s += 3 }
-            if semi.passesGrade(r.maxGradePercent) { s += 2 }
-            if (r.familyPeaks["wind"] ?? 0) < FlowsCore.riskYellowMin { s += 1 }
-            return s
+        // The rule itself is TruckerDesignation (Core, tested); this only
+        // reads each route's facts into a candidate.
+        func candidate(_ r: PlannedRoute) -> TruckerDesignation.Candidate {
+            TruckerDesignation.Candidate(
+                id: r.id,
+                clearsBridges: semi.passesClearances(r.clearancesMeters),
+                hasHighways: r.hasHighways,
+                avoidsHighways: r.planKind == .avoidHighways,
+                gradeOK: semi.passesGrade(r.maxGradePercent),
+                windOK: (r.familyPeaks["wind"] ?? 0) < FlowsCore.riskYellowMin,
+                eta: r.eta)
         }
         // Designate from the FILTERED list so the badge follows the routes
         // the driver can actually see (it used to vanish when a filter
@@ -1306,16 +1344,14 @@ final class AppModel: ObservableObject {
         // Disqualify known-impassable routes BEFORE scoring. If every
         // candidate has a known low bridge, no route earns the badge —
         // silence is honest; badging an impassable route is not.
-        let eligible = pool.filter(clears)
-        if eligible.isEmpty, !pool.isEmpty {
+        let candidates = pool.map(candidate)
+        let picked = TruckerDesignation.pick(candidates)
+        if picked == nil, !pool.isEmpty {
             FlowsDiag.logThrottled(
                 key: "trucker.noClearance", .warn, "routing",
                 "no candidate clears 13'6\" — trucker badge withheld")
         }
-        return eligible
-            .map { (id: $0.id, score: score($0), eta: $0.eta) }
-            .min { $0.score != $1.score ? $0.score > $1.score : $0.eta < $1.eta }?
-            .id
+        return picked
     }
 
     /// Planner fields live on the model so editing a trip round-trips
@@ -1977,7 +2013,11 @@ final class AppModel: ObservableObject {
         walkRefineTask?.cancel()
         // Background geometry refinement — not latency-critical; keep it off
         // the P-core/userInteractive band the MainActor would grant it.
-        walkRefineTask = Task(priority: .utility) { [weak self] in
+        // Task.detached, not Task: a plain Task inherits the MainActor this
+        // method runs on, so the "background" refinement — the request and
+        // the polyline copy — ran on the main actor at utility priority.
+        // Only the write hops back.
+        walkRefineTask = Task.detached(priority: .utility) { [weak self] in
             let req = MKDirections.Request()
             req.source = MKMapItem(placemark: MKPlacemark(coordinate: here))
             req.destination = MKMapItem(placemark: MKPlacemark(coordinate: target))
@@ -1990,9 +2030,10 @@ final class AppModel: ObservableObject {
             var coords = [CLLocationCoordinate2D](
                 repeating: kCLLocationCoordinate2DInvalid, count: n)
             poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
+            let refined = coords   // a value crosses the actor hop, not the captured var
             await MainActor.run { [weak self] in
                 guard let self, self.navigation.route?.isWalkingEstimate == true else { return }
-                self.walkingRefinedPath = coords
+                self.walkingRefinedPath = refined
             }
         }
     }
@@ -2030,6 +2071,14 @@ final class AppModel: ObservableObject {
             }
             return ShelterPolicy.Kind.anyBuilding.searchQueries
         }
+        // `location` publishes once a second and is forwarded to the whole
+        // model. Reviewed and KEPT: 34 view sites across ContentView,
+        // PlannerPanel, the HUD, the banners and CarPlay read position,
+        // speed and course through `model`, and would each need their own
+        // observation of LocationService to drop it here. The per-fix
+        // publishes that used to ride along with it (camera warning, text
+        // scale, posted limit, wind, work zones) now publish only on change,
+        // which is where the wasted invalidation actually was.
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
             vehicle, radio, radioBrowser, scanner, vehicleLink, smartcar, crash,
@@ -2208,12 +2257,15 @@ final class AppModel: ObservableObject {
                     let text = miles < 0.19
                         ? "\(Int((g.distanceToManeuver / 0.3048 / 50).rounded() * 50)) ft"
                         : String(format: miles < 10 ? "%.1f mi" : "%.0f mi", miles)
-                    if self.location.course >= 0 { self.lastWatchHeading = self.location.course }
+                    // The fix this sink was handed, not location.coordinate:
+                    // this runs inside $latest's willSet, when the published
+                    // value is still the PREVIOUS fix.
+                    if fix.course >= 0 { self.lastWatchHeading = fix.course }
                     self.watch.sendGuidance(
                         instruction: g.instruction,
                         distanceText: text,
                         distanceToManeuver: g.distanceToManeuver,
-                        coordinate: self.location.coordinate,
+                        coordinate: fix.coordinate,
                         heading: self.lastWatchHeading)
                 }
             }
@@ -2540,10 +2592,18 @@ final class AppModel: ObservableObject {
         // Responsive enough that the yellow and red lines are already there
         // as the driver turns onto a new road: a short block is ~80 m, so
         // waiting 150 m and 15 s meant driving a whole street unmarked.
+        // Responsive when it matters, quiet when it doesn't: with NO limit
+        // known, or a maneuver just taken, ask within 60 m / 8 s so a new
+        // street is marked before the driver is down it. With a limit
+        // already on the sign and no maneuver, the road is the same road —
+        // ask again only every 400 m / 30 s. This was 60 m / 8 s always,
+        // which on a highway sent ~450 queries an hour to public mirrors
+        // to be told the same number.
+        let settled = postedSpeedLimitMph != nil
         let moved = lastLimitPoint.map {
-            POIRanking.meters($0, fix.coordinate) > 60
+            POIRanking.meters($0, fix.coordinate) > (settled ? 400 : 60)
         } ?? true
-        let stale = Date().timeIntervalSince(lastLimitLookup) > 8
+        let stale = Date().timeIntervalSince(lastLimitLookup) > (settled ? 30 : 8)
         // A brand-new maneuver means a new road is imminent — look again
         // even if the vehicle has barely moved since the last check.
         let newStep = navigation.guidance?.stepIndex != lastLimitStep
@@ -2558,7 +2618,7 @@ final class AppModel: ObservableObject {
             let limit = await LiveHazardFeedFetcher.shared.postedLimitMph(at: point)
             guard let self, !Task.isCancelled, self.mode == .navigating else { return }
             if let limit {
-                self.postedSpeedLimitMph = limit
+                if self.postedSpeedLimitMph != limit { self.postedSpeedLimitMph = limit }
                 self.postedLimitSetAt = Date()
                 return
             }
@@ -3108,47 +3168,23 @@ final class AppModel: ObservableObject {
     private func sampleRealizedRisk(
         at c: CLLocationCoordinate2D, alertEvent: String?, alertSeverity: Double,
         onDevice: [String: Double] = [:], floodMultiplier: Double = 1,
-        closureScore: Double = 0
+        closureScore: Double = 0,
+        fieldRow: [Double]? = nil
     ) -> Double {
         // ONE nearest-ZIP resolution for all families at this coordinate —
-        // per-family score() calls redid the same neighborhood scan 8×.
-        let row = riskField.scoreRow(at: c)
+        // per-family score() calls redid the same neighborhood scan 8×. A
+        // caller that has already resolved the row (the plan-time blend
+        // loop does, for its own purposes) passes it in.
+        let row = fieldRow ?? riskField.scoreRow(at: c)
         func field(_ fam: String) -> Double {
             guard let row, let fi = riskField.familyIndex(fam), fi < row.count else { return 0 }
             return row[fi]
         }
-        func predictor(_ fam: String, _ deviceKey: String) -> Double {
-            max(field(fam), onDevice[deviceKey] ?? 0)
-        }
-        var bandInput: [String: Double] = [
-            "wind": predictor("wind", "wind"),
-            "heat": predictor("heat", "heat"),
-            "cold": predictor("cold", "cold"),
-            "air": field("air"),
-            "radiation": field("radiation"),
-            "winter": predictor("winter", "winter"),
-            "convective": predictor("convective", "convective"),
-            // modeled flood risk + forecast rain = a flood PREDICTOR, not proof.
-            // The relative-elevation multiplier (rain inches × how low this
-            // sample sits in the LOCAL terrain) amplifies the predictor — a
-            // valley-floor road in heavy rain reads riskier than the ridge
-            // beside it; still capped as a secondary, never Red alone.
-            "precip": min(1, predictor("qpf_flood", "precip") * floodMultiplier),
-        ]
-        if let ev = alertEvent, let fam = RiskEquations.alertFamily(ev) {
-            bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
-        } else if let ev = alertEvent, ImminentAlerts.isLifeSafetyEvent(ev),
-                  !ImminentAlerts.isLookoutEvent(ev) {
-            // Radiological, hazmat, shelter-in-place, civil danger,
-            // evacuation: no WEATHER family maps them, so they contributed
-            // ZERO to the route band — a corridor under an evacuation order
-            // scored green. For routing they are what a closure is: proof
-            // the road should not be driven. Filed as that primary.
-            bandInput["closure"] = max(bandInput["closure"] ?? 0, alertSeverity)
-        }
-        // DOT-reported closure: PROOF the road is blocked — realized primary.
-        if closureScore > 0 { bandInput["closure"] = closureScore }
-        return RiskEquations.realizedRisk(bandInput)
+        // The assembly itself is RiskEquations.bandInput — Core, tested.
+        return RiskEquations.realizedRisk(RiskEquations.bandInput(
+            field: field, onDevice: onDevice,
+            alertEvent: alertEvent, alertSeverity: alertSeverity,
+            floodMultiplier: floodMultiplier, closureScore: closureScore))
     }
 
     /// ON-DEVICE R equations, CONUS-wide: NWS gridpoint forecasts at every
@@ -3334,7 +3370,8 @@ final class AppModel: ObservableObject {
                     at: c, alertEvent: s.worstEvent, alertSeverity: s.risk,
                     onDevice: dev, floodMultiplier: floodMult,
                     closureScore: HazardFeedScores.closureScore(
-                        closures: corridorClosures, at: c)),
+                        closures: corridorClosures, at: c),
+                    fieldRow: row),   // resolved above; not a second ZIP scan
                 worstEvent: s.worstEvent, alertID: s.alertID)
         }
         r.familyPeaks = peaks
@@ -3824,6 +3861,53 @@ final class AppModel: ObservableObject {
                                    closures: tripClosures, at: $0.coordinate))
         }
         let peakR = sampleRisks.max() ?? 0
+        // The DRIVEN route's samples, segments and alert shapes used to be
+        // fixed at plan time: a tornado warning issued an hour into the trip
+        // escalated and bannered, but the route line stayed the colour it
+        // was at GO and the polygon never appeared on the map. Fold each
+        // complete window score back into the route's own metadata — the
+        // same segment rule as plan time (a stretch takes the worse of its
+        // two endpoint samples) — and bump the version the map keys on.
+        if score.complete, var live = navigation.route, !live.riskSamples.isEmpty {
+            var samples = live.riskSamples
+            var changed = false
+            for (w, r) in zip(score.samples, sampleRisks) {
+                var bi = -1
+                var bd = 600.0   // a window sample belongs to the route sample within 600 m
+                for (i, s) in samples.enumerated() {
+                    let d = POIRanking.meters(s.coordinate, w.coordinate)
+                    if d < bd { bd = d; bi = i }
+                }
+                guard bi >= 0 else { continue }
+                let old = samples[bi]
+                if abs(old.risk - r) > 0.02 || old.worstEvent != w.worstEvent
+                    || old.alertID != w.alertID {
+                    samples[bi] = RiskSample(coordinate: old.coordinate, risk: r,
+                                             worstEvent: w.worstEvent, alertID: w.alertID)
+                    changed = true
+                }
+            }
+            if changed {
+                live.riskSamples = samples
+                let last = samples.count - 1
+                live.riskSegments = live.riskSegments.enumerated().map { j, seg in
+                    RiskSegment(coordinates: seg.coordinates, risk: max(samples[min(j, last)].risk, samples[min(j + 1, last)].risk), lengthMeters: seg.lengthMeters)
+                }
+                var polygons = live.alertPolygons
+                for p in score.alertPolygons {
+                    let dup = polygons.contains { q in
+                        q.event == p.event
+                            && (q.coordinates.first.flatMap { qf in
+                                p.coordinates.first.map { POIRanking.meters(qf, $0) < 50 }
+                            } ?? false)
+                    }
+                    if !dup { polygons.append(p) }
+                }
+                live.alertPolygons = polygons
+                navigation.updateRouteMetadata(live)
+                routeMetadataVersion &+= 1
+            }
+        }
         let peakAlertID = zip(score.samples, sampleRisks)
             .max { $0.1 < $1.1 }?.0.alertID
         let risk = sampleRisks.isEmpty ? 0 : sampleRisks.reduce(0, +) / Double(sampleRisks.count)
@@ -3870,9 +3954,9 @@ final class AppModel: ObservableObject {
                     corridorSamples.contains { POIRanking.meters($0, z.coordinate) < 3_000 }
                 }
                 await MainActor.run {
-                    guard self?.mode == .navigating, !Task.isCancelled else { return }
-                    self?.workZonesAhead = nearby.count
-                    self?.workZoneRoad = nearby.first?.road
+                    guard let self, self.mode == .navigating, !Task.isCancelled else { return }
+                    if self.workZonesAhead != nearby.count { self.workZonesAhead = nearby.count }
+                    if self.workZoneRoad != nearby.first?.road { self.workZoneRoad = nearby.first?.road }
                 }
             }
         }
@@ -4235,8 +4319,11 @@ final class AppModel: ObservableObject {
             guard let c = await NWSForecastFetcher.shared.conditions(at: point),
                   let self, !Task.isCancelled else { return }
             guard self.mode == .navigating else { return }   // landed after End
-            self.corridorWindMph = c.windMph ?? 0
-            self.corridorWindFromDegrees = c.windFromDegrees
+            let mph = c.windMph ?? 0
+            if self.corridorWindMph != mph { self.corridorWindMph = mph }
+            if self.corridorWindFromDegrees != c.windFromDegrees {
+                self.corridorWindFromDegrees = c.windFromDegrees
+            }
         }
     }
 
@@ -4332,6 +4419,10 @@ final class AppModel: ObservableObject {
     /// planned. Its own banner: this used to be written into arrivedAt, so
     /// the HUD said "Arrived" over a truncated sentence about a "leg".
     @Published var continuationFailure: String?
+    /// Bumped when the DRIVEN route's samples/segments/polygons are refreshed
+    /// from a live corridor score, so the map's `.task(id:)` rebuilds the
+    /// hazard shapes — the route id alone does not change.
+    @Published var routeMetadataVersion = 0
 
     /// Where the vehicle effectively is: the GPS fix, or the route start
     /// when previewing without one (macOS without location access). Keeps

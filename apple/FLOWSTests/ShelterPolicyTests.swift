@@ -515,3 +515,85 @@ final class EscalationPolicyTests: XCTestCase {
         XCTAssertNotNil(P.evaluate(reading(mean: 0.82), state: s).trigger)  // clearly worse
     }
 }
+
+/// How one point's two-tier band input is assembled.
+final class BandInputTests: XCTestCase {
+    private func input(field: [String: Double] = [:], onDevice: [String: Double] = [:],
+                       event: String? = nil, severity: Double = 0,
+                       flood: Double = 1, closure: Double = 0) -> [String: Double] {
+        RiskEquations.bandInput(field: { field[$0] ?? 0 }, onDevice: onDevice,
+                                alertEvent: event, alertSeverity: severity,
+                                floodMultiplier: flood, closureScore: closure)
+    }
+
+    func testAPredictorIsTheWorseOfTheFieldAndTheDeviceForecast() {
+        XCTAssertEqual(input(field: ["wind": 0.3], onDevice: ["wind": 0.6])["wind"], 0.6)
+        XCTAssertEqual(input(field: ["wind": 0.7], onDevice: ["wind": 0.2])["wind"], 0.7)
+    }
+
+    func testAnInProgressWarningLandsInItsOwnFamily() {
+        let b = input(event: "Tornado Warning", severity: 0.95)
+        XCTAssertEqual(b[RiskEquations.alertFamily("Tornado Warning")!], 0.95)
+    }
+
+    func testAnUnmappedLifeSafetyOrderWeighsAsAClosure() {
+        // The bug: an evacuation order has no weather family, so it scored
+        // zero and the corridor under it stayed green.
+        XCTAssertEqual(input(event: "Evacuation Immediate", severity: 0.9)["closure"], 0.9)
+    }
+
+    func testALookoutAlertDoesNotCloseTheRoad() {
+        XCTAssertNil(input(event: "AMBER Alert", severity: 0.95)["closure"])
+    }
+
+    func testRainProbabilityIsCappedAtOneEvenInAValley() {
+        XCTAssertEqual(input(field: ["qpf_flood": 0.8], flood: 2.0)["precip"], 1.0)
+    }
+
+    func testADOTClosureIsProofAndKeepsTheWorseOfTwoClosureSources() {
+        XCTAssertEqual(input(closure: 0.85)["closure"], 0.85)
+        XCTAssertEqual(input(event: "Shelter In Place Warning", severity: 0.95,
+                             closure: 0.85)["closure"], 0.95)
+    }
+}
+
+/// Which route earns the trucker badge.
+final class TruckerDesignationTests: XCTestCase {
+    private typealias C = TruckerDesignation.Candidate
+    private let a = UUID(), b = UUID(), c = UUID()
+
+    private func cand(_ id: UUID, clears: Bool = true, highways: Bool = true,
+                      avoids: Bool = false, grade: Bool = true, wind: Bool = true,
+                      eta: Double = 3600) -> C {
+        C(id: id, clearsBridges: clears, hasHighways: highways, avoidsHighways: avoids,
+          gradeOK: grade, windOK: wind, eta: eta)
+    }
+
+    func testAKnownLowBridgeDisqualifiesHoweverGoodTheRestIs() {
+        // The bug this pins: a route failing 13'6" scored 6 (highways +
+        // grade + wind) and could beat a clearance-passing route.
+        let picked = TruckerDesignation.pick([
+            cand(a, clears: false),                       // perfect score, low bridge
+            cand(b, highways: false, grade: false, wind: false),   // score 0, clears
+        ])
+        XCTAssertEqual(picked, b)
+    }
+
+    func testNothingClearsMeansNoBadge() {
+        XCTAssertNil(TruckerDesignation.pick([cand(a, clears: false), cand(b, clears: false)]))
+        XCTAssertNil(TruckerDesignation.pick([]))
+    }
+
+    func testHighwaysGradeAndWindScoreInThatWeight() {
+        XCTAssertEqual(TruckerDesignation.score(cand(a)), 6)
+        XCTAssertEqual(TruckerDesignation.score(cand(a, highways: false)), 3)
+        XCTAssertEqual(TruckerDesignation.score(cand(a, avoids: true)), 3)   // avoid-highways plan
+        XCTAssertEqual(TruckerDesignation.score(cand(a, grade: false)), 4)
+        XCTAssertEqual(TruckerDesignation.score(cand(a, wind: false)), 5)
+    }
+
+    func testTheBetterScoreWinsAndTiesGoToTheShorterETA() {
+        XCTAssertEqual(TruckerDesignation.pick([cand(a, wind: false, eta: 100), cand(b, eta: 9_000)]), b)
+        XCTAssertEqual(TruckerDesignation.pick([cand(a, eta: 4_000), cand(b, eta: 3_000), cand(c, eta: 3_500)]), b)
+    }
+}

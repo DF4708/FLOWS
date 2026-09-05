@@ -167,6 +167,9 @@ actor YelpLink {
         /// Weekly hours lines, Monday first ("Monday: 9:00 AM – 5:00 PM") —
         /// Google supplies them; Yelp's search response doesn't, so nil there.
         var hours: [String]? = nil
+        /// The business page, when the provider requires linking to it
+        /// (Yelp's display terms do; Google's are met by the credit line).
+        var url: URL? = nil
     }
 
     private var cache: [String: BusinessInfo] = [:]
@@ -192,7 +195,8 @@ actor YelpLink {
         let hoursBlock = (first["business_hours"] as? [[String: Any]])?.first
         let info = BusinessInfo(rating: first["rating"] as? Double,
                                 price: first["price"] as? String,
-                                isOpenNow: hoursBlock?["is_open_now"] as? Bool)
+                                isOpenNow: hoursBlock?["is_open_now"] as? Bool,
+                                url: (first["url"] as? String).flatMap(URL.init))
         cache[key] = info
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info

@@ -597,6 +597,10 @@ struct StarsAndBucks: View {
     let costTier: Int?
     /// GPS-selected cost country (currency label + income anchoring).
     var currency: String = "US$"
+    /// The rating's business page. Yelp's terms require their rating to
+    /// link to it; tapping the stars opens it.
+    var url: URL? = nil
+    @Environment(\.openURL) private var openURL
     @State private var shimmerPhase: CGFloat = -1
 
     var body: some View {
@@ -634,6 +638,7 @@ struct StarsAndBucks: View {
                     }
                 }
                 .clipped()
+                .onTapGesture { if let url { openURL(url) } }
             }
             if let tier = costTier {
                 let c = RatingsAndCost.dollarColor(tier: tier)

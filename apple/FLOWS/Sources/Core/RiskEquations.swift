@@ -171,6 +171,51 @@ enum RiskEquations {
     /// total — Red requires a realized primary. Families outside both sets
     /// (e.g. the derived `environmental` composite) are ignored to avoid
     /// double-counting the temp/wind/pop signals their constituents already hold.
+    /// Assemble the two-tier band input for one point: the modeled field
+    /// and the on-device forecast as PREDICTORS, an in-progress-danger
+    /// alert as the realized primary, unmapped life-safety orders and DOT
+    /// closures filed as the closure primary. Lived inline in AppModel for
+    /// a year with no test; every surface that bands a point calls this.
+    ///
+    /// - field: the modeled ZIP field's score for a family, 0 when absent.
+    /// - onDevice: the on-device forecast's per-family predictors.
+    static func bandInput(field: (String) -> Double,
+                          onDevice: [String: Double],
+                          alertEvent: String?, alertSeverity: Double,
+                          floodMultiplier: Double = 1,
+                          closureScore: Double = 0) -> [String: Double] {
+        func predictor(_ fam: String, _ deviceKey: String) -> Double {
+            max(field(fam), onDevice[deviceKey] ?? 0)
+        }
+        var out: [String: Double] = [
+            "wind": predictor("wind", "wind"),
+            "heat": predictor("heat", "heat"),
+            "cold": predictor("cold", "cold"),
+            "air": field("air"),
+            "radiation": field("radiation"),
+            "winter": predictor("winter", "winter"),
+            "convective": predictor("convective", "convective"),
+            // modeled flood risk + forecast rain = a flood PREDICTOR, not
+            // proof. The relative-elevation multiplier (rain inches × how low
+            // this sample sits in the LOCAL terrain) amplifies it — a valley
+            // floor in heavy rain reads riskier than the ridge beside it;
+            // still capped as a secondary, never Red alone.
+            "precip": min(1, predictor("qpf_flood", "precip") * floodMultiplier),
+        ]
+        if let ev = alertEvent, let fam = alertFamily(ev) {
+            out[fam] = max(out[fam] ?? 0, alertSeverity)
+        } else if let ev = alertEvent, ImminentAlerts.isLifeSafetyEvent(ev),
+                  !ImminentAlerts.isLookoutEvent(ev) {
+            // Radiological, hazmat, shelter-in-place, civil danger,
+            // evacuation: no WEATHER family maps them. For routing they are
+            // what a closure is — proof the road should not be driven.
+            out["closure"] = max(out["closure"] ?? 0, alertSeverity)
+        }
+        // DOT-reported closure: PROOF the road is blocked — realized primary.
+        if closureScore > 0 { out["closure"] = max(out["closure"] ?? 0, closureScore) }
+        return out
+    }
+
     static func realizedRisk(_ families: [String: Double]) -> Double {
         func clamp(_ x: Double) -> Double { x.isFinite ? min(max(x, 0), 1) : 0 }
         // One pass, no intermediate collections: this runs per corridor

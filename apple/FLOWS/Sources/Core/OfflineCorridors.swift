@@ -177,10 +177,24 @@ final class OfflineCorridorStore: ObservableObject {
     /// The corridor most useful from here: the one whose road passes nearest.
     func nearest(to position: CLLocationCoordinate2D) -> SavedCorridor? {
         corridors.min { a, b in
-            let da = a.coordinates.map { POIRanking.meters($0, position) }.min() ?? .infinity
-            let db = b.coordinates.map { POIRanking.meters($0, position) }.min() ?? .infinity
+            let da = coordinates(of: a).map { POIRanking.meters($0, position) }.min() ?? .infinity
+            let db = coordinates(of: b).map { POIRanking.meters($0, position) }.min() ?? .infinity
             return da < db
         }
+    }
+
+    /// Decoded geometry, cached by corridor id. `SavedCorridor.coordinates`
+    /// rebuilds the array from `[[Double]]` on every access, and the map
+    /// asked for the nearest corridor on every frame while offline — a
+    /// decode of every saved polyline per render. A corridor is immutable,
+    /// so an entry can never go stale; the cache is bounded by maxStored.
+    private var decoded: [UUID: [CLLocationCoordinate2D]] = [:]
+    private func coordinates(of c: SavedCorridor) -> [CLLocationCoordinate2D] {
+        if let hit = decoded[c.id] { return hit }
+        let coords = c.coordinates
+        decoded[c.id] = coords
+        if decoded.count > 64 { decoded = decoded.filter { k, _ in corridors.contains { $0.id == k } } }
+        return coords
     }
 
     private func persist() {

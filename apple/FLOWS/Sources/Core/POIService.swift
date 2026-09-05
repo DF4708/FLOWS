@@ -162,6 +162,8 @@ final class POIService: ObservableObject {
         var showers: ShowerAvailability = .unknown
         /// Open right now (Yelp hours, when a key is configured).
         var isOpenNow: Bool? = nil
+        /// The provider's business page (Yelp requires the link).
+        var businessURL: URL? = nil
         /// Parking only: true = costs money, false = free, nil = unknown.
         var parkingFee: Bool? = nil
         /// Shelter only: plain-words type ("Storm shelter", "Flood shelter",
@@ -579,6 +581,7 @@ final class POIService: ObservableObject {
         var costTiers: [Int?] = unique.map { _ in nil }
         var liveIDs = Set<ObjectIdentifier>()
         var openFlags: [Bool?] = unique.map { _ in nil }
+        var businessURLs: [URL?] = unique.map { _ in nil }
         if kind == .hotel || kind == .food || kind == .stores || kind == .gyms
             || kind == .shelter {
             // Public reviews + cost: Yelp Fusion when a key is configured
@@ -588,6 +591,7 @@ final class POIService: ObservableObject {
             var r: [Double?] = []
             var t: [Int?] = []
             var open: [Bool?] = []
+            var urls: [URL?] = []
             for item in unique {
                 let c = item.placemark.coordinate
                 // Provider ladder: Google Places (bigger free quota) → Yelp.
@@ -598,15 +602,18 @@ final class POIService: ObservableObject {
                         RatingsAndCost.costTier(yelpPrice: $0, rating: info.rating)
                     })
                     open.append(info.isOpenNow)
+                    urls.append(info.url)
                 } else {
                     r.append(nil)
                     t.append(nil)
                     open.append(nil)
+                    urls.append(nil)
                 }
             }
             ratings = r
             costTiers = t
             openFlags = open
+            businessURLs = urls
             prices = kind == .hotel
                 ? unique.map { self.hotelInfoProvider($0).nightly }
                 : unique.map { _ in nil }
@@ -638,10 +645,13 @@ final class POIService: ObservableObject {
             zip(unique.map { ObjectIdentifier($0) }, costTiers))
         let openByName = Dictionary(uniqueKeysWithValues:
             zip(unique.map { ObjectIdentifier($0) }, openFlags))
+        let urlByName = Dictionary(uniqueKeysWithValues:
+            zip(unique.map { ObjectIdentifier($0) }, businessURLs))
         ranked = ranked.map { row in
             var r = row
             r.costTier = tierByName[ObjectIdentifier(row.item)] ?? nil
             r.isOpenNow = openByName[ObjectIdentifier(row.item)] ?? nil
+            r.businessURL = urlByName[ObjectIdentifier(row.item)] ?? nil
             r.isLivePrice = liveIDs.contains(ObjectIdentifier(row.item))
             let poiName = row.item.name ?? ""
             // Brand-table prefill: with no ratings key (or no provider
