@@ -653,6 +653,16 @@ struct StarsAndBucks: View {
                       + "switch by GPS: US (USD/BLS), Canada (CAD/StatCan), "
                       + "Mexico (MXN/CONASAMI-ENIGH).")
             }
+            // Credit travels with the content. Google's Places terms require
+            // their data to be attributed wherever it is shown, and FLOWS
+            // shows it over an Apple map — there is no provider chrome to
+            // carry it, so it goes here, beside the stars it describes.
+            if stars != nil || costTier != nil,
+               let credit = RatingsProvider.creditLine {
+                Text(credit)
+                    .scaledFont(size: 8, weight: .medium)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

@@ -1233,15 +1233,20 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"turn:lanes\"][\"highway\"]"
             + "(around:30,\(point.latitude),\(point.longitude));out tags 5;"
         var lanes: [LaneData.Lane] = []
-        if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
-            // Take the most detailed tagging nearby — a slip road with
-            // one lane shouldn't outvote the mainline's five.
-            for el in elements {
-                guard let tags = el["tags"] as? [String: Any],
-                      let raw = tags["turn:lanes"] as? String else { continue }
-                let parsed = LaneData.parse(turnLanes: raw)
-                if parsed.count > lanes.count { lanes = parsed }
-            }
+        // A FAILED fetch must not be cached. This used to fall through and
+        // store the empty array whether or not the query came back, so one
+        // cancellation or one unreachable mirror marked that interchange
+        // "no lane tagging" for the life of the process — permanently, since
+        // the cache is only ever evicted by size.
+        guard let elements = await LiveHazardFeedFetcher.overpassElements(query)
+        else { return [] }
+        // Take the most detailed tagging nearby — a slip road with
+        // one lane shouldn't outvote the mainline's five.
+        for el in elements {
+            guard let tags = el["tags"] as? [String: Any],
+                  let raw = tags["turn:lanes"] as? String else { continue }
+            let parsed = LaneData.parse(turnLanes: raw)
+            if parsed.count > lanes.count { lanes = parsed }
         }
         laneCache[key] = lanes
         if laneCache.count > 200 { CacheEviction.dropHalf(&laneCache) }

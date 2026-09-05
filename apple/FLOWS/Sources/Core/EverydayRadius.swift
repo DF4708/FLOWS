@@ -348,8 +348,9 @@ final class EverydayPlaces: ObservableObject {
     /// SERIAL writer, same rationale as SeasonalRiskModel.persist: snapshots
     /// drain FIFO so a later write can never be clobbered by an earlier one
     /// landing late.
-    private let persistQueue = DispatchQueue(label: "com.flows.everyday.persist",
-                                             qos: .default)
+    /// Shared with every other behaviour store so the erase button's key
+    /// deletion cannot overtake a seal that is still queued.
+    private var persistQueue: DispatchQueue { SecureBehaviorStore.persistQueue }
 
     init() {
         let dir = (try? FileManager.default.url(

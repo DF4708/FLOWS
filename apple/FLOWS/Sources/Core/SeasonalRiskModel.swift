@@ -426,8 +426,9 @@ final class SeasonalRiskModel: ObservableObject {
     /// .utility — .utility is deprioritized exactly when the app is being
     /// suspended, widening the window where a just-recorded trip is lost
     /// before its write drains.
-    private let persistQueue = DispatchQueue(label: "com.flows.seasonal.persist",
-                                             qos: .default)
+    /// Shared with every other behaviour store so the erase button's key
+    /// deletion cannot overtake a seal that is still queued.
+    private var persistQueue: DispatchQueue { SecureBehaviorStore.persistQueue }
 
     /// Completes when the on-disk store and learned heads have loaded. The
     /// store decode grows with every recorded trip, and `.shared` is first

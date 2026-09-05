@@ -823,6 +823,7 @@ final class AppModel: ObservableObject {
     /// playing instantly instead of searching into the silence.
     private var preStagedStations: [TruckerRadio.Channel] = []
     private var preStagedLabel = ""
+    private var preStageTask: Task<Void, Never>?
     private var lastBufferReading: Double?
 
     /// Learn from this outage: how long the audio really lasted after the
@@ -850,15 +851,27 @@ final class AppModel: ObservableObject {
     /// NOW, while there's still a link to fetch them with. This is what
     /// makes the eventual switch instant rather than a search into silence.
     private func preStageFallback() {
-        guard preStagedStations.isEmpty,
+        // preStageTask == nil FIRST: this runs on every GPS fix, and the
+        // search takes seconds on the weak link that triggers it. Without
+        // the guard, fixes 2..N each spawned another directory query before
+        // the first landed — a pile of concurrent fetches through a 2-3
+        // permit gate, starving everything else that needed the network.
+        //
+        // A nil-check, deliberately, not the cancel-and-restart used for
+        // camera lookups: under a 1 Hz retrigger a restart would cancel the
+        // search before it ever finished, and the fallback would never be
+        // staged at all.
+        guard preStageTask == nil,
+              preStagedStations.isEmpty,
               !MusicController.shared.hasLocalMusic,
               let genre = lastMusicAsk
                 ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel) else { return }
         preStagedLabel = genre
-        Task { [weak self] in
+        preStageTask = Task { [weak self] in
             guard let self else { return }
             await self.radioBrowser.search(text: genre)
             self.preStagedStations = self.radioBrowser.stations.map(\.channel)
+            self.preStageTask = nil   // the next fix may try again
         }
     }
 
@@ -1333,10 +1346,18 @@ final class AppModel: ObservableObject {
     struct Escalation: Equatable {
         let newRisk: Double
         let headline: String
+        /// Which hazard raised this, so dismissing it silences THAT hazard
+        /// rather than every hazard of the same severity.
+        var alertID: String? = nil
     }
     @Published var escalation: Escalation?
     private var escalationBaseline: Double = 0
     private var dismissedEscalationRisk: Double = 0
+    /// Hazards the driver has already waved through on this leg. Kept by
+    /// identity because severity alone cannot distinguish them: every
+    /// Extreme alert scores 0.95, so a numeric "worse than what you
+    /// dismissed" bar can never be cleared by the NEXT tornado warning.
+    private var dismissedEscalationAlertIDs: Set<String> = []
     /// Worst realized corridor risk encountered on the ACTIVE trip — recorded
     /// as the "observed" against the plan-time prediction on arrival, so the
     /// on-device seasonal model learns predicted-vs-actual over time.
@@ -1740,9 +1761,17 @@ final class AppModel: ObservableObject {
         _ ep: (from: CLLocationCoordinate2D, fromName: String,
                to: CLLocationCoordinate2D, toName: String)
     ) async {
-        guard let planned = try? await router.planRoutes(
+        guard let raw = try? await router.planRoutes(
             from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
             includeTollFree: routeFilters.contains(.noTolls)) else { return }
+        // Scale the fresh plan the SAME way present() scaled the cards
+        // already on screen. Without this the dedupe compared a raw router
+        // ETA against a pace-corrected one: for a driver whose learned
+        // multiplier is 1.15, the identical road came back 9 minutes
+        // "faster", cleared the 45-second sameness window, and appeared as a
+        // second card that then outranked its honest twin.
+        let planned = RouteService.applyPersonalPace(
+            raw, multiplier: DrivingProfileStore.shared.etaMultiplier)
         let fresh = planned.filter { candidate in
             !routeChoices.contains {
                 abs($0.eta - candidate.eta) < 45
@@ -1758,9 +1787,17 @@ final class AppModel: ObservableObject {
         _ ep: (from: CLLocationCoordinate2D, fromName: String,
                to: CLLocationCoordinate2D, toName: String)
     ) async {
-        guard let planned = try? await router.planRoutes(
+        guard let raw = try? await router.planRoutes(
             from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
             includeTollFree: true) else { return }
+        // Scale the fresh plan the SAME way present() scaled the cards
+        // already on screen. Without this the dedupe compared a raw router
+        // ETA against a pace-corrected one: for a driver whose learned
+        // multiplier is 1.15, the identical road came back 9 minutes
+        // "faster", cleared the 45-second sameness window, and appeared as a
+        // second card that then outranked its honest twin.
+        let planned = RouteService.applyPersonalPace(
+            raw, multiplier: DrivingProfileStore.shared.etaMultiplier)
         let fresh = planned.filter { candidate in
             !candidate.hasTolls && !routeChoices.contains {
                 abs($0.eta - candidate.eta) < 45 && abs($0.distanceMeters - candidate.distanceMeters) < 400
@@ -2510,6 +2547,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var upcomingLanes: [LaneData.Lane] = []
     private var laneLookupTask: Task<Void, Never>?
     private var laneLookupStep = -1
+    /// The maneuver a lane query is already out for, so the 1 Hz tick does
+    /// not fire a second one at the same turn.
+    private var laneLookupStepInFlight = -1
 
     /// Fetch lanes once per maneuver, and only when one is close enough to
     /// matter — lane guidance three miles out is noise, and the tagging is
@@ -2519,6 +2559,7 @@ final class AppModel: ObservableObject {
               let g = navigation.guidance else {
             if !upcomingLanes.isEmpty { upcomingLanes = [] }
             laneLookupStep = -1
+            laneLookupStepInFlight = -1
             return
         }
         // A new maneuver resets the row; the same one isn't re-fetched.
@@ -2526,11 +2567,17 @@ final class AppModel: ObservableObject {
             laneLookupStep = g.stepIndex
             upcomingLanes = []
         }
-        guard upcomingLanes.isEmpty, g.distanceToManeuver < 1_600,
+        // One lookup per maneuver. This ran on EVERY fix while the row was
+        // still empty, cancelling the previous query and starting another —
+        // and at 60 mph the Overpass round trip never fit inside a second,
+        // so the lookup was killed and restarted the whole way in, and lane
+        // guidance never appeared at all.
+        guard upcomingLanes.isEmpty, g.stepIndex != laneLookupStepInFlight,
+              g.distanceToManeuver < 1_600,
               let point = navigation.coordinateAhead(meters: g.distanceToManeuver)
         else { return }
         let step = g.stepIndex
-        laneLookupTask?.cancel()
+        laneLookupStepInFlight = step
         laneLookupTask = Task { [weak self] in
             let lanes = await LiveHazardFeedFetcher.shared.turnLanes(at: point)
             guard let self, !Task.isCancelled, self.mode == .navigating,
@@ -2772,6 +2819,11 @@ final class AppModel: ObservableObject {
         highlightedRouteID = routes.first?.id
         mode = .choosing
         filterCardsHidden = false   // fresh choices bring the slider card back
+        // A fresh plan invalidates any staged spoken yes. Without this, a
+        // driver who asks Siri for one destination, dislikes it and plans
+        // another on screen still has the FIRST offer staged — and "go
+        // ahead" starts the trip they just rejected.
+        pendingVoiceOffer = nil
         // Supersede any prior hydration: its retry loop reads the LIVE
         // routeChoices, so a replan while still .choosing would otherwise
         // stack a second (then third…) loop re-scoring the same routes —
@@ -3457,15 +3509,41 @@ final class AppModel: ObservableObject {
         routeChoices = []
         pendingVoiceOffer = nil
         // Remember the trip's true endpoint so added stops can chain back.
-        if finalDestination == nil, let end = Self.lastCoordinate(of: route) {
+        //
+        // Unconditionally. This was `if finalDestination == nil`, which is
+        // only false when a PREVIOUS trip's endpoint is still live — so the
+        // guard's entire effect was to keep the abandoned destination. A
+        // driver who changed their mind mid-drive ("start a trip to
+        // Cheyenne" while heading to Denver) got guidance to Cheyenne, but
+        // every reroute — the traffic offer, the storm escalation, the
+        // continuation leg behind an added stop — planned back to Denver.
+        if let end = Self.lastCoordinate(of: route) {
             finalDestination = (end, route.destinationName)
+        } else {
+            finalDestination = nil
         }
+        // The abandoned trip's stop chain goes with it. Without this, a stop
+        // added to the old trip still fires on arrival at the new one.
+        upcomingLeg = nil
+        pendingStopName = nil
+        pendingStopKind = nil
+        // …and so does its transit overlay. present() cancels these; select()
+        // did not, so a rail itinerary still computing when the driver hit GO
+        // could land mid-drive and flip an active drive into passenger mode,
+        // blanking the speed sign and the camera list.
+        transitItinerary = nil
+        transitTasks.values.forEach { $0.cancel() }
+        transitTasks = [:]
+        transitOptions = [:]
+        activeTransitModes = []
+        hybridOption = nil
         // Review finding: selecting before hydration finishes captured a
         // baseline of 0 (unscored routes), so the first corridor update on any
         // yellow corridor fired a spurious escalation. Sentinel −1 defers the
         // capture to the first corridor score instead.
         escalationBaseline = route.weatherScored ? route.weatherRisk : -1
         dismissedEscalationRisk = 0
+        dismissedEscalationAlertIDs = []
         tripObservedPeak = route.weatherRisk   // seed with the plan-time estimate
         escalation = nil
         arrivedAt = nil
@@ -3512,6 +3590,14 @@ final class AppModel: ObservableObject {
     }
 
     func endNavigation() {
+        // FIRST, before anything is torn down. This used to sit near the end
+        // of the teardown, below `navigation.stop()` (which nils the route,
+        // so the trip's weather read back as "clear") and below
+        // `stopDelaySeconds = 0` (so an hour spent sheltering from a tornado
+        // was billed as an hour of driving). The model then learned that
+        // this road takes 1.5x as long in CLEAR weather, and inflated every
+        // future estimate for it.
+        learnTripDuration()   // teach the delay model what this drive cost
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
         pendingVoiceOffer = nil
@@ -3544,6 +3630,7 @@ final class AppModel: ObservableObject {
         laneLookupTask?.cancel()
         upcomingLanes = []
         laneLookupStep = -1
+        laneLookupStepInFlight = -1
         postedSpeedLimitMph = nil
         lastLimitPoint = nil
         lastLimitStep = nil
@@ -3560,13 +3647,21 @@ final class AppModel: ObservableObject {
         upcomingSteepGrade = nil
         workZonesAhead = 0
         workZoneRoad = nil
-        stoppedSince = nil
+        // Start the off-duty clock rather than clearing it. This was
+        // `stoppedSince = nil`, which threw away the break a trucker takes
+        // BETWEEN trips: they would drive 7h45m, end navigation, rest 90
+        // minutes, start a new trip — and be told a break was due 15
+        // minutes later, because nothing had recorded the rest. If a stop
+        // was already running, keep its original start so credit earned is
+        // not lost; if they are still rolling, leave it nil.
+        if stoppedSince == nil, (location.latest?.speed ?? -1) <= 1 {
+            stoppedSince = Date()
+        }
         lastClockFix = nil
         tripSharePrompt = false
         tripShareOffered = false
         restoreTransientPanels()   // back to planning with the trip menus out
         corridors.prune(position: location.coordinate)   // arrived → let it go
-        learnTripDuration()   // teach the delay model what this drive cost
         roadEfficiency.flush()   // bank the last measured stretch
         mode = .planning
         watch.sendEnded()
@@ -3589,6 +3684,8 @@ final class AppModel: ObservableObject {
                                alertSeverity: $0.risk)
         }
         let peakR = sampleRisks.max() ?? 0
+        let peakAlertID = zip(score.samples, sampleRisks)
+            .max { $0.1 < $1.1 }?.0.alertID
         let risk = sampleRisks.isEmpty ? 0 : sampleRisks.reduce(0, +) / Double(sampleRisks.count)
         // The worst actually ENCOUNTERED is the peak sample, not the blend —
         // it feeds the seasonal model's predicted-vs-observed record.
@@ -3647,12 +3744,20 @@ final class AppModel: ObservableObject {
         let sustained = risk >= FlowsCore.riskYellowMin
             && risk > escalationBaseline + 0.12
             && risk > dismissedEscalationRisk + 0.05
-        let acuteRed = peakR > 0.8751 && peakR > dismissedEscalationRisk + 0.05
+        // A hazard the driver has NEVER been asked about re-prompts on its
+        // own identity. Tapping "Continue" on one tornado warning used to
+        // set the bar to 0.95, and since every Extreme alert also scores
+        // 0.95, no later tornado warning could clear 0.95 + 0.05 — one
+        // dismissal silenced the reroute offer for the rest of the leg.
+        let unseenHazard = peakAlertID.map { !dismissedEscalationAlertIDs.contains($0) } ?? false
+        let acuteRed = peakR > 0.8751
+            && (peakR > dismissedEscalationRisk + 0.05 || unseenHazard)
         let escalated = sustained || acuteRed
         if escalated, notifyEscalation {
             escalation = Escalation(
                 newRisk: acuteRed ? peakR : risk,
-                headline: score.headlines.first ?? "Conditions worsening along this route")
+                headline: score.headlines.first ?? "Conditions worsening along this route",
+                alertID: acuteRed ? peakAlertID : nil)
         }
     }
 
@@ -3679,10 +3784,18 @@ final class AppModel: ObservableObject {
         guard let hit = ImminentAlerts.firstImminent(candidates, speedMps: speed),
               let alert = score.alertsByID[hit.alertID] else {
             // Nothing imminent anymore — clear a stale banner, EXCEPT red
-            // alerts (those stay until the driver physically presses them)
-            // and EXCEPT incomplete scores: a transient NWS failure zeroes
-            // the samples, and "no data" must never read as "all clear".
-            if score.complete, imminentWarning?.action != .shelter { imminentWarning = nil }
+            // alerts (shelter AND lookout: both stay until the driver
+            // physically presses them) and EXCEPT incomplete scores: a
+            // transient NWS failure zeroes the samples, and "no data" must
+            // never read as "all clear".
+            //
+            // Lookout was missing here. An AMBER alert's banner is keyed on
+            // a sample inside the look-ahead window, and that window shrinks
+            // with speed — so slowing into town silently erased a live child
+            // abduction alert, and speeding up announced it again.
+            if score.complete,
+               imminentWarning?.action != .shelter,
+               imminentWarning?.action != .lookout { imminentWarning = nil }
             return
         }
         let action = ImminentAlerts.classify(
@@ -3749,7 +3862,10 @@ final class AppModel: ObservableObject {
     /// Driver tapped "Continue" — accept the new risk level, stop flashing,
     /// don't nag again unless it climbs further.
     func dismissEscalation() {
-        if let e = escalation { dismissedEscalationRisk = e.newRisk }
+        if let e = escalation {
+            dismissedEscalationRisk = e.newRisk
+            if let id = e.alertID { dismissedEscalationAlertIDs.insert(id) }
+        }
         escalation = nil
     }
 
@@ -3809,6 +3925,7 @@ final class AppModel: ObservableObject {
         // by construction.
         escalationBaseline = -1
         dismissedEscalationRisk = 0
+        dismissedEscalationAlertIDs = []
         navigation.start(route: leg, onArrival: { [weak self] in self?.handleArrival() })
         // Legs swapped in mid-drive (reroute, added stop, arrival chaining)
         // arrive weather-scored but attribute-pending — hydrate grades /
@@ -4061,7 +4178,21 @@ final class AppModel: ObservableObject {
         guard let fix = effectivePosition, let dest = finalDestination else { return }
         let name = item.name ?? "Stop"
         pendingStopName = name
-        pendingStopKind = poi.activeKind
+        // Classify the ITEM, not the browse mode. This read poi.activeKind
+        // — a global "which stop button is lit" flag that survives closing
+        // the results card. So a driver who checked fuel prices, decided to
+        // wait, and later added a coffee stop had that coffee stop recorded
+        // as a fill-up: arriving reset the tank odometer, range jumped from
+        // 55 miles to 450, the low-fuel warning cleared, and the app stopped
+        // warning about an empty tank.
+        //
+        // The else-branch is the safe direction: a missed reset only leaves
+        // the range pessimistic, which the at-pump prompt and "Mark tank
+        // full" both recover. A false reset hides a real empty tank.
+        let addedFuel = item.pointOfInterestCategory == .gasStation
+            || item.pointOfInterestCategory == .evCharger
+            || (poi.activeKind == .gas && poi.results.contains { $0.item === item })
+        pendingStopKind = addedFuel ? .gas : nil
         poi.clearResults()
         addingStop = true
         defer { addingStop = false }

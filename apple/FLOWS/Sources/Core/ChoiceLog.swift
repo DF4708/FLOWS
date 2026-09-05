@@ -79,7 +79,9 @@ final class ChoiceLogStore: ObservableObject {
 
     private(set) var log = ChoiceLog()
     private let url: URL
-    private let persistQueue = DispatchQueue(label: "com.flows.choices.persist", qos: .utility)
+    /// Shared with every other behaviour store so the erase button's key
+    /// deletion cannot overtake a seal that is still queued.
+    private var persistQueue: DispatchQueue { SecureBehaviorStore.persistQueue }
 
     init(directory: URL? = nil) {
         let dir = directory

@@ -272,3 +272,79 @@ final class TowingFilterTests: XCTestCase {
         XCTAssertTrue(s.contains(.noHighWinds))
     }
 }
+
+/// Google's content must be credited wherever it is shown.
+@MainActor
+final class RatingsCreditTests: XCTestCase {
+    private let gKey = "flows.googlePlacesKey"
+    private let yKey = "flows.yelpKey"
+    private var savedG: String?
+    private var savedY: String?
+
+    override func setUp() {
+        savedG = UserDefaults.standard.string(forKey: gKey)
+        savedY = UserDefaults.standard.string(forKey: yKey)
+        UserDefaults.standard.removeObject(forKey: gKey)
+        UserDefaults.standard.removeObject(forKey: yKey)
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.set(savedG, forKey: gKey)
+        UserDefaults.standard.set(savedY, forKey: yKey)
+    }
+
+    func testNoProviderConfiguredCreditsNobody() {
+        // FLOWS shows only its own data — inventing a credit would be worse
+        // than none.
+        XCTAssertNil(RatingsProvider.creditLine)
+    }
+
+    func testAGoogleKeyCreditsGoogle() {
+        // The stars are drawn over an APPLE map, so there is no Google
+        // chrome to carry the attribution their terms require. It has to
+        // travel with the content.
+        UserDefaults.standard.set("k", forKey: gKey)
+        XCTAssertEqual(RatingsProvider.creditLine, "Powered by Google")
+    }
+
+    func testGoogleWinsWhenBothKeysArePresent() {
+        // The credit must name whoever actually answered, and the fetch
+        // ladder tries Google first.
+        UserDefaults.standard.set("k", forKey: gKey)
+        UserDefaults.standard.set("y", forKey: yKey)
+        XCTAssertEqual(RatingsProvider.creditLine, "Powered by Google")
+    }
+
+    func testYelpAloneCreditsYelp() {
+        UserDefaults.standard.set("y", forKey: yKey)
+        XCTAssertEqual(RatingsProvider.creditLine, "Ratings by Yelp")
+    }
+
+    func testAnEmptyKeyIsNotAConfiguredProvider() {
+        // The settings field writes "" when cleared, not nil.
+        UserDefaults.standard.set("", forKey: gKey)
+        UserDefaults.standard.set("", forKey: yKey)
+        XCTAssertNil(RatingsProvider.creditLine)
+    }
+}
+
+/// Every behaviour store seals on ONE queue, so erasing can be ordered.
+final class BehaviorPersistQueueTests: XCTestCase {
+    func testTheSharedQueueIsSerialAndOrdersWorkBeforeAnyLaterCall() {
+        // The erase bug: the key was deleted while a sealed write was still
+        // queued, so the write ran afterwards, found no key, minted a fresh
+        // one, and re-sealed the driver's history in readable form. A single
+        // FIFO queue is what makes "delete the key last" mean it.
+        var order: [Int] = []
+        let done = expectation(description: "drained")
+        for i in 0..<50 {
+            SecureBehaviorStore.persistQueue.async { order.append(i) }
+        }
+        SecureBehaviorStore.persistQueue.async {   // stands in for destroyKey
+            order.append(999)
+            done.fulfill()
+        }
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(order, Array(0..<50) + [999])
+    }
+}

@@ -754,6 +754,14 @@ struct ContentView: View {
                             var kind: HazardKind
                             if let top = HazardStyle.dominantFamily(families) {
                                 kind = HazardStyle.kind(forFamily: top)
+                                // The qpf_flood family carries BOTH the gauge
+                                // reading and plain rain probability. With no
+                                // gauge near flood stage the score is only
+                                // "it may rain", and calling that Flood puts a
+                                // blue water badge over a dry ZIP.
+                                if top == "qpf_flood", floodRealized < 0.45 {
+                                    kind = HazardStyle.rain
+                                }
                             } else {
                                 kind = Self.dominantKind(c, latitude: lat, longitude: lon)
                             }
@@ -1585,9 +1593,11 @@ struct ContentView: View {
     private func releaseCameraToUser() {
         guard cameraFollows else { return }
         chaseAngle = nil        // the driver owns the angle now
-
-        guard model.mode == .navigating
-            || model.transitItinerary?.mode == "Plane" else { return }
+        // No mode guard. The follow camera also runs while PLANNING (a
+        // passenger scouting the route in a moving car), and gating the
+        // release on .navigating meant those drags did nothing at all: the
+        // next GPS fix snapped the map straight back, once a second, and the
+        // map could not be read while the car was moving.
         cameraFollows = false
     }
 
@@ -3079,7 +3089,7 @@ struct SettingsSheet: View {
                 .scaledFont(size: 14, weight: .semibold)
             Text(String(format: "Stops you use often within ~%.0f miles of "
                  + "home are remembered on this device for instant results. "
-                 + "The area is learned from your trips (20-mile max) and "
+                 + "The area is learned from your trips and "
                  + "never leaves your phone.",
                  EverydayPlaces.shared.radiusMiles))
                 .font(.caption)

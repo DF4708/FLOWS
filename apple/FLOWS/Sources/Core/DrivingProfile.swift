@@ -112,7 +112,9 @@ final class DrivingProfileStore: ObservableObject {
     @Published private(set) var profile = DrivingProfile()
     private let url: URL
     private var lastPersist = Date.distantPast
-    private let persistQueue = DispatchQueue(label: "com.flows.driving.persist", qos: .utility)
+    /// Shared with every other behaviour store so the erase button's key
+    /// deletion cannot overtake a seal that is still queued.
+    private var persistQueue: DispatchQueue { SecureBehaviorStore.persistQueue }
 
     init(directory: URL? = nil) {
         let dir = directory

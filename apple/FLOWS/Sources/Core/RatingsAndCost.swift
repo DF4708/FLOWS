@@ -280,6 +280,25 @@ enum RatingsProvider {
         return await YelpLink.shared.info(
             name: name, latitude: latitude, longitude: longitude)
     }
+
+    /// Who supplied the rating currently on screen, or nil when no provider
+    /// is configured and the app shows only its own data.
+    ///
+    /// Google's Places terms require their content to be credited wherever
+    /// it appears. FLOWS draws on an Apple map, so the credit has to travel
+    /// with the stars rather than live in a Google map's own chrome. This
+    /// mirrors the same key ladder `info(name:latitude:longitude:)` uses —
+    /// read straight from defaults so a SwiftUI body can call it.
+    @MainActor static var creditLine: String? {
+        let d = UserDefaults.standard
+        if !(d.string(forKey: "flows.googlePlacesKey") ?? "").isEmpty {
+            return "Powered by Google"
+        }
+        if !(d.string(forKey: "flows.yelpKey") ?? "").isEmpty {
+            return "Ratings by Yelp"
+        }
+        return nil
+    }
 }
 
 /// Trucker shower availability by BRAND — the documented industry standard

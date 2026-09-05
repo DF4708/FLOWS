@@ -171,12 +171,28 @@ enum SecureBehaviorStore {
     /// escaped ciphertext is still readable. This is the last step of
     /// "erase everything FLOWS has learned", and without it that promise
     /// was only half kept.
+    /// The ONE queue every behaviour store seals on.
+    ///
+    /// It exists so erasing is ordered. The stores each had a private queue
+    /// and the erase button deleted the key synchronously, so a snapshot
+    /// enqueued a moment earlier could run AFTER the key was gone — find no
+    /// key, mint a fresh one, and write the driver's learned history back to
+    /// disk perfectly readable. The confirmation said "back to knowing
+    /// nothing" while the data was being re-sealed behind it.
+    ///
+    /// One FIFO queue means every pending seal lands under the OLD key
+    /// before the delete runs, leaving ciphertext nothing can open.
+    static let persistQueue = DispatchQueue(
+        label: "com.flows.behavior.persist", qos: .utility)
+
     static func destroyKey() {
-        SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-        ] as CFDictionary)
-        FlowsDiag.log(.info, "privacy", "behavior data erased and key destroyed")
+        persistQueue.async {
+            SecItemDelete([
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+            ] as CFDictionary)
+            FlowsDiag.log(.info, "privacy", "behavior data erased and key destroyed")
+        }
     }
 }

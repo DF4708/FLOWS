@@ -577,7 +577,19 @@ struct GoAheadIntent: AppIntent {
         }
         switch model.pendingVoiceOffer {
         case .trip(let route, let name):
-            model.select(route: route)
+            // Re-resolve against the LIVE list: the staged copy is a value
+            // snapshot taken before scoring finished, and the driver may
+            // have planned something else since.
+            let live = model.routeChoices.first { $0.id == route.id } ?? route
+            // The on-screen GO button only exists once the route is weather
+            // scored. A spoken yes must not walk around that gate and start
+            // driving on a corridor nothing has checked yet.
+            guard live.weatherScored else {
+                return .result(dialog: IntentDialog(
+                    "Still checking the weather on that route. Ask me again in a moment."))
+            }
+            model.pendingVoiceOffer = nil
+            model.select(route: live)
             return .result(dialog: IntentDialog("Starting to \(name)."))
         case .fasterRoute:
             model.pendingVoiceOffer = nil
@@ -634,11 +646,21 @@ struct StartTripIntent: AppIntent {
         }
         // The route CHOICES show on screen (risk colors and all); the spoken
         // yes starts the first one. Nothing drives until the driver approves.
-        model.routeChoices = routes
-        model.pendingVoiceOffer = .trip(route: best, name: name)
+        //
+        // This MUST go through present(routes:) rather than assigning
+        // routeChoices directly. present() is the only thing in the app that
+        // sets mode = .choosing — and every choice surface (the cards, the
+        // route line, the risk colours) is gated on that mode. Assigning the
+        // array alone left the planner panel up with no cards at all, while
+        // this very sentence told the driver to "pick a route on screen".
+        // present() is also what applies the driver's learned pace to the
+        // ETA and starts the weather scoring that GO is gated on.
+        model.present(routes: routes)
+        let staged = model.routeChoices.first ?? best
+        model.pendingVoiceOffer = .trip(route: staged, name: name)
         let summary = "Route to \(name): about "
-            + SiriSummaries.spokenMiles(meters: best.distanceMeters) + " and "
-            + SiriSummaries.spokenTime(seconds: best.eta)
+            + SiriSummaries.spokenMiles(meters: staged.distanceMeters) + " and "
+            + SiriSummaries.spokenTime(seconds: staged.eta)
             + ". Say: go ahead in FLOWS — or pick a route on screen."
         return .result(dialog: IntentDialog("\(summary)"))
     }
