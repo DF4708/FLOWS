@@ -129,8 +129,18 @@ final class VehicleStore: ObservableObject {
     /// Miles driven since the last fill-up (persisted — a trip can span
     /// app launches).
     @Published private(set) var milesSinceFill: Double {
-        didSet { defaults.set(milesSinceFill, forKey: Self.milesKey) }
+        didSet {
+            // Persist when it has MOVED, not on every GPS fix: this wrote
+            // UserDefaults once a second for the whole drive. Half a mile
+            // of slack is invisible to the range model; a fill-up (zero)
+            // always lands at once.
+            if let p = persistedMilesSinceFill,
+               abs(milesSinceFill - p) < 0.5, milesSinceFill != 0 { return }
+            defaults.set(milesSinceFill, forKey: Self.milesKey)
+            persistedMilesSinceFill = milesSinceFill
+        }
     }
+    private var persistedMilesSinceFill: Double?
 
     /// Rolling driving habits (exponential decay so the last ~hour dominates).
     /// Seeded from the persisted, encrypted DrivingProfile via

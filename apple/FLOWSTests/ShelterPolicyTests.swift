@@ -428,3 +428,90 @@ final class LifeSafetyBandTests: XCTestCase {
         }
     }
 }
+
+/// When the "conditions are worsening — reroute?" prompt appears.
+final class EscalationPolicyTests: XCTestCase {
+    private typealias P = EscalationPolicy
+    private func reading(mean: Double, peak: Double? = nil, id: String? = nil,
+                         complete: Bool = true) -> P.Reading {
+        P.Reading(complete: complete, mean: mean, peak: peak ?? mean, peakAlertID: id)
+    }
+
+    func testARouteSelectedBeforeScoringTakesTheFirstCompleteScoreAsBaseline() {
+        // The bug this pins: selecting before hydration captured a baseline
+        // of 0, so the first corridor update on any yellow route fired a
+        // spurious escalation. Deferred means "accept the first real score".
+        var s = P.State.fresh(baseline: nil)
+        XCTAssertEqual(s.baseline, P.State.deferred)
+        let out = P.evaluate(reading(mean: 0.72), state: s)
+        s = out.state
+        XCTAssertNil(out.trigger)
+        XCTAssertEqual(s.baseline, 0.72)
+    }
+
+    func testAnIncompleteScoreNeverEscalatesAndNeverSetsTheBaseline() {
+        let s = P.State.fresh(baseline: nil)
+        let out = P.evaluate(reading(mean: 0.9, complete: false), state: s)
+        XCTAssertNil(out.trigger)
+        XCTAssertEqual(out.state.baseline, P.State.deferred)
+    }
+
+    func testTheWholeWindowGettingWorseIsSustained() {
+        let s = P.State.fresh(baseline: 0.5)
+        let out = P.evaluate(reading(mean: 0.75), state: s)
+        XCTAssertEqual(out.trigger, .sustained(mean: 0.75))
+    }
+
+    func testASmallRiseOrAGreenMeanIsNotSustained() {
+        let s = P.State.fresh(baseline: 0.5)
+        XCTAssertNil(P.evaluate(reading(mean: 0.58), state: s).trigger)        // +0.08 < rise
+        XCTAssertNil(P.evaluate(reading(mean: 0.30), state: .fresh(baseline: 0.1)).trigger)
+    }
+
+    func testOneRedSampleEscalatesEvenWhenTheWindowIsQuiet() {
+        // A tornado warning on one stretch must escalate even when the rest
+        // of the window is calm: the mean says nothing, the peak says Red.
+        let s = P.State.fresh(baseline: 0.3)
+        let out = P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-A"), state: s)
+        XCTAssertEqual(out.trigger, .acute(peak: 0.95, alertID: "tornado-A"))
+    }
+
+    func testOneContinueDoesNotSilenceTheNextTornadoWarning() {
+        // THE bug: dismissing warning A set the bar to 0.95, and since every
+        // Extreme alert also scores 0.95, warning B ninety minutes later
+        // could never clear 0.95 + 0.05. Identity decides, not severity.
+        var s = P.State.fresh(baseline: 0.3)
+        let a = P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-A"), state: s)
+        s = P.dismissed(a.trigger!, state: a.state)
+        XCTAssertNil(P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-A"), state: s).trigger,
+                     "the SAME warning stays dismissed")
+        XCTAssertEqual(P.evaluate(reading(mean: 0.35, peak: 0.95, id: "tornado-B"), state: s).trigger,
+                       .acute(peak: 0.95, alertID: "tornado-B"),
+                       "a DIFFERENT warning must prompt again")
+    }
+
+    func testAnAnonymousRedStillNeedsToBeWorseThanTheLastDismissal() {
+        // No alert id (a red from the field blend, not a bulletin): the
+        // numeric bar is all there is, and it must hold.
+        var s = P.State.fresh(baseline: 0.3)
+        let first = P.evaluate(reading(mean: 0.4, peak: 0.90), state: s)
+        s = P.dismissed(first.trigger!, state: first.state)
+        XCTAssertNil(P.evaluate(reading(mean: 0.4, peak: 0.92), state: s).trigger)
+        XCTAssertNotNil(P.evaluate(reading(mean: 0.4, peak: 0.96), state: s).trigger)
+    }
+
+    func testAcuteWinsOverSustainedAndCarriesThePeak() {
+        let s = P.State.fresh(baseline: 0.4)
+        let out = P.evaluate(reading(mean: 0.8, peak: 0.95, id: "x"), state: s)
+        XCTAssertEqual(out.trigger, .acute(peak: 0.95, alertID: "x"))
+        XCTAssertEqual(out.trigger?.risk, 0.95)
+    }
+
+    func testADismissedSustainedPromptNeedsAClearlyWorseWindow() {
+        var s = P.State.fresh(baseline: 0.4)
+        let first = P.evaluate(reading(mean: 0.75), state: s)
+        s = P.dismissed(first.trigger!, state: first.state)
+        XCTAssertNil(P.evaluate(reading(mean: 0.78), state: s).trigger)     // within margin
+        XCTAssertNotNil(P.evaluate(reading(mean: 0.82), state: s).trigger)  // clearly worse
+    }
+}

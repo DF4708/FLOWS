@@ -160,16 +160,22 @@ enum CrashLogic {
     /// The templated report: nature, GPS, street address, time, vehicle,
     /// medical notes — sent as a prefilled text to the emergency contact and
     /// spoken aloud for relaying to 911.
+    /// Pin POSIX/en_US so the crash time is always "3:07 PM" — not a
+    /// device-locale form (24-hour, or missing AM/PM) a 911 dispatcher
+    /// relaying the report could misread. Built once: the crash card
+    /// renders this report on every frame while it is up.
+    private static let crashTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "h:mm a"
+        return f
+    }()
+
     static func emergencyMessage(
         latitude: Double?, longitude: Double?, address: String?,
         time: Date, vehicle: VehicleProfile?, medicalNotes: String?
     ) -> String {
-        let formatter = DateFormatter()
-        // Pin POSIX/en_US so the crash time is always "3:07 PM" — not a
-        // device-locale form (24-hour, or missing AM/PM) a 911 dispatcher
-        // relaying the report could misread.
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "h:mm a"
+        let formatter = Self.crashTimeFormatter
         var lines = [
             "AUTOMATED CRASH REPORT (FLOWS)",
             "Possible vehicle crash at \(formatter.string(from: time)).",

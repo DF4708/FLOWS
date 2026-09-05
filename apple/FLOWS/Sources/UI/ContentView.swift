@@ -46,6 +46,10 @@ struct ContentView: View {
     /// camera's heading-up rotation — the marker must rotate relative to the
     /// world's rotation, not assume a panned camera is north-up.
     @State private var cameraHeading: Double = 0
+    /// The camera's last reported distance. Re-deriving it from the visible
+    /// span each fix (span × 111 km × 1.4) compounded a little every time
+    /// the map re-centred, so a heading-up follow crept out over a drive.
+    @State private var cameraDistance: Double = 0
     /// Where the vehicle marker is DRAWN. Slid toward each new fix rather
     /// than snapped to it — see VehicleTrack.
     @State private var drawnFix: CLLocationCoordinate2D?
@@ -460,7 +464,8 @@ struct ContentView: View {
             // than one that doesn't move.
             guard fix.speed > 2.2, fix.course >= 0,
                   let region = visibleRegion else { return }
-            let distance = max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
+            let distance = cameraDistance > 0 ? cameraDistance
+                : max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
             moveCamera(.camera(MapCamera(centerCoordinate: fix.coordinate,
                                          distance: distance,
                                          heading: fix.course,
@@ -935,8 +940,10 @@ struct ContentView: View {
             // actual ZIP shapes, with hull blobs only as a genuine fallback.
             // Same floor as the badges: striped AREAS are the map's loudest
             // element and must not paint for clear-band scores.
-            for hz in merged.prefix(40)
-            where hz.realized >= model.riskDisplayFloor {
+            for hz in merged
+                .filter({ $0.realized >= model.riskDisplayFloor })
+                .sorted(by: { $0.realized > $1.realized })
+                .prefix(40) {
                 if Task.isCancelled { return }   // superseded: skip remaining fetches
                 if let z = await ZCTAFetcher.shared.zcta(containing: hz.coordinate) {
                     rings[z.code] = z.ring
@@ -1486,7 +1493,8 @@ struct ContentView: View {
         }
         .onChange(of: model.show3DMap) { _, on in
             guard let region = visibleRegion else { return }
-            let distance = max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
+            let distance = cameraDistance > 0 ? cameraDistance
+                : max(region.span.latitudeDelta * 111_000 * 1.4, 1_200)
             moveCamera(.camera(MapCamera(centerCoordinate: region.center,
                                          distance: distance, heading: 0,
                                          pitch: on ? 55 : 0)))
@@ -1594,6 +1602,7 @@ struct ContentView: View {
         }
         .onMapCameraChange(frequency: .onEnd) { context in
             visibleRegion = context.region
+            cameraDistance = context.camera.distance
             cameraHeading = context.camera.heading
             cameraPitch = context.camera.pitch
             refreshViewportHazards(context.region)

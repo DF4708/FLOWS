@@ -1367,13 +1367,9 @@ final class AppModel: ObservableObject {
         var alertID: String? = nil
     }
     @Published var escalation: Escalation?
-    private var escalationBaseline: Double = 0
-    private var dismissedEscalationRisk: Double = 0
-    /// Hazards the driver has already waved through on this leg. Kept by
-    /// identity because severity alone cannot distinguish them: every
-    /// Extreme alert scores 0.95, so a numeric "worse than what you
-    /// dismissed" bar can never be cleared by the NEXT tornado warning.
-    private var dismissedEscalationAlertIDs: Set<String> = []
+    /// Baseline, dismissed risk and dismissed hazard identities — the whole
+    /// decision lives in EscalationPolicy (Core, tested); this is its state.
+    private var escalationState = EscalationPolicy.State.fresh(baseline: nil)
     /// Worst realized corridor risk encountered on the ACTIVE trip — recorded
     /// as the "observed" against the plan-time prediction on arrival, so the
     /// on-device seasonal model learns predicted-vs-actual over time.
@@ -1490,7 +1486,11 @@ final class AppModel: ObservableObject {
     /// route corridor. Everything else has either expired or is somebody
     /// else's town.
     var visibleScannerIncidents: [ScannerIncidents.Incident] {
-        ScannerIncidents.visible(scanner.incidents,
+        // Read on every ContentView render; with no incidents (the common
+        // case — the scanner ships off) there is nothing to sample the
+        // route polyline for.
+        if scanner.incidents.isEmpty { return [] }
+        return ScannerIncidents.visible(scanner.incidents,
                                  near: effectivePosition,
                                  corridor: navigation.route.map {
                                      RouteService.samplePoints(of: $0.route.polyline,
@@ -2153,7 +2153,13 @@ final class AppModel: ObservableObject {
                 self.retuneRadioIfNeeded(at: fix.coordinate)
                 // Dusk and dawn move with the vehicle as well as the clock —
                 // a day's drive north or west shifts them by real minutes.
-                self.refreshDaylight()
+                // Ten kilometres shifts them by seconds, so that is the step;
+                // the scheduled timer handles the clock in between. (This
+                // rebuilt the timer and re-ran the solar terms every fix.)
+                if self.daylightEvaluatedAt.map({ POIRanking.meters($0, fix.coordinate) > 10_000 }) ?? true {
+                    self.daylightEvaluatedAt = fix.coordinate
+                    self.refreshDaylight()
+                }
                 // Follow the dispatch feed covering wherever we are now.
                 self.scanner.listen(near: fix.coordinate)
                 guard self.mode == .navigating else { return }
@@ -2175,8 +2181,13 @@ final class AppModel: ObservableObject {
                 self.updateUpcomingLanes()         // lane row at the maneuver
                 self.updateCorridorWind(near: fix.coordinate)
                 // Saved corridors age out as they stop being useful:
-                // arrived, left far behind, or simply stale.
-                self.corridors.prune(position: fix.coordinate)
+                // arrived, left far behind, or simply stale. Every 500 m —
+                // the prune re-decodes every saved polyline, and "far
+                // behind" does not change between one fix and the next.
+                if self.lastPruneAt.map({ POIRanking.meters($0, fix.coordinate) > 500 }) ?? true {
+                    self.lastPruneAt = fix.coordinate
+                    self.corridors.prune(position: fix.coordinate)
+                }
                 self.updateDrivingClocks(fix: fix)
                 self.updateSteepGrade()
                 // Fixed speed and red-light cameras on the road ahead — the
@@ -2500,6 +2511,13 @@ final class AppModel: ObservableObject {
     /// Untracked, it outlived the trip and wrote a stale work-zone count
     /// over the reset on the planning screen.
     private var corridorContextTask: Task<Void, Never>?
+    /// The last reverse-geocode, reused while the vehicle stays within
+    /// 20 km of it: a state does not change every corridor update.
+    private var lastGeocode: (position: CLLocationCoordinate2D, state: String)?
+    /// Gates the per-fix corridor prune and daylight re-evaluation to real
+    /// movement — both ran once a second for work that changes by the mile.
+    private var lastPruneAt: CLLocationCoordinate2D?
+    private var daylightEvaluatedAt: CLLocationCoordinate2D?
 
     /// True while the traveler is a PASSENGER (plane, bus, train) rather
     /// than driving — no speed sign for them.
@@ -2605,9 +2623,10 @@ final class AppModel: ObservableObject {
             return
         }
         let mph = max(fix.speed, 0) * 2.236936
-        cameraWarning = EnforcementCameras.warning(
+        let text = EnforcementCameras.warning(
             for: next.camera, meters: next.meters,
             speedMph: mph, postedLimitMph: postedSpeedLimitMph)
+        if text != cameraWarning { cameraWarning = text }   // not a 1 Hz publish
         // Say it once per camera, and only when the driver is actually over
         // the limit it enforces — a camera you are already legal for is a
         // map icon, not an interruption.
@@ -2826,17 +2845,28 @@ final class AppModel: ObservableObject {
             RouteService.samplePoints(of: $0.route.polyline, everyMeters: 4_000)
         } ?? []
         let course = location.course
-        for item in items {
-            let name = item.name ?? fuel.rawValue
+        // Filter first, price second. This priced EVERY search hit in
+        // series — a feed round-trip each — before checking whether the
+        // station was even reachable, and never noticed being cancelled.
+        // The warning needs the nearest few real options, not a price on
+        // every pump in the county.
+        let reachable = items.compactMap { item -> (item: MKMapItem, ahead: Double)? in
             let coord = item.placemark.coordinate
             let ahead = POIRanking.meters(here, coord) / 1609.344
-            guard ahead <= rangeMiles else { continue }
-            guard FuelWarning.isReachable(station: coord, from: here,
+            guard ahead <= rangeMiles,
+                  FuelWarning.isReachable(station: coord, from: here,
                                           courseDegrees: course,
-                                          routeAhead: routeAhead) else { continue }
+                                          routeAhead: routeAhead) else { return nil }
+            return (item, ahead)
+        }
+        .sorted { $0.ahead < $1.ahead }
+        .prefix(8)
+        for (item, ahead) in reachable {
+            if Task.isCancelled { break }
+            let name = item.name ?? fuel.rawValue
             // Live station price when a feed has one, else the state
             // estimate — the same ladder the stop list uses.
-            let price = await poi.livePriceProvider(coord, fuel)
+            let price = await poi.livePriceProvider(item.placemark.coordinate, fuel)
                 ?? poi.priceProvider(item, fuel)
             stations.append(FuelWarning.Station(name: name, milesAhead: ahead,
                                                 pricePerUnit: price))
@@ -3637,9 +3667,7 @@ final class AppModel: ObservableObject {
         // baseline of 0 (unscored routes), so the first corridor update on any
         // yellow corridor fired a spurious escalation. Sentinel −1 defers the
         // capture to the first corridor score instead.
-        escalationBaseline = route.weatherScored ? route.weatherRisk : -1
-        dismissedEscalationRisk = 0
-        dismissedEscalationAlertIDs = []
+        escalationState = .fresh(baseline: route.weatherScored ? route.weatherRisk : nil)
         tripObservedPeak = route.weatherRisk   // seed with the plan-time estimate
         escalation = nil
         arrivedAt = nil
@@ -3809,9 +3837,15 @@ final class AppModel: ObservableObject {
             let corridorSamples = score.samples.map(\.coordinate)
             corridorContextTask?.cancel()
             corridorContextTask = Task { [weak self] in
-                let placemarks = try? await CLGeocoder().reverseGeocodeLocation(
-                    CLLocation(latitude: pos.latitude, longitude: pos.longitude))
-                let state = placemarks?.first?.administrativeArea
+                let state: String?
+                if let last = self?.lastGeocode, POIRanking.meters(last.position, pos) < 20_000 {
+                    state = last.state   // same state as 20 km ago; skip the geocode
+                } else {
+                    let placemarks = try? await CLGeocoder().reverseGeocodeLocation(
+                        CLLocation(latitude: pos.latitude, longitude: pos.longitude))
+                    state = placemarks?.first?.administrativeArea
+                    if let state { self?.lastGeocode = (pos, state) }
+                }
                 await MainActor.run {
                     self?.currentStateCode = state
                     if self?.truckerUI == true {
@@ -3842,36 +3876,19 @@ final class AppModel: ObservableObject {
                 }
             }
         }
-        // Deferred baseline (route selected before hydration): the first
-        // complete corridor score IS what the driver implicitly accepted.
-        if escalationBaseline < 0 {
-            if score.complete { escalationBaseline = risk }
-            return
-        }
-        // Incomplete score (a cell fetch failed): the zeroed samples make the
-        // mean meaningless — don't evaluate escalation against it; the next
-        // complete cycle catches up. (Banners were preserved above.)
-        guard score.complete else { return }
-        // Two triggers: sustained worsening (mean up 0.12+ into yellow) OR a
-        // realized RED anywhere in the window — a tornado warning on one
-        // stretch must escalate even when the rest of the window is quiet.
-        let sustained = risk >= FlowsCore.riskYellowMin
-            && risk > escalationBaseline + 0.12
-            && risk > dismissedEscalationRisk + 0.05
-        // A hazard the driver has NEVER been asked about re-prompts on its
-        // own identity. Tapping "Continue" on one tornado warning used to
-        // set the bar to 0.95, and since every Extreme alert also scores
-        // 0.95, no later tornado warning could clear 0.95 + 0.05 — one
-        // dismissal silenced the reroute offer for the rest of the leg.
-        let unseenHazard = peakAlertID.map { !dismissedEscalationAlertIDs.contains($0) } ?? false
-        let acuteRed = FlowsCore.riskBand(score: peakR) == .red
-            && (peakR > dismissedEscalationRisk + 0.05 || unseenHazard)
-        let escalated = sustained || acuteRed
-        if escalated, notifyEscalation {
+        // The decision itself — deferred baseline, incomplete-score guard,
+        // sustained vs acute triggers, identity-aware dismissal — is
+        // EscalationPolicy, in Core, pinned by FLOWSTests. It sat inline here
+        // and was changed twice in a month with no test able to see it.
+        let (next, trigger) = EscalationPolicy.evaluate(
+            .init(complete: score.complete, mean: risk, peak: peakR, peakAlertID: peakAlertID),
+            state: escalationState)
+        escalationState = next
+        if let trigger, notifyEscalation {
             escalation = Escalation(
-                newRisk: acuteRed ? peakR : risk,
+                newRisk: trigger.risk,
                 headline: score.headlines.first ?? "Conditions worsening along this route",
-                alertID: acuteRed ? peakAlertID : nil)
+                alertID: trigger.alertID)
         }
     }
 
@@ -3977,8 +3994,10 @@ final class AppModel: ObservableObject {
     /// don't nag again unless it climbs further.
     func dismissEscalation() {
         if let e = escalation {
-            dismissedEscalationRisk = e.newRisk
-            if let id = e.alertID { dismissedEscalationAlertIDs.insert(id) }
+            let trigger: EscalationPolicy.Trigger = e.alertID == nil
+                ? .sustained(mean: e.newRisk)
+                : .acute(peak: e.newRisk, alertID: e.alertID)
+            escalationState = EscalationPolicy.dismissed(trigger, state: escalationState)
         }
         escalation = nil
     }
@@ -4058,9 +4077,7 @@ final class AppModel: ObservableObject {
         // a plan-time baseline sits systematically HIGH and suppressed real
         // escalations. Deferring makes baseline and live means like-for-like
         // by construction.
-        escalationBaseline = -1
-        dismissedEscalationRisk = 0
-        dismissedEscalationAlertIDs = []
+        escalationState = .fresh(baseline: nil)
         navigation.start(route: leg, onArrival: { [weak self] in self?.handleArrival() })
         // Legs swapped in mid-drive (reroute, added stop, arrival chaining)
         // arrive weather-scored but attribute-pending — hydrate grades /
@@ -4475,9 +4492,9 @@ final class AppModel: ObservableObject {
         let poly = route.route.polyline
         let n = poly.pointCount
         guard n > 0 else { return nil }
-        var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
-        poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
-        return coords.last
+        var last = CLLocationCoordinate2D()
+        poly.getCoordinates(&last, range: NSRange(location: n - 1, length: 1))
+        return last
     }
 
     private static func firstCoordinate(of route: PlannedRoute) -> CLLocationCoordinate2D? {
@@ -4550,12 +4567,15 @@ struct FLOWSApp: App {
                         chosenIndex: model.textSizeIndex,
                         maxIndex: model.textSizeMaxIndex))
                     .onAppear {
-                        model.textSizeMaxIndex = TextScale.maxStepIndex(
-                            forWidthPoints: geometry.size.width)
+                        let idx = TextScale.maxStepIndex(forWidthPoints: geometry.size.width)
+                        if idx != model.textSizeMaxIndex { model.textSizeMaxIndex = idx }
                     }
                     .onChange(of: geometry.size.width) { _, width in
-                        model.textSizeMaxIndex = TextScale.maxStepIndex(
-                            forWidthPoints: width)
+                        // Every width change (keyboard, rotation, split view)
+                        // republished the whole model even when the step
+                        // index had not moved.
+                        let idx = TextScale.maxStepIndex(forWidthPoints: width)
+                        if idx != model.textSizeMaxIndex { model.textSizeMaxIndex = idx }
                     }
                     .onOpenURL { url in
                         // flows://smartcar?code=… — the OAuth callback.

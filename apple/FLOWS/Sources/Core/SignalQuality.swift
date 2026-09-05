@@ -77,9 +77,15 @@ enum SignalQuality {
 
 /// The phone's current radio access technology, or nil off-cellular.
 enum CellularRadio {
+    #if os(iOS)
+    /// One handle for the process. This was allocated on every GPS fix
+    /// while audio played; the object is documented as safe to read from
+    /// any thread and there is no reason to make a new one.
+    private static let info = CTTelephonyNetworkInfo()
+    #endif
+
     static var currentTechnology: String? {
         #if os(iOS)
-        let info = CTTelephonyNetworkInfo()
         // Multi-SIM phones report per-service; any active data radio will
         // do, and they are near-always the same technology in practice.
         return info.serviceCurrentRadioAccessTechnology?.values.first
