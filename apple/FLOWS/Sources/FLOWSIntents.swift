@@ -25,7 +25,7 @@ private func musicHandsOffDialog() -> IntentDialog {
     let provider = MusicController.shared.provider
     if provider == .spotify {
         return IntentDialog(
-            "Add a Spotify token in FLOWS Settings — then Siri can control Spotify here.")
+            "Link Spotify in FLOWS Settings first — then Siri can control it here.")
     }
     return IntentDialog(
         "\(provider.displayName) can only be controlled in its own app.")
@@ -356,8 +356,7 @@ private func addRouteStop(named term: String) async -> IntentDialog {
     }
     let name = best.name ?? term
     let meters = POIRanking.meters(position, best.placemark.coordinate)
-    await model.addStop(best)
-    guard model.pendingStopName == name else {
+    guard await model.addStop(best) else {
         return IntentDialog("Couldn't route to \(name) right now. Try again in a moment.")
     }
     return IntentDialog("\(SiriSummaries.addedStop(name: name, meters: meters))")

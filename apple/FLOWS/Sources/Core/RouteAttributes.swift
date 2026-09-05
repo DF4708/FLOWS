@@ -299,46 +299,35 @@ actor RouteAttributeFetcher {
             return "way[\"maxheight\"](\(bbox));way[\"maxweight\"](\(bbox));"
         }.joined()
         let query = "[out:json][timeout:10];(\(clauses));out center tags;"
-        // The shared mirror ladder (LiveHazardFeedFetcher.overpassEndpoints)
-        // — the main instance rate-limits under load, which used to leave
-        // the route card in "Bridges: checking…" forever. This query POSTs
-        // route corridor coordinates, which is why that endpoint set is
-        // limited to trusted EU operators.
-        for endpoint in LiveHazardFeedFetcher.overpassEndpoints {
-            guard let url = URL(string: endpoint) else { continue }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.timeoutInterval = 12
-            request.httpBody = "data=\(query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query)"
-                .data(using: .utf8)
-            guard let (data, resp) = try? await ThrottledNet.fetch(request),
-                  (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let elements = json["elements"] as? [[String: Any]]
-            else { continue }
-            var clearanceHits: [(meters: Double, lat: Double, lon: Double)] = []
-            var weightHits: [(lbs: Double, lat: Double, lon: Double)] = []
-            for el in elements {
-                guard let tags = el["tags"] as? [String: Any] else { continue }
-                let center = el["center"] as? [String: Any]
-                let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double) ?? 0
-                let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double) ?? 0
-                if let mh = tags["maxheight"] as? String,
-                   let m = RouteAttributes.clearanceMeters(fromOSM: mh), m < 5.5 {
-                    clearanceHits.append((m, lat, lon))
-                }
-                if let mw = tags["maxweight"] as? String,
-                   let lbs = RouteAttributes.weightLimitLbs(fromOSM: mw),
-                   lbs < RouteAttributes.weightLimitCapLbs {
-                    weightHits.append((lbs, lat, lon))
-                }
+        // Through the shared mirror ladder — the main instance rate-limits
+        // under load, which used to leave the route card in "Bridges:
+        // checking…" forever. This query POSTs route corridor coordinates,
+        // which is why that endpoint set is limited to trusted EU operators.
+        // (This function carried a private copy of the ladder's loop; it
+        // now calls the ladder.)
+        guard let elements = await LiveHazardFeedFetcher.overpassElements(post: query)
+        else { return nil }
+        var clearanceHits: [(meters: Double, lat: Double, lon: Double)] = []
+        var weightHits: [(lbs: Double, lat: Double, lon: Double)] = []
+        for el in elements {
+            guard let tags = el["tags"] as? [String: Any] else { continue }
+            let center = el["center"] as? [String: Any]
+            let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double) ?? 0
+            let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double) ?? 0
+            if let mh = tags["maxheight"] as? String,
+               let m = RouteAttributes.clearanceMeters(fromOSM: mh), m < 5.5 {
+                clearanceHits.append((m, lat, lon))
             }
-            restrictionCache[cacheKey] = (Date(), clearanceHits, weightHits)
-            if restrictionCache.count > 60 {
-                CacheEviction.dropOldestHalf(&restrictionCache) { $0.fetched }
+            if let mw = tags["maxweight"] as? String,
+               let lbs = RouteAttributes.weightLimitLbs(fromOSM: mw),
+               lbs < RouteAttributes.weightLimitCapLbs {
+                weightHits.append((lbs, lat, lon))
             }
-            return (clearanceHits, weightHits)
         }
-        return nil
+        restrictionCache[cacheKey] = (Date(), clearanceHits, weightHits)
+        if restrictionCache.count > 60 {
+            CacheEviction.dropOldestHalf(&restrictionCache) { $0.fetched }
+        }
+        return (clearanceHits, weightHits)
     }
 }

@@ -71,6 +71,8 @@ struct NavigationHUD: View {
         VStack {
             if let arrived = model.arrivedAt {
                 arrivedBanner(arrived)
+            } else if let failure = model.continuationFailure {
+                continuationBanner(failure)
             } else {
                 instructionBanner
             }
@@ -1055,6 +1057,24 @@ struct NavigationHUD: View {
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .onTapGesture { model.poi.choose(ranked) }
+    }
+
+    /// At the stop, but the way on could not be planned. Plain words, and
+    /// NOT the arrival banner: nothing has been arrived at.
+    private func continuationBanner(_ text: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .scaledFont(size: 26)
+            Text(text)
+                .scaledFont(size: 16, weight: .semibold)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+            Spacer()
+            Button("Done") { model.endNavigation() }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     /// Arrival confirmation — navigation doesn't just vanish.

@@ -394,3 +394,37 @@ final class HandoffLogRedactionTests: XCTestCase {
         XCTAssertEqual(Set(all.map(\.logName)).count, all.count)
     }
 }
+
+/// Which alerts weigh on the ROUTE band when no weather family names them.
+final class LifeSafetyBandTests: XCTestCase {
+    func testAnUnmappedLifeSafetyWarningIsRecognizedByName() {
+        // The bug: radiological, hazmat, shelter-in-place, civil danger and
+        // evacuation orders have no weather family, so they contributed
+        // ZERO to the route band — a corridor under an evacuation order
+        // scored green. These must be recognizable so the band can file
+        // them as a closure-class primary.
+        for e in ["Radiological Hazard Warning", "Hazardous Materials Warning",
+                  "Shelter In Place Warning", "Civil Danger Warning",
+                  "Evacuation Immediate"] {
+            XCTAssertTrue(ImminentAlerts.isLifeSafetyEvent(e), e)
+            XCTAssertFalse(ImminentAlerts.isLookoutEvent(e), e)
+        }
+    }
+
+    func testALookoutAlertIsLifeSafetyButDoesNotCloseTheRoad() {
+        // An AMBER alert is on the life-safety list too, but you do not
+        // route AROUND a child abduction — you watch the road. It must be
+        // excluded from the band by the lookout test.
+        for e in ["Child Abduction Emergency", "AMBER Alert", "Blue Alert"] {
+            XCTAssertTrue(ImminentAlerts.isLifeSafetyEvent(e), e)
+            XCTAssertTrue(ImminentAlerts.isLookoutEvent(e), e)
+        }
+    }
+
+    func testOrdinaryWeatherIsNeither() {
+        for e in ["Frost Advisory", "Wind Advisory", "Dense Fog Advisory"] {
+            XCTAssertFalse(ImminentAlerts.isLifeSafetyEvent(e), e)
+            XCTAssertFalse(ImminentAlerts.isLookoutEvent(e), e)
+        }
+    }
+}

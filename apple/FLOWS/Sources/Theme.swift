@@ -121,12 +121,15 @@ struct FloatingCard: ViewModifier {
 }
 
 extension View {
-    /// Carry the app's day/night appearance into a SHEET.
+    /// Presenter-side appearance. NOTE: this does NOT reach a sheet.
     ///
-    /// `preferredColorScheme` set on the content that presents a sheet does
-    /// not reach the sheet: it is presented into its own environment root.
-    /// Without this, settings and the vehicle editor open bright white at
-    /// two in the morning while everything behind them is dark.
+    /// A sheet is presented into its own environment root, so a
+    /// `preferredColorScheme` on the view that presents it — which is all
+    /// this is — stops at the presenter. Every sheet root applies
+    /// `.preferredColorScheme(model.resolvedColorScheme)` itself, inside
+    /// the `.sheet { }` closure; that is the fix, and this alias is kept
+    /// only for the presenter. Its old doc said the opposite, and settings
+    /// opened bright white at two in the morning for a while because of it.
     func presentationColorScheme(_ scheme: ColorScheme?) -> some View {
         preferredColorScheme(scheme)
     }

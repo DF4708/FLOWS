@@ -1127,6 +1127,29 @@ actor LiveHazardFeedFetcher {
         return nil
     }
 
+    /// POST variant, for a query too long to ride in a URL (a route's list
+    /// of corridor boxes). Same ladder, same fallbacks. RouteAttributes used
+    /// to carry its own private copy of this loop — which is exactly how a
+    /// mirror change gets made in one place and missed in the other.
+    nonisolated static func overpassElements(post query: String) async
+        -> [[String: Any]]? {
+        for endpoint in overpassEndpoints {
+            guard let url = URL(string: endpoint) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 12
+            request.httpBody = "data=\(query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? query)"
+                .data(using: .utf8)
+            guard let (data, resp) = try? await ThrottledNet.fetch(request),
+                  (resp as? HTTPURLResponse)?.statusCode == 200,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let elements = json["elements"] as? [[String: Any]]
+            else { continue }
+            return elements
+        }
+        return nil
+    }
+
     // MARK: is the vehicle parked at a fuel station?
 
     private var fuelStationCache: [String: Bool] = [:]

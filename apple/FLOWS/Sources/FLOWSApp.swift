@@ -477,6 +477,10 @@ final class AppModel: ObservableObject {
     /// Guidance state for the spoken turns: last step announced, and
     /// whether its close-in reminder has fired.
     private var lastSpokenTurnStep = -1
+    /// Last valid course sent to the watch. GPS reports -1 when it has no
+    /// course (stopped, or a poor fix); clamping that to 0 pointed the
+    /// watch's arrow due north at every red light.
+    private var lastWatchHeading: Double = 0
     private var turnNearSpoken = false
 
     /// Speak each maneuver twice: once when its step becomes current
@@ -633,7 +637,11 @@ final class AppModel: ObservableObject {
     ) ?? .radio {
         didSet {
             UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
-            musicProviderChosen = true
+            // The offline handoff and its restore assign this too. Those are
+            // the app moving playback, not the driver picking a service —
+            // counting them silenced the "which service?" question forever
+            // after the first tunnel.
+            if !settingProviderProgrammatically { musicProviderChosen = true }
             MusicController.shared.provider = musicProvider
         }
     }
@@ -766,6 +774,8 @@ final class AppModel: ObservableObject {
     /// match what it started playing — otherwise the transport buttons
     /// would keep routing to a service that isn't making the sound.
     private var preHandoffProvider: MusicProvider?
+    /// True while the handoff/restore path assigns musicProvider itself.
+    private var settingProviderProgrammatically = false
     /// Pending switch-back, cancelled by another drop or a driver choice.
     private var restoreTask: Task<Void, Never>?
 
@@ -777,6 +787,7 @@ final class AppModel: ObservableObject {
         preHandoffProvider = nil
         restoreTask?.cancel()
         restoreTask = nil
+        MusicController.shared.cancelTrackBoundaryAction()
     }
 
     /// Signal held long enough: return to the service they were on,
@@ -786,7 +797,9 @@ final class AppModel: ObservableObject {
         handedOffOffline = false
         preHandoffProvider = nil
         restoreTask = nil
+        settingProviderProgrammatically = true
         musicProvider = previous
+        settingProviderProgrammatically = false
         // A service FLOWS can drive resumes in place. A deep-linked one
         // must NOT be force-opened mid-drive — throwing the driver into
         // another app's UI at 70 mph is worse than a moment of quiet, so
@@ -1009,6 +1022,7 @@ final class AppModel: ObservableObject {
         // the buffer wait begins — nothing changes until it's spent.
         restoreTask?.cancel()
         restoreTask = nil
+        MusicController.shared.cancelTrackBoundaryAction()   // the armed switch-back is void
         connectionLostAt = Date()
         beginHandoffGrace()
     }
@@ -1067,7 +1081,9 @@ final class AppModel: ObservableObject {
             // The provider must MATCH what's now making the sound, or the
             // transport buttons would keep routing to the service that
             // just went dark.
+            settingProviderProgrammatically = true
             musicProvider = .appleMusic
+            settingProviderProgrammatically = false
             music.playLocalLibrary()
         case .radio(let genre):
             handedOffOffline = true
@@ -1401,6 +1417,11 @@ final class AppModel: ObservableObject {
         static func == (lhs: ImminentWarning, rhs: ImminentWarning) -> Bool {
             lhs.alertID == rhs.alertID && lhs.action == rhs.action
                 && lhs.headline == rhs.headline
+                && lhs.event == rhs.event
+                && lhs.detail == rhs.detail
+                && lhs.sourceURL == rhs.sourceURL
+                && lhs.expires == rhs.expires
+                && lhs.onset == rhs.onset
                 && lhs.etaSeconds == rhs.etaSeconds
                 && lhs.reachSpeedMph == rhs.reachSpeedMph
                 && lhs.incidentCoordinate?.latitude == rhs.incidentCoordinate?.latitude
@@ -1441,6 +1462,12 @@ final class AppModel: ObservableObject {
     /// Unplanned stopped time (e.g. sheltering from a storm) — folded into
     /// every displayed ETA. The scenario's "+1 hour sheltering" adjustment.
     @Published var stopDelaySeconds: Double = 0
+    /// Shelter time that has already ELAPSED. The ETA must not carry it
+    /// (that wait is behind the driver now), the trip-duration learner
+    /// must (it was real stopped time, not driving). Keeping it apart from
+    /// stopDelaySeconds is what lets one number serve the screen and the
+    /// other the model. Cleared with the trip.
+    private var shelteredSecondsBanked: Double = 0
     func addStopDelay(seconds: Double = 3600) { stopDelaySeconds += seconds }
 
     // MARK: the week-away blind spot
@@ -1534,7 +1561,10 @@ final class AppModel: ObservableObject {
     func beginShelter(for warning: ImminentWarning) {
         let wait = ShelterPolicy.waitSeconds(expires: warning.expires)
         // Replace any previous session rather than stacking onto it.
-        if let old = shelterSession { stopDelaySeconds -= old.addedSeconds }
+        if let old = shelterSession {
+            stopDelaySeconds -= old.addedSeconds
+            shelteredSecondsBanked += old.addedSeconds - old.remaining   // the part already sat out
+        }
         stopDelaySeconds += wait
         shelterSession = ShelterSession(
             event: warning.event,
@@ -1550,13 +1580,20 @@ final class AppModel: ObservableObject {
     /// that was added for waiting.
     func endShelter() {
         guard let session = shelterSession else { return }
-        stopDelaySeconds = max(0, stopDelaySeconds - session.remaining)
+        stopDelaySeconds = max(0, stopDelaySeconds - session.addedSeconds)
+        shelteredSecondsBanked += session.addedSeconds - session.remaining
         shelterSession = nil
     }
 
-    /// Drop a finished session so the countdown doesn't sit at zero.
+    /// Drop a finished session so the countdown doesn't sit at zero — and
+    /// take its wait OUT of the ETA. It used to stay in: a driver who sat
+    /// out a 40-minute warning then drove on saw "+40 min" on the ETA for
+    /// the rest of the trip, for a wait that was already over.
     func clearFinishedShelter() {
-        if shelterSession?.isOver == true { shelterSession = nil }
+        guard let session = shelterSession, session.isOver else { return }
+        stopDelaySeconds = max(0, stopDelaySeconds - session.addedSeconds)
+        shelteredSecondsBanked += session.addedSeconds
+        shelterSession = nil
     }
     /// The ETA the HUD shows: guidance baseline + unplanned stop time.
     func adjustedRemainingTime(_ baseline: Double) -> Double {
@@ -1567,8 +1604,12 @@ final class AppModel: ObservableObject {
         let learned = baseline * trafficModel.factor(
             area: location.coordinate.map(TrafficArea.init) ?? .pooled,
             roadClass: currentRoadClass, weather: currentTrafficWeather)
-        return TripNeeds.adjustedRemainingSeconds(baseline: learned,
-                                                  stopDelaySeconds: stopDelaySeconds)
+        // Only the part of a live shelter wait still AHEAD counts toward the
+        // ETA; the minutes already sat out are behind the driver.
+        let elapsedInLiveSession = shelterSession.map { $0.addedSeconds - $0.remaining } ?? 0
+        return TripNeeds.adjustedRemainingSeconds(
+            baseline: learned,
+            stopDelaySeconds: max(0, stopDelaySeconds - elapsedInLiveSession))
     }
 
     /// The learned travel time for a route being CHOSEN — so the delay this
@@ -1780,7 +1821,11 @@ final class AppModel: ObservableObject {
         }
         guard !fresh.isEmpty, mode == .choosing else { return }
         routeChoices.append(contentsOf: fresh)
-        Task { await hydrateRouteRisk() }
+        // Through the tracked task, cancelling the previous loop: an
+        // untracked Task here stacked a second retry ladder that present()
+        // could not cancel, re-scoring every route against NWS again.
+        riskHydrationTask?.cancel()
+        riskHydrationTask = Task { await hydrateRouteRisk() }
     }
 
     private func supplementTollFree(
@@ -1805,7 +1850,11 @@ final class AppModel: ObservableObject {
         }
         guard !fresh.isEmpty, mode == .choosing else { return }
         routeChoices.append(contentsOf: fresh)
-        Task { await hydrateRouteRisk() }
+        // Through the tracked task, cancelling the previous loop: an
+        // untracked Task here stacked a second retry ladder that present()
+        // could not cancel, re-scoring every route against NWS again.
+        riskHydrationTask?.cancel()
+        riskHydrationTask = Task { await hydrateRouteRisk() }
     }
 
     /// Endpoints of the last plan — lets filter toggles replan variants.
@@ -1862,14 +1911,18 @@ final class AppModel: ObservableObject {
                 w.etaOverride = r.distanceMeters / 1.39 * 1.10
                 return w
             }
-            plannerNotice = anyHighway
-                ? "Beyond the pedestrian router's range — WALKING ESTIMATE at "
-                    + "3.1 mph. No fully highway-free route exists here; a segment "
-                    + "may follow a highway — verify a legal walking path before setting out."
-                : "Beyond the pedestrian router's range — WALKING ESTIMATE along "
-                    + "LOCAL ROADS only (3.1 mph pace): verify sidewalk/shoulder "
-                    + "availability before setting out."
-            if !estimates.isEmpty {
+            // The notice describes the estimates; with none, it described
+            // nothing and still shouted at the driver.
+            if estimates.isEmpty {
+                plannerNotice = "No walking route found here."
+            } else {
+                plannerNotice = anyHighway
+                    ? "Beyond the pedestrian router's range — walking estimate at "
+                        + "3.1 mph. No fully highway-free route exists here; a segment "
+                        + "may follow a highway — verify a legal walking path before setting out."
+                    : "Beyond the pedestrian router's range — walking estimate along "
+                        + "local roads only (3.1 mph pace): verify sidewalk/shoulder "
+                        + "availability before setting out."
                 lastPlanEndpoints = (from, fromName, to, toName)
                 recents.record(name: toName, coordinate: to)
             }
@@ -2144,12 +2197,13 @@ final class AppModel: ObservableObject {
                     let text = miles < 0.19
                         ? "\(Int((g.distanceToManeuver / 0.3048 / 50).rounded() * 50)) ft"
                         : String(format: miles < 10 ? "%.1f mi" : "%.0f mi", miles)
+                    if self.location.course >= 0 { self.lastWatchHeading = self.location.course }
                     self.watch.sendGuidance(
                         instruction: g.instruction,
                         distanceText: text,
                         distanceToManeuver: g.distanceToManeuver,
                         coordinate: self.location.coordinate,
-                        heading: max(self.location.course, 0))
+                        heading: self.lastWatchHeading)
                 }
             }
             .store(in: &serviceSubscriptions)
@@ -2430,6 +2484,22 @@ final class AppModel: ObservableObject {
     private var lastLimitPoint: CLLocationCoordinate2D?
     /// The maneuver step the last lookup belonged to — a new step re-checks.
     private var lastLimitStep: Int?
+    /// When a REAL posted limit last landed. A limit is carried across
+    /// untagged stretches so the sign does not flicker — but carried
+    /// indefinitely it followed the car off a 65 mph highway onto a 25 mph
+    /// side street with no tag, kept the red line at 65, and gated the
+    /// speed-camera warning against a limit that no longer applied.
+    private var postedLimitSetAt: Date?
+    /// DOT road closures fetched for the corridor at plan time, kept for
+    /// the trip. The live corridor watch used to score each sample with
+    /// closureScore = 0 — it could see a tornado warning appear ahead but
+    /// not a road the state had physically closed, so a plan-time Red
+    /// primary went invisible the moment the driver pressed GO.
+    private var tripClosures: [(lat: Double, lon: Double)] = []
+    /// The reverse-geocode + work-zone lookup a corridor update spawns.
+    /// Untracked, it outlived the trip and wrote a stale work-zone count
+    /// over the reset on the planning screen.
+    private var corridorContextTask: Task<Void, Never>?
 
     /// True while the traveler is a PASSENGER (plane, bus, train) rather
     /// than driving — no speed sign for them.
@@ -2464,13 +2534,26 @@ final class AppModel: ObservableObject {
         lastLimitLookup = Date()
         lastLimitPoint = fix.coordinate
         let point = fix.coordinate
+        let stepChanged = newStep
         limitLookupTask?.cancel()
         limitLookupTask = Task { [weak self] in
             let limit = await LiveHazardFeedFetcher.shared.postedLimitMph(at: point)
             guard let self, !Task.isCancelled, self.mode == .navigating else { return }
-            // Keep the last known limit when this stretch has no tag —
-            // blanking the sign every unmapped block would flicker.
-            if limit != nil { self.postedSpeedLimitMph = limit }
+            if let limit {
+                self.postedSpeedLimitMph = limit
+                self.postedLimitSetAt = Date()
+                return
+            }
+            // No tag here. Keep the last known limit across a short unmapped
+            // block so the sign does not flicker — but not past a maneuver
+            // onto a new road, and not past 90 s: by then it is a different
+            // road's number.
+            let carriedTooLong = self.postedLimitSetAt.map {
+                Date().timeIntervalSince($0) > 90 } ?? true
+            if stepChanged || carriedTooLong {
+                self.postedSpeedLimitMph = nil
+                self.postedLimitSetAt = nil
+            }
         }
     }
 
@@ -2816,8 +2899,11 @@ final class AppModel: ObservableObject {
         activeTransitModes = []
         hybridOption = nil
         restoreTransientPanels()   // fresh choices bring the trip menus back
-        highlightedRouteID = routes.first?.id
+        // mode BEFORE the highlight: highlightedRouteID's didSet re-searches
+        // tourist stops only while .choosing, and it used to run one line
+        // too early, while mode was still .planning.
         mode = .choosing
+        highlightedRouteID = routes.first?.id
         filterCardsHidden = false   // fresh choices bring the slider card back
         // A fresh plan invalidates any staged spoken yes. Without this, a
         // driver who asks Siri for one destination, dislikes it and plans
@@ -3021,6 +3107,14 @@ final class AppModel: ObservableObject {
         ]
         if let ev = alertEvent, let fam = RiskEquations.alertFamily(ev) {
             bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
+        } else if let ev = alertEvent, ImminentAlerts.isLifeSafetyEvent(ev),
+                  !ImminentAlerts.isLookoutEvent(ev) {
+            // Radiological, hazmat, shelter-in-place, civil danger,
+            // evacuation: no WEATHER family maps them, so they contributed
+            // ZERO to the route band — a corridor under an evacuation order
+            // scored green. For routing they are what a closure is: proof
+            // the road should not be driven. Filed as that primary.
+            bandInput["closure"] = max(bandInput["closure"] ?? 0, alertSeverity)
         }
         // DOT-reported closure: PROOF the road is blocked — realized primary.
         if closureScore > 0 { bandInput["closure"] = closureScore }
@@ -3153,6 +3247,7 @@ final class AppModel: ObservableObject {
             : []
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
         let corridorClosures = await closuresF
+        tripClosures = corridorClosures   // the live watch reads these
         let corridorGauges = await gaugesF
         let corridorWater = await waterF
 
@@ -3508,6 +3603,7 @@ final class AppModel: ObservableObject {
         }
         routeChoices = []
         pendingVoiceOffer = nil
+        tripGeneration += 1
         // Remember the trip's true endpoint so added stops can chain back.
         //
         // Unconditionally. This was `if finalDestination == nil`, which is
@@ -3547,11 +3643,14 @@ final class AppModel: ObservableObject {
         tripObservedPeak = route.weatherRisk   // seed with the plan-time estimate
         escalation = nil
         arrivedAt = nil
+        continuationFailure = nil
         imminentWarning = nil
         dismissedImminentIDs = []
         shelteredImminentIDs = []
         reachSpeeds = [:]   // per-trip state like its two siblings above
         stopDelaySeconds = 0
+        shelteredSecondsBanked = 0
+        shelterSession = nil   // a countdown must not outlive its trip
         tripShareOffered = false   // new trip → the share banner may show once
         tripSharePrompt = false
         restoreTransientPanels()   // the drive starts with its menus in reach
@@ -3598,6 +3697,13 @@ final class AppModel: ObservableObject {
         // this road takes 1.5x as long in CLEAR weather, and inflated every
         // future estimate for it.
         learnTripDuration()   // teach the delay model what this drive cost
+        tripGeneration += 1
+        tripClosures = []
+        corridorContextTask?.cancel()
+        windLookupTask?.cancel()
+        lastWindLookup = .distantPast
+        corridorWindMph = 0
+        corridorWindFromDegrees = nil
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
         pendingVoiceOffer = nil
@@ -3612,8 +3718,11 @@ final class AppModel: ObservableObject {
         poi.reset()
         escalation = nil
         arrivedAt = nil
+        continuationFailure = nil
         imminentWarning = nil
         stopDelaySeconds = 0
+        shelteredSecondsBanked = 0
+        shelterSession = nil   // a countdown must not outlive its trip
         tripNeedSchedule = []
         finalDestination = nil
         pendingStopName = nil
@@ -3634,6 +3743,7 @@ final class AppModel: ObservableObject {
         postedSpeedLimitMph = nil
         lastLimitPoint = nil
         lastLimitStep = nil
+        postedLimitSetAt = nil
         // Enforcement cameras belong to the trip too: leaving them up drops
         // a stale chip into planning mode, and keeping the spoken-for list
         // would silence a camera the next trip drives past again.
@@ -3681,7 +3791,9 @@ final class AppModel: ObservableObject {
         // and manufactured escalations on quiet routes.
         let sampleRisks = score.samples.map {
             sampleRealizedRisk(at: $0.coordinate, alertEvent: $0.worstEvent,
-                               alertSeverity: $0.risk)
+                               alertSeverity: $0.risk,
+                               closureScore: HazardFeedScores.closureScore(
+                                   closures: tripClosures, at: $0.coordinate))
         }
         let peakR = sampleRisks.max() ?? 0
         let peakAlertID = zip(score.samples, sampleRisks)
@@ -3695,7 +3807,8 @@ final class AppModel: ObservableObject {
         // trucker radio retune AND the DOT work-zone feed both key off it.
         if let pos = effectivePosition {
             let corridorSamples = score.samples.map(\.coordinate)
-            Task { [weak self] in
+            corridorContextTask?.cancel()
+            corridorContextTask = Task { [weak self] in
                 let placemarks = try? await CLGeocoder().reverseGeocodeLocation(
                     CLLocation(latitude: pos.latitude, longitude: pos.longitude))
                 let state = placemarks?.first?.administrativeArea
@@ -3723,6 +3836,7 @@ final class AppModel: ObservableObject {
                     corridorSamples.contains { POIRanking.meters($0, z.coordinate) < 3_000 }
                 }
                 await MainActor.run {
+                    guard self?.mode == .navigating, !Task.isCancelled else { return }
                     self?.workZonesAhead = nearby.count
                     self?.workZoneRoad = nearby.first?.road
                 }
@@ -3750,7 +3864,7 @@ final class AppModel: ObservableObject {
         // 0.95, no later tornado warning could clear 0.95 + 0.05 — one
         // dismissal silenced the reroute offer for the rest of the leg.
         let unseenHazard = peakAlertID.map { !dismissedEscalationAlertIDs.contains($0) } ?? false
-        let acuteRed = peakR > 0.8751
+        let acuteRed = FlowsCore.riskBand(score: peakR) == .red
             && (peakR > dismissedEscalationRisk + 0.05 || unseenHazard)
         let escalated = sustained || acuteRed
         if escalated, notifyEscalation {
@@ -3876,11 +3990,20 @@ final class AppModel: ObservableObject {
             escalation = nil
             return
         }
+        let previous = escalation
+        let gen = tripGeneration
         escalation = nil
         guard let planned = try? await router.planRoutes(
             from: fix, fromName: "Current location",
             to: dest.coordinate, toName: dest.name), !planned.isEmpty
-        else { return }
+        else {
+            // Tapping Reroute used to make the banner vanish and nothing
+            // else happen when the router failed — read as "done" by a
+            // driver heading into the storm. Put the prompt back and say so.
+            if mode == .navigating { escalation = previous }
+            VoiceAnnouncer.shared.announce("Couldn't find another route yet. Still on this one.")
+            return
+        }
         // Fully score every candidate (cached cells make this fast) and swap
         // to the calmest — hydrated, so the nav map keeps its risk coloring.
         var best: PlannedRoute?
@@ -3892,7 +4015,7 @@ final class AppModel: ObservableObject {
         // The driver may have ended navigation or arrived during the awaits above
         // — don't resurrect a dead trip by restarting nav + corridor/traffic
         // watches over a route they no longer want.
-        guard mode == .navigating else { return }
+        guard mode == .navigating, gen == tripGeneration else { return }
         // Reroute goes DIRECT to the final destination — drop the pending stop
         // entirely (name AND kind), or a later final arrival would be mishandled
         // as a stop arrival: a phantom vehicle.filledUp() corrupting the range
@@ -3910,11 +4033,23 @@ final class AppModel: ObservableObject {
     /// two halves of the personal ETA correction (DrivingProfile).
     private var legStartedAt: Date?
     private var legPredictedSeconds: TimeInterval = 0
+    /// Bumped by select() and endNavigation(). Every background replan
+    /// captures it before its first await and checks it after: "mode is
+    /// still .navigating" is not enough, because the driver can end one
+    /// trip and start another while the plan is in flight, and the stale
+    /// plan would then startLeg() on the wrong trip.
+    private var tripGeneration = 0
 
     private func startLeg(_ leg: PlannedRoute) {
         lastRouteRect = leg.route.polyline.boundingMapRect
         legStartedAt = Date()
-        legPredictedSeconds = leg.eta
+        // The learner corrects the router's time; it must be trained on the
+        // router's time, not on its own last correction — otherwise every
+        // arrival compounds the multiplier that produced the prediction.
+        legPredictedSeconds = leg.isWalkingEstimate ? leg.eta : leg.route.expectedTravelTime
+        // A fresh leg has no spoken turns yet.
+        lastSpokenTurnStep = -1
+        turnNearSpoken = false
         // Rebaseline escalation on every leg swap — and ALWAYS defer to the
         // first complete corridor score (sentinel -1) rather than seeding from
         // leg.weatherRisk: the plan-time number blends forecast predictors,
@@ -4082,6 +4217,7 @@ final class AppModel: ObservableObject {
         windLookupTask = Task { [weak self] in
             guard let c = await NWSForecastFetcher.shared.conditions(at: point),
                   let self, !Task.isCancelled else { return }
+            guard self.mode == .navigating else { return }   // landed after End
             self.corridorWindMph = c.windMph ?? 0
             self.corridorWindFromDegrees = c.windFromDegrees
         }
@@ -4118,7 +4254,12 @@ final class AppModel: ObservableObject {
             tripStartArea = nil; tripDistanceMeters = 0
         }
         guard let predicted = tripPredictedSeconds, let started = tripStartedAt else { return }
-        let actual = Date().timeIntervalSince(started) - stopDelaySeconds
+        // Only a trip that actually ARRIVED knows what the drive took. This
+        // ran on every End press, so a drive abandoned halfway — or a driver
+        // who parked at the destination and pressed End an hour later —
+        // taught the model a duration that was never a drive.
+        guard arrivedAt != nil else { return }
+        let actual = Date().timeIntervalSince(started) - stopDelaySeconds - shelteredSecondsBanked
         // Only whole trips teach anything: a drive abandoned after two
         // minutes says nothing about how long the route takes.
         guard actual > 300, actual < predicted * 4 else { return }
@@ -4137,13 +4278,24 @@ final class AppModel: ObservableObject {
         guard let fix = location.coordinate, let dest = finalDestination else { return }
         trafficDelayMinutes = nil
         pendingVoiceOffer = nil
+        let gen = tripGeneration
         guard let planned = try? await router.planRoutes(
             from: fix, fromName: "Current location",
             to: dest.coordinate, toName: dest.name),
             let fastest = planned.first else { return }
         let route = await scoredBurst(fastest)
+        // The traffic offer is "save N minutes", scored AFTER the driver
+        // said yes. If the saving runs through a Red corridor it is not a
+        // saving, and the spoken yes was never a yes to that. Say so and
+        // stay put; the storm escalation (which picks the calmest route)
+        // remains available.
+        if FlowsCore.riskBand(score: route.weatherRisk) == .red {
+            VoiceAnnouncer.shared.announce(
+                "The faster route runs through a red weather zone. Staying on this one.")
+            return
+        }
         // Don't restart a trip the driver ended/finished during the awaits above.
-        guard mode == .navigating else { return }
+        guard mode == .navigating, gen == tripGeneration else { return }
         // Direct reroute: drop any pending stop (name + kind), same as the
         // escalation reroute, so the final arrival isn't taken for a stop.
         upcomingLeg = nil
@@ -4159,6 +4311,10 @@ final class AppModel: ObservableObject {
     /// True while an added stop's legs are being planned — the HUD shows a
     /// progress banner (a silent multi-second wait read as a freeze).
     @Published var addingStop = false
+    /// The stop was reached but no way on to the destination could be
+    /// planned. Its own banner: this used to be written into arrivedAt, so
+    /// the HUD said "Arrived" over a truncated sentence about a "leg".
+    @Published var continuationFailure: String?
 
     /// Where the vehicle effectively is: the GPS fix, or the route start
     /// when previewing without one (macOS without location access). Keeps
@@ -4171,11 +4327,16 @@ final class AppModel: ObservableObject {
     /// (here → stop) to drive now and (stop → final destination) to continue
     /// with — so the map shows the whole amended trip, and arrival at the
     /// stop seamlessly rolls into the continuation.
-    func addStop(_ item: MKMapItem) async {
+    /// Returns whether the first leg actually started. Siri used to infer
+    /// success by comparing pendingStopName against a name it had derived
+    /// separately — two different fallbacks for a nil place name, so the
+    /// check could fail on a stop that had in fact been added.
+    @discardableResult
+    func addStop(_ item: MKMapItem) async -> Bool {
         // The old guard returned SILENTLY without a GPS fix — on a Mac in
         // preview mode that read as "add stop freezes". Fall back to the
         // route-start position and always show progress.
-        guard let fix = effectivePosition, let dest = finalDestination else { return }
+        guard let fix = effectivePosition, let dest = finalDestination else { return false }
         let name = item.name ?? "Stop"
         pendingStopName = name
         // Classify the ITEM, not the browse mode. This read poi.activeKind
@@ -4203,10 +4364,11 @@ final class AppModel: ObservableObject {
         guard let leg1 = (try? await router.planRoutes(
             from: fix, fromName: "Current location",
             to: item.placemark.coordinate, toName: name))?.first
-        else { pendingStopName = nil; return }
+        else { pendingStopName = nil; return false }
         // Driver may have ended/finished the trip while leg1 planned.
-        guard mode == .navigating else { pendingStopName = nil; return }
+        guard mode == .navigating else { pendingStopName = nil; return false }
         startLeg(leg1)
+        let gen = tripGeneration
         Task { [weak self] in
             guard let self else { return }
             let leg2 = (try? await self.router.planRoutes(
@@ -4216,9 +4378,11 @@ final class AppModel: ObservableObject {
             let scored = await self.scored(leg2)
             // Don't reattach a phantom continuation leg after the user arrived
             // or ended navigation during this background plan+score.
-            guard self.mode == .navigating, self.pendingStopName == name else { return }
+            guard self.mode == .navigating, self.pendingStopName == name,
+                  gen == self.tripGeneration else { return }
             self.upcomingLeg = scored
         }
+        return true
     }
 
     /// Arrival at an added stop rolls into the pre-planned continuation leg;
@@ -4242,22 +4406,23 @@ final class AppModel: ObservableObject {
             if pendingStopKind == .gas { vehicle.filledUp() }
             pendingStopKind = nil
             pendingStopName = nil
+            let gen = tripGeneration
             Task { [weak self] in
                 guard let self else { return }
                 let from = self.effectivePosition ?? dest.coordinate
                 if let leg = (try? await self.router.planRoutes(
                     from: from, fromName: stopName,
                     to: dest.coordinate, toName: dest.name))?.first {
-                    guard self.mode == .navigating else { return }
+                    guard self.mode == .navigating, gen == self.tripGeneration else { return }
                     let scored = await self.scoredBurst(leg)
-                    guard self.mode == .navigating else { return }
+                    guard self.mode == .navigating, gen == self.tripGeneration else { return }
                     self.startLeg(scored)
                 } else if self.mode == .navigating {
                     // Honest state: at the stop, continuation unavailable.
                     // (Mode guard: if the driver ended navigation during the
                     // replan, don't post an arrival banner over planning.)
-                    self.arrivedAt = "\(stopName) — couldn't plan the leg to "
-                        + "\(dest.name); plan again from here"
+                    self.continuationFailure =
+                        "Can't find a way on to \(dest.name) from here. Plan again."
                 }
             }
             return
@@ -4291,7 +4456,7 @@ final class AppModel: ObservableObject {
             DrivingProfileStore.shared.recordArrival(
                 predicted: legPredictedSeconds,
                 actual: Date().timeIntervalSince(started),
-                stoppedSeconds: stopDelaySeconds)
+                stoppedSeconds: stopDelaySeconds + shelteredSecondsBanked)
         }
         legStartedAt = nil
         legPredictedSeconds = 0

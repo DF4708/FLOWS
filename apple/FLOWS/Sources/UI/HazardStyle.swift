@@ -61,6 +61,13 @@ enum HazardStyle {
         let e = event.lowercased()
         if e.contains("tornado") { return tornado }
         if e.contains("hurricane") || e.contains("tropical") { return hurricane }
+        // Specific products BEFORE the generic words that would swallow
+        // them: a Storm Surge Warning is a tropical-system flood, not a
+        // thunderstorm; a Dust Storm Warning is airborne dust, not a storm;
+        // an Extreme Wind Warning is hurricane-force wind, not a breeze.
+        if e.contains("surge") { return hurricane }
+        if e.contains("dust") { return air }
+        if e.contains("extreme wind") { return hurricane }
         if e.contains("flood") { return flood }
         if e.contains("blizzard") || e.contains("snow") || e.contains("winter") { return snow }
         if e.contains("ice") || e.contains("freezing") || e.contains("frost") { return ice }
@@ -111,48 +118,6 @@ enum HazardStyle {
         HazardRanking.dominantFamily(families, floor: floor)
     }
 
-    // MARK: striped fill
-
-    /// Tiled diagonal-stripe ShapeStyle: transparent + colored stripes, so
-    /// overlapping hazard polygons visually combine. Cached per kind.
-    static func stripes(_ kind: HazardKind) -> ImagePaint {
-        ImagePaint(image: stripeTile(for: kind), scale: 1)
-    }
-
-    private static var tileCache: [HazardKind: Image] = [:]
-
-    private static func stripeTile(for kind: HazardKind) -> Image {
-        if let cached = tileCache[kind] { return cached }
-        let size = CGSize(width: 14, height: 14)
-        #if os(macOS)
-        let ns = NSImage(size: size, flipped: false) { rect in
-            NSColor.clear.setFill()
-            rect.fill()
-            NSColor(kind.color).withAlphaComponent(0.5).setStroke()
-            let path = NSBezierPath()
-            path.lineWidth = 4
-            // Two diagonals give a seamless 45° stripe tile.
-            path.move(to: CGPoint(x: -4, y: 10)); path.line(to: CGPoint(x: 10, y: -4))
-            path.move(to: CGPoint(x: 3, y: 17));  path.line(to: CGPoint(x: 17, y: 3))
-            path.stroke()
-            return true
-        }
-        let image = Image(nsImage: ns)
-        #else
-        let renderer = UIGraphicsImageRenderer(size: size)
-        let ui = renderer.image { ctx in
-            let c = ctx.cgContext
-            c.setStrokeColor(UIColor(kind.color).withAlphaComponent(0.5).cgColor)
-            c.setLineWidth(4)
-            c.move(to: CGPoint(x: -4, y: 10)); c.addLine(to: CGPoint(x: 10, y: -4))
-            c.move(to: CGPoint(x: 3, y: 17));  c.addLine(to: CGPoint(x: 17, y: 3))
-            c.strokePath()
-        }
-        let image = Image(uiImage: ui)
-        #endif
-        tileCache[kind] = image
-        return image
-    }
 
     // MARK: risk-level color
 

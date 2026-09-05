@@ -215,6 +215,11 @@ final class MusicController: ObservableObject {
         trackBoundaryAction = action
     }
 
+    /// Disarm a pending boundary hook. A switch-back armed on "signal is
+    /// back" must not fire after the signal has dropped AGAIN — it would
+    /// hand playback to a streaming service that cannot stream.
+    func cancelTrackBoundaryAction() { trackBoundaryAction = nil }
+
     func playPause() {
         if radioTransport({ $0.pauseOrResume() }) { return }
         if spotifyActive {
@@ -518,6 +523,8 @@ final class MusicController: ObservableObject {
     /// macOS can't observe Music.app track boundaries over Apple Events —
     /// switch back right away rather than never.
     func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
+    /// Nothing is ever armed here — the hook above runs at once.
+    func cancelTrackBoundaryAction() {}
 
     /// No equivalent Apple Events signal — the grace window is the only
     /// trigger on macOS.
@@ -592,6 +599,8 @@ final class MusicController: ObservableObject {
     var currentPlaybackNeedsNetwork: Bool { false }
     func playLocalLibrary() {}
     func atNextTrackBoundary(_ action: @escaping () -> Void) { action() }
+    /// Nothing is ever armed here — the hook above runs at once.
+    func cancelTrackBoundaryAction() {}
     var onPlaybackStopped: (() -> Void)?
     var artwork: CGImage? { nil }
     #endif

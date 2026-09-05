@@ -67,6 +67,18 @@ enum ImminentAlerts {
         "endangered", "missing person", "law enforcement warning",
     ]
 
+    /// Is this a life-safety event by name — the vocabulary above?
+    static func isLifeSafetyEvent(_ event: String) -> Bool {
+        let lower = event.lowercased()
+        return redEventKeywords.contains { lower.contains($0) }
+    }
+
+    /// Is this a look-out-for alert (a person or vehicle), not a hazard?
+    static func isLookoutEvent(_ event: String) -> Bool {
+        let lower = event.lowercased()
+        return lookoutKeywords.contains { lower.contains($0) }
+    }
+
     /// Classify one alert the vehicle is about to enter.
     static func classify(
         event: String, severityScore: Double, expires: Date?, now: Date = Date()

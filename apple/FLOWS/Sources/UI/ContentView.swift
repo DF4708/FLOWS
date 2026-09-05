@@ -232,6 +232,8 @@ struct ContentView: View {
         /// predictors (precip probability, forecast winter, wind, heat…). Built
         /// per point in the viewport sweep from live gauges/outlooks/perimeters.
         var bandInput: [String: Double] = [:]
+        /// The live NWS/ECCC event in force at this point, if one named it.
+        var alertEvent: String? = nil
         /// The point's REALIZED risk under the primary/secondary model
         /// (`RiskEquations.realizedRisk`): primary hazards can reach Red;
         /// secondary predictors amplify a realized primary but are capped below
@@ -250,6 +252,8 @@ struct ContentView: View {
         let coordinate: CLLocationCoordinate2D
         let score: Double?
         var sourceURL: URL? = nil
+        /// The live warning that put this badge here, when there is one.
+        var event: String? = nil
     }
     @State private var hazardInfo: HazardTapInfo?
     @State private var redAlertTick = 0
@@ -387,6 +391,10 @@ struct ContentView: View {
         .sheet(isPresented: $model.showVehicleEditor) {
             VehicleEditorSheet()
                 .environmentObject(model)
+                // Inside the sheet: it is presented into its own environment
+                // root, and a preferredColorScheme on the PRESENTER never
+                // reaches it — Settings opened bright white in a dark cab.
+                .preferredColorScheme(model.resolvedColorScheme)
         }
         // A sheet is presented into its own environment root and does
         // NOT inherit the presenter's appearance — say it again here or
@@ -495,15 +503,36 @@ struct ContentView: View {
         .sheet(isPresented: $model.showSettings) {
             SettingsSheet()
                 .environmentObject(model)
+                // Inside the sheet: it is presented into its own environment
+                // root, and a preferredColorScheme on the PRESENTER never
+                // reaches it — Settings opened bright white in a dark cab.
+                .preferredColorScheme(model.resolvedColorScheme)
         }
         // A sheet is presented into its own environment root and does
         // NOT inherit the presenter's appearance — say it again here or
         // settings opens bright white in a dark cab.
         .presentationColorScheme(model.resolvedColorScheme)
         #endif
+        .task(id: model.mode) {
+            // The planning sweep keys on the VIEWPORT, so a parked driver
+            // watching the map never saw a warning issued after the last
+            // pan. While planning, re-sweep on a clock too.
+            guard model.mode != .navigating else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(300))
+                guard !Task.isCancelled, model.mode != .navigating,
+                      let region = visibleRegion else { continue }
+                viewportHazardKey = ""
+                refreshViewportHazards(region)
+            }
+        }
         .onChange(of: model.mode) { previous, mode in
             switch mode {
             case .navigating:
+                // The planning-map hazard sweep is over: it kept fetching and
+                // committing badges for the old viewport after GO.
+                viewportSweepTask?.cancel()
+                viewportHazardKey = ""
                 // Selection flips the map from corridor-scale to street-scale
                 // IMMEDIATELY (Apple/Google Maps behavior): zoom to the GPS
                 // fix — or the route start when there is no fix yet. The view
@@ -555,6 +584,10 @@ struct ContentView: View {
         .sheet(isPresented: $showDemoGalleryRoot) {
             DemoAlertsView()
                 .environmentObject(model)
+                // Inside the sheet: it is presented into its own environment
+                // root, and a preferredColorScheme on the PRESENTER never
+                // reaches it — Settings opened bright white in a dark cab.
+                .preferredColorScheme(model.resolvedColorScheme)
         }
         // A sheet is presented into its own environment root and does
         // NOT inherit the presenter's appearance — say it again here or
@@ -752,8 +785,10 @@ struct ContentView: View {
                             // middling fire reading labelled a ZIP surrounded
                             // by severe storms FIRE.
                             var kind: HazardKind
+                            var iconFamily: String? = nil
                             if let top = HazardStyle.dominantFamily(families) {
                                 kind = HazardStyle.kind(forFamily: top)
+                                iconFamily = top
                                 // The qpf_flood family carries BOTH the gauge
                                 // reading and plain rain probability. With no
                                 // gauge near flood stage the score is only
@@ -767,10 +802,12 @@ struct ContentView: View {
                             }
                             // A realized in-progress-danger WARNING here (Tornado,
                             // Flash Flood…) names the icon — it's the danger.
+                            var iconNamedByAlert = false
                             if let ev = alertEvent, alertSeverity >= 0.6,
                                let fam = RiskEquations.alertFamily(ev),
                                RiskEquations.primaryFamilies.contains(fam) {
                                 kind = HazardStyle.kind(forEvent: ev)
+                                iconNamedByAlert = true
                             }
                             // The BAND's driving-safety realized/predictor split,
                             // separate from `families` (which merges rain
@@ -811,13 +848,32 @@ struct ContentView: View {
                             if closed > 0 {
                                 bandInput["closure"] = closed
                                 families["closure"] = closed
-                                if closed >= 0.8 { kind = HazardStyle.closure }
+                                // A closure is proof the road is blocked, but a Tornado Warning at
+                                // the same point is the greater danger — the alert keeps the icon.
+                                if closed >= 0.8, !iconNamedByAlert { kind = HazardStyle.closure }
+                            }
+                            // The icon came from the DISPLAY families, which merge
+                            // rain probability and forecast wind in with the real
+                            // hazards. When a realized primary (fire perimeter,
+                            // gauge flood, quake) is what makes this area serious,
+                            // it names the badge — not the predictor that happened
+                            // to score highest on the map-filter side.
+                            let iconIsPrimary = iconFamily.map {
+                                RiskEquations.primaryFamilies.contains($0) } ?? false
+                            let worstPrimary = bandInput
+                                .filter { RiskEquations.primaryFamilies.contains($0.key) }
+                                .max { $0.value < $1.value }
+                            if !iconNamedByAlert, closed < 0.8, !iconIsPrimary,
+                               let worst = worstPrimary,
+                               worst.value >= FlowsCore.riskYellowMin {
+                                kind = HazardStyle.kind(forFamily: worst.key)
                             }
                             return ViewportHazard(coordinate: pt,
                                                   kind: kind,
                                                   score: score,
                                                   familyScores: families,
-                                                  bandInput: bandInput)
+                                                  bandInput: bandInput,
+                                                  alertEvent: alertEvent)
                         }
                     }
                 }
@@ -1312,7 +1368,7 @@ struct ContentView: View {
                 // ViewportHazard.id).
                 ForEach(clusteredViewportBadges, id: \.stableID) { hz in
                     Annotation("", coordinate: hz.coordinate) {
-                        hazardBadge(hz.kind, at: hz.coordinate, score: hz.score)
+                        viewportHazardBadge(hz)
                     }
                 }
             }
@@ -1638,7 +1694,14 @@ struct ContentView: View {
                 .stroke(kind.color.opacity(0.85), lineWidth: 2)
             let center = Self.centroid(of: poly.coordinates)
             Annotation("", coordinate: center) {
-                hazardBadge(kind, at: center, score: poly.severity)
+                // Through the two-tier model, never the raw CAP number: a
+                // predictor-family advisory (wind, heat) at severity 0.9 is
+                // capped below Red by the model, but banded raw it drew a
+                // red badge the route itself would never show.
+                hazardBadge(kind, at: center,
+                            score: RiskEquations.alertFamily(poly.event)
+                                .map { RiskEquations.realizedRisk([$0: poly.severity]) }
+                                ?? poly.severity)
             }
         }
     }
@@ -1690,15 +1753,30 @@ struct ContentView: View {
         return CGFloat(min(44, max(16, 26 * pow(5.0 / max(span, 0.05), 0.28))))
     }
 
+    /// A viewport-sweep badge: carries the live warning that named it, so
+    /// the tap card can say which alert is in force rather than only the
+    /// climatology. (Its own overload so the map builder's type inference
+    /// stays cheap — a four-argument call there timed the compiler out.)
+    private func viewportHazardBadge(_ item: BadgeClustering.Item<HazardKind>) -> some View {
+        // Clustering keeps the seed's coordinate, so the seed's own sweep
+        // record — and the warning that named it — is found by identity.
+        // A cluster whose seed carried no warning falls back to climatology.
+        let seedID = "\(item.coordinate.latitude),\(item.coordinate.longitude)"
+        let event = viewportHazards.first { $0.id == seedID }?.alertEvent
+        return hazardBadge(item.kind, at: item.coordinate, score: item.score, event: event)
+    }
+
     /// Tapping a risk symbol opens its summary card ("what is this flood
     /// icon telling me here?"). Badges without a coordinate are decorative.
     private func hazardBadge(
-        _ kind: HazardKind, at coordinate: CLLocationCoordinate2D? = nil, score: Double? = nil
+        _ kind: HazardKind, at coordinate: CLLocationCoordinate2D? = nil, score: Double? = nil,
+        event: String? = nil
     ) -> some View {
         let size = badgeSize
         return Button {
             if let coordinate {
-                hazardInfo = HazardTapInfo(kind: kind, coordinate: coordinate, score: score)
+                hazardInfo = HazardTapInfo(kind: kind, coordinate: coordinate, score: score,
+                                           event: event)
                 model.poi.touristDetail = nil   // shares the bottom-center slot
             }
         } label: {
@@ -1744,7 +1822,8 @@ struct ContentView: View {
                                 .clipShape(Capsule())
                         }
                     }
-                    Text(fieldSummary
+                    Text(info.event.map { "\($0) is in effect here." }
+                         ?? fieldSummary
                          ?? "Elevated \(info.kind.name.lowercased()) conditions in this area — "
                          + "drive to conditions and watch for official alerts.")
                         .font(.caption)
@@ -1767,7 +1846,6 @@ struct ContentView: View {
                     // specific alert link when one is active, else the
                     // official point-forecast/hazards page.
                     if let url = info.sourceURL
-                        ?? model.imminentWarning?.sourceURL
                         ?? RiskAdvice.officialURL(latitude: info.coordinate.latitude,
                                                   longitude: info.coordinate.longitude) {
                         Link("Official warning page →", destination: url)
@@ -1832,10 +1910,12 @@ struct ContentView: View {
         for sample in risky.prefix(20) {
             guard let z = await ZCTAFetcher.shared.zcta(containing: sample.coordinate)
             else { continue }
+            if Task.isCancelled { return }   // a newer route superseded this run
             guard seenCodes.insert(z.code).inserted else { continue }
             areas.append(CorridorHazardArea(
                 id: z.code, ring: z.ring, kind: corridorKind(sample)))
         }
+        guard !Task.isCancelled else { return }
         corridorAreas = areas
         // Badge clustering moved OFF the render path: computed once per route
         // change here instead of inside mapContent on every frame.
@@ -2262,8 +2342,10 @@ extension FilterSlidersCard {
                     let worst = cl.min()
                     let passes = limits.passesClearances(cl)
                     Label(worst.map { w -> String in
-                        let ft = w / 0.3048
-                        return String(format: "%d'%d\"", Int(ft), Int((ft - Double(Int(ft))) * 12))
+                        // Whole inches FIRST. Truncating feet and then inches turned a posted
+                        // 13'0" (3.9624 m → 12.99999 ft) into 12'11", one inch under the sign.
+                        let inches = Int((w / 0.0254).rounded())
+                        return String(format: "%d'%d\"", inches / 12, inches % 12)
                     } ?? "no low posts",
                           systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
                         .scaledFont(size: 9, weight: .bold)
@@ -3237,6 +3319,10 @@ struct SettingsSheet: View {
         .sheet(isPresented: $showDemoGallery) {
             DemoAlertsView()
                 .environmentObject(model)
+                // Inside the sheet: it is presented into its own environment
+                // root, and a preferredColorScheme on the PRESENTER never
+                // reaches it — Settings opened bright white in a dark cab.
+                .preferredColorScheme(model.resolvedColorScheme)
         }
         // A sheet is presented into its own environment root and does
         // NOT inherit the presenter's appearance — say it again here or
@@ -3248,6 +3334,7 @@ struct SettingsSheet: View {
                 model.emergencyContactName = name
                 model.emergencyContactPhone = phone
             }
+            .preferredColorScheme(model.resolvedColorScheme)   // inside the sheet, see above
         }
         // A sheet is presented into its own environment root and does
         // NOT inherit the presenter's appearance — say it again here or
@@ -3704,6 +3791,10 @@ struct VehicleEditorSheet: View {
                         guard y == epaYear, make == epaMake else { return }
                         epaModels = models
                         epaModel = models.first ?? ""
+                        // onChange(of: epaModel) does not fire when the name is
+                        // the same under the new year — apply explicitly, or the
+                        // old year's tank and height stay on file.
+                        await applyEPA(model: epaModel)
                     } else {
                         epaMake = make
                     }
@@ -3755,6 +3846,9 @@ struct VehicleEditorSheet: View {
     private func applyEPA(model modelName: String) async {
         guard let details = await EPAVehicleDatabase.shared.details(
             year: epaYear, make: epaMake, model: modelName) else { return }
+        // The picker may have moved on during the await; a slower fetch for
+        // the PREVIOUS model must not land on top of the one now chosen.
+        guard modelName == epaModel else { return }
         let physical = EPAClassSpecs.physical(forVClass: details.vClass)
         pendingEPARatings = (physical.gvwr, physical.towCap)
         citySplit = (details.cityMPU, details.highwayMPU)
