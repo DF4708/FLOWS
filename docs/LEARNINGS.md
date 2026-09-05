@@ -958,3 +958,25 @@ with no test able to see it. It is now `EscalationPolicy` in Core, nine
 tests, and the actor holds a state value. The rule generalises: the
 third time you touch inline policy, it is telling you where it lives.
 
+## The deferred fourteen, addressed
+
+Every item deferred with a reason in the third round was then either
+fixed or decided with the reason written where the next reader will
+find it. Two shapes worth keeping.
+
+**"Deferred" is a queue, not a verdict.** A reason for not fixing
+something today is not a reason for never; the list was closed by
+reading each reason again a day later. Eleven turned out to be plain
+fixes once the surrounding code was already open. One (the location
+forwarding) was decided against, and the decision — 34 view sites read
+position through the model — now sits as a comment on the forwarding
+list so it is not re-litigated by someone with less context.
+
+**The pile is ordered by the driver, not by the code.** The
+minimized-panel icons were a `Set` rendered in declaration order, so the
+column never showed what the driver had just put away. The owner's model
+— pancakes under the gear, newest at the bottom — is an ordered
+structure with the Set's call surface. When a UI element represents a
+sequence of user actions, the data structure has to remember the
+sequence; a `Set` cannot, however convenient its API.
+

@@ -453,6 +453,13 @@ the map, the route scorer, and the live corridor monitor):
   dismissal by hazard IDENTITY — every Extreme alert scores 0.95, so a
   numeric "worse than what you dismissed" bar could never be cleared by
   the next tornado warning. `AppModel` holds only `escalationState`.
+- **The driven route stays live.** Each complete corridor score is folded
+  back into `navigation.route`'s own samples, segments and alert polygons
+  (same rule as plan time: a stretch takes the worse of its two endpoint
+  samples), and `routeMetadataVersion` is bumped so the map's `.task(id:)`
+  rebuilds the hazard shapes. Before this, a warning issued an hour into
+  the trip escalated and bannered while the route line kept the colour
+  it had at GO.
 - **Trip generation.** `select()` and `endNavigation()` bump
   `tripGeneration`; every background replan (traffic offer, escalation
   reroute, added-stop continuation, arrival chain) captures it before its
@@ -465,6 +472,16 @@ the map, the route scorer, and the live corridor monitor):
   destination), the stop chain, the transit overlay and its tasks, the
   wind/geocode/work-zone/lane lookups, the spoken-turn dedupe, the
   plan-time DOT closures the live corridor watch now scores against.
+
+### 7.5b Small policies that moved to Core
+
+Pure, tested, and called from the model rather than written inside it:
+`RiskEquations.bandInput` (the two-tier band input for one point —
+predictors from the field and the on-device forecast, an in-progress
+alert as the realized primary, unmapped life-safety orders and DOT
+closures filed as the closure primary); `TruckerDesignation` (a known
+low bridge disqualifies, then highways/grade/wind score, ties to the
+shorter ETA, nothing clears → no badge); `EscalationPolicy` above.
 
 ### 7.6 POI layer
 
@@ -591,3 +608,14 @@ shape could not. Rather than keep two systems in sync, the R engine was
 retired and its physics frozen into the Rust port's test fixtures. The
 earlier plan to deliver mobile by packaging the R app
 ([`MOBILE_PACKAGING.md`](MOBILE_PACKAGING.md)) is likewise historical.
+
+### The minimized-panel pile
+
+`AppModel.collapsedPanels` is a `PanelStack`, not a `Set`: an ORDERED
+pile of pancakes under the gear. Closing a panel puts its icon at the
+bottom, below the ones closed earlier; opening one takes its icon out;
+the gear always holds the first position. It kept the `Set` call surface
+(`contains` / `insert` / `remove` / `subtract`) so no caller changed —
+only the top-right column now renders `order` instead of a fixed list.
+Persisted as that ordered array.
+

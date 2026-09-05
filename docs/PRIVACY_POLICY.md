@@ -24,6 +24,9 @@ device and stored only on your device:
   (Apple Maps routing/search, NWS/ECCC/SMN weather, USGS elevation and
   earthquakes, NOAA fire data, OpenStreetMap Overpass, Open-Meteo, EPA
   fueleconomy.gov, RainViewer radar tiles — each per its own policy).
+  State-average fuel prices are read from AAA's public gasprices page
+  (gasprices.aaa.com); no location is sent to it — the app fetches the
+  page and reads the state table on the device.
   Trucker mode's NOAA Weather Radio streams come from weatherusa.net's
   public relays (radio.weatherusa.net); no location or personal data is
   sent to that host — the app only downloads the audio stream.
