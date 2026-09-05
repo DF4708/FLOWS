@@ -12,9 +12,17 @@ import Foundation
 /// The learned "everyday radius": FLOWS watches how far the driver's trips
 /// actually go (straight-line start→end miles) and, once the sample is
 /// statistically meaningful (30+ trips), learns the everyday circle around the
-/// home anchor as mean + one standard deviation — hard-capped at 20 miles.
-/// The circle only ever SHRINKS below the 20-mile default with evidence; it
-/// never grows past it. Stops the driver looks up inside that circle (food,
+/// home anchor from the 85th percentile of those distances, held between 3
+/// and 150 miles. It starts at 20 and moves in EITHER direction with
+/// evidence: a city driver's circle shrinks, a regional driver's grows.
+///
+/// These comments used to say the circle was capped at 20 miles and "only
+/// ever SHRINKS", which stopped being true when the quantile replaced
+/// `min(20, mean + sd)`. The Settings copy repeated the same stale claim to
+/// the driver, promising a 20-mile maximum on a circle that could reach 150
+/// — a privacy disclosure people decide on. Both now say what the code does.
+///
+/// Stops the driver looks up inside that circle (food,
 /// fuel, stores, …) are remembered per category and come back INSTANTLY on the
 /// next lookup, most-used first, before any network search returns.
 ///
@@ -109,9 +117,9 @@ struct EverydayStore: Codable, Equatable {
     var categories: [String: [EverydayPlace]] = [:]
 
     // Tunables (documented so phase-2 training can reference them).
-    /// The default AND the ceiling: a 20-mile radius (40-mile diameter) from
-    /// home. Evidence can shrink the circle, never widen it.
-    /// Radius before enough trips have been seen to learn one.
+    /// The STARTING radius, not a ceiling: 20 miles (40-mile diameter) from
+    /// home, used until enough trips have been seen to learn one. Evidence
+    /// moves it either way, within floorMiles…hardCapMiles.
     static let defaultMiles = 20.0
     /// Sanity rails on the learned quantile — a circle smaller than this is
     /// useless, larger than this stops meaning "everyday".
