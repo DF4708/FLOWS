@@ -425,11 +425,46 @@ the map, the route scorer, and the live corridor monitor):
   **Adding a store means adding an `erase()` and calling it from the
   erase button.** Nothing enforces this at compile time yet; until
   something does, it is the first thing to check when a store appears.
+
+  Two keys, not one (`SecureBehaviorStore.Keyspace`). `.behavior` seals
+  everything the app LEARNS and is what the erase button destroys.
+  `.favorites` seals what the driver TYPED — Home, Work — which that
+  button must not touch: losing a saved home address because you asked
+  the app to forget your habits would betray the button's own wording.
+  Favourites used to be plain JSON in UserDefaults, which iOS backs up;
+  they migrate into the sealed file on first launch. All sealed writes
+  go through one FIFO `persistQueue`, and `destroyKey()` is enqueued
+  behind them — otherwise a snapshot queued a moment before Erase could
+  land after the key was gone, mint a new one, and re-seal the history.
 - **Phase 2b (future, documented not built)** — a GNN over the trip
   graph, Rust-trained, executed in Swift via MLTensor/BNNS on the ANE
   (see [`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md)). The trip
   graph substrate (`SeasonalStore.edges`) is written but read by
   nothing, so it is capped and decay-evicted until a consumer exists.
+
+
+### 7.5a Escalation and trip lifetime
+
+- **`Core/EscalationPolicy.swift`** — the whole "conditions are worsening
+  — reroute?" decision, pure and tested: the deferred baseline (a route
+  selected before scoring accepts the first COMPLETE score), the
+  incomplete-score guard, the sustained trigger (mean up 0.12 into
+  yellow) and the acute one (any realized Red in the window), and
+  dismissal by hazard IDENTITY — every Extreme alert scores 0.95, so a
+  numeric "worse than what you dismissed" bar could never be cleared by
+  the next tornado warning. `AppModel` holds only `escalationState`.
+- **Trip generation.** `select()` and `endNavigation()` bump
+  `tripGeneration`; every background replan (traffic offer, escalation
+  reroute, added-stop continuation, arrival chain) captures it before its
+  first await and checks it after. "mode is still navigating" is not
+  enough: the driver can end one trip and start another while a plan is
+  in flight, and the stale plan would `startLeg()` on the wrong trip.
+- **What belongs to the trip** and is reset with it: the shelter session
+  and its banked seconds, `finalDestination` (set unconditionally by
+  `select()` — the old `if nil` guard only ever preserved the abandoned
+  destination), the stop chain, the transit overlay and its tasks, the
+  wind/geocode/work-zone/lane lookups, the spoken-turn dedupe, the
+  plan-time DOT closures the live corridor watch now scores against.
 
 ### 7.6 POI layer
 

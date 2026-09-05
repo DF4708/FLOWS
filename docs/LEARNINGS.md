@@ -905,3 +905,56 @@ strongest evidence was a verifier that rejected its own report's stated
 mechanism ("pendingStopKind is never cleared" — it is cleared in five
 places) and then found the real defect underneath. A verifier that
 cannot contradict the brief it was given is not verifying.
+
+## Third round: ninety-seven by hand
+
+Ninety-seven medium and low findings triaged by reading, without agents.
+Sixty-odd fixed; the rest deferred with a reason each. What repeated.
+
+**Once a second is the wrong clock for anything measured in miles.** The
+per-fix path had accumulated a corridor prune that re-decoded every saved
+polyline, a daylight re-evaluation that rebuilt a timer and re-ran the
+solar terms, a reverse-geocode per corridor update, a UserDefaults write
+per fix for the tank odometer, a telephony handle allocated per fix, and
+several `@Published` writes with no equality check. None was wrong; each
+was written for one call and then called from the GPS sink. The gate is
+movement — 500 m, 10 km, 20 km, half a mile — or a change in the value,
+never the tick.
+
+**A comment can promise what the code cannot keep.** The doc on
+`presentationColorScheme` said it carried the appearance into a sheet.
+It was a plain `preferredColorScheme` on the presenter, which a sheet —
+presented into its own environment root — never sees. Settings opened
+white in a dark cab for as long as that comment stood. The fix went
+inside each `.sheet {}`; the comment now says what the helper is.
+
+**A private copy of the ladder is how the ladder gets skipped.** The
+rule was already in memory: every Overpass call goes through
+`overpassElements` and its mirror fallbacks. `RouteAttributes` carried
+its own loop over the same endpoints — a POST variant the shared
+function lacked — and any change to the ladder would have missed it.
+The shared function grew the POST overload; the copy is gone.
+
+**Filter, then cap.** The ZCTA ring pass took the first forty points and
+then kept the elevated ones, so carried-over quiet points spent the
+budget and elevated ones past the fortieth drew no ring. Order the cap
+after the filter, and sort worst-first so the cap drops the mildest.
+
+**A cluster keeps the seed, not the payload.** Threading a warning name
+through the viewport badges failed at the clustering step, which emits
+`Item(coordinate, kind, score)` and nothing else — generic, in Core, and
+right to stay that way. The fix looked the seed's record up by its
+stable coordinate id at tap time instead of widening the cluster type.
+
+**Trailing closures do not belong in an `if` condition.** `.filter { }`
+inside `if let worst = …` reads the `{` as the body. Hoist the search
+above the condition. And a four-argument call inside a SwiftUI map
+builder timed the type-checker out; a one-argument overload fixed it —
+the builder's inference cost is real and worth keeping flat.
+
+**Extract the decision you keep changing.** The escalation prompt's
+logic was edited twice in a month inside a 4,000-line actor, each time
+with no test able to see it. It is now `EscalationPolicy` in Core, nine
+tests, and the actor holds a state value. The rule generalises: the
+third time you touch inline policy, it is telling you where it lives.
+
