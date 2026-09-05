@@ -843,3 +843,65 @@ looked like a result and was not one. The four fixes above came from
 reading the code by hand. Scale bought a bigger candidate list, not
 more confirmed bugs; verification is the expensive half and it does not
 parallelize away.
+
+## Second review round: sixteen confirmed, and the shapes behind them
+
+**A guard whose condition is only false in the buggy case is not a
+guard.** `if finalDestination == nil { finalDestination = … }` looks
+defensive. But `finalDestination` is non-nil only while a previous
+trip's endpoint is still live, so the check's entire effect was to
+preserve the destination the driver had just abandoned. Whenever a
+condition's false branch describes exactly the state you are trying to
+prevent, the condition is backwards. Ask what has to be true for the
+guard to skip, and check whether that is a state you want to protect.
+
+**Severity is not identity.** Dismissing a storm escalation recorded
+the alert's risk score and required the next one to beat it by 0.05.
+Every Extreme alert scores 0.95, so one "Continue" silenced every later
+tornado warning on the leg. A dismissal means "not this one" and has to
+be keyed on which one — the same file already had
+`dismissedImminentIDs` doing it correctly two hundred lines away.
+
+**A window that moves with speed will erase things when you slow
+down.** The AMBER banner was keyed on a hazard sample inside the
+look-ahead window; that window scales with speed, so slowing into town
+dropped the sample and the sweep cleared a live child-abduction alert,
+then re-announced it on speeding up. Anything derived from a moving
+window needs a reason to persist that is not the window.
+
+**Global UI mode is not a property of the thing you are acting on.**
+`pendingStopKind = poi.activeKind` read "which stop button is lit" and
+attached it to an unrelated place added by voice, so a coffee stop
+reset the fuel odometer. State that describes what the user is browsing
+must not be captured as if it described what they picked.
+
+**Cache the answer, never the failure.** `turnLanes` stored an empty
+array whether or not the fetch succeeded, so one cancellation marked an
+interchange "no lane data" for the life of the process. Combined with a
+lookup that cancelled and restarted itself every GPS fix — and never
+outran a 1 Hz tick — the feature could not work at all where it was
+tagged. Two bugs, each of which hid the other.
+
+**Ordering is part of a privacy promise.** `destroyKey()` ran
+synchronously while sealed writes sat on four private background
+queues; the queued write then found no key, minted one, and re-sealed
+the driver's history readable. One shared FIFO queue makes "delete the
+key last" actually mean last. The lesson generalizes past encryption:
+if a teardown races the work it is tearing down, the confirmation
+message is a guess.
+
+**Check the tree before trusting a read.** This round nearly produced
+thirteen confident false negatives: the worktree had been checked back
+onto its stale branch, `FLOWSIntents.swift` was 126 lines instead of
+770, and the verifying agents would have "refuted" every claim because
+the code genuinely was not there. A grep that comes back empty reads
+like absence, not like being on the wrong commit. Long-running readers
+now get a cheap expected-size check so they fail loudly.
+
+**On the confirmation rate.** Sixteen of sixteen claims confirmed,
+which is exactly the shape a rubber-stamping panel produces — so it was
+spot-checked by hand rather than believed. It held up, and the
+strongest evidence was a verifier that rejected its own report's stated
+mechanism ("pendingStopKind is never cleared" — it is cleared in five
+places) and then found the real defect underneath. A verifier that
+cannot contradict the brief it was given is not verifying.
