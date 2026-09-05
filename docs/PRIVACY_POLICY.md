@@ -27,8 +27,16 @@ device and stored only on your device:
   Trucker mode's NOAA Weather Radio streams come from weatherusa.net's
   public relays (radio.weatherusa.net); no location or personal data is
   sent to that host — the app only downloads the audio stream.
-- **Vehicle profile, favorites, trip settings, emergency contact** —
-  stored in the app's local preferences on your device only.
+- **Vehicle profile, trip settings, emergency contact** — stored in the
+  app's local preferences on your device only.
+- **Favorites (Home, Work, saved places)** — encrypted on your device under
+  their own key, separate from the learned-data key below, so "Erase
+  everything FLOWS has learned" leaves the addresses you typed in place.
+  Earlier builds kept these in the app's preferences, which iOS includes
+  in backups; on first launch of this build they are moved into encrypted
+  storage and the old copy is removed.
+- **Open-Meteo** supplies the air-quality and UV readings on the risk map.
+  Their data is CC BY 4.0: weather data by Open-Meteo.com.
 - **What FLOWS learns about your travel — ENCRYPTED ON YOUR DEVICE.** To
   make the app useful without asking you to retype what you do every day,
   FLOWS keeps a record of:

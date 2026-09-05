@@ -1053,7 +1053,7 @@ final class AppModel: ObservableObject {
             hasLocalMusic: music.hasLocalMusic,
             lastGenre: genre)
         FlowsDiag.log(.warn, "audio",
-                      "offline handoff: \(source) (was \(musicProvider.rawValue), "
+                      "offline handoff: \(source.logName) (was \(musicProvider.rawValue), "
                       + "localMusic=\(music.hasLocalMusic), "
                       + "preStaged=\(preStagedStations.count) stations)")
         if let line = PlaybackFallback.spokenLine(for: source) {

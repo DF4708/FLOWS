@@ -32,6 +32,18 @@ enum PlaybackFallback {
         case nothingAvailable
         /// Leave playback alone (nothing playing, or it isn't network-fed).
         case keepPlaying
+
+        /// For the diagnostic journal: the CASE, never the payload. The
+        /// journal is exportable ("Copy log" / share), and the genre is
+        /// whatever the driver said into the microphone.
+        var logName: String {
+            switch self {
+            case .localLibrary: return "localLibrary"
+            case .radio: return "radio"
+            case .nothingAvailable: return "nothingAvailable"
+            case .keepPlaying: return "keepPlaying"
+            }
+        }
     }
 
     /// - Parameters:

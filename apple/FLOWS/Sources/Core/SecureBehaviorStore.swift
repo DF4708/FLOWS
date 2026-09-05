@@ -35,13 +35,26 @@ import Security
 /// trip rows).
 enum SecureBehaviorStore {
     private static let service = "com.flows.app.behavior"
-    private static let account = "behavior-data-key-v1"
+
+    /// Which key a file is sealed under.
+    ///
+    /// `.behavior` is everything the app LEARNS, and "Erase everything FLOWS
+    /// has learned" destroys that key. `.favorites` is what the driver
+    /// TYPED — Home, Work — which the same button must not touch: losing a
+    /// saved home address because you asked the app to forget your habits
+    /// would be a betrayal of the button's own wording. Separate key,
+    /// separate lifetime; both device-only and absent from backups.
+    enum Keyspace: String {
+        case behavior = "behavior-data-key-v1"
+        case favorites = "favorites-key-v1"
+    }
 
     /// The device-only data key, created on first use and never exported.
     /// `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` mirrors SecureStore:
     /// available to background work after the first unlock, absent from
     /// backups, never synced.
-    static func key() -> SymmetricKey? {
+    static func key(_ keyspace: Keyspace = .behavior) -> SymmetricKey? {
+        let account = keyspace.rawValue
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -77,8 +90,9 @@ enum SecureBehaviorStore {
     /// Seal and write atomically. `false` means nothing was written — callers
     /// must treat that as "this learning did not persist", never as success.
     @discardableResult
-    static func write(_ data: Data, to url: URL) -> Bool {
-        guard let key = key(),
+    static func write(_ data: Data, to url: URL,
+                      keyspace: Keyspace = .behavior) -> Bool {
+        guard let key = key(keyspace),
               let sealed = try? AES.GCM.seal(data, using: key).combined else {
             FlowsDiag.logThrottled(
                 key: "behavior.sealFail", .warn, "privacy",
@@ -101,9 +115,9 @@ enum SecureBehaviorStore {
     /// Read and open the envelope. nil = absent, unreadable, wrong key, or
     /// FAILED AUTHENTICATION (tampered). All four are "no data" — a behavior
     /// file that does not authenticate is never partially trusted.
-    static func read(_ url: URL) -> Data? {
+    static func read(_ url: URL, keyspace: Keyspace = .behavior) -> Data? {
         guard let raw = try? Data(contentsOf: url), !raw.isEmpty else { return nil }
-        guard let key = key() else { return nil }
+        guard let key = key(keyspace) else { return nil }
         guard let box = try? AES.GCM.SealedBox(combined: raw),
               let opened = try? AES.GCM.open(box, using: key) else {
             FlowsDiag.log(.warn, "privacy",
@@ -114,14 +128,16 @@ enum SecureBehaviorStore {
     }
 
     /// Codable convenience.
-    static func load<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
-        read(url).flatMap { try? JSONDecoder().decode(type, from: $0) }
+    static func load<T: Decodable>(_ type: T.Type, from url: URL,
+                                   keyspace: Keyspace = .behavior) -> T? {
+        read(url, keyspace: keyspace).flatMap { try? JSONDecoder().decode(type, from: $0) }
     }
 
     @discardableResult
-    static func save<T: Encodable>(_ value: T, to url: URL) -> Bool {
+    static func save<T: Encodable>(_ value: T, to url: URL,
+                                   keyspace: Keyspace = .behavior) -> Bool {
         guard let data = try? JSONEncoder().encode(value) else { return false }
-        return write(data, to: url)
+        return write(data, to: url, keyspace: keyspace)
     }
 
     /// Read a behavior file, transparently upgrading a PLAINTEXT store left
@@ -185,12 +201,14 @@ enum SecureBehaviorStore {
     static let persistQueue = DispatchQueue(
         label: "com.flows.behavior.persist", qos: .utility)
 
+    /// Destroys the LEARNED-data key only. The favourites key is the
+    /// driver's own typed addresses and is not part of "what FLOWS learned".
     static func destroyKey() {
         persistQueue.async {
             SecItemDelete([
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
-                kSecAttrAccount as String: account,
+                kSecAttrAccount as String: Keyspace.behavior.rawValue,
             ] as CFDictionary)
             FlowsDiag.log(.info, "privacy", "behavior data erased and key destroyed")
         }

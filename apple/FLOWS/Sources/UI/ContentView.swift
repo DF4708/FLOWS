@@ -2940,12 +2940,12 @@ struct SettingsSheet: View {
             Divider()
             Text("Data sources")
                 .scaledFont(size: 14, weight: .semibold)
-            TextField("Google Places API key (free monthly quota: console.cloud.google.com) — stars + $",
+            SecureField("Google Places API key (free monthly quota: console.cloud.google.com) — stars + $",
                       text: $model.googlePlacesAPIKey)
                 .textFieldStyle(.roundedBorder)
                 .font(.caption)
             HStack(spacing: 6) {
-                TextField("Yelp Places API key (30-day free trial, then paid) — stars + $",
+                SecureField("Yelp Places API key (30-day free trial, then paid) — stars + $",
                           text: $model.yelpAPIKey)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
@@ -2965,7 +2965,7 @@ struct SettingsSheet: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
             }
-            TextField("TomTom API key (free tier: developer.tomtom.com) — live gas prices",
+            SecureField("TomTom API key (free tier: developer.tomtom.com) — live gas prices",
                       text: $model.tomtomAPIKey)
                 .textFieldStyle(.roundedBorder)
                 .font(.caption)
@@ -2975,7 +2975,7 @@ struct SettingsSheet: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             HStack(spacing: 6) {
-                TextField("Spotify token (optional) — play/pause/skip Spotify in FLOWS",
+                SecureField("Spotify token (optional) — play/pause/skip Spotify in FLOWS",
                           text: $model.spotifyWebToken)
                     .textFieldStyle(.roundedBorder)
                     .font(.caption)
@@ -3010,7 +3010,7 @@ struct SettingsSheet: View {
                     get: { model.smartcar.clientID },
                     set: { model.smartcar.clientID = $0 }))
                     .textFieldStyle(.roundedBorder)
-                TextField("Client Secret", text: Binding(
+                SecureField("Client Secret", text: Binding(
                     get: { model.smartcar.clientSecret },
                     set: { model.smartcar.clientSecret = $0 }))
                     .textFieldStyle(.roundedBorder)

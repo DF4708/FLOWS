@@ -198,7 +198,8 @@ final class RadioBrowser: ObservableObject {
         if let listURL = URL(string: Self.allServersURL),
            let (data, resp) = try? await ThrottledNet.fetch(listURL),
            (resp as? HTTPURLResponse)?.statusCode == 200 {
-            for candidate in Self.parseServers(data).shuffled() {
+            for candidate in Self.parseServers(data).shuffled()
+            where Self.isAllowedMirror(candidate) {
                 guard let stats = URL(string: "https://\(candidate)/json/stats"),
                       let (d, r) = try? await ThrottledNet.fetch(stats),
                       (r as? HTTPURLResponse)?.statusCode == 200,
@@ -215,6 +216,26 @@ final class RadioBrowser: ObservableObject {
 
     /// All-servers payload `[{"ip":…,"name":…}]` → unique host names in
     /// order (the list repeats a name once per IP family).
+    /// Mirrors the app will talk to. The directory is community-run and
+    /// any volunteer can register a mirror, so the runtime list is not a
+    /// list FLOWS controls. Standing rule: no service operated from Russia,
+    /// China, Iran or North Korea — and rather than blocklist those, only
+    /// the known European/North American mirrors are allowed at all. A new
+    /// mirror is admitted here on purpose, not by DNS.
+    nonisolated static let allowedMirrorCountries: Set<String> =
+        ["de", "at", "nl", "fi", "fr", "ch", "be", "se", "no", "dk",
+         "pl", "cz", "gb", "uk", "ie", "us", "ca"]
+
+    /// `de1.api.radio-browser.info` → allowed; anything else → not.
+    nonisolated static func isAllowedMirror(_ host: String) -> Bool {
+        let h = host.lowercased()
+        guard h.hasSuffix(".api.radio-browser.info") else { return false }
+        let label = h.dropLast(".api.radio-browser.info".count)
+        let country = String(label.prefix { $0.isLetter })
+        return country.count == 2 && allowedMirrorCountries.contains(country)
+            && label.dropFirst(2).allSatisfy(\.isNumber)
+    }
+
     nonisolated static func parseServers(_ data: Data) -> [String] {
         guard let rows = try? JSONSerialization.jsonObject(with: data)
                 as? [[String: Any]] else { return [] }
@@ -256,7 +277,14 @@ final class RadioBrowser: ObservableObject {
             query += "&tag=\(t)"
         }
         if let near {
-            query += "&geo_lat=\(near.latitude)&geo_long=\(near.longitude)"
+            // A tenth of a degree (~11 km) is all a 400 km radius search
+            // needs. The exact fix was being sent to a community-run
+            // directory on every genre change — a stranger's server does
+            // not need to know which driveway the car is in to answer
+            // "what's on the air around here".
+            let lat = (near.latitude * 10).rounded() / 10
+            let lon = (near.longitude * 10).rounded() / 10
+            query += "&geo_lat=\(lat)&geo_long=\(lon)"
                 + "&geo_distance=\(nearbyRadiusMeters)"
         }
         return URL(string: "https://\(host)/json/stations/search?\(query)")

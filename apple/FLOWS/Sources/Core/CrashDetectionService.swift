@@ -282,6 +282,13 @@ final class CrashDetectionService: ObservableObject {
         let engine = AVAudioEngine()
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        // A "yes"/"no", or "I'm okay" after a crash, is recognized on the
+        // device whenever the device can. Without this line every reply
+        // went to Apple's server recognizer by default — audio from inside
+        // the car, at the worst moment, for a one-word answer. Server
+        // recognition remains the fallback only where on-device is not
+        // supported for the locale.
+        request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         // Defensive: if the session still isn't record-capable (0 Hz), do NOT

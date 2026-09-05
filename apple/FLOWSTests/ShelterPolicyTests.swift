@@ -348,3 +348,49 @@ final class BehaviorPersistQueueTests: XCTestCase {
         XCTAssertEqual(order, Array(0..<50) + [999])
     }
 }
+
+/// Which radio directory mirrors the app will talk to.
+final class RadioMirrorAllowlistTests: XCTestCase {
+    func testTheKnownEuropeanAndNorthAmericanMirrorsAreAllowed() {
+        for h in ["de1.api.radio-browser.info", "de2.api.radio-browser.info",
+                  "nl1.api.radio-browser.info", "at1.api.radio-browser.info",
+                  "fi1.api.radio-browser.info", "us1.api.radio-browser.info"] {
+            XCTAssertTrue(RadioBrowser.isAllowedMirror(h), h)
+        }
+    }
+
+    func testMirrorsFromDisallowedCountriesAreRefused() {
+        // Standing rule: no service operated from Russia, China, Iran or
+        // North Korea. The directory is volunteer-run and any of these could
+        // appear in the runtime list tomorrow; the allowlist is positive, so
+        // they are refused without needing to be named.
+        for h in ["ru1.api.radio-browser.info", "cn1.api.radio-browser.info",
+                  "ir1.api.radio-browser.info", "kp1.api.radio-browser.info"] {
+            XCTAssertFalse(RadioBrowser.isAllowedMirror(h), h)
+        }
+    }
+
+    func testAnythingOffTheDirectorysOwnDomainIsRefused() {
+        // A lookalike or a hijacked entry must not pass just because the
+        // country code is fine.
+        XCTAssertFalse(RadioBrowser.isAllowedMirror("de1.api.radio-browser.info.evil.com"))
+        XCTAssertFalse(RadioBrowser.isAllowedMirror("de1.radio-browser.info"))
+        XCTAssertFalse(RadioBrowser.isAllowedMirror("api.radio-browser.info"))
+        XCTAssertFalse(RadioBrowser.isAllowedMirror("deX.api.radio-browser.info"))
+    }
+}
+
+/// The diagnostic journal is exportable; the driver's words stay out of it.
+final class HandoffLogRedactionTests: XCTestCase {
+    func testTheLogNameNeverCarriesTheDictatedGenre() {
+        let s = PlaybackFallback.Source.radio(genre: "my private playlist name")
+        XCTAssertEqual(s.logName, "radio")
+        XCTAssertFalse(s.logName.contains("private"))
+    }
+
+    func testEveryCaseHasAStableName() {
+        let all: [PlaybackFallback.Source] = [.localLibrary, .radio(genre: "x"),
+                                              .nothingAvailable, .keepPlaying]
+        XCTAssertEqual(Set(all.map(\.logName)).count, all.count)
+    }
+}
