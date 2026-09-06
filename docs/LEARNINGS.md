@@ -980,3 +980,59 @@ structure with the Set's call surface. When a UI element represents a
 sequence of user actions, the data structure has to remember the
 sequence; a `Set` cannot, however convenient its API.
 
+## Landscape, finally seen
+
+"Landscape on a physical phone is unverified" stood for a week because
+the simulator "wouldn't rotate". It rotates fine — the check was wrong.
+`simctl io screenshot` keeps the portrait pixel dimensions after a
+rotation and draws the content sideways, so a width check reports no
+rotation when one has happened; and the simulator tool's tap
+coordinates are the portrait framebuffer, so a tap aimed at the rotated
+view lands somewhere else. Rotate the PNG, map the taps, and the wide
+phone in landscape becomes a real test surface.
+
+It was worth having. Four defects that portrait never showed: the
+choices header wrapped "Routes" to "Route / s"; the chip row clipped
+"Cheapest" mid-word at its scroll edge; the map key rendered straight
+through the choices panel, because wide layouts dock that panel on the
+left and the key's gutter math assumed a centred one; and the
+navigation bar's regular-width branch was a single row capped at
+`cardMax` with no fallback, so the ETA number clipped off the left and
+End spilled off the right. The compact branch already had the right
+answer — a `ViewThatFits` that drops to two rows — and the fix was to
+stop having two branches.
+
+**A verification you can't run is a verification you haven't tried hard
+enough to run.** The listener for dispatch feeds also "could not be
+tested without a live feed"; a synthesized dispatch call in a local file
+is a feed. What that run found first was that the listener only woke
+from a GPS fix, so it could never start on a desk at all.
+
+## The dispatch feed, run for the first time
+
+A synthesized dispatch call in a local file, staged as a feed, and the
+listener instrumented one journal line per state. What each line taught:
+
+- **It never started on a desk.** `listen(near:)` lived only in the GPS
+  sink, so a Mac with no fix never called it. Position chooses BETWEEN
+  feeds; it is not a precondition for listening. It now also runs at
+  launch and falls back to the first feed.
+- **"Off" looked like "broken."** The feature's own switch defaults to
+  off and is a persisted preference. Setting it from outside the app —
+  the simulator's `defaults`, or a direct plist write — never reached
+  `UserDefaults.standard`; a launch argument did. The first journal line
+  (`off (1 feed(s) configured)`) is what made that a fact instead of a
+  guess.
+- **Two authorization requests two seconds apart**: the launch call and
+  the first fix both saw "same feed, not listening yet". A `starting`
+  flag covers the gap.
+- **A recognizer that cannot initialize would have been restarted every
+  fix** for the whole drive. Sixty seconds of backoff after a failure.
+- **The simulator stops at the recognizer** ("Failed to initialize
+  recognizer" — it has no on-device speech models even though it claims
+  support). Everything up to it is verified there: feed load, gate,
+  authorization, the audio tap, playback, the recognition task. The last
+  link runs on the Mac, behind one permission click.
+- Apple shows the usage description verbatim in the prompt, and it never
+  mentioned the one use that runs unattended. It does now.
+
