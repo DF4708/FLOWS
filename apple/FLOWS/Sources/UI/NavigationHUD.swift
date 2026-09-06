@@ -1631,40 +1631,12 @@ struct NavigationHUD: View {
             // wide enough (phone on its side) and stacks two rows on a
             // portrait phone — the single row overflowed there and clipped
             // End off the edge.
-            if isCompact {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 10) {
-                        tripStats
-                        Spacer()
-                        recenterButton
-                        Spacer()
-                        if MusicController.isAvailable {
-                            musicControls
-                        }
-                        towingButton
-                        radioButton
-                        SettingsGear()
-                        endButton
-                    }
-                    VStack(spacing: 8) {
-                        HStack(spacing: 10) {
-                            tripStats
-                            Spacer()
-                            recenterButton
-                            endButton
-                        }
-                        HStack(spacing: 10) {
-                            if MusicController.isAvailable {
-                                musicControls
-                            }
-                            Spacer()
-                            towingButton
-                            radioButton
-                            SettingsGear()
-                        }
-                    }
-                }
-            } else {
+            // ONE row when it fits, two when it doesn't — for every width.
+            // The regular-width branch used to be a single row capped at
+            // cardMax with no fallback, so a landscape phone (regular width,
+            // but a cap narrower than the row) compressed it: the ETA number
+            // clipped off the left and End spilled past the right.
+            ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
                     tripStats
                     Spacer()
@@ -1678,9 +1650,27 @@ struct NavigationHUD: View {
                     SettingsGear()
                     endButton
                 }
-                // Row 1 keeps its comfortable cap; row 2 below may run wider.
-                .frame(maxWidth: golden.cardMax)
+                VStack(spacing: 8) {
+                    HStack(spacing: 10) {
+                        tripStats
+                        Spacer()
+                        recenterButton
+                        endButton
+                    }
+                    HStack(spacing: 10) {
+                        if MusicController.isAvailable {
+                            musicControls
+                        }
+                        Spacer()
+                        towingButton
+                        radioButton
+                        SettingsGear()
+                    }
+                }
             }
+            // Row 1 keeps its comfortable cap on wide layouts; row 2 below
+            // may run wider. Compact goes edge to edge.
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
             // Row 2 — the stop buttons: the row widens past row 1's cap
             // (still centered) as long as the buttons fit the window; the
             // labels drop first, and a scroll strip is the LAST resort,

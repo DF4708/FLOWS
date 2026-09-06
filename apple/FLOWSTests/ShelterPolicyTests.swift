@@ -597,3 +597,23 @@ final class TruckerDesignationTests: XCTestCase {
         XCTAssertEqual(TruckerDesignation.pick([cand(a, eta: 4_000), cand(b, eta: 3_000), cand(c, eta: 3_500)]), b)
     }
 }
+
+/// The erase button's file half: a shredded file is gone.
+final class SecureShredTests: XCTestCase {
+    func testShredOverwritesAndRemovesTheFile() throws {
+        // erase() on every behaviour store is "reset memory, then shred the
+        // file". The Keychain half cannot run in a test bundle; this half
+        // can, and it is the half that a stale file on disk depends on.
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows_shred_\(UUID().uuidString).json")
+        try Data(repeating: 0x41, count: 4_096).write(to: url)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        SecureBehaviorStore.shred(url)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testShreddingAMissingFileIsNotAnError() {
+        SecureBehaviorStore.shred(FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows_never_existed.json"))
+    }
+}

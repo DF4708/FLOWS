@@ -297,7 +297,18 @@ struct ContentView: View {
         guard !model.collapsedPanels.contains("legend") else { return false }
         // Wide layouts used to return true unconditionally, so on an
         // 11-inch iPad in portrait the key ran under the centred planner.
-        guard isCompact else { return golden.legendFits }
+        guard isCompact else {
+            // Wide layouts dock the choices panel on the LEFT (the choosing
+            // HStack), so while it is up the left gutter the key lives in is
+            // gone — on a landscape phone the key rendered straight through
+            // the panel's material. A tall window (iPad) parks it bottom-
+            // right instead; a short one has no room until the panel is
+            // tucked away.
+            if model.mode == .choosing, !model.collapsedPanels.contains("routes") {
+                return !isShort
+            }
+            return golden.legendFits
+        }
         if model.needsVehicleOnboarding { return false }
         if model.mode == .choosing {
             return model.collapsedPanels.contains("routes")
@@ -355,7 +366,9 @@ struct ContentView: View {
             // Legend first: it is BACKGROUND — every input and information
             // box (planner, cards, banners) draws over it, never under it.
             if legendHasRoom {
-                LegendCard(isCompact: isCompact)
+                LegendCard(isCompact: isCompact,
+                           dockTrailing: !isCompact && model.mode == .choosing
+                               && !model.collapsedPanels.contains("routes"))
             }
             chromeLayer
             // Menus tucked away by their grab bars wait here as small round
@@ -3409,6 +3422,9 @@ private struct LegendCard: View {
     /// the bottom, and the legend must never sit under them. Regular
     /// layouts keep it bottom-left like the web app.
     var isCompact = false
+    /// Bottom-RIGHT instead of bottom-left: wide layouts dock the choices
+    /// panel on the left, and the key must not sit under it.
+    var dockTrailing = false
 
     /// Which free corner the legend snaps to. Regular layouts keep the web
     /// app's bottom-left. Compact planning: the planner owns the bottom, so
@@ -3424,10 +3440,11 @@ private struct LegendCard: View {
         VStack {
             if anchorsBottom { Spacer() }
             HStack {
+                if dockTrailing { Spacer() }
                 legendBox
-                Spacer()
+                if !dockTrailing { Spacer() }
             }
-            .padding(.leading, golden.pad)
+            .padding(dockTrailing ? .trailing : .leading, golden.pad)
             .padding(anchorsBottom ? .bottom : .top, golden.pad)
             if !anchorsBottom { Spacer() }
         }

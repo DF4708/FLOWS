@@ -98,6 +98,13 @@ final class ScannerListener: ObservableObject {
 
     private var player: AVPlayer?
     private var currentFeed: ScannerFeed?
+    /// True from start() until the authorization callback lands, so the
+    /// per-fix listen() does not request authorization again meanwhile.
+    private var starting = false
+    /// After a recognition failure, no restart before this. listen() runs
+    /// on every GPS fix; without a backoff a recognizer that cannot
+    /// initialize would be restarted once a second for the whole drive.
+    private var retryAfter = Date.distantPast
     private let geocoder = CLGeocoder()
     /// Places already looked up, so repeated dispatch of the same address
     /// doesn't hit the geocoder over and over.
@@ -121,9 +128,20 @@ final class ScannerListener: ObservableObject {
     /// Start on the feed covering this position, if the feature is on and a
     /// feed exists for it.
     func listen(near position: CLLocationCoordinate2D?) {
-        guard enabled, let position,
-              let feed = ScannerFeedStore.nearest(to: position, in: feeds) else { return }
-        guard feed.id != currentFeed?.id || !isListening else { return }
+        // One line per state change, so a feed that never starts can say
+        // why — this path had no journal line before its first callback.
+        if !enabled {
+            FlowsDiag.logThrottled(key: "scanner.off", .info, "scanner",
+                                   "off (\(feeds.count) feed(s) configured)")
+            return
+        }
+        // Position chooses BETWEEN feeds. Without one (a Mac with no fix,
+        // the first seconds after launch) the first feed is still worth
+        // hearing — this used to wait for a fix that a desk never gets.
+        guard let feed = position.flatMap({ ScannerFeedStore.nearest(to: $0, in: feeds) })
+                ?? feeds.first else { return }
+        guard feed.id != currentFeed?.id || (!isListening && !starting) else { return }
+        guard Date() >= retryAfter else { return }
         start(feed)
     }
 
@@ -144,16 +162,24 @@ final class ScannerListener: ObservableObject {
 
     private func start(_ feed: ScannerFeed) {
         stop()
-        guard let url = feed.streamURL else { return }
+        guard let url = feed.streamURL else {
+            FlowsDiag.log(.warn, "scanner", "feed \(feed.name): unusable URL")
+            return
+        }
+        FlowsDiag.log(.info, "scanner", "feed \(feed.name): requesting speech authorization")
         currentFeed = feed
+        starting = true
         #if canImport(Speech)
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
             Task { @MainActor in
                 guard let self else { return }
+                self.starting = false
                 guard auth == .authorized else {
                     self.status = "Speech recognition is off in Settings."
+                    FlowsDiag.log(.warn, "scanner", "speech recognition not authorized — feed idle")
                     return
                 }
+                FlowsDiag.log(.info, "scanner", "listening: \(feed.name)")
                 self.beginRecognition(url: url, feed: feed)
             }
         }
@@ -171,6 +197,7 @@ final class ScannerListener: ObservableObject {
             // Apple for transcription — which is exactly the off-device
             // handling this feature promises not to do. So it stays off.
             status = "This device can't transcribe without sending audio away."
+            FlowsDiag.log(.warn, "scanner", "no on-device recognizer — feed idle")
             return
         }
         self.recognizer = recognizer
@@ -192,12 +219,22 @@ final class ScannerListener: ObservableObject {
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
                 guard let self else { return }
-                if error != nil { self.status = "Feed dropped."; self.isListening = false }
+                if let error {
+                    self.status = "Feed dropped."; self.isListening = false
+                    self.retryAfter = Date().addingTimeInterval(60)
+                    FlowsDiag.log(.warn, "scanner", "recognition ended: \(error.localizedDescription) — retry in 60 s")
+                }
                 guard let result else { return }
                 let text = result.bestTranscription.formattedString
                 // Only act on a settled phrase, not every partial guess.
                 guard result.isFinal || text.count > 60 else { return }
+                // The count, never the words: dispatch audio is not the
+                // driver's, but the journal is exportable all the same.
+                let before = self.incidents.count
                 self.consider(transcript: text, feed: feed)
+                FlowsDiag.log(.info, "scanner",
+                              "heard \(text.count) chars (final: \(result.isFinal)); "
+                              + "incidents \(before) → \(self.incidents.count)")
             }
         }
         // Sweep expired pins so nothing stale sits on the map.

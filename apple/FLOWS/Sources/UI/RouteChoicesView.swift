@@ -838,6 +838,8 @@ struct RouteChoicesView: View {
             HStack(spacing: 8) {
                 Text("Routes")
                     .scaledFont(size: 15, weight: .bold)
+                    .lineLimit(1)
+                    .fixedSize()   // a landscape phone wrapped this to "Route / s"
                 // Walk ↔ drive toggle: walking uses Apple's pedestrian
                 // network (sidewalks/crossings where mapped, real pace).
                 Toggle(isOn: Binding(
@@ -1252,6 +1254,15 @@ private struct RouteCard: View {
                             if route.planKind == .tollFree { profileChip("Toll-free", .teal) }
                         }
                     }
+                    // A chip cut mid-word at the clip edge ("Cheapes") read as
+                    // a bug on a landscape phone; a trailing fade says "more".
+                    .mask(
+                        HStack(spacing: 0) {
+                            Rectangle()
+                            LinearGradient(colors: [.black, .clear],
+                                           startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 14)
+                        })
                     Spacer(minLength: 4)
                     // ALWAYS-designated trucker pick: high clearance, gentle
                     // grades, low wind, highways + trucker amenities — the

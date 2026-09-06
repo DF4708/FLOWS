@@ -2090,6 +2090,7 @@ final class AppModel: ObservableObject {
                 .store(in: &serviceSubscriptions)
         }
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
+        scanner.listen(near: location.coordinate)   // don't wait for the first fix
         MusicController.shared.provider = musicProvider   // same didSet gap
         if personalVoiceAnnouncements {                   // same didSet gap
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
@@ -2336,7 +2337,7 @@ final class AppModel: ObservableObject {
         }
         guard !warnedTowingViolation else { return }
         warnedTowingViolation = true
-        towingWarning = worst.title
+        if towingWarning != worst.title { towingWarning = worst.title }
     }
 
     /// Low-tire warning (BLE TPMS caps or OEM cloud): worst offender named.
@@ -2516,7 +2517,8 @@ final class AppModel: ObservableObject {
             return
         }
         let mile = (navigation.guidance?.alongMeters ?? 0) / 1609.344
-        upcomingSteepGrade = GradeProfile.nextSteep(after: mile, in: route.gradeProfile)
+        let next = GradeProfile.nextSteep(after: mile, in: route.gradeProfile)
+        if upcomingSteepGrade != next { upcomingSteepGrade = next }   // once per fix otherwise
     }
 
     // MARK: vehicle range + fuel recommendations
@@ -2672,7 +2674,7 @@ final class AppModel: ObservableObject {
                     .enforcementCameras(near: point)
                 guard let self, !Task.isCancelled, self.mode == .navigating,
                       let found else { return }
-                self.enforcementCameras = found
+                if self.enforcementCameras != found { self.enforcementCameras = found }
             }
         }
         let heading = fix.course >= 0 ? fix.course : nil
@@ -2727,7 +2729,7 @@ final class AppModel: ObservableObject {
         // A new maneuver resets the row; the same one isn't re-fetched.
         if g.stepIndex != laneLookupStep {
             laneLookupStep = g.stepIndex
-            upcomingLanes = []
+            if !upcomingLanes.isEmpty { upcomingLanes = [] }
         }
         // One lookup per maneuver. This ran on EVERY fix while the row was
         // still empty, cancelling the previous query and starting another —
@@ -2744,7 +2746,7 @@ final class AppModel: ObservableObject {
             let lanes = await LiveHazardFeedFetcher.shared.turnLanes(at: point)
             guard let self, !Task.isCancelled, self.mode == .navigating,
                   self.navigation.guidance?.stepIndex == step else { return }
-            self.upcomingLanes = lanes
+            if self.upcomingLanes != lanes { self.upcomingLanes = lanes }
         }
     }
 
@@ -2854,11 +2856,12 @@ final class AppModel: ObservableObject {
             let level = FuelWarning.level(stationsAhead: found.stations, rangeMiles: range)
             let cheapest = FuelWarning.cheapest(stationsAhead: found.stations,
                                                 rangeMiles: range)
-            self.fuelWarningLevel = level
-            self.fuelWarningStation = cheapest
+            if self.fuelWarningLevel != level { self.fuelWarningLevel = level }
+            if self.fuelWarningStation != cheapest { self.fuelWarningStation = cheapest }
             self.fuelWarningItem = cheapest.flatMap { found.items[$0.name] }
-            self.fuelWarningText = FuelWarning.bannerText(
+            let text = FuelWarning.bannerText(
                 fuel: fuel, level: level, station: cheapest)
+            if self.fuelWarningText != text { self.fuelWarningText = text }
             // Say it once per level change — a driver shouldn't be told the
             // same thing every mile, but a worsening situation speaks again.
             if level != .none, level != self.dismissedFuelWarningLevel,
