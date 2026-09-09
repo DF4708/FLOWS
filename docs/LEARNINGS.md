@@ -1080,3 +1080,32 @@ geolocation was deliberately left out: it needs a provider decision
 under the standing rules and a privacy-policy line before it earns a
 place in that chain.
 
+## Between the words and the map
+
+The synthesized dispatch call reached the Mac's on-device recognizer
+and came back as text — and made no incident. Three reasons, and the
+shape they share: every one was invisible until real words went in.
+
+**The vocabulary was the formal register, not the spoken one.** The
+kind list had "motor vehicle accident", "ten fifty", "vehicle versus"
+— and not "crash", "wreck" or "accident" on its own. A parser built
+from a glossary recognizes the glossary. Test it with a sentence a
+person would actually say.
+
+**A partial transcript is a different input from a sentence.** The
+place scan built `(i + 1)...min(count - 1, i + 4)` for a number at
+index `i`; with the number as the LAST word — every partial that stops
+on "…Highway 51" — the range runs backwards, and a backwards range is a
+fatal error, not nil. On a live feed the first route number at the end
+of a partial would have killed the app. Partials arrive several times a
+second; they are the common case, not the edge.
+
+**Punctuation is part of the input.** Recognizers attach sentence
+punctuation to words. "street." is not a road word.
+
+**A recorded feed ends; a live one doesn't.** `endAudio()` lived only in
+`stop()`, so a file never let the recognizer deliver its final result
+and the last partial was all it could produce. The observer for the end
+of the item costs six lines and is what makes a recorded call — the
+only kind you can test on a desk — behave like the live one.
+
