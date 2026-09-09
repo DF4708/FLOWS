@@ -617,3 +617,46 @@ final class SecureShredTests: XCTestCase {
             .appendingPathComponent("flows_never_existed.json"))
     }
 }
+
+/// Every target that can ask for speech or the microphone must say why.
+///
+/// On macOS a missing usage string is not a missing prompt — TCC aborts
+/// the process. The macOS target shipped for months without the speech
+/// and microphone keys the iOS target had, so the spoken yes/no, the
+/// crash check-in and the dispatch feed each crashed the Mac app the
+/// moment they asked. This reads the project definition itself so the
+/// gap cannot reopen quietly.
+final class TCCUsageKeyTests: XCTestCase {
+    private func projectYAML() throws -> String {
+        // FLOWSTests/…/ShelterPolicyTests.swift → apple/project.yml
+        let here = URL(fileURLWithPath: #filePath)
+        let yml = here.deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("project.yml")
+        return try String(contentsOf: yml, encoding: .utf8)
+    }
+
+    /// The `info:` block of one target, by its `platform:` line.
+    private func infoBlock(platform: String, in yml: String) -> String {
+        let lines = yml.components(separatedBy: "\n")
+        guard let start = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "platform: \(platform)" })
+        else { return "" }
+        // Up to the next target (a two-space-indented key).
+        var end = start + 1
+        while end < lines.count, !(lines[end].hasPrefix("  ") && !lines[end].hasPrefix("   ") && lines[end].hasSuffix(":")) { end += 1 }
+        return lines[start..<end].joined(separator: "\n")
+    }
+
+    func testTheMacTargetDeclaresSpeechAndMicrophoneUsage() throws {
+        let block = infoBlock(platform: "macOS", in: try projectYAML())
+        XCTAssertFalse(block.isEmpty, "macOS target not found in project.yml")
+        XCTAssertTrue(block.contains("NSSpeechRecognitionUsageDescription"))
+        XCTAssertTrue(block.contains("NSMicrophoneUsageDescription"))
+        XCTAssertTrue(block.contains("com.apple.security.device.audio-input: true"))
+    }
+
+    func testTheiOSTargetStillDeclaresThem() throws {
+        let block = infoBlock(platform: "iOS", in: try projectYAML())
+        XCTAssertTrue(block.contains("NSSpeechRecognitionUsageDescription"))
+        XCTAssertTrue(block.contains("NSMicrophoneUsageDescription"))
+    }
+}

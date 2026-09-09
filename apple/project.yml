@@ -200,6 +200,23 @@ targets:
         NSBluetoothAlwaysUsageDescription: >-
           FLOWS listens for Bluetooth tire-pressure sensors and OBD-II
           adapters to show real fuel level and tire pressure.
+        # Speech and microphone: these keys existed on the iOS target only.
+        # On macOS, TCC does not prompt for a missing usage string — it
+        # aborts the process (__TCC_CRASHING_DUE_TO_PRIVACY_VIOLATION__), so
+        # the spoken yes/no, the crash check-in and the dispatch feed all
+        # crashed the Mac app the moment they asked. Found by running the
+        # feed on the Mac for the first time; pinned by TCCUsageKeyTests.
+        NSSpeechRecognitionUsageDescription: >-
+          Understands short spoken answers ("yes", "no", "I'm okay") and asks
+          ("classic country", "the weather radio") to crash check-ins, route
+          questions, and the music and radio mic buttons. If you turn on a
+          dispatch feed in Settings, that feed is also transcribed on this
+          Mac (never sent anywhere) to mark crashes and closures on the map;
+          nothing is heard from the microphone for it.
+        NSMicrophoneUsageDescription: >-
+          Hears your spoken answer after a crash check-in or a route offer,
+          and your music and radio asks — only while FLOWS is listening for
+          one, never in the background.
         CFBundleURLTypes:
           - CFBundleURLName: com.flows.app.mac
             CFBundleURLSchemes:
@@ -209,6 +226,9 @@ targets:
       path: FLOWS/Generated/FLOWS-macOS.entitlements
       properties:
         com.apple.security.app-sandbox: true
+        # The spoken yes/no and the crash check-in capture the microphone;
+        # without this the sandbox denies the audio unit.
+        com.apple.security.device.audio-input: true
         com.apple.security.network.client: true
         com.apple.security.personal-information.location: true
         com.apple.security.automation.apple-events: true
