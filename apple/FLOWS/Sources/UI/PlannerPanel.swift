@@ -207,7 +207,13 @@ struct PlannerPanel: View {
             // recents and predictions) come from the search work. Both
             // survive: their scroll behaviour wrapping our row rendering.
             if focusedField == .destination || listHold == .destination, !destSearch.suggestions.isEmpty {
-                ScrollWhenTight {
+                // A plain, bounded ScrollView — NOT ScrollWhenTight. That
+                // wrapper is a ViewThatFits holding the list twice, and as
+                // suggestions change under the pointer it can swap which copy
+                // is live; on the Mac the click then landed on a row that had
+                // just been replaced, so no destination was ever selectable.
+                // The source list, never wrapped, always worked.
+                ScrollView(showsIndicators: false) {
                     suggestionList(destSearch.suggestions) { sug in
                         destSearch.accept()
                         model.plannerDestination = sug.searchText
@@ -216,6 +222,7 @@ struct PlannerPanel: View {
                         Task { await plan() }
                     }
                 }
+                .frame(maxHeight: 280)
                 .background(Theme.fill(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
@@ -515,6 +522,7 @@ struct PlannerPanel: View {
             // never queues behind a typed start.
             let from: (CLLocationCoordinate2D, String)
             let to: (CLLocationCoordinate2D, String)
+            FlowsDiag.log(.info, "plan", "start: source=\(usingGPSSource ? "gps" : usingFallbackStart ? "fallback" : "typed")")
             if usingGPSSource || usingFallbackStart {
                 guard let start = model.bestKnownPosition else {
                     throw RouteError.notFound("current location (no GPS fix yet)")
@@ -522,11 +530,13 @@ struct PlannerPanel: View {
                 from = (start.coordinate, start.label)
                 to = try await model.router.geocode(
                     model.plannerDestination, near: model.location.coordinate)
+                FlowsDiag.log(.info, "plan", "geocoded destination")
             } else {
                 async let fromF = model.router.geocode(source, near: model.location.coordinate)
                 to = try await model.router.geocode(
                     model.plannerDestination, near: model.location.coordinate)
                 from = try await fromF
+                FlowsDiag.log(.info, "plan", "geocoded start and destination")
             }
             // Routes appear as soon as directions return; weather badges
             // hydrate asynchronously inside present(routes:), and the

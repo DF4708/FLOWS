@@ -644,7 +644,7 @@ struct ContentView: View {
     /// hasn't really moved (debounce key).
     private func refreshViewportHazards(_ region: MKCoordinateRegion) {
         guard model.mode != .navigating, model.showWeatherLayer,
-              region.span.latitudeDelta < 44 else { return }
+              region.span.latitudeDelta < 12 else { return }   // a state or two, not a continent
         let key = "\(Int(region.center.latitude * 8))|\(Int(region.center.longitude * 8))|\(Int(region.span.latitudeDelta * 4))"
         guard key != viewportHazardKey else { return }
         // Commit the key now so the same viewport won't re-trigger, then run the

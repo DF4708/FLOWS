@@ -1903,6 +1903,9 @@ final class AppModel: ObservableObject {
 
     /// Planning entry point used by the planner UI: remembers endpoints and
     /// includes a toll-free variant up front when that filter is already on.
+    /// Journals its phases: a planning freeze on a Mac was reported and the
+    /// window exposes nothing to drive by script, so the journal has to say
+    /// which step never returned.
     func plan(from: CLLocationCoordinate2D, fromName: String,
               to: CLLocationCoordinate2D, toName: String) async throws -> [PlannedRoute] {
         // Cache warmer at the ONE choke point every planning path passes
@@ -2976,6 +2979,7 @@ final class AppModel: ObservableObject {
     private var riskHydrationTask: Task<Void, Never>?
 
     func present(routes: [PlannedRoute]) {
+        FlowsDiag.log(.info, "plan", "presenting \(routes.count) route(s)")
         // Apply the driver's learned pace to every ETA before anything reads
         // them — so the correction reaches the cards, the cost estimates
         // derived from ETA, the ranking, AND the arrival-time reasoning that
@@ -3337,6 +3341,9 @@ final class AppModel: ObservableObject {
         let envIdx = riskField.familyIndex("environmental")
         let filterIdx = filterFamilies.map { ($0, riskField.familyIndex($0)) }
         var identifiedSum = 0.0
+        // This loop is synchronous on the main actor — the journal says how
+        // long, so a planning stall can be attributed or ruled out.
+        let blendStart = Date()
         let blended = score.samples.enumerated().map { i, s -> RiskSample in
             let c = s.coordinate
             let dev = onDevicePredictors(near: i)
@@ -3377,6 +3384,9 @@ final class AppModel: ObservableObject {
                     fieldRow: row),   // resolved above; not a second ZIP scan
                 worstEvent: s.worstEvent, alertID: s.alertID)
         }
+        FlowsDiag.log(.info, "plan", String(format: "scored %d samples in %.0f ms",
+                                            score.samples.count,
+                                            Date().timeIntervalSince(blendStart) * 1000))
         r.familyPeaks = peaks
         r.alertCoverage = score.coverage
         r.alertHeadlines = score.headlines
