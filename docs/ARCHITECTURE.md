@@ -473,6 +473,28 @@ the map, the route scorer, and the live corridor monitor):
   wind/geocode/work-zone/lane lookups, the spoken-turn dedupe, the
   plan-time DOT closures the live corridor watch now scores against.
 
+### 7.5c Staging a dispatch feed
+
+`ScannerListener` reads `scanner_feeds.json` from the app's own
+Application Support directory, which is inside a sandbox container on
+both platforms — not `~/Library/Application Support`:
+
+- macOS (bundle id `com.flows.app.mac`, App-Sandboxed):
+  `~/Library/Containers/com.flows.app.mac/Data/Library/Application Support/scanner_feeds.json`.
+  A `file://` feed URL must point INSIDE that container; the sandbox
+  cannot read `/tmp` or the home directory. The journal is beside it in
+  `…/Data/Library/Caches/flows_diag.log`.
+- iOS simulator: `xcrun simctl get_app_container <udid> com.wizeman555.flows data`,
+  then `Library/Application Support/` under it. Note the container can
+  move on reinstall.
+- The switch is the `flows.scannerEnabled` preference (off by default);
+  for a test run pass it as a launch argument
+  (`-flows.scannerEnabled YES`) rather than writing defaults from outside
+  the app, which never reaches `UserDefaults.standard`.
+- The simulator cannot complete the path: it has no on-device speech
+  models and fails at "Failed to initialize recognizer". The Mac can,
+  after one Speech Recognition permission click.
+
 ### 7.5b Small policies that moved to Core
 
 Pure, tested, and called from the model rather than written inside it:
