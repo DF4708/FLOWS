@@ -29,9 +29,10 @@
 //!   per family      p95 = 95th percentile (nearest-rank) of NONZERO cells
 //!   score(v)        = min(0.6, 0.6 * ln(1+v) / ln(1+p95))   for v > 0
 //!   floor           scores < 0.05 are treated as noise and emitted as 0
-//! A climatological/historical PRIOR may never reach the 0.699 yellow cut:
-//! every score is hard-capped at 0.6 (< 0.699), the exact cap discipline of
-//! national-bundle.rs. The p95 normalizer means the top ~5% of active cells
+//! A climatological/historical PRIOR may never reach the app's yellow cut:
+//! every score is hard-capped at 0.6, checked against
+//! `flows_core::RISK_YELLOW_MIN` itself rather than a copy of its value —
+//! the exact cap discipline of national-bundle.rs. The p95 normalizer means the top ~5% of active cells
 //! for a family saturate at the cap and everything else scales log-linearly.
 //!
 //! MAGNITUDE (where present): a modest severity boost only — hail >= 2.0 in
@@ -92,7 +93,7 @@ const HARM_REL: &str = "data/runtime_cache/history_harmonic.bin";
 const ROWS_REL: &str = "data/runtime_cache/history_training_rows.csv";
 
 // Score discipline: a historical prior may never reach the yellow cut.
-const SCORE_MAX: f64 = 0.6; // hard cap, < 0.699
+const SCORE_MAX: f64 = 0.6; // hard cap, < RISK_YELLOW_MIN (asserted below)
 const SCORE_FLOOR: f64 = 0.05; // below this a signal is noise -> emit 0
 const SUMMARY_MIN: f64 = 0.3; // name the top family only when it clears this
 
@@ -705,7 +706,7 @@ impl History {
 
 /// score(v) = min(0.6, 0.6 * ln(1+v)/ln(1+p95)), values under 0.05 -> 0.
 /// See the module docs for the full rationale (p95 cells saturate at the cap;
-/// the cap keeps a 20-year prior strictly below the 0.699 yellow cut).
+/// the cap keeps a 20-year prior strictly below the app's yellow cut).
 fn score_from_count(v: f64, p95: f64) -> f64 {
     if v <= 0.0 || p95 <= 0.0 {
         return 0.0;
@@ -1760,10 +1761,12 @@ mod tests {
         assert!((score_from_count(p95, p95) - SCORE_MAX).abs() < 1e-12);
         // far above p95 still capped, always under the yellow cut
         assert_eq!(score_from_count(10.0 * p95, p95), SCORE_MAX);
-        // Documentation-assert: the cap must sit under the app's yellow cut.
+        // The invariant, against the CONSTANT rather than a copy of its
+        // value. With a literal here, moving RISK_YELLOW_MIN down would leave
+        // this passing while priors quietly began reaching yellow.
         #[allow(clippy::assertions_on_constants)]
         {
-            assert!(SCORE_MAX < 0.699);
+            assert!(SCORE_MAX < flows_core::RISK_YELLOW_MIN);
         }
         // tiny counts fall under the floor -> 0
         assert_eq!(score_from_count(0.05, p95), 0.0);

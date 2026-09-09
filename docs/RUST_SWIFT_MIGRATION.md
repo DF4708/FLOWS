@@ -391,3 +391,65 @@ plausible one — the compliant ladder is: safe Rust first, then measure under
 §4.8, then a vetted crate with a safe API, with the safe path kept as the
 oracle. `std::simd` (portable, safe, currently nightly) would also become
 eligible before any intrinsic kernel does.
+
+## The R mathematics: what came across, and what is still split (2026-09-09)
+
+There is no R left in the repository — the engine was retired in `c8a903e`,
+forty files. The question that matters is not whether R lingers but whether
+its mathematics did, and where it lives now.
+
+### Ported to Rust this pass
+
+`flows-core::families` is the port of `R/families.R`, and `flows-core::scoring`
+gained the `R/forecast.R` predictors. Together that is the model the band cuts
+sit on:
+
+| Rust | R |
+|---|---|
+| `FAMILY_WEIGHTS`, `family_weight` | `environmental_family_weights` |
+| `noisy_or` | `noisy_or_combine` |
+| `realized_risk`, `PRIMARY_FAMILIES`, `SECONDARY_FAMILIES`, `SECONDARY_CEILING` | the primary/secondary model over that combine |
+| `alert_family` | the NWS event-name classifier |
+| `flood_elevation_multiplier` | the waterline-threshold flood amplifier |
+| `ranking_risk` | the two-truths route ordering |
+| `displayed_band`, `dominant_family`, `ACUTE_FAMILIES` | route band display and area naming |
+| `wind_risk`, `pop_risk`, `forecast_composite`, `temperature_anomalous` | `R/forecast.R:226-228` |
+
+Forty-one tests pin it, written as behaviour classes rather than examples:
+predictors alone can never reach Red however many pile up; one realized
+primary keeps its full severity; two independent primaries compound; families
+in neither tier are ignored rather than defaulted; a Snow Squall Warning is
+not downgraded by the word "snow"; an Ashfall Advisory stays Red-incapable
+while an eruption does not.
+
+### Two defects the port surfaced
+
+**The trainers asserted an R-derived invariant against a copy of it.** Both
+`history-baseline` and `national-bundle` cap their scores below the app's
+yellow cut and checked that with a bare `0.699` literal — four copies of a
+constant that lives in `flows-core::RISK_YELLOW_MIN`, in a crate they did not
+depend on. Move the cut and every assertion still passes while priors quietly
+begin reaching yellow. `flows-train` now depends on `flows-core` (a
+workspace-internal crate, so the zero-external-crates discipline is intact)
+and asserts against the constant.
+
+**The Swift implementation is not reproducible.** `realizedRisk` and
+`dominantFamily` iterate a Swift `Dictionary`, and Swift seeds its hasher per
+process, so the noisy-OR product is multiplied in an order that varies
+between launches. Floating-point multiplication is not associative: identical
+inputs can differ in the last bits between runs, and a differing last bit
+either side of a band cut is a different band. The Rust port takes a slice,
+multiplies in slice order, offers `canonical_order` for callers that must
+agree bit for bit, and breaks `dominant_family` ties by name instead of by
+iteration order. This is recorded rather than fixed in Swift because it is a
+change to shipping app behaviour and belongs to its own pass.
+
+### Still split, deliberately
+
+The app runs the Swift copy of these equations; the Rust port serves the
+trainers and is the reference implementation. They cannot share code without
+a boundary, and there is none — see the section above for why. Bringing them
+under one implementation means a bulk boundary through swift-bridge, which is
+the same decision the transit engine forces, and it should be made once for
+both rather than twice.
+

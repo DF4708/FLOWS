@@ -20,7 +20,8 @@
 //! scores `s` aligned with the bundle's own `families` array.
 //!
 //! Climatology is a PRIOR, not a realized hazard: every score is conservative,
-//! in [0.05, 0.6] when present and hard-capped well below the 0.699 yellow cut.
+//! in [0.05, 0.6] when present and hard-capped well below the app's yellow
+//! cut (`flows_core::RISK_YELLOW_MIN`, asserted against the constant itself).
 //! Same physics family as `flows-train` seed_rows(): northern winter risk on a
 //! week-of-year sinusoid scaled by latitude; gulf/atlantic tropical bump weeks
 //! 32-44; plains wind exposure; desert/southern summer heat.
@@ -46,7 +47,7 @@ const LON_MIN: f64 = -125.0;
 const LON_MAX: f64 = -66.0;
 
 // Score discipline: a climatological prior may never reach the yellow cut.
-const SCORE_MAX: f64 = 0.6; // hard cap, < 0.699
+const SCORE_MAX: f64 = 0.6; // hard cap, < RISK_YELLOW_MIN (asserted in tests)
 const SCORE_FLOOR: f64 = 0.05; // below this a signal is noise -> emit 0
 const SUMMARY_MIN: f64 = 0.3; // name the top family only when it clears this
 
@@ -139,7 +140,7 @@ fn plains_weight(lat: f64, lon: f64) -> f64 {
 
 /// Climatological score for one bundle family at (lat, lon, week).
 /// Families with no climatological basis return 0. Every non-zero score is in
-/// [SCORE_FLOOR, SCORE_MAX] — a prior can never reach the 0.699 yellow cut.
+/// [SCORE_FLOOR, SCORE_MAX] — a prior can never reach the app's yellow cut.
 fn family_score(family: &str, lat: f64, lon: f64, week: u32) -> f64 {
     let tropical = tropical_signal(lat, lon, week);
     let raw = match family {
@@ -567,6 +568,19 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_prior_cap_sits_below_the_apps_yellow_cut() {
+        // Against the CONSTANT, not a copy. A climatological prior must never
+        // be able to band a route yellow on its own; if RISK_YELLOW_MIN ever
+        // moves below the cap, this fails at build time rather than shipping
+        // priors that quietly reach yellow.
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(SCORE_MAX < flows_core::RISK_YELLOW_MIN);
+            assert!(SCORE_FLOOR < SCORE_MAX);
+        }
+    }
+
     const FAMS: [&str; 11] = [
         "environmental",
         "wind",
@@ -614,7 +628,7 @@ mod tests {
                     for f in FAMS {
                         let s = family_score(f, lat, lon, week);
                         assert!(
-                            (0.0..=SCORE_MAX).contains(&s) && s < 0.699,
+                            (0.0..=SCORE_MAX).contains(&s) && s < flows_core::RISK_YELLOW_MIN,
                             "{f} out of bounds at ({lat},{lon}) wk{week}: {s}"
                         );
                         assert!(

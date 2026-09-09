@@ -15,7 +15,10 @@
 //!
 //! Modules:
 //!   risk     — risk band classification (port of R/scoring.R)
-//!   scoring  — piecewise hazard scoring (port of R/scoring.R piecewise_score)
+//!   scoring  — piecewise hazard scoring + the R/forecast.R predictors
+//!   families — hazard families and the two-tier realized-risk model
+//!              (port of R/families.R: weights, noisy-OR, primary vs
+//!              secondary, alert classification, area naming)
 //!   distance — Euclidean distance kernel (scalar reference; R-bridge only)
 //!   polyline — encoded-polyline decoder (safe; the hand-asm and raw-pointer
 //!              variants were both retired on measurement — see bin/bench.rs)
@@ -52,11 +55,19 @@
 
 pub mod ch;
 pub mod distance;
+pub mod families;
 pub mod polyline;
 pub mod risk;
 pub mod routing;
 pub mod scoring;
 pub mod transit;
 
+pub use families::{
+    alert_family, dominant_family, family_weight, flood_elevation_multiplier, is_primary,
+    is_secondary, noisy_or, ranking_risk, realized_risk, SECONDARY_CEILING,
+};
 pub use risk::{risk_band, RiskBand, RISK_GREEN_MIN, RISK_RED_MIN, RISK_YELLOW_MIN};
-pub use scoring::{piecewise_score, piecewise_score_rowwise, temperature_risk};
+pub use scoring::{
+    forecast_composite, piecewise_score, piecewise_score_rowwise, pop_risk, temperature_anomalous,
+    temperature_risk, wind_risk,
+};

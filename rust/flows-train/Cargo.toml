@@ -42,3 +42,11 @@ name = "bundle-frb"
 path = "src/bin/bundle-frb.rs"
 
 [dependencies]
+# The ONE dependency, and it is a workspace-internal crate rather than an
+# external one, so the zero-crates discipline above is intact. It exists so
+# the band cuts have a single definition: both trainers cap their scores
+# strictly below the app's yellow cut, and that invariant used to be asserted
+# against a bare `0.699` literal — four independent copies of a constant that
+# lives in flows-core. Change RISK_YELLOW_MIN with copies in play and every
+# assertion still passes while the guarantee silently breaks.
+flows-core = { path = "../flows-core" }

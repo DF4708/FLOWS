@@ -1231,3 +1231,47 @@ guard for the old design. The one worth keeping compared two implementations
 of the same algorithm, which proves they agree, not that they are right. It
 now checks the published specification's own worked example instead.
 
+## Asked to port R, found the constant instead
+
+"Convert any lingering R to Rust" had a short answer — there is no R, it was
+retired in `c8a903e` — and a longer one worth having.
+
+**The useful question was not where R is, but where its mathematics went.**
+Forty R files were deleted; their equations did not evaporate. Grepping for
+the port claims showed the split immediately: Rust cited `R/scoring.R` and
+nothing else, while Swift cited `R/families.R`, `R/forecast.R` and
+`R/risk_constants.R`. The mathematical core — the noisy-OR combine, the
+two-tier realized-risk model, the forecast predictors — had gone to Swift,
+not Rust, which is the opposite of the project's stated architecture.
+
+**Porting for its own sake would have been dead code.** There is no FFI
+boundary any more, so a Rust copy of the app's equations has no app caller,
+and §5.3 forbids code that looks finished and reaches nobody. What made the
+port legitimate was finding it a real consumer: the trainers.
+
+**And the trainers held the actual defect.** Both cap their climatological
+scores "strictly below the app's yellow cut" — the invariant that keeps a
+20-year prior from banding a route yellow on its own — and both asserted it
+against a bare `0.699` literal, in four places, in a crate that did not
+depend on the one where `RISK_YELLOW_MIN` is defined. Every assertion would
+keep passing if the cut moved. That is the shape §12.2 is about: a measured
+constant with copies has no provenance, and a test against a copy tests
+nothing.
+
+**Non-associativity is a determinism bug, not a pedantry.** The Swift
+`realizedRisk` multiplies its noisy-OR terms in `Dictionary` order, and Swift
+seeds its hasher per process. Identical inputs can therefore produce
+different last bits between launches — and a last bit either side of 0.6990
+is a different band on a driver's route. The Rust port multiplies in slice
+order, offers a canonical sort, and breaks naming ties by name rather than by
+iteration order.
+
+**Write the tests as claims about behaviour.** "Predictors alone can never
+reach Red however many pile up" is a test that will still mean something
+after the weights change. `assert_eq!(f(0.5), 0.32)` is a test that has to be
+rewritten the first time anyone touches the model. Two of the forty-one I
+wrote failed on first run and both were my arithmetic, not the code's: the
+cold-side sigma is (comfort − record)/3, which is 16.67 in that climate and
+not the 10 I had assumed, and a non-finite score clamps to ABSENT rather than
+to maximal. Both are now pinned with the reasoning in the assertion message.
+
