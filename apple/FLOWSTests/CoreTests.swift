@@ -56,41 +56,48 @@ final class CoreTests: XCTestCase {
     }
 }
 
-/// The Rust core (asm hot loops) must be STATICALLY LINKED and its FFI decoder
-/// must be byte-for-byte identical to the pure-Swift fallback. This is the
-/// architectural guard: "Rust for compute + asm hot loops, Swift for UI."
-final class RustCoreLinkageTests: XCTestCase {
-    func testRustCoreIsLinkedNotFallback() {
-        XCTAssertTrue(FlowsCore.rustCoreLoaded,
-                      "libflows_core must be static-linked so the app runs the "
-                      + "Rust/asm polyline decoder, not the Swift fallback")
+/// The decoder is Swift-native and is pinned to the PUBLISHED spec vector,
+/// not to a second implementation of the same algorithm.
+///
+/// It used to be pinned to the Rust FFI decoder — two implementations agreeing
+/// with each other, which proves they share an algorithm but not that the
+/// algorithm is right. The Rust boundary is gone (flows-core is
+/// `forbid(unsafe_code)`, and a C-ABI export cannot live in such a crate), so
+/// the oracle is now the Google encoded-polyline specification's own worked
+/// example and its documented coordinates — an independent oracle, per 6.3.
+final class PolylineDecoderTests: XCTestCase {
+    func testTheSpecReferenceVectorDecodesToItsPublishedCoordinates() {
+        // The example from the Google encoded-polyline format specification,
+        // whose decoded value is published with it.
+        let got = FlowsCore.decodePolyline("_p~iF~ps|U_ulLnnqC_mqNvxq`@")
+        let want: [(lon: Double, lat: Double)] = [
+            (-120.2, 38.5), (-120.95, 40.7), (-126.453, 43.252),
+        ]
+        XCTAssertEqual(got.count, want.count)
+        for (g, w) in zip(got, want) {
+            XCTAssertEqual(g.lat, w.lat, accuracy: 1e-9)
+            XCTAssertEqual(g.lon, w.lon, accuracy: 1e-9)
+        }
     }
 
-    func testRustDecoderIsByteIdenticalToSwift() {
-        // Google polyline spec reference vector + a couple of real shapes.
-        let samples = [
-            "_p~iF~ps|U_ulLnnqC_mqNvxq`@",
-            "u{~vFvyys@fS]",
-            " khwithoutmeaningbutstillvalidchars",
-        ]
-        for enc in samples {
-            let rust = FlowsCore.decodePolyline(enc)                    // Rust FFI (linked)
-            let swift = FlowsCore.decodePolylineSwift(Array(enc.utf8))  // pure Swift
-            XCTAssertEqual(rust.count, swift.count, "point count for \(enc)")
-            for (r, s) in zip(rust, swift) {
-                // BIT-identical, not just approximately equal.
-                XCTAssertEqual(r.lon.bitPattern, s.lon.bitPattern, "lon bits for \(enc)")
-                XCTAssertEqual(r.lat.bitPattern, s.lat.bitPattern, "lat bits for \(enc)")
+    func testTheTwoEntryPointsAgree() {
+        // decodePolyline is a thin wrapper over decodePolylineSwift; keep them
+        // from drifting apart.
+        for enc in ["_p~iF~ps|U_ulLnnqC_mqNvxq`@", "u{~vFvyys@fS]", ""] {
+            let a = FlowsCore.decodePolyline(enc)
+            let b = FlowsCore.decodePolylineSwift(Array(enc.utf8))
+            XCTAssertEqual(a.count, b.count, "point count for \(enc)")
+            for (x, y) in zip(a, b) {
+                XCTAssertEqual(x.lon.bitPattern, y.lon.bitPattern)
+                XCTAssertEqual(x.lat.bitPattern, y.lat.bitPattern)
             }
         }
     }
 
-    func testRaptorTransitEngineRunsOnDevice() {
-        // The RAPTOR engine executes end-to-end through the C ABI: the self-test
-        // builds a 2-leg transfer timetable in Rust, plans it, and returns the
-        // arrival time. Proves flows_transit_selftest is linked and the engine runs.
-        XCTAssertEqual(FlowsCore.transitSelfTest(), 1500,
-                       "the linked Rust RAPTOR engine must run through the C ABI")
-        XCTAssertTrue(FlowsCore.transitEngineLoaded)
+    func testMalformedInputIsDroppedNotGuessed() {
+        // A varint longer than the 10-chunk guard, and a dangling lat with no
+        // lon, must both yield nothing rather than a plausible coordinate.
+        XCTAssertTrue(FlowsCore.decodePolyline(String(repeating: "\u{7e}", count: 24)).isEmpty)
+        XCTAssertTrue(FlowsCore.decodePolyline("_p~iF").isEmpty)
     }
 }

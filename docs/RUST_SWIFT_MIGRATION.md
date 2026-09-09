@@ -311,49 +311,83 @@ green, with the R A* fallback intact.
 low-memory build window allows adding it; the hand-rolled design above is the
 fallback and the mental model for the equivalence gates either way.
 
-## Standard compliance: where the FFI boundary stands (2026-09-09)
+## The Swift boundary: closed, and how it reopens (2026-09-09)
 
-The Rust crates were audited against RUST_CODE_GENERATION_STANDARD_CONSOLIDATED.md.
-Most of it is now enforced by the compiler rather than by intention:
+`flows-core` is `#![forbid(unsafe_code)]` with no carve-out, and there is
+zero `unsafe` anywhere in project-controlled Rust. Both facts are enforced by
+the compiler, not by review: a control test confirms the lint fires on an
+`unsafe` block *and* on a `#[no_mangle]` declaration.
 
-- `flows-train` and every binary carry `#![forbid(unsafe_code)]`.
-- `flows-core` carries `#![deny(unsafe_code)]` with exactly one
-  `#[allow(unsafe_code)]`, on the `ffi` module, named in the crate root.
-- `polyline.rs` is unsafe-free: the raw-pointer kernel was retired after
-  measuring 1.07 ns/byte against the safe kernel's 1.16. Section 3.15 is
-  absolute and says a benchmark does not create an exception, and an 8% edge
-  on a decoder costing ~1 ms per 2000 polylines is not a mandatory
-  performance target. Same doctrine that retired the AArch64 assembly.
-- Five FFI exports (`flows_risk_label`, `flows_distance_matrix`,
-  `flows_dijkstra_c`, `flows_ch_query_c`, `flows_ch_path_c`) were deleted
-  after a search of the whole Swift app found zero references: four were
-  `unsafe extern "C"`, the fifth returned a raw pointer.
-- Release overflow checking is on and deliberate (Appendix A).
+### Why there is no FFI module at all
 
-### The one open gap, and what closing it costs
+`#[no_mangle]` is itself rejected by `forbid(unsafe_code)` — the lint treats
+manual symbol export as an unsafe capability. So a C-ABI export and a
+forbidden crate cannot coexist. That forced the question of what the exports
+were actually worth, and the answer was: nothing.
 
-Two exports remain `unsafe` because they take raw pointers to caller-owned
-buffers: `flows_polyline_decode` and `flows_transit_plan`.
-`flows_transit_selftest` is already a value-oriented export and needs no
-unsafe, which is the shape 3.25.5 permits.
+- `flows_risk_label`, `flows_distance_matrix`, `flows_dijkstra_c`,
+  `flows_ch_query_c`, `flows_ch_path_c` — zero references in the Swift app.
+- `flows_polyline_decode` — the Swift caller already carried
+  `decodePolylineSwift`, a value-identical native decoder, as its fallback.
+- `flows_transit_plan` — no caller; the Swift file's one mention is a comment
+  saying it "goes live once GTFS timetables load".
+- `flows_transit_selftest` — a diagnostic with no consumer outside the bridge
+  file itself.
 
-3.25.5 gives three ways to close a buffer-passing bridge, and each is an
-architectural decision about the Swift interface, not a local edit:
+Deleting them removed, on the Swift side, a `dlsym` whose result was
+`unsafeBitCast` into a function pointer, two `withUnsafe*BufferPointer`
+scopes, and a copy of every decoded double out of a scratch buffer.
 
-1. **A safe binding generator** (UniFFI, swift-bridge). Closes the gap
-   properly and removes the hand-written bridge. Costs the project's
-   zero-dependency posture for `flows-core`, adds a codegen step to the
-   build, and both symbols would need regenerating on the Swift side.
-2. **A serialization boundary.** Swift hands over a length-prefixed byte
-   buffer and gets one back; the Rust side parses it in safe code. Keeps the
-   zero-dependency posture. Costs a copy in each direction on a path that
-   currently writes straight into a Swift-owned buffer.
-3. **Narrow the API to value-oriented calls.** Works for a scalar operation;
-   it does not work for returning a decoded polyline or a planned itinerary,
-   which are inherently bulk.
+**This is the answer to "would moving the processing to Swift remove the
+unnecessary copy?" — yes, completely, and better than a serialization
+boundary would.** A serialization boundary replaces one copy with two. Having
+no boundary has none. The measured price is about 23 microseconds on a 10 KB
+route polyline: the Rust decoder runs at 1.16 ns/byte, the Swift one at 4.73
+(both measured on the same corpus shape, `rust/flows-core/src/bin/bench.rs`
+and the Swift harness in the session scratchpad). Four times per byte, and
+immaterial per call.
 
-Until one is chosen the `#[allow(unsafe_code)]` on `ffi` is the honest
-marker: the crate is safe Rust apart from a boundary that is named, narrowed
-to two functions, and validated at entry (null, length, range, and — as of
-this pass — unknown enum bytes are rejected rather than coerced).
+### swift-bridge — verified, and the chosen mechanism for when transit lands
 
+swift-bridge was tested against the actual requirement rather than assumed:
+
+- It compiles under `#![forbid(unsafe_code)]`, including with the shape the
+  transit engine needs (an opaque type, `&[u8]` in, `Vec<u32>` out). A
+  control in the same crate proves the lint was live for that test.
+- It exports through `#[export_name]` — 207 uses in `swift-bridge-ir`, and no
+  `#[no_mangle]` — which is precisely why it survives `forbid` where a
+  hand-written export cannot. Real symbols are emitted
+  (`___swift_bridge__$Planner$plan`).
+- Cost: one dependency whose transitive graph is the proc-macro chain
+  (`proc-macro2`, `quote`, `syn`, `unicode-ident`), all build-time.
+
+This is what §3.15 step 5 prescribes — "the smallest vetted capability
+provider that exposes a safe Rust API" keeping unsafe outside
+project-controlled Rust — so it is the mechanism of record. It is not being
+adopted *today* because there is currently nothing to bridge: adopting it now
+would add a dependency, a codegen step, and a build-time cross-compile for
+two symbols with no callers. It goes in with the RAPTOR engine, which is
+where Rust speed actually earns a boundary.
+
+### NEON SIMD — ineligible under the standard, and it is not close
+
+Requested, and it cannot be done as asked. Every `core::arch::aarch64` NEON
+intrinsic is an `unsafe fn`, so a hand-written NEON kernel is unsafe Rust in
+project-controlled source: forbidden by §3.15, forbidden again by §3.25.6
+("Project-controlled Rust MUST NOT contain `asm!`, `global_asm!`, or any
+other unsafe Rust path"), and forbidden by the standing instruction that none
+of this may introduce unsafe code.
+
+§3.25.6 does allow an unsafe-intrinsic kernel — but only through a vetted
+dependency exposing a safe API, and only once §1.9 and §4.8 show that safe
+Rust fails **a genuinely mandatory performance target**. There is no such
+target here. The one hot loop that was ever a candidate is the polyline
+decoder, and it has just been moved to Swift at 4.73 ns/byte because the
+difference did not matter. Vectorizing a decoder we no longer call from the
+app would be optimizing something off the critical path (§1.6).
+
+If a mandatory target appears — a national-scale RAPTOR query budget is the
+plausible one — the compliant ladder is: safe Rust first, then measure under
+§4.8, then a vetted crate with a safe API, with the safe path kept as the
+oracle. `std::simd` (portable, safe, currently nightly) would also become
+eligible before any intrinsic kernel does.

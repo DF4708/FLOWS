@@ -10,39 +10,48 @@
 //!
 //! See docs/RUST_SWIFT_MIGRATION.md. This crate is the first slice of the
 //! R → Rust port: pure, side-effect-free functions verified byte-identical
-//! to their R oracle. It links into the Swift UI as a staticlib
-//! (libflows_core.a) via the C-ABI surface in `ffi`.
+//! to their R oracle. It is the compute library for the transit engine and
+//! the offline tooling (gtfs-ftt, the trainers).
 //!
 //! Modules:
 //!   risk     — risk band classification (port of R/scoring.R)
 //!   scoring  — piecewise hazard scoring (port of R/scoring.R piecewise_score)
 //!   distance — Euclidean distance kernel (scalar reference; R-bridge only)
-//!   polyline — encoded-polyline decoder (raw-pointer fast kernel + safe oracle;
-//!              the hand-asm variant was retired when bin/bench.rs showed rustc
-//!              out-scheduling it — asm must beat the compiler to ship)
-//!   ffi      — C-ABI exports for Swift
+//!   polyline — encoded-polyline decoder (safe; the hand-asm and raw-pointer
+//!              variants were both retired on measurement — see bin/bench.rs)
+//!
+//! There is no FFI module. `#[no_mangle]` is itself rejected by
+//! `forbid(unsafe_code)`, so a C-ABI export and a forbidden crate cannot
+//! coexist — and when the last export turned out to have no caller, the
+//! honest resolution was to delete it rather than weaken the lint to `deny`
+//! for a diagnostic nothing read. The Swift app is Swift-native today; the
+//! boundary returns with the transit engine, through swift-bridge, which
+//! exports via `#[export_name]` and is verified to compile under this same
+//! `forbid` (docs/RUST_SWIFT_MIGRATION.md).
 //!
 //! Nothing here performs I/O or holds state; every function is a pure
 //! transform, which is exactly why it can be verified against R exactly.
 //!
 //! # Safe-Rust enforcement (3.15)
 //!
-//! `unsafe_code` is denied crate-wide. The single exception is the `ffi`
-//! module, which carries an explicit `#[allow(unsafe_code)]` because its two
-//! remaining bulk-array exports take raw pointers from Swift; the standard's
-//! remedy for that shape is a binding generator or a serialization boundary,
-//! which is an open architectural decision (docs/RUST_SWIFT_MIGRATION.md).
-//! The deny means unsafe cannot reappear anywhere else in the crate without
-//! a compiler error — which is exactly what caught nothing today, because
-//! the raw-pointer polyline kernel was retired to earn this line.
-#![deny(unsafe_code)]
+//! `unsafe_code` is FORBIDDEN crate-wide, with no carve-out — `forbid` cannot
+//! be lifted by an inner `allow`, so this is the strongest form the compiler
+//! offers. Getting here took three deletions rather than three rewrites: the
+//! raw-pointer polyline kernel (retired on measurement, 3.15 being explicit
+//! that a benchmark buys no exception), five FFI exports the Swift app never
+//! referenced, and finally the two pointer-passing exports themselves —
+//! `flows_polyline_decode`, whose Swift caller already had a value-identical
+//! native decoder, and `flows_transit_plan`, which had no caller at all.
+//!
+//! What crosses to Swift now is one value-oriented export returning an i64,
+//! which is the shape 3.25.5 permits and needs no unsafe. When the transit
+//! engine goes live and a real bulk boundary is required, the decision is
+//! recorded in docs/RUST_SWIFT_MIGRATION.md: swift-bridge, verified to
+//! compile under this same `forbid`.
+#![forbid(unsafe_code)]
 
 pub mod ch;
 pub mod distance;
-// The one carve-out, narrowed to a single module and named here so it is
-// visible in the crate root rather than buried at a call site.
-#[allow(unsafe_code)]
-pub mod ffi;
 pub mod polyline;
 pub mod risk;
 pub mod routing;

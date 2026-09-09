@@ -19,9 +19,12 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     GENERATE_INFOPLIST_FILE: NO
-    # Rust core: FlowsCore.swift dlopens libflows_core at runtime in dev builds
-    # (pure-Swift fallback when absent). Device/App Store builds static-link
-    # ../rust/target/<triple>/release/libflows_core.a — see docs/APPLE_APP.md.
+    # No Rust is linked into the app. flows-core is `forbid(unsafe_code)`, and
+    # a C-ABI export cannot exist in such a crate (`#[no_mangle]` trips that
+    # lint) — when the last export turned out to have no caller, the surface
+    # was deleted rather than the lint weakened. The compute the app used to
+    # call across is Swift-native now; the boundary returns with the RAPTOR
+    # transit engine, through swift-bridge. See docs/RUST_SWIFT_MIGRATION.md.
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 
 targets:
@@ -132,20 +135,11 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 3T5JWQ4XW4
         CODE_SIGN_IDENTITY[sdk=iphoneos*]: "Apple Development"
-        # Static-link the Rust core per SDK — the device and
-        # simulator need their own cross-compiled slices. `-u` force-keeps the
-        # C symbol so FlowsCore's loader resolves it (Swift fallback otherwise).
-        OTHER_LDFLAGS[sdk=iphoneos*]: $(SRCROOT)/../rust/target/aarch64-apple-ios/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
-        OTHER_LDFLAGS[sdk=iphonesimulator*]: $(SRCROOT)/../rust/target/aarch64-apple-ios-sim/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
-    preBuildScripts:
-      - name: Build Rust flows-core (iOS device + simulator)
-        basedOnDependencyAnalysis: false
-        script: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          command -v cargo >/dev/null 2>&1 || { echo "cargo not on PATH — linking existing libflows_core.a"; exit 0; }
-          cd "$SRCROOT/../rust"
-          cargo build --release --target aarch64-apple-ios || echo "device slice build failed"
-          cargo build --release --target aarch64-apple-ios-sim || echo "sim slice build failed"
+        # No Rust is linked into the app right now: flows-core carries no
+        # C-ABI surface (see rust/flows-core/src/lib.rs — `forbid(unsafe_code)`
+        # and `#[no_mangle]` cannot coexist, and the last export had no
+        # caller). The static-link and its `-u` force-keeps come back with the
+        # transit engine, through swift-bridge.
 
   FLOWS-Watch:
     type: application
@@ -249,21 +243,6 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: 3T5JWQ4XW4
-        # Static-link the Rust core. `-u` force-keeps the C
-        # symbol so FlowsCore.swift's dlsym(dlopen(nil)) resolves it and the
-        # app runs the Rust polyline decoder, not the Swift fallback.
-        OTHER_LDFLAGS: $(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
-    preBuildScripts:
-      - name: Build Rust flows-core
-        basedOnDependencyAnalysis: false
-        script: |
-          export PATH="$HOME/.cargo/bin:$PATH"
-          if command -v cargo >/dev/null 2>&1; then
-            (cd "$SRCROOT/../rust" && cargo build --release) \
-              || echo "flows-core build failed — linking existing libflows_core.a"
-          else
-            echo "cargo not on PATH — linking existing libflows_core.a"
-          fi
 
   FLOWSTests:
     type: bundle.unit-test
@@ -379,9 +358,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.tests
         CODE_SIGN_IDENTITY: "-"
         GENERATE_INFOPLIST_FILE: YES   # test bundles get a stub plist
-        # Link the Rust core so the suite can assert it's LIVE and prove the
-        # Rust decoder is byte-identical to the Swift fallback.
-        OTHER_LDFLAGS: $(SRCROOT)/../rust/target/release/libflows_core.a -Wl,-u,_flows_polyline_decode -Wl,-u,_flows_transit_selftest
 
 schemes:
   FLOWSTests:

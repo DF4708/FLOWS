@@ -8,105 +8,40 @@
 
 import Foundation
 
-/// Bridge to the Rust compute core (rust/flows-core), which carries the hot
-/// loops: the AArch64-assembly polyline decoder, risk banding, and the CH
-/// router. Mirrors the R side's optional-dylib pattern (R/rust_core.R):
-///   - dev builds dlopen libflows_core.dylib when present;
-///   - device/App Store builds static-link libflows_core.a, where the same
-///     symbols resolve at link time;
-///   - if neither is available, pure-Swift fallbacks keep the app functional
-///     (slower, but identical results).
+/// Swift-native compute the app used to reach into Rust for.
+///
+/// There is no longer a Rust boundary here. The library it called
+/// (rust/flows-core) is safe Rust under `forbid(unsafe_code)`, and a C-ABI
+/// export cannot exist in such a crate — `#[no_mangle]` is itself rejected
+/// by that lint. Removing the boundary took away, on this side, a `dlsym`
+/// whose result was `unsafeBitCast` into a function pointer, two
+/// `withUnsafe*BufferPointer` scopes, and a copy of every decoded double out
+/// of a scratch buffer; and on the Rust side, every raw pointer it had.
+///
+/// The measured cost of that safety is about 23 microseconds on a 10 KB
+/// route polyline (Rust 1.16 ns/byte, Swift 4.73). flows-core remains the
+/// reference implementation and still runs in the offline tooling. When the
+/// RAPTOR transit engine goes live it needs a real bulk boundary; that comes
+/// back through swift-bridge, which exports via `#[export_name]` and is
+/// verified to compile under the crate's `forbid` — see
+/// docs/RUST_SWIFT_MIGRATION.md.
 enum FlowsCore {
-    // C ABI: int64_t flows_polyline_decode(const uint8_t*, size_t, double*, size_t)
-    private typealias PolylineDecodeFn = @convention(c) (
-        UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<Double>?, Int
-    ) -> Int64
-
-    private static let polylineDecodeFn: PolylineDecodeFn? = {
-        // Same ownership guard the R loader applies: only accept a library we
-        // own that nobody else can write (see R/rust_core.R).
-        for path in candidateLibraryPaths() {
-            var st = stat()
-            guard stat(path, &st) == 0,
-                  st.st_uid == getuid(),
-                  (st.st_mode & 0o022) == 0,
-                  let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL),
-                  let sym = dlsym(handle, "flows_polyline_decode")
-            else { continue }
-            return unsafeBitCast(sym, to: PolylineDecodeFn.self)
-        }
-        // Static-linked builds: the symbol is already in the binary.
-        if let sym = dlsym(dlopen(nil, RTLD_NOW), "flows_polyline_decode") {
-            return unsafeBitCast(sym, to: PolylineDecodeFn.self)
-        }
-        return nil
-    }()
-
-    private static func candidateLibraryPaths() -> [String] {
-        #if os(macOS)
-        let repo = ProcessInfo.processInfo.environment["FLOWS_REPO"]
-            ?? "\(NSHomeDirectory())/Documents/Coding_Files/FLOWS"
-        return [
-            Bundle.main.privateFrameworksPath.map { "\($0)/libflows_core.dylib" },
-            "\(repo)/rust/target/release/libflows_core.dylib",
-        ].compactMap { $0 }
-        #else
-        return []   // iOS: static link only
-        #endif
-    }
-
-    /// True when the Rust core (asm hot loops) is live rather than fallback.
-    static var rustCoreLoaded: Bool { polylineDecodeFn != nil }
-
-    // C ABI: int64_t flows_transit_selftest(void) — runs the RAPTOR engine
-    // through the boundary and returns a canonical transfer plan's arrival time.
-    private typealias TransitSelfTestFn = @convention(c) () -> Int64
-    private static let transitSelfTestFn: TransitSelfTestFn? = {
-        for path in candidateLibraryPaths() {
-            var st = stat()
-            guard stat(path, &st) == 0, st.st_uid == getuid(),
-                  (st.st_mode & 0o022) == 0,
-                  let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL),
-                  let sym = dlsym(handle, "flows_transit_selftest")
-            else { continue }
-            return unsafeBitCast(sym, to: TransitSelfTestFn.self)
-        }
-        if let sym = dlsym(dlopen(nil, RTLD_NOW), "flows_transit_selftest") {
-            return unsafeBitCast(sym, to: TransitSelfTestFn.self)
-        }
-        return nil
-    }()
-
-    /// Proof the Rust RAPTOR transit engine is linked and executes through the C
-    /// ABI: returns the arrival time (1500) of a canonical 2-leg transfer plan,
-    /// or -1 if the engine failed or the symbol isn't linked. (`flows_transit_plan`
-    /// is the real per-query surface; it goes live once GTFS timetables load.)
-    static func transitSelfTest() -> Int64 { transitSelfTestFn?() ?? -1 }
-
-    /// True when the on-device RAPTOR transit engine is linked and runnable.
-    static var transitEngineLoaded: Bool { transitSelfTest() == 1500 }
-
     /// Decode a Google encoded polyline into (lon, lat) pairs.
-    /// Rust/asm when available; the Swift fallback implements the identical
-    /// overflow-safe algorithm (64-bit accumulate, MAX_CHUNKS guard) so both
-    /// paths are value-identical.
+    ///
+    /// Swift-native, and deliberately so. This used to call through the C ABI
+    /// into Rust, which cost an `unsafeBitCast` of a `dlsym` result, two
+    /// `withUnsafe*BufferPointer` scopes, and a full copy of the decoded
+    /// doubles out of a scratch buffer — to save about 23 microseconds on a
+    /// 10 KB route polyline (measured: Rust 1.16 ns/byte, Swift 4.73). That
+    /// is not a cost worth a raw pointer on either side of the boundary, and
+    /// the two implementations were already value-identical by test.
+    /// rust/flows-core/src/polyline.rs remains the reference and is still
+    /// used by the offline tooling.
     static func decodePolyline(_ encoded: String) -> [(lon: Double, lat: Double)] {
-        let bytes = Array(encoded.utf8)
-        if let f = polylineDecodeFn {
-            let cap = bytes.count / 2 + 1
-            var buf = [Double](repeating: 0, count: 2 * cap)
-            let n = bytes.withUnsafeBufferPointer { bp in
-                buf.withUnsafeMutableBufferPointer { op in
-                    f(bp.baseAddress, bytes.count, op.baseAddress, cap)
-                }
-            }
-            guard n > 0 else { return [] }
-            return (0..<Int(n)).map { (lon: buf[2 * $0], lat: buf[2 * $0 + 1]) }
-        }
-        return decodePolylineSwift(bytes)
+        decodePolylineSwift(Array(encoded.utf8))
     }
 
-    /// Pure-Swift fallback — same algorithm as rust/flows-core/src/polyline.rs.
+    /// The decoder — same algorithm as rust/flows-core/src/polyline.rs.
     static func decodePolylineSwift(_ bytes: [UInt8]) -> [(lon: Double, lat: Double)] {
         var deltas: [Int64] = []
         var acc: UInt64 = 0, shift: UInt64 = 0, chunks = 0

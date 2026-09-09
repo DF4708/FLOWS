@@ -1186,3 +1186,48 @@ last time: read the findings by hand, keep the ones with a mechanism. Twenty
 or so audit agents to generate candidates is defensible; a second fan-out to
 check them is what runs out of room.
 
+## The export that could not exist
+
+Bringing the Rust crates to the standard ended somewhere I did not expect:
+with no foreign-function interface at all.
+
+**`#[no_mangle]` is itself unsafe to the compiler.** `forbid(unsafe_code)`
+rejects a `#[no_mangle]` declaration, not just an `unsafe` block — the lint
+treats manual symbol export as an unsafe capability, because the linker's
+behaviour with duplicate symbols is undefined. So the strongest form of the
+rule and a C ABI cannot live in one crate. That is not a technicality to
+route around; it is the standard's position stated by the compiler.
+
+**Which turned a rewrite into a deletion.** Faced with "make the boundary
+safe", the useful question was not how, but what the boundary was carrying.
+Eight exports: five had zero references anywhere in the Swift app, one had a
+value-identical native Swift implementation already shipping as its fallback,
+one had no caller and a comment admitting it, and the last was a diagnostic
+nothing read. The compliant boundary was no boundary.
+
+**Removing it deleted unsafe on the other side too.** The Swift caller had a
+`dlsym` result `unsafeBitCast` into a function pointer, two unsafe buffer
+scopes, and a copy of every decoded double out of scratch. A cross-language
+boundary is unsafe at both ends; costing it only in the language you are
+auditing understates it.
+
+**Verify the tool before you argue with the request.** I was ready to tell
+the owner that swift-bridge could not satisfy the standard, reasoning that
+its macro must expand `unsafe` into our crate. It does not: it exports via
+`#[export_name]`, 207 times, and compiles clean under `forbid` — proven with
+a control in the same crate to show the lint was live. The owner's choice was
+right and my reasoning was wrong, and a ten-minute experiment was the
+difference between advice and an opinion.
+
+**A benchmark that changes nothing is still the deciding evidence.** Swift
+decodes polylines at 4.73 ns/byte against Rust's 1.16. Four times slower, and
+completely immaterial: 23 microseconds on a route polyline. The measurement
+did not justify keeping the boundary — it justified removing it without
+worrying.
+
+**Tests can encode an architecture you are about to leave.** Three tests
+asserted "the Rust core must be statically linked, not the fallback" — a
+guard for the old design. The one worth keeping compared two implementations
+of the same algorithm, which proves they agree, not that they are right. It
+now checks the published specification's own worked example instead.
+
