@@ -40,6 +40,8 @@ struct PlannerPanel: View {
     @State private var isWorking = false
     @State private var errorMessage: String?
     @FocusState private var focusedField: Field?
+    /// The list the focus just left, held open long enough for a click.
+    @State private var listHold: Field?
 
     enum Field { case destination, source }
 
@@ -57,6 +59,13 @@ struct PlannerPanel: View {
     }
     private var usingGPSSource: Bool {
         hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// No fix, nothing typed, but a Home or a learned everyday area to
+    /// start from — the Mac's usual state.
+    private var usingFallbackStart: Bool {
+        !hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty
+            && model.bestKnownPosition != nil
     }
 
     var body: some View {
@@ -134,6 +143,18 @@ struct PlannerPanel: View {
                     .clipShape(Capsule())
                     .contentShape(Capsule())
                     .focused($focusedField, equals: .destination)
+                    // On the Mac, clicking a suggestion first moves focus
+                    // OFF the field; the list was keyed on focus alone, so it
+                    // vanished before the click could land and no suggestion
+                    // was ever selectable. Hold the list open briefly after
+                    // focus leaves; a pick clears the hold at once.
+                    .onChange(of: focusedField) { previous, current in
+                        guard let previous, current != previous else { return }
+                        listHold = previous
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            if focusedField != previous { listHold = nil }
+                        }
+                    }
                     // Place names are proper nouns — the system completion
                     // popup only ever "corrects" them, and its window ate the
                     // first click aimed at Plan route.
@@ -161,7 +182,7 @@ struct PlannerPanel: View {
                 } label: {
                     Image(systemName: destinationIsFavorite ? "star.fill" : "star")
                         .scaledFont(size: 20, weight: .semibold)
-                        .foregroundStyle(destinationIsFavorite ? Color.yellow : Color.secondary)
+                        .foregroundStyle(Color.yellow)   // filled when saved, outline when not
                         .frame(width: 56, height: Theme.tapMinimum)
                         .background(Theme.fill(0.04))
                         .clipShape(Capsule())
@@ -169,6 +190,10 @@ struct PlannerPanel: View {
                 .accessibilityLabel(destinationIsFavorite
                                     ? "Saved as a favorite" : "Save as a favorite")
                 .menuIndicator(.hidden)
+                // Plain: on the Mac a Menu draws its own pull-down bezel,
+                // which put the star a different height from the field.
+                .menuStyle(.button)
+                .buttonStyle(.plain)
                 .fixedSize()
                 .disabled(model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty)
                 .help("Save this destination as a favorite")
@@ -181,11 +206,12 @@ struct PlannerPanel: View {
             // stays reachable; the richer rows (icon by kind, distance,
             // recents and predictions) come from the search work. Both
             // survive: their scroll behaviour wrapping our row rendering.
-            if focusedField == .destination, !destSearch.suggestions.isEmpty {
+            if focusedField == .destination || listHold == .destination, !destSearch.suggestions.isEmpty {
                 ScrollWhenTight {
                     suggestionList(destSearch.suggestions) { sug in
                         destSearch.accept()
                         model.plannerDestination = sug.searchText
+                        listHold = nil
                         focusedField = nil
                         Task { await plan() }
                     }
@@ -198,7 +224,7 @@ struct PlannerPanel: View {
             // GPS fix the field shows automatically with an explanation.
             HStack(spacing: 6) {
                 Image(systemName: usingGPSSource ? "location.fill" : "mappin.circle")
-                    .font(.footnote)
+                    .scaledFont(.footnote)
                     .foregroundStyle(usingGPSSource ? .blue : .secondary)
                     // The icon carries the GPS-vs-manual distinction that
                     // the text alone leaves to color.
@@ -206,7 +232,7 @@ struct PlannerPanel: View {
                                         ? "Starting from your location"
                                         : "Starting from a typed place")
                 Text(sourceRowText)
-                    .font(.footnote)
+                    .scaledFont(.footnote)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if hasGPS {
@@ -221,7 +247,7 @@ struct PlannerPanel: View {
                             overrideSource = true
                         }
                     }
-                    .font(.caption2.weight(.semibold))
+                    .scaledFont(.caption2, weight: .semibold)
                     .buttonStyle(.plain)
                     .foregroundStyle(.blue)
                 }
@@ -241,7 +267,7 @@ struct PlannerPanel: View {
                     .autocorrectionDisabled()
                     .onSubmit { Task { await plan() } }
                 // The start field completes like the destination does.
-                if focusedField == .source, !sourceSearch.suggestions.isEmpty {
+                if focusedField == .source || listHold == .source, !sourceSearch.suggestions.isEmpty {
                     suggestionList(sourceSearch.suggestions) { sug in
                         sourceSearch.accept()
                         model.plannerSource = sug.searchText
@@ -280,7 +306,7 @@ struct PlannerPanel: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.footnote)
+                    .scaledFont(.footnote)
                     .foregroundStyle(Theme.riskRed)
             }
 
@@ -469,6 +495,7 @@ struct PlannerPanel: View {
 
     private var sourceRowText: String {
         if usingGPSSource { return "From: Current Location" }
+        if usingFallbackStart, let p = model.bestKnownPosition { return "From: \(p.label) (no GPS)" }
         if !hasGPS { return "From: (no GPS on this device — enter a start)" }
         return "From:"
     }
@@ -488,11 +515,11 @@ struct PlannerPanel: View {
             // never queues behind a typed start.
             let from: (CLLocationCoordinate2D, String)
             let to: (CLLocationCoordinate2D, String)
-            if usingGPSSource {
-                guard let here = model.location.coordinate else {
+            if usingGPSSource || usingFallbackStart {
+                guard let start = model.bestKnownPosition else {
                     throw RouteError.notFound("current location (no GPS fix yet)")
                 }
-                from = (here, "Current location")
+                from = (start.coordinate, start.label)
                 to = try await model.router.geocode(
                     model.plannerDestination, near: model.location.coordinate)
             } else {

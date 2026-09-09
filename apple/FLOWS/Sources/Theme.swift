@@ -294,22 +294,43 @@ struct ScrollWhenTight<Content: View>: View {
 /// caps how far it can go, so text can't outgrow its card.
 private struct ScaledFont: ViewModifier {
     @ScaledMetric private var size: CGFloat
+    @Environment(\.dynamicTypeSize) private var typeSize
+    private let base: CGFloat
     private let weight: Font.Weight
     private let design: Font.Design
 
     init(size: CGFloat, weight: Font.Weight, design: Font.Design,
          relativeTo style: Font.TextStyle) {
         _size = ScaledMetric(wrappedValue: size, relativeTo: style)
+        base = size
         self.weight = weight
         self.design = design
     }
 
     func body(content: Content) -> some View {
-        content.font(.system(size: size, weight: weight, design: design))
+        #if os(macOS)
+        // No Dynamic Type on the Mac: @ScaledMetric never moves, so the
+        // slider's pinned step (the root clamps the environment to it) is
+        // applied by hand. Before this, the text-size setting changed
+        // nothing on a Mac.
+        let points = base * TextScale.factor(typeSize)
+        #else
+        let points = size
+        #endif
+        content.font(.system(size: points, weight: weight, design: design))
     }
 }
 
 extension View {
+    /// The semantic styles (`.caption`, `.footnote`…) through the same
+    /// scaling as a fixed size. A plain `.font(.caption)` follows Dynamic
+    /// Type on iOS and nothing at all on macOS, so the in-app text-size
+    /// slider never moved the menus there — two thirds of the menu text
+    /// was written that way.
+    func scaledFont(_ style: Font.TextStyle, weight: Font.Weight = .regular) -> some View {
+        scaledFont(size: TextScale.baseSize(style), weight: weight, relativeTo: style)
+    }
+
     /// Drop-in replacement for `.font(.system(size:weight:))` that scales.
     func scaledFont(size: CGFloat, weight: Font.Weight = .regular,
                     design: Font.Design = .default,

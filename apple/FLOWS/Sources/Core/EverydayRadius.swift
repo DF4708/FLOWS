@@ -374,6 +374,11 @@ final class EverydayPlaces: ObservableObject {
     /// The circle's current radius (miles) — Settings surfaces it as
     /// "Your everyday area".
     var radiusMiles: Double { store.radiusMiles }
+    /// The learned home anchor — the centre of the driver's everyday area —
+    /// for a starting point or a map centre when there is no GPS fix.
+    var homeAnchor: CLLocationCoordinate2D? {
+        store.home.map { CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lon) }
+    }
 
     /// Every remembered place across categories — the evidence base for
     /// destination prediction (DestinationPrediction).

@@ -628,11 +628,11 @@ final class SecureShredTests: XCTestCase {
 /// gap cannot reopen quietly.
 final class TCCUsageKeyTests: XCTestCase {
     private func projectYAML() throws -> String {
-        // FLOWSTests/…/ShelterPolicyTests.swift → apple/project.yml
-        let here = URL(fileURLWithPath: #filePath)
-        let yml = here.deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("project.yml")
-        return try String(contentsOf: yml, encoding: .utf8)
+        // Bundled as a test resource: the runner has no permission to open
+        // the repository under ~/Documents.
+        let url = try XCTUnwrap(Bundle(for: TCCUsageKeyTests.self)
+            .url(forResource: "project", withExtension: "yml"))
+        return try String(contentsOf: url, encoding: .utf8)
     }
 
     /// The `info:` block of one target, by its `platform:` line.
@@ -658,5 +658,25 @@ final class TCCUsageKeyTests: XCTestCase {
         let block = infoBlock(platform: "iOS", in: try projectYAML())
         XCTAssertTrue(block.contains("NSSpeechRecognitionUsageDescription"))
         XCTAssertTrue(block.contains("NSMicrophoneUsageDescription"))
+    }
+}
+
+/// The text-size slider's steps, as the Mac applies them by hand.
+final class TextScaleFactorTests: XCTestCase {
+    func testTheDefaultStepDrawsAtOneAndEveryLargerStepDrawsLarger() {
+        XCTAssertEqual(TextScale.factor(.large), 1)
+        var last: CGFloat = 0
+        for step in TextScale.steps {
+            let f = TextScale.factor(step)
+            XCTAssertGreaterThan(f, last, "\(step) must draw larger than the step before it")
+            last = f
+        }
+    }
+
+    func testSemanticStylesKeepTheirDefaultProportions() {
+        XCTAssertEqual(TextScale.baseSize(.body), 17)
+        XCTAssertEqual(TextScale.baseSize(.caption), 12)
+        XCTAssertLessThan(TextScale.baseSize(.caption2), TextScale.baseSize(.caption))
+        XCTAssertGreaterThan(TextScale.baseSize(.title), TextScale.baseSize(.headline))
     }
 }

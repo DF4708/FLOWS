@@ -4434,6 +4434,20 @@ final class AppModel: ObservableObject {
         location.coordinate ?? navigation.route.flatMap { Self.firstCoordinate(of: $0) }
     }
 
+    /// The best guess at where the driver is, for a starting point and a
+    /// map centre: the GPS fix; else the saved Home; else the centre of the
+    /// learned everyday area. A Mac usually has no fix at all, and before
+    /// this it framed the whole continent and refused to plan without a
+    /// typed start.
+    var bestKnownPosition: (coordinate: CLLocationCoordinate2D, label: String)? {
+        if let fix = location.coordinate { return (fix, "Current location") }
+        if let home = favorites.favorites.first(where: { $0.symbol == .home }) {
+            return (home.coordinate, "Home")
+        }
+        if let anchor = EverydayPlaces.shared.homeAnchor { return (anchor, "Your usual area") }
+        return nil
+    }
+
     /// Append a stop to the CURRENT route: plan both legs immediately —
     /// (here → stop) to drive now and (stop → final destination) to continue
     /// with — so the map shows the whole amended trip, and arrival at the

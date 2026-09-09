@@ -166,7 +166,7 @@ struct ScannerIncidentPin: View {
                 .fill(color)
                 .frame(width: 22, height: 22)
             Image(systemName: incident.kind.symbol)
-                .font(.system(size: 10, weight: .bold))
+                .scaledFont(size: 10, weight: .bold)
                 .foregroundStyle(Theme.onDark)
         }
         .overlay(Circle().stroke(.white, lineWidth: 1.5).frame(width: 22, height: 22))

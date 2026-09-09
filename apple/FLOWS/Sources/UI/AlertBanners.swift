@@ -118,7 +118,7 @@ struct ImminentBannerView: View {
                     }
                     if let detail = warning.detail {
                         Text(detail)
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .opacity(0.85)
                             .lineLimit(3)
                     }
@@ -168,7 +168,7 @@ struct ImminentBannerView: View {
                     }
                 case .restArea:
                     Text("Passes in 1–2 h — wait it out?")
-                        .font(.footnote.weight(.semibold))
+                        .scaledFont(.footnote, weight: .semibold)
                     if let onFindRest {
                         Button("Find rest area") { onFindRest() }
                             .scaledFont(size: 14, weight: .heavy)
@@ -223,7 +223,7 @@ struct GasGaugeCard: View {
             Text("Drag the needle to where the gauge sat BEFORE filling — "
                  + "it teaches the range prediction (currently "
                  + String(format: "%.0f%%", accuracy * 100) + " accurate).")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             GaugeDial(fraction: $fraction)
                 // A draggable needle is unusable without sight and hard
@@ -333,9 +333,9 @@ struct GaugeDial: View {
                             .position(point(center, radius + 14, angle))
                     }
                 }
-                Text("E").font(.caption.weight(.heavy)).foregroundStyle(Theme.riskRed)
+                Text("E").scaledFont(.caption, weight: .heavy).foregroundStyle(Theme.riskRed)
                     .position(point(center, radius + 16, Angle(degrees: 180)))
-                Text("F").font(.caption.weight(.heavy)).foregroundStyle(Theme.riskGreen)
+                Text("F").scaledFont(.caption, weight: .heavy).foregroundStyle(Theme.riskGreen)
                     .position(point(center, radius + 16, Angle(degrees: 360)))
                 // The centrally rotating red needle. The offset puts the
                 // needle's base at the bounds center (= the hub), so the
@@ -419,18 +419,18 @@ struct TowingCard: View {
                      + "high winds, and roads with weight signs under your "
                      + "vehicle + towing weight. Fuel prediction switched to the "
                      + "towing pattern (kept separate from your normal pattern).")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             HStack {
                 Text(String(format: "Vehicle: %.0f lb", model.towVehicleWeightLbs))
-                    .font(.caption.weight(.semibold))
+                    .scaledFont(.caption, weight: .semibold)
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
             }
             HStack {
                 Text(String(format: "Towing: %.0f lb", model.towTrailerWeightLbs))
-                    .font(.caption.weight(.semibold))
+                    .scaledFont(.caption, weight: .semibold)
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
             }
@@ -450,7 +450,7 @@ struct TowingCard: View {
                         .foregroundStyle(Theme.riskRed)
                         .opacity(flash ? 1 : 0.35)
                     Text(v.consequences)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -458,11 +458,11 @@ struct TowingCard: View {
                 Text("Class-typical ESTIMATES — the manufacturer publishes no "
                      + "ratings for this vehicle. Verify against the door-jamb "
                      + "sticker and owner's manual before towing.")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             } else if ratings.gvwrLbs == nil {
                 Text("No ratings available — add a vehicle for towing checks.")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -532,26 +532,26 @@ struct DemoAlertsView: View {
                         .foregroundStyle(.blue)
                 }
                 Text("Sample data — exactly what each alert looks like in use.")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
 
                 Text("RED emergency broadcast (press-to-dismiss)")
-                    .font(.caption.weight(.bold))
+                    .scaledFont(.caption, weight: .bold)
                 ImminentBannerView(warning: sampleAmber, isCompact: true,
                                    onDismiss: {}, onShelterDelay: {}, onFindRest: nil)
                 Text("Transient storm → rest-area recommendation")
-                    .font(.caption.weight(.bold))
+                    .scaledFont(.caption, weight: .bold)
                 ImminentBannerView(warning: sampleStorm, isCompact: true,
                                    onDismiss: {}, onShelterDelay: nil, onFindRest: {})
 
                 Text("Refuel gauge (analog needle — drag it)")
-                    .font(.caption.weight(.bold))
+                    .scaledFont(.caption, weight: .bold)
                     .id("cards")
                 GasGaugeCard(predictedFraction: 0.35, accuracy: 0.62,
                              onConfirm: { _ in }, onNoRefuel: {}, onDismiss: {})
 
                 Text("Towing card (weights vs manufacturer ratings)")
-                    .font(.caption.weight(.bold))
+                    .scaledFont(.caption, weight: .bold)
                 TowingCard()
 
                 Button {
@@ -616,7 +616,7 @@ struct StarsAndBucks: View {
                             .foregroundStyle(starColor)
                     }
                     Text(String(format: "%.1f", stars))
-                        .font(.caption2.weight(.bold))
+                        .scaledFont(.caption2, weight: .bold)
                         .foregroundStyle(.secondary)
                         .padding(.leading, 2)
                 }

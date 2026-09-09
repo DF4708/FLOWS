@@ -269,6 +269,11 @@ targets:
     type: bundle.unit-test
     platform: macOS
     sources:
+      # The project definition rides along as a resource so TCCUsageKeyTests
+      # can read it without filesystem permission (the runner cannot open
+      # ~/Documents).
+      - path: project.yml
+        buildPhase: resources
       # Pure-function tests compile the sources they exercise directly —
       # no app host needed, runs headless in CI.
       - path: FLOWS/Sources/Core/FlowsCore.swift

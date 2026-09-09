@@ -531,6 +531,15 @@ struct ContentView: View {
         // settings opens bright white in a dark cab.
         .presentationColorScheme(model.resolvedColorScheme)
         #endif
+        .onAppear {
+            // No fix yet (a Mac, usually): open on the best-known position
+            // at city scale instead of the whole continent, where the risk
+            // sweep draws nothing. The first real fix narrows further.
+            if model.location.coordinate == nil, let p = model.bestKnownPosition {
+                camera = .region(MKCoordinateRegion(
+                    center: p.coordinate, latitudinalMeters: 80_000, longitudinalMeters: 80_000))
+            }
+        }
         .task(id: model.mode) {
             // The planning sweep keys on the VIEWPORT, so a parked driver
             // watching the map never saw a warning issued after the last
@@ -1229,7 +1238,7 @@ struct ContentView: View {
                 if let end = saved.destination {
                     Annotation(saved.destinationName, coordinate: end) {
                         Image(systemName: "flag.checkered")
-                            .font(.system(size: 14, weight: .bold))
+                            .scaledFont(size: 14, weight: .bold)
                             .foregroundStyle(.white)
                             .frame(width: 30, height: 30)
                             .background(Color.purple)
@@ -1310,7 +1319,7 @@ struct ContentView: View {
                         Circle().fill(Color.black.opacity(0.85))
                             .frame(width: 26, height: 26)
                         Image(systemName: camera.kind.symbol)
-                            .font(.system(size: 12, weight: .bold))
+                            .scaledFont(size: 12, weight: .bold)
                             .foregroundStyle(Theme.onDark)
                     }
                     .overlay(Circle().stroke(Theme.riskYellow, lineWidth: 2))
@@ -1527,7 +1536,7 @@ struct ContentView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "wifi.slash")
                     Text("Offline — live routing unavailable.")
-                        .font(.footnote.weight(.semibold))
+                        .scaledFont(.footnote, weight: .semibold)
                     if model.breadcrumbs.points.count >= 2 {
                         Button(model.breadcrumbs.showTrail
                                ? "Hide my trail"
@@ -1535,7 +1544,7 @@ struct ContentView: View {
                                         model.breadcrumbs.wayBack().meters / 1609.344)) {
                             model.breadcrumbs.showTrail.toggle()
                         }
-                        .font(.footnote.weight(.bold))
+                        .scaledFont(.footnote, weight: .bold)
                         .buttonStyle(.plain)
                         .foregroundStyle(.blue)
                     }
@@ -1838,7 +1847,7 @@ struct ContentView: View {
                             .scaledFont(size: 15, weight: .bold)
                         if let band {
                             Text(band.rawValue)
-                                .font(.caption.weight(.heavy))
+                                .scaledFont(.caption, weight: .heavy)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background((band == .clear ? Color.secondary : band.color).opacity(0.15))
@@ -1850,12 +1859,12 @@ struct ContentView: View {
                          ?? fieldSummary
                          ?? "Elevated \(info.kind.name.lowercased()) conditions in this area — "
                          + "drive to conditions and watch for official alerts.")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
                     if let score = info.score {
                         Text(String(format: "Local risk score %.0f%%", score * 100))
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
                     // Expert actions, SCALED to the band — mild elevation
@@ -1863,7 +1872,7 @@ struct ContentView: View {
                     ForEach(RiskAdvice.actions(kindName: info.kind.name,
                                                band: band ?? .green), id: \.self) { line in
                         Label(line, systemImage: "checkmark.circle")
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .foregroundStyle(.primary.opacity(0.85))
                     }
                     // The issuing agency's page for THIS location — a
@@ -1873,7 +1882,7 @@ struct ContentView: View {
                         ?? RiskAdvice.officialURL(latitude: info.coordinate.latitude,
                                                   longitude: info.coordinate.longitude) {
                         Link("Official warning page →", destination: url)
-                            .font(.caption.weight(.bold))
+                            .scaledFont(.caption, weight: .bold)
                     }
                 }
                 Spacer()
@@ -2094,7 +2103,7 @@ private struct VehicleOnboardingCard: View {
                 .scaledFont(size: 14, weight: .bold)
             Text("Track range from mpg + tank size + how you drive, and "
                  + "get fuel stops before you need them.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -2240,7 +2249,7 @@ struct FilterSlidersCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Vehicle limits")
-                        .font(.caption.weight(.bold))
+                        .scaledFont(.caption, weight: .bold)
                         .foregroundStyle(.secondary)
                     Spacer()
                     // X = minimize into the round limits icon at the top right.
@@ -2259,7 +2268,7 @@ struct FilterSlidersCard: View {
                         Text(String(format: "Vehicle height: %d'%d\"",
                                     Int(model.vehicleHeightFeet),
                                     Int((model.vehicleHeightFeet - Double(Int(model.vehicleHeightFeet))) * 12)))
-                            .font(.caption.weight(.semibold))
+                            .scaledFont(.caption, weight: .semibold)
                         Slider(value: $model.vehicleHeightFeet,
                                in: VehicleSpecs.minimumHeightFeet...16, step: 0.25)
                         // Spell out the effect: height + 2 ft margin.
@@ -2278,7 +2287,7 @@ struct FilterSlidersCard: View {
                         // 14° ≈ a 25% grade. Percent shown for the data-minded.
                         Text(String(format: "Max grade: %.1f° (%.0f%%)", model.maxGradeDegrees,
                                     FilterLimits.degreesToPercent(model.maxGradeDegrees)))
-                            .font(.caption.weight(.semibold))
+                            .scaledFont(.caption, weight: .semibold)
                         Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
                         Text("USGS elevation profile must stay under this incline.")
                             .scaledFont(size: 9)
@@ -2293,17 +2302,17 @@ struct FilterSlidersCard: View {
                             Text(model.towVehicleWeightLbs > 0
                                  ? String(format: "Vehicle weight: %.0f lb", model.towVehicleWeightLbs)
                                  : "Vehicle weight: not set (no roads excluded)")
-                                .font(.caption.weight(.semibold))
+                                .scaledFont(.caption, weight: .semibold)
                             if model.towVehicleWeightLbs > 0 {
                                 Button("Clear") { model.towVehicleWeightLbs = 0 }
-                                    .font(.caption2)
+                                    .scaledFont(.caption2)
                                     .buttonStyle(.plain)
                                     .foregroundStyle(.blue)
                             }
                         }
                         Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
                         Text(String(format: "Towing weight: %.0f lb", model.towTrailerWeightLbs))
-                            .font(.caption.weight(.semibold))
+                            .scaledFont(.caption, weight: .semibold)
                         Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
                         // Spell out the effect: the whole rig vs posted limits.
                         if let rig = model.filterLimits.rigWeightLbs {
@@ -2508,10 +2517,10 @@ struct WelcomeCard: View {
                 Text("One permission runs the whole app: your location. It "
                      + "powers navigation, the weather-risk map around you, "
                      + "and stops ahead. The phone asks right after this.")
-                    .font(.callout)
+                    .scaledFont(.callout)
                 Text("Nothing else is asked up front — each of these asks "
                      + "only the first time you use it:")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 permissionRow("dot.radiowaves.right",
                               "Bluetooth — when you turn on the tire-sensor "
@@ -2546,7 +2555,7 @@ struct WelcomeCard: View {
                 .scaledFont(size: 12, weight: .semibold)
                 .frame(width: 18)
                 .foregroundStyle(.secondary)
-            Text(text).font(.caption)
+            Text(text).scaledFont(.caption)
         }
     }
 }
@@ -2598,9 +2607,9 @@ struct SettingsSheet: View {
     /// One "label … value" line in the learned-about-you section.
     private func learnedRow(_ label: String, _ value: String) -> some View {
         HStack {
-            Text(label).font(.caption)
+            Text(label).scaledFont(.caption)
             Spacer()
-            Text(value).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text(value).scaledFont(.caption, weight: .semibold).foregroundStyle(.secondary)
         }
     }
 
@@ -2638,7 +2647,7 @@ struct SettingsSheet: View {
             Text("Used to pick which stations Gas searches for and how they're "
                  + "ranked (fill cost + detour time). Station-level prices need a "
                  + "licensed feed — until then stations rank by detour time.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -2659,50 +2668,50 @@ struct SettingsSheet: View {
                  + "sources. No other music service lets outside apps "
                  + "control it, so the rest open in their own app. The same "
                  + "rule drives the Siri and CarPlay buttons.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
             Text("Emergency radio on the map")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             if model.scanner.available {
                 Toggle("Show calls heard nearby", isOn: Binding(
                     get: { model.scanner.enabled },
                     set: { model.scanner.enabled = $0 }))
-                    .font(.caption)
+                    .scaledFont(.caption)
                 Text("Local dispatch is transcribed ON THIS PHONE — the audio "
                      + "is never uploaded, saved, or played. Calls show as "
                      + "small pins near you and along your route, and fade "
                      + "out on their own. Heard on a radio, so treat them as "
                      + "a heads-up, not a fact.")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 if let status = model.scanner.status {
-                    Text(status).font(.caption2).foregroundStyle(.secondary)
+                    Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             } else {
                 Text("No feed list is set up on this device, so there is "
                      + "nothing to listen to. Feeds come from whoever holds "
                      + "the listening agreement — drop a scanner_feeds.json "
                      + "into the app's Application Support folder.")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Divider()
             Text("Your vehicle on the map")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             vehicleShapePicker
             vehicleColorRow
             Text("The marker is drawn from the angle the camera is looking "
                  + "from — the roof flat on the map, the back when following "
                  + "behind. Shape starts from the vehicle you entered.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
             Text("Screen light")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Picker("Screen light", selection: Binding(
                 get: { model.appearanceOverride },
                 set: { model.appearanceOverride = $0 })) {
@@ -2718,7 +2727,7 @@ struct SettingsSheet: View {
                    + "and dusk in Fairbanks in December are hours apart."
                  : "Pinned. Pick \"Follow the sun\" to have it change on its own "
                    + "at dusk and dawn.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -2727,14 +2736,14 @@ struct SettingsSheet: View {
             HStack {
                 Text(String(format: "Height %.0f'%.0f\"", model.vehicleHeightFeet.rounded(.down),
                             (model.vehicleHeightFeet - model.vehicleHeightFeet.rounded(.down)) * 12))
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .frame(width: 90, alignment: .leading)
                 Slider(value: $model.vehicleHeightFeet,
                        in: VehicleSpecs.minimumHeightFeet...16, step: 0.25)
             }
             HStack {
                 Text(String(format: "Max grade %.1f°", model.maxGradeDegrees))
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .frame(width: 90, alignment: .leading)
                 Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
             }
@@ -2742,13 +2751,13 @@ struct SettingsSheet: View {
                 Text("Preset from your vehicle — the slope where you'd really "
                      + "want the parking brake. Towing or a heavy rig lowers it. "
                      + "Move the slider to pick your own.")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
                 Button("Use my vehicle's number") {
                     model.applyVehicleMaxGradeDefault(force: true)
                 }
                 .buttonStyle(.plain)
-                .font(.caption2.weight(.bold))
+                .scaledFont(.caption2, weight: .bold)
                 .foregroundStyle(.blue)
                 .fixedSize()
             }
@@ -2757,32 +2766,32 @@ struct SettingsSheet: View {
             Text("Notifications")
                 .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.notifyImminent) {
-                Text("Imminent weather + emergency broadcasts").font(.caption)
+                Text("Imminent weather + emergency broadcasts").scaledFont(.caption)
             }
             Toggle(isOn: $model.notifyEscalation) {
-                Text("Rising-risk reroute prompts").font(.caption)
+                Text("Rising-risk reroute prompts").scaledFont(.caption)
             }
             Toggle(isOn: $model.notifyTraffic) {
-                Text("Traffic delay chips").font(.caption)
+                Text("Traffic delay chips").scaledFont(.caption)
             }
             Toggle(isOn: $model.voiceAlerts) {
                 Text("Speak alerts and faster-route offers out loud "
-                     + "(answer with a plain yes or no)").font(.caption)
+                     + "(answer with a plain yes or no)").scaledFont(.caption)
             }
             Toggle(isOn: $model.speakTurns) {
-                Text("Turn-by-turn voice directions").font(.caption)
+                Text("Turn-by-turn voice directions").scaledFont(.caption)
             }
             Toggle(isOn: $model.notifyFuel) {
-                Text("Fuel range reminders + refuel check-ins").font(.caption)
+                Text("Fuel range reminders + refuel check-ins").scaledFont(.caption)
             }
             Toggle(isOn: $model.crashDetectionEnabled) {
-                Text("Crash detection (iPhone: impact → voice check-in)").font(.caption)
+                Text("Crash detection (iPhone: impact → voice check-in)").scaledFont(.caption)
             }
             Toggle(isOn: $model.radioAutoSwitch) {
-                Text("Trucker radio auto-retunes to the nearest station").font(.caption)
+                Text("Trucker radio auto-retunes to the nearest station").scaledFont(.caption)
             }
             Toggle(isOn: $model.refuelCheckInsEnabled) {
-                Text("Refuel gauge check-ins (train range prediction to 80%+)").font(.caption)
+                Text("Refuel gauge check-ins (train range prediction to 80%+)").scaledFont(.caption)
             }
 
             Divider()
@@ -2808,44 +2817,44 @@ struct SettingsSheet: View {
                 Button("Match the phone's text size") { model.textSizeIndex = -1 }
                     .buttonStyle(.plain)
                     .foregroundStyle(.blue)
-                    .font(.caption.weight(.bold))
+                    .scaledFont(.caption, weight: .bold)
             }
             Text("Bigger or smaller words, your pick. The top end is capped "
                  + "to this screen's size, so words never warp or fall off "
                  + "the edge. Until you move the slider, FLOWS follows the "
                  + "phone's own text-size setting.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
             Divider()
             Text("Accessibility")
                 .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.wordFindingHelp) {
-                Text("Word-finding help (on-device)").font(.caption)
+                Text("Word-finding help (on-device)").scaledFont(.caption)
             }
             Text("When FLOWS can't make out an answer, the phone's own "
                  + "on-device helper matches your words to the choices — "
                  + "\"the one with the tacos\" finds Taco Bell. Nothing you "
                  + "say leaves the phone. Needs a phone with Apple "
                  + "Intelligence; off or unsupported, FLOWS just asks again.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
             Toggle(isOn: $model.personalVoiceAnnouncements) {
-                Text("Speak with your Personal Voice").font(.caption)
+                Text("Speak with your Personal Voice").scaledFont(.caption)
             }
             Text("If you've made a Personal Voice (phone Settings → "
                  + "Accessibility → Personal Voice), FLOWS can speak its "
                  + "alerts and directions with it. The phone asks once for "
                  + "permission.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
             Toggle(isOn: $model.hapticAlerts) {
-                Text("Vibration tap with every spoken alert").font(.caption)
+                Text("Vibration tap with every spoken alert").scaledFont(.caption)
             }
             Text("A felt tap lands with each alert and faster-route offer — "
                  + "for drivers who can't hear the voice, the tap IS the "
                  + "announcement, and the banner carries the words.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
             Text("More help from the phone itself: Vocal Shortcuts (phone "
                  + "Settings → Accessibility) can trigger any FLOWS Siri "
@@ -2853,13 +2862,13 @@ struct SettingsSheet: View {
                  + "impediments. Type to Siri types those same commands. "
                  + "Live Speech can speak a typed reply out loud when FLOWS "
                  + "asks a question.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
             Button {
                 showDemoGallery = true
             } label: {
                 Label("Preview alerts & notifications", systemImage: "eye")
-                    .font(.caption.weight(.bold))
+                    .scaledFont(.caption, weight: .bold)
             }
             .buttonStyle(.plain)
             .foregroundStyle(.blue)
@@ -2891,7 +2900,7 @@ struct SettingsSheet: View {
                  + "text to your contact (GPS, address, time, vehicle, notes), "
                  + "then a call to them. Apple Health Medical ID is not "
                  + "readable by apps — notes here ride the report instead.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -2903,7 +2912,7 @@ struct SettingsSheet: View {
                  + "legal truck parking, truck-friendly motels, and "
                  + "diesel-by-cost. The drive-bar radio works for everyone — "
                  + "this just renames it trucker radio.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -2913,19 +2922,19 @@ struct SettingsSheet: View {
                 if let v = model.vehicle.profile {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(v.displayName.isEmpty ? "My vehicle" : v.displayName)
-                            .font(.caption.weight(.semibold))
+                            .scaledFont(.caption, weight: .semibold)
                         Text(String(format: "%.0f %@ tank · %.0f mi/%@ · range ~%.0f mi",
                                     v.tankCapacityUnits,
                                     v.fuelType == .electric ? "kWh" : "gal",
                                     v.ratedMilesPerUnit,
                                     v.fuelType == .electric ? "kWh" : "gal",
                                     model.vehicle.expectedRangeMiles ?? v.ratedRangeMiles))
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 } else {
                     Text("No vehicle on file — add one for range tracking + fuel timing.")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -2933,14 +2942,14 @@ struct SettingsSheet: View {
                     model.showSettings = false
                     model.showVehicleEditor = true
                 }
-                .font(.caption.weight(.bold))
+                .scaledFont(.caption, weight: .bold)
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
             }
 
             Divider()
             Text("Map zoom while driving")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(size: 14, weight: .semibold)
             Picker("Map zoom", selection: $model.cameraZoomMode) {
                 ForEach(AppModel.CameraZoomMode.allCases) { mode in
                     Text(mode.rawValue).tag(mode)
@@ -2951,7 +2960,7 @@ struct SettingsSheet: View {
             if model.cameraZoomMode == .manual {
                 HStack {
                     Text(zoomLabel(model.manualZoomMeters))
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .frame(width: 90, alignment: .leading)
                     // Log scale: the useful range spans street level to
                     // continent, and a linear slider spends most of its
@@ -2968,7 +2977,7 @@ struct SettingsSheet: View {
                  + "Flying stays far until the airport. Pick another option to "
                  + "hold one view — handy for seeing the walking and flying "
                  + "views without walking or flying.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -2977,7 +2986,7 @@ struct SettingsSheet: View {
                     .scaledFont(size: 14, weight: .semibold)
             }
             Text("Drapes a grade-colored elevation ribbon on the route (from our EPQS road-elevation data) and pitches the camera deeper. Apple's base terrain isn't app-editable, so relief is shown through the ribbon + grade markers, not by bending the map.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -2985,18 +2994,18 @@ struct SettingsSheet: View {
                 .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.tripNeedsEnabled) {
                 Text("Schedule recurring stops")
-                    .font(.caption)
+                    .scaledFont(.caption)
             }
             if model.tripNeedsEnabled {
                 HStack {
                     Text(String(format: "Rest every %.0f min", model.tripRestMinutes))
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .frame(width: 130, alignment: .leading)
                     Slider(value: $model.tripRestMinutes, in: 60...240, step: 15)
                 }
                 HStack {
                     Text(String(format: "Food every %.0f h", model.tripFoodMinutes / 60))
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .frame(width: 130, alignment: .leading)
                     Slider(value: $model.tripFoodMinutes, in: 90...360, step: 30)
                 }
@@ -3004,7 +3013,7 @@ struct SettingsSheet: View {
                     Text(model.derivedFuelIntervalMiles.map {
                         String(format: "Fuel every ~%.0f mi", $0)
                     } ?? "Fuel: add a vehicle")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .frame(width: 130, alignment: .leading)
                     if model.vehicle.profile != nil {
                         Slider(value: Binding(
@@ -3020,7 +3029,7 @@ struct SettingsSheet: View {
                  + "hours-of-service — 30-min break by hour 8 (meal cadence "
                  + "3.5 h keeps you ahead of it). Fuel derives from YOUR "
                  + "vehicle: 75% of habit-adjusted range. All editable here.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -3028,19 +3037,19 @@ struct SettingsSheet: View {
                 .scaledFont(size: 14, weight: .semibold)
             if model.favorites.favorites.isEmpty {
                 Text("Star a destination in the planner to save it here.")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             ForEach(model.favorites.favorites) { fav in
                 HStack(spacing: 8) {
                     Image(systemName: fav.symbol.systemImage)
                         .foregroundStyle(.secondary)
-                    Text(fav.name).font(.caption)
+                    Text(fav.name).scaledFont(.caption)
                     Spacer()
                     Button {
                         model.favorites.remove(fav)
                     } label: {
-                        Image(systemName: "trash").font(.caption)
+                        Image(systemName: "trash").scaledFont(.caption)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.red)
@@ -3053,12 +3062,12 @@ struct SettingsSheet: View {
             SecureField("Google Places API key (free monthly quota: console.cloud.google.com) — stars + $",
                       text: $model.googlePlacesAPIKey)
                 .textFieldStyle(.roundedBorder)
-                .font(.caption)
+                .scaledFont(.caption)
             HStack(spacing: 6) {
                 SecureField("Yelp Places API key (30-day free trial, then paid) — stars + $",
                           text: $model.yelpAPIKey)
                     .textFieldStyle(.roundedBorder)
-                    .font(.caption)
+                    .scaledFont(.caption)
                 Menu {
                     Text("How to get a Yelp key:")
                     Text("1. Open business.yelp.com/data/products/places-api")
@@ -3070,7 +3079,7 @@ struct SettingsSheet: View {
                          destination: URL(string: "https://business.yelp.com/data/products/places-api/")!)
                 } label: {
                     Text("Get one")
-                        .font(.caption.weight(.semibold))
+                        .scaledFont(.caption, weight: .semibold)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -3078,17 +3087,17 @@ struct SettingsSheet: View {
             SecureField("TomTom API key (free tier: developer.tomtom.com) — live gas prices",
                       text: $model.tomtomAPIKey)
                 .textFieldStyle(.roundedBorder)
-                .font(.caption)
+                .scaledFont(.caption)
             Text("With a key, hotels/food show review stars (yellow→gold) and "
                  + "$ tiers (income-anchored: $ = minimum-wage affordable, "
                  + "$$$$$ = top 1–3%). Without one, stars/$ stay hidden.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
             HStack(spacing: 6) {
                 SecureField("Spotify token (optional) — play/pause/skip Spotify in FLOWS",
                           text: $model.spotifyWebToken)
                     .textFieldStyle(.roundedBorder)
-                    .font(.caption)
+                    .scaledFont(.caption)
                 Menu {
                     Text("How to get a Spotify token:")
                     Text("1. Open developer.spotify.com (free account)")
@@ -3100,7 +3109,7 @@ struct SettingsSheet: View {
                          destination: URL(string: "https://developer.spotify.com/documentation/web-api")!)
                 } label: {
                     Text("Get one")
-                        .font(.caption.weight(.semibold))
+                        .scaledFont(.caption, weight: .semibold)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -3109,7 +3118,7 @@ struct SettingsSheet: View {
                  + "FLOWS (needs Spotify Premium; a token expires after about "
                  + "an hour). It is kept in the device's locked Keychain. "
                  + "Without one, FLOWS opens the Spotify app instead.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -3128,20 +3137,20 @@ struct SettingsSheet: View {
             HStack {
                 if model.smartcar.connected {
                     Button("Refresh data") { Task { await model.smartcar.refreshData() } }
-                        .buttonStyle(.plain).foregroundStyle(.blue).font(.caption.weight(.bold))
+                        .buttonStyle(.plain).foregroundStyle(.blue).scaledFont(.caption, weight: .bold)
                     Button("Disconnect") { model.smartcar.disconnect() }
-                        .buttonStyle(.plain).foregroundStyle(.red).font(.caption.weight(.bold))
+                        .buttonStyle(.plain).foregroundStyle(.red).scaledFont(.caption, weight: .bold)
                 } else if let url = model.smartcar.connectURL {
                     Link("Connect vehicle →", destination: url)
-                        .font(.caption.weight(.bold))
+                        .scaledFont(.caption, weight: .bold)
                 }
                 Spacer()
-                Text(model.smartcar.status).font(.caption2).foregroundStyle(.secondary)
+                Text(model.smartcar.status).scaledFont(.caption2).foregroundStyle(.secondary)
             }
             Text("dashboard.smartcar.com → create app → redirect URI "
                  + "flows://smartcar → paste ID + Secret → Connect. Real fuel "
                  + "level and tire pressure then override the odometer model.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -3156,9 +3165,9 @@ struct SettingsSheet: View {
                     // one-time Bluetooth permission ask).
                     UserDefaults.standard.set($0, forKey: "flows.vehicleLinkScanning")
                 })) {
-                Text("Listen for TPMS caps + OBD-II adapters").font(.caption)
+                Text("Listen for TPMS caps + OBD-II adapters").scaledFont(.caption)
             }
-            Text(model.vehicleLink.status).font(.caption2).foregroundStyle(.secondary)
+            Text(model.vehicleLink.status).scaledFont(.caption2).foregroundStyle(.secondary)
             if !model.vehicleLink.tirePressuresPsi.isEmpty {
                 Text(model.vehicleLink.tirePressuresPsi
                     .sorted { $0.key < $1.key }
@@ -3169,7 +3178,7 @@ struct SettingsSheet: View {
             Text("BLE valve-cap TPMS kits broadcast pressures directly; ELM327 "
                  + "OBD adapters (OBDLink/Veepeak) supply real fuel level "
                  + "(SAE PID 2F).")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -3182,7 +3191,7 @@ struct SettingsSheet: View {
                  + "bridges: OpenStreetMap maxheight via Overpass, per plan. "
                  + "Floodplain: FEMA NFHL zones, per plan. "
                  + "Unknown data never excludes a route.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             // The risk map's vintage. The text above used to point at a
             // "generated time in Map Filter" that nothing ever displayed —
@@ -3190,7 +3199,7 @@ struct SettingsSheet: View {
             // worth knowing about, so it says so here.
             if let generated = model.riskField.generatedUTC {
                 Text("Risk field generated \(generated).")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -3202,7 +3211,7 @@ struct SettingsSheet: View {
                  + "The area is learned from your trips and "
                  + "never leaves your phone.",
                  EverydayPlaces.shared.radiusMiles))
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
@@ -3223,7 +3232,7 @@ struct SettingsSheet: View {
                  + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
                  + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
                  + "data. FLOWS is not affiliated with any of these agencies.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
 
@@ -3238,7 +3247,7 @@ struct SettingsSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("All of this is stored on this device only, encrypted "
                          + "with a key that never leaves it. None of it is sent anywhere.")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                     learnedRow("Trips remembered", "\(summary.trips)")
                     learnedRow("Routes recognized", "\(summary.routes)")
@@ -3254,7 +3263,7 @@ struct SettingsSheet: View {
                     }
                     if summary.tuned {
                         Text("The risk model has been fine-tuned on your own trips.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .scaledFont(.caption).foregroundStyle(.secondary)
                     }
                     Button(role: .destructive) {
                         SeasonalRiskModel.shared.eraseLearnedHistory()
@@ -3283,11 +3292,11 @@ struct SettingsSheet: View {
                         Label("Erase everything FLOWS has learned",
                               systemImage: "trash")
                     }
-                    .font(.caption.weight(.semibold))
+                    .scaledFont(.caption, weight: .semibold)
                     .padding(.top, 4)
                     if erasedConfirmation {
                         Text("Erased. The app is back to knowing nothing about your travel.")
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .foregroundStyle(Theme.riskGreen)
                     }
                 }
@@ -3320,17 +3329,17 @@ struct SettingsSheet: View {
                         UIPasteboard.general.string = text
                         #endif
                     }
-                    .font(.caption)
+                    .scaledFont(.caption)
                     // The visible tail is a preview; a trip review wants
                     // the WHOLE journal, so the files themselves ship out.
                     ShareLink(items: FlowsDiag.shared.fileURLs) {
-                        Text("Send full log").font(.caption)
+                        Text("Send full log").scaledFont(.caption)
                     }
                 }
                 Text("After a drive, send the full log to have the music "
                      + "handoffs, learned buffer times, and any feed "
                      + "problems reviewed.")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
             }
             .scaledFont(size: 13, weight: .semibold)
@@ -3463,7 +3472,7 @@ private struct LegendCard: View {
                     }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.body)
+                        .scaledFont(.body)
                         .foregroundStyle(.secondary)
                         // A fingertip target around the small glyph.
                         .frame(width: Theme.tapMinimum, height: Theme.tapMinimum)
@@ -3478,7 +3487,7 @@ private struct LegendCard: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Text("Risk")
-                    .font(.caption2.weight(.bold))
+                    .scaledFont(.caption2, weight: .bold)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
@@ -3517,7 +3526,7 @@ private struct LegendCard: View {
                                 + "red for severe.")
             if model.showWeatherLayer && model.riskField.loaded {
                 Text("Hazards")
-                    .font(.caption2.weight(.bold))
+                    .scaledFont(.caption2, weight: .bold)
                     .foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 4)],
                           alignment: .leading, spacing: 3) {
@@ -3605,7 +3614,7 @@ struct VehicleEditorSheet: View {
             Text(useEPADatabase
                  ? "Pick the year, make, and model — FLOWS fills in the rest."
                  : "Enter your vehicle by hand.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             if useEPADatabase {
                 epaPickers
@@ -3647,7 +3656,7 @@ struct VehicleEditorSheet: View {
             if make != Self.customMake, VehicleSpecs.spec(make: make, model: specModel) != nil {
                 Text("Filled from the vehicle table (manufacturer-typical specs — "
                      + "adjust below if your trim differs).")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             }
@@ -3659,7 +3668,7 @@ struct VehicleEditorSheet: View {
                 if !useEPADatabase { fineTune = true }
             }
             .buttonStyle(.plain)
-            .font(.caption.weight(.semibold))
+            .scaledFont(.caption, weight: .semibold)
             .foregroundStyle(.blue)
 
             // Auto-filled values stay out of the way until asked for —
@@ -3675,21 +3684,21 @@ struct VehicleEditorSheet: View {
             HStack {
                 Text(String(format: "Tank: %.0f %@", tankUnits,
                             fuelType == .electric ? "kWh" : "gal"))
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $tankUnits, in: fuelType == .electric ? 20...250 : 5...300, step: 1)
             }
             HStack {
                 Text(String(format: "Economy: %.1f mi/%@", milesPerUnit,
                             fuelType == .electric ? "kWh" : "gal"))
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $milesPerUnit, in: fuelType == .electric ? 1...6 : 4...60,
                        step: fuelType == .electric ? 0.1 : 0.5)
             }
             HStack {
                 Text(String(format: "Height: %.1f ft", heightFeet))
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $heightFeet, in: VehicleSpecs.minimumHeightFeet...14, step: 0.1)
             }
@@ -3697,7 +3706,7 @@ struct VehicleEditorSheet: View {
                 .padding(.top, 6)
             } label: {
                 Text("Fine-tune for your exact trim")
-                    .font(.caption.weight(.semibold))
+                    .scaledFont(.caption, weight: .semibold)
             }
             .onAppear {
                 // Editing an existing vehicle (or entering by hand): the
@@ -3710,14 +3719,14 @@ struct VehicleEditorSheet: View {
                         + "filter automatically; on the road FLOWS adjusts range for "
                         + "how you drive and recommends fuel stops early.",
                         tankUnits * milesPerUnit))
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             HStack {
                 if model.vehicle.profile != nil {
                     Button("Mark tank full") { model.vehicle.filledUp() }
                         .buttonStyle(.plain)
                         .foregroundStyle(.blue)
-                        .font(.caption.weight(.bold))
+                        .scaledFont(.caption, weight: .bold)
                 }
                 Spacer()
                 Button("Save vehicle") {
@@ -3870,7 +3879,7 @@ struct VehicleEditorSheet: View {
                         milesPerUnit, fuelType == .electric ? "kWh" : "gal",
                         heightFeet,
                         pendingEPARatings?.gvwr != nil ? " · tow ratings" : ""))
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -3915,7 +3924,7 @@ struct CrashCheckInCard: View {
                     Text("Do you need assistance? Say “yes” or “I'm okay” — "
                          + "or use the buttons. FLOWS keeps asking (attempt \(attempt)) "
                          + "until you respond.")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                     HStack(spacing: 10) {
                         Button("I'm OK") { model.crash.standDown() }
                             .scaledFont(size: 15, weight: .bold)
@@ -3937,7 +3946,7 @@ struct CrashCheckInCard: View {
                          + "aloud so you can relay it). Step 2 — send the report "
                          + "to \(model.emergencyContactName.isEmpty ? "your contact" : model.emergencyContactName). "
                          + "Step 3 — call them.")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                     HStack(spacing: 8) {
                         Button("Call 911") { model.crash.call911() }
                             .scaledFont(size: 15, weight: .heavy)

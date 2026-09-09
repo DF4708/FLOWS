@@ -129,7 +129,7 @@ struct NavigationHUD: View {
                         + (model.workZoneRoad.map { " · \($0)" } ?? "")
                       : "\(model.workZonesAhead) work zones ahead (state DOT)",
                       systemImage: "cone.fill")
-                    .font(.footnote.weight(.bold))
+                    .scaledFont(.footnote, weight: .bold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Color.orange.opacity(0.92))
@@ -140,7 +140,7 @@ struct NavigationHUD: View {
             if model.towingActive, let worst = model.towingViolations.first {
                 Button { model.showTowingCard = true } label: {
                     Label(worst.title, systemImage: "exclamationmark.octagon.fill")
-                        .font(.footnote.weight(.heavy))
+                        .scaledFont(.footnote, weight: .heavy)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(Theme.riskRed.opacity(0.95))
@@ -152,7 +152,7 @@ struct NavigationHUD: View {
             }
             if let lowTire = model.lowTireWarning {
                 Label(lowTire, systemImage: "exclamationmark.tirepressure")
-                    .font(.footnote.weight(.bold))
+                    .scaledFont(.footnote, weight: .bold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Theme.riskYellow.opacity(0.92))
@@ -166,7 +166,7 @@ struct NavigationHUD: View {
             if let towWarn = model.towingWarning {
                 Button { model.towingWarning = nil } label: {
                     Label(towWarn, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote.weight(.bold))
+                        .scaledFont(.footnote, weight: .bold)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(Theme.riskRed.opacity(0.94))
@@ -178,7 +178,7 @@ struct NavigationHUD: View {
             }
             if let message = model.poi.emptyResultMessage {
                 Text(message)
-                    .font(.footnote.weight(.semibold))
+                    .scaledFont(.footnote, weight: .semibold)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(Theme.cardBackground)
@@ -189,11 +189,11 @@ struct NavigationHUD: View {
                 HStack(spacing: 8) {
                     Image(systemName: "car.rear.waves.up.fill")
                     Text("Traffic ahead — +\(delay) min")
-                        .font(.footnote.weight(.bold))
+                        .scaledFont(.footnote, weight: .bold)
                     Button("Faster route") {
                         Task { await model.rerouteForTraffic() }
                     }
-                    .font(.footnote.weight(.heavy))
+                    .scaledFont(.footnote, weight: .heavy)
                     .buttonStyle(.plain)
                     .padding(.horizontal, 12)
                     .frame(minHeight: 32)
@@ -213,7 +213,7 @@ struct NavigationHUD: View {
                     ProgressView().controlSize(.small)
                     Text("Adding stop — replanning route…")
                 }
-                .font(.footnote.weight(.semibold))
+                .scaledFont(.footnote, weight: .semibold)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Theme.cardBackground)
@@ -348,7 +348,7 @@ struct NavigationHUD: View {
                         Text(electric
                              ? String(format: "%.1f mi/kWh", economy)
                              : String(format: "%.0f MPG", economy))
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                             .monospacedDigit()
                     }
                 }
@@ -356,7 +356,7 @@ struct NavigationHUD: View {
                     Divider().frame(height: instrumentColumnHeight)
                     titled("Fuel Tank") {
                         Text(String(format: "%.0f mi left", range))
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(size: 13, weight: .semibold)
                             .monospacedDigit()
                     }
                 }
@@ -367,7 +367,7 @@ struct NavigationHUD: View {
                 if model.fuelReachabilityTight {
                     Divider().frame(height: instrumentColumnHeight)
                     Image(systemName: "fuelpump.fill")
-                        .font(.system(size: 18, weight: .bold))
+                        .scaledFont(size: 18, weight: .bold)
                         .foregroundStyle(Theme.riskRed.opacity(tankPulse ? 1 : 0.15))
                         .frame(maxWidth: .infinity)
                         .help("Few fuel stops left within your range")
@@ -386,7 +386,7 @@ struct NavigationHUD: View {
                         let top = barTopMph
                         ZStack(alignment: .leading) {
                             Text("0")
-                                .font(.system(size: 11, weight: .bold))
+                                .scaledFont(size: 11, weight: .bold)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             if let state = SpeedLaw.stateThresholdMph(
@@ -407,7 +407,7 @@ struct NavigationHUD: View {
                                let f = SpeedLaw.barFraction(fed, topMph: top) {
                                 let label = String(format: "%.0f", fed)
                                 Text(label)
-                                    .font(.system(size: 11, weight: .bold))
+                                    .scaledFont(size: 11, weight: .bold)
                                     .monospacedDigit()
                                     .foregroundStyle(Theme.riskRed)
                                     .fixedSize()
@@ -421,7 +421,7 @@ struct NavigationHUD: View {
                                     postedLimitMph: lawLimitMph),
                                     top: top) {
                                 Text("\(Int(top))")
-                                    .font(.system(size: 11, weight: .bold))
+                                    .scaledFont(size: 11, weight: .bold)
                                     .monospacedDigit()
                                     .foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -430,7 +430,7 @@ struct NavigationHUD: View {
                     }
                     .frame(height: 14)
                     Text("mph")
-                        .font(.system(size: 11, weight: .bold))
+                        .scaledFont(size: 11, weight: .bold)
                         .foregroundStyle(.secondary)
                         .frame(minWidth: 28, alignment: .trailing)
                 }
@@ -480,7 +480,7 @@ struct NavigationHUD: View {
         -> some View {
         VStack(spacing: 1) {
             Text(title)
-                .font(.system(size: 9, weight: .bold))
+                .scaledFont(size: 9, weight: .bold)
                 .foregroundStyle(.secondary)
                 .fixedSize()
                 .frame(maxWidth: .infinity)   // centered over its own column
@@ -730,7 +730,7 @@ struct NavigationHUD: View {
         switch efficiencyVerdict {
         case .efficient:
             Image(systemName: "leaf.fill")
-                .font(.system(size: 18, weight: .bold))
+                .scaledFont(size: 18, weight: .bold)
                 .foregroundStyle(Theme.riskGreen)
                 .frame(width: 24)
                 .contentTransition(.symbolEffect(.replace))
@@ -738,7 +738,7 @@ struct NavigationHUD: View {
         case .wasteful:
             // A bare cloud reads as weather; the CO2 glyph reads as exhaust.
             Image(systemName: "carbon.dioxide.cloud.fill")
-                .font(.system(size: 17, weight: .bold))
+                .scaledFont(size: 17, weight: .bold)
                 .foregroundStyle(Theme.riskRed)
                 .frame(width: 24)
                 .contentTransition(.symbolEffect(.replace))
@@ -860,7 +860,7 @@ struct NavigationHUD: View {
                 }
             }
             Text("Remembered for future Gas requests — change it anytime under ⚙ Settings.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
         }
         .floatingCard()
@@ -892,13 +892,13 @@ struct NavigationHUD: View {
                model.poi.activeKind == .food || model.poi.activeKind == .hotel {
                 HStack(spacing: 6) {
                     Text("Stars, $ tiers, and hours need a free Yelp key:")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                     Link("get one →", destination: URL(string: "https://www.yelp.com/developers")!)
-                        .font(.caption.weight(.bold))
+                        .scaledFont(.caption, weight: .bold)
                     Button("paste in ⚙") { model.showSettings = true }
                         .buttonStyle(.plain)
-                        .font(.caption.weight(.bold))
+                        .scaledFont(.caption, weight: .bold)
                         .foregroundStyle(.blue)
                 }
             }
@@ -957,7 +957,7 @@ struct NavigationHUD: View {
                     }
                     if ranked.showers == .standard || ranked.showers == .likely {
                         Label(ranked.showers.rawValue, systemImage: "shower.fill")
-                            .font(.caption2.weight(.semibold))
+                            .scaledFont(.caption2, weight: .semibold)
                             .foregroundStyle(.blue)
                         // Driver correction. The shower claim here is a brand
                         // assumption ("Love's has showers"), and a trucker who
@@ -972,7 +972,7 @@ struct NavigationHUD: View {
                             model.poi.refreshShowerResolution()
                         } label: {
                             Text("· no showers?")
-                                .font(.caption2)
+                                .scaledFont(.caption2)
                                 .foregroundStyle(.secondary)
                                 .underline()
                         }
@@ -988,7 +988,7 @@ struct NavigationHUD: View {
                         Text("· \(type)").fontWeight(.semibold)
                     }
                 }
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 if ranked.rating != nil || ranked.costTier != nil {
                     StarsAndBucks(stars: ranked.rating, costTier: ranked.costTier,
@@ -1143,11 +1143,11 @@ struct NavigationHUD: View {
                 .scaledFont(size: 15, weight: .bold)
             if let shareErrorText {
                 Text(shareErrorText)
-                    .font(.footnote.weight(.semibold))
+                    .scaledFont(.footnote, weight: .semibold)
                     .foregroundStyle(.red)
             }
             Text("Send a text with where you're going, when you'll get there, and a map.")
-                .font(.footnote)
+                .scaledFont(.footnote)
             if showShareChooser {
                 shareChooserRows
             } else {
@@ -1270,7 +1270,7 @@ struct NavigationHUD: View {
             }
             HStack(spacing: 8) {
                 Text("Risk on this route has risen to \(FlowsCore.riskBand(score: escalation.newRisk).rawValue).")
-                    .font(.footnote)
+                    .scaledFont(.footnote)
                 Spacer()
                 Button("Continue") { model.dismissEscalation() }
                     .scaledFont(size: 15, weight: .bold)
@@ -1339,7 +1339,7 @@ struct NavigationHUD: View {
     private var shelterDelayChip: some View {
         Label(String(format: "+%.0f min stopped time in ETA", model.stopDelaySeconds / 60),
               systemImage: "clock.badge.exclamationmark")
-            .font(.footnote.weight(.semibold))
+            .scaledFont(.footnote, weight: .semibold)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Theme.cardBackground)
@@ -1358,7 +1358,7 @@ struct NavigationHUD: View {
                 Image(systemName: event.need.symbol)
                 Text("\(event.need.label) in \(Int(max(event.mile - currentMile, 0).rounded())) mi")
             }
-            .font(.footnote.weight(.semibold))
+            .scaledFont(.footnote, weight: .semibold)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Theme.cardBackground)
@@ -1533,13 +1533,13 @@ struct NavigationHUD: View {
         return HStack(spacing: 4) {
             ForEach(Array(lanes.enumerated()), id: \.offset) { i, lane in
                 Image(systemName: lane.symbol)
-                    .font(.system(size: 13, weight: .bold))
+                    .scaledFont(size: 13, weight: .bold)
                     .foregroundStyle(lit.contains(i)
                                      ? Theme.riskGreen : Color.white.opacity(0.32))
             }
             if let summary {
                 Text(summary)
-                    .font(.system(size: 10, weight: .semibold))
+                    .scaledFont(size: 10, weight: .semibold)
                     .foregroundStyle(Theme.riskGreen)
                     .lineLimit(1)
                     .padding(.leading, 2)
@@ -1559,12 +1559,12 @@ struct NavigationHUD: View {
             ForEach(0..<total, id: \.self) { i in
                 Image(systemName: lit.contains(i)
                       ? ManeuverSymbol.symbol(for: advice.text) : "arrow.up")
-                    .font(.system(size: 11, weight: .bold))
+                    .scaledFont(size: 11, weight: .bold)
                     .foregroundStyle(lit.contains(i)
                                      ? Theme.riskGreen : Color.white.opacity(0.3))
             }
             Text(advice.text)
-                .font(.system(size: 10, weight: .semibold))
+                .scaledFont(size: 10, weight: .semibold)
                 .foregroundStyle(Theme.riskGreen)
                 .lineLimit(1)
                 .padding(.leading, 2)
@@ -1584,11 +1584,11 @@ struct NavigationHUD: View {
                 Circle().fill(Color.white.opacity(0.16))
                 Circle().stroke(Color.white.opacity(0.45), lineWidth: 1)
                 Image(systemName: "location.north.fill")
-                    .font(.system(size: 13, weight: .bold))
+                    .scaledFont(size: 13, weight: .bold)
                     .foregroundStyle(Theme.riskRed)
                     .rotationEffect(.degrees(-heading))
                 Text("N")
-                    .font(.system(size: 8, weight: .heavy))
+                    .scaledFont(size: 8, weight: .heavy)
                     .foregroundStyle(.white)
                     .offset(y: -13)
                     .rotationEffect(.degrees(-heading))
@@ -1597,7 +1597,7 @@ struct NavigationHUD: View {
             // The reading in words and degrees — the part a driver can use
             // without interpreting a needle.
             Text(CompassReading.label(heading))
-                .font(.system(size: 10, weight: .bold))
+                .scaledFont(size: 10, weight: .bold)
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.9))
                 .fixedSize()
@@ -1613,7 +1613,7 @@ struct NavigationHUD: View {
 
     private var alertStrip: some View {
         Label(model.alerts.activeHeadlines[0], systemImage: "exclamationmark.triangle.fill")
-            .font(.footnote.weight(.semibold))
+            .scaledFont(.footnote, weight: .semibold)
             .lineLimit(1)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -1705,7 +1705,7 @@ struct NavigationHUD: View {
         if let time, let meters {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Total remaining to destination")
-                    .font(.system(size: 9, weight: .bold))
+                    .scaledFont(size: 9, weight: .bold)
                     .foregroundStyle(.secondary)
                 Rectangle()
                     .fill(Color.secondary.opacity(0.45))
@@ -1715,7 +1715,7 @@ struct NavigationHUD: View {
                     Divider().frame(height: 16)
                     Text(distanceText(meters))
                 }
-                .font(.system(size: 17, weight: .bold))
+                .scaledFont(size: 17, weight: .bold)
                 .monospacedDigit()
             }
             .fixedSize()
@@ -1837,14 +1837,14 @@ struct NavigationHUD: View {
             Image(systemName: "fuelpump.exclamationmark.fill")
                 .scaledFont(size: 18, weight: .bold)
             Text(text)
-                .font(.footnote.weight(.bold))
+                .scaledFont(.footnote, weight: .bold)
                 .lineLimit(2)
             Spacer(minLength: 4)
             if model.fuelWarningStation != nil {
                 Button("Add stop") {
                     Task { await model.addRecommendedFuelStop() }
                 }
-                .font(.footnote.weight(.heavy))
+                .scaledFont(.footnote, weight: .heavy)
                 .buttonStyle(.plain)
                 .padding(.horizontal, 12)
                 .frame(minHeight: Theme.tapMinimum)
@@ -1876,9 +1876,9 @@ struct NavigationHUD: View {
     private func cameraChip(_ note: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "camera.fill")
-                .font(.system(size: 13, weight: .bold))
+                .scaledFont(size: 13, weight: .bold)
             Text(note)
-                .font(.footnote.weight(.bold))
+                .scaledFont(.footnote, weight: .bold)
                 .lineLimit(1)
         }
         .padding(.horizontal, 12)
@@ -1896,12 +1896,12 @@ struct NavigationHUD: View {
         HStack(spacing: 8) {
             Image(systemName: "fuelpump.exclamationmark.fill")
             Text(note)
-                .font(.footnote.weight(.bold))
+                .scaledFont(.footnote, weight: .bold)
             Button("Find fuel") {
                 model.collapsedPanels.remove("stops")
                 Task { await model.poi.request(.gas, aheadOf: model.effectivePosition) }
             }
-            .font(.footnote.weight(.heavy))
+            .scaledFont(.footnote, weight: .heavy)
             .buttonStyle(.plain)
             .padding(.horizontal, 12)
             .frame(minHeight: 32)
@@ -2027,7 +2027,7 @@ struct NavigationHUD: View {
                      : String(format: "Closest relay — %.0f mi away. It covers "
                               + "its own area, not yours; your local "
                               + "transmitter isn't relayed online.", miles))
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2036,10 +2036,10 @@ struct NavigationHUD: View {
             // is noise.
             if let status = model.radio.status,
                !status.hasPrefix("Playing ") {
-                Text(status).font(.caption).foregroundStyle(.secondary)
+                Text(status).scaledFont(.caption).foregroundStyle(.secondary)
             }
             Divider()
-            Text("On device radio:").font(.caption.weight(.bold))
+            Text("On device radio:").scaledFont(.caption, weight: .bold)
             // Each cab channel gets its own row + play button. CB (27 MHz) and
             // Highway Advisory AM are LOCAL two-way/low-power broadcasts with
             // no licensed internet relays — those play buttons stay disabled
@@ -2052,8 +2052,8 @@ struct NavigationHUD: View {
             }, id: \.0) { channel, what in
                 HStack(alignment: .center, spacing: 6) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(channel).font(.caption2.weight(.semibold))
-                        Text(what).font(.caption2).foregroundStyle(.secondary)
+                        Text(channel).scaledFont(.caption2, weight: .semibold)
+                        Text(what).scaledFont(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
                     if let stream = model.radio.cabStream(for: channel) {
@@ -2101,7 +2101,7 @@ struct NavigationHUD: View {
             if !tunable.isEmpty {
                 Text((model.truckerUI ? "Car radio only: " : "Car radio: ")
                      + tunable.joined(separator: " · "))
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
             }
             Divider()
@@ -2109,7 +2109,7 @@ struct NavigationHUD: View {
             // the state the vehicle is in (or any word). Streams are https
             // internet relays and play through the same player as NOAA.
             Text("AM/FM stations")
-                .font(.caption.weight(.bold))
+                .scaledFont(.caption, weight: .bold)
                 .onAppear {
                     guard model.radioBrowser.stations.isEmpty else { return }
                     let code = model.currentStateCode
@@ -2146,7 +2146,7 @@ struct NavigationHUD: View {
             HStack(spacing: 6) {
                 TextField("Search by name or genre", text: $stationSearch)
                     .textFieldStyle(.roundedBorder)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .onSubmit {
                         let query = stationSearch
                         radioGenre = nil
@@ -2162,7 +2162,7 @@ struct NavigationHUD: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.caption.weight(.bold))
+                .scaledFont(.caption, weight: .bold)
                 .foregroundStyle(.blue)
                 // Spoken station pick: "weather radio", "KMFA", "bluegrass".
                 Button {
@@ -2184,7 +2184,7 @@ struct NavigationHUD: View {
                     ? "Listening" : "Say a station or genre")
             }
             if let note = model.radioBrowser.status {
-                Text(note).font(.caption2).foregroundStyle(.secondary)
+                Text(note).scaledFont(.caption2).foregroundStyle(.secondary)
             }
             if !model.radioBrowser.stations.isEmpty {
                 // Bounded list: the card floats over the map with no outer
@@ -2199,7 +2199,7 @@ struct NavigationHUD: View {
                 .frame(maxHeight: isCompact ? 132 : 168)
                 Text("Station list: radio-browser.info, a community "
                      + "directory. Stations play as internet streams.")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
             }
             Divider()
@@ -2209,9 +2209,9 @@ struct NavigationHUD: View {
             HStack(alignment: .center, spacing: 6) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Scanner — police, fire, EMS")
-                        .font(.caption.weight(.bold))
+                        .scaledFont(.caption, weight: .bold)
                     Text("Opens Broadcastify's own web player with feeds near you.")
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -2223,7 +2223,7 @@ struct NavigationHUD: View {
                         openURL(stateURL)
                     } label: {
                         Text("\(code) list")
-                            .font(.caption.weight(.semibold))
+                            .scaledFont(.caption, weight: .semibold)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.blue)
@@ -2232,7 +2232,7 @@ struct NavigationHUD: View {
                     openURL(ScannerLinks.broadcastifyNearMe)
                 } label: {
                     Label("Near me", systemImage: "arrow.up.forward.app")
-                        .font(.caption.weight(.semibold))
+                        .scaledFont(.caption, weight: .semibold)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
@@ -2240,21 +2240,21 @@ struct NavigationHUD: View {
             HStack(alignment: .center, spacing: 6) {
                 Text("Recordings (a few minutes behind): OpenMHz, a "
                      + "volunteer archive of dispatch radio.")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
                     openURL(ScannerLinks.openMHz)
                 } label: {
                     Text("Open")
-                        .font(.caption.weight(.semibold))
+                        .scaledFont(.caption, weight: .semibold)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
             }
             Text("Scanner listening rules differ by state — where it isn't "
                  + "allowed while driving, listen only when parked.")
-                .font(.caption2)
+                .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
         }
         .floatingCard()
@@ -2280,7 +2280,7 @@ struct NavigationHUD: View {
         HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(station.name)
-                    .font(.caption2.weight(.semibold))
+                    .scaledFont(.caption2, weight: .semibold)
                     .lineLimit(1)
                 // Dial position first when the name carries one — "105.7
                 // FM" is what a driver would say — then the genre words.
@@ -2288,7 +2288,7 @@ struct NavigationHUD: View {
                     .compactMap { $0 }.joined(separator: " · ")
                 if !detail.isEmpty {
                     Text(detail)
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -2357,7 +2357,7 @@ struct NavigationHUD: View {
             String(format: "%.1f%% (%.1f°) grade in %.1f mi",
                    abs(seg.gradePercent), abs(seg.gradeDegrees), inMiles),
             systemImage: seg.gradePercent >= 0 ? "arrow.up.right" : "arrow.down.right")
-            .font(.footnote.weight(.bold))
+            .scaledFont(.footnote, weight: .bold)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Theme.riskYellow.opacity(0.92))
@@ -2380,7 +2380,7 @@ struct NavigationHUD: View {
             text = ""
         }
         return Label(text, systemImage: "clock.badge.exclamationmark.fill")
-            .font(.footnote.weight(.bold))
+            .scaledFont(.footnote, weight: .bold)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(model.hosStatus == .limitReached
@@ -2463,7 +2463,7 @@ struct NavigationHUD: View {
                              : "Open \(model.musicProvider.displayName)",
                       systemImage: isDial ? "dot.radiowaves.left.and.right"
                                           : "arrow.up.forward.app")
-                    .font(.caption.weight(.semibold))
+                    .scaledFont(.caption, weight: .semibold)
                     .lineLimit(1)
                     .padding(.horizontal, 8)
                     .frame(height: Theme.tapMinimum)
@@ -2541,7 +2541,7 @@ struct NavigationHUD: View {
                         Text(musicMicListening ? "Listening…" : "Say what to play")
                             .scaledFont(size: 13, weight: .semibold)
                         Text("Genre, artist, or mood — through \(model.musicProvider.displayName)")
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -2565,7 +2565,7 @@ struct NavigationHUD: View {
                     Text("\(model.radio.queueLabel.capitalized) — station "
                          + "\(model.radio.queueIndex + 1) of \(model.radio.queue.count). "
                          + "Next plays another one.")
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.secondary)
                 }
             } else if !model.musicControllable {
@@ -2580,7 +2580,7 @@ struct NavigationHUD: View {
                 // Spotify's remote has no library/genre queries — one
                 // honest resume row, plus its plain-words status line.
                 if let note = spotify.status {
-                    Text(note).font(.caption).foregroundStyle(.secondary)
+                    Text(note).scaledFont(.caption).foregroundStyle(.secondary)
                 }
                 musicMenuRow("Keep playing", symbol: "clock.arrow.circlepath",
                              detail: "Pick up where Spotify left off") {
@@ -2601,7 +2601,7 @@ struct NavigationHUD: View {
             // kind, Apple Music plays it, a linked Spotify searches and
             // starts it, and a no-API service opens at its own search.
             VStack(alignment: .leading, spacing: 4) {
-                Text("Genres").font(.caption.weight(.bold)).foregroundStyle(.secondary)
+                Text("Genres").scaledFont(.caption, weight: .bold).foregroundStyle(.secondary)
                 HStack(spacing: 6) {
                     ForEach(MusicController.genreRows, id: \.self) { genre in
                         Button {
@@ -2621,12 +2621,12 @@ struct NavigationHUD: View {
                     }
                 }
                 Text(genreDestinationNote)
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
             }
             if let tip = model.musicProvider.siriPlaybackTip {
                 Text("Voice tip: \"\(tip)\"")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
@@ -2689,7 +2689,7 @@ struct NavigationHUD: View {
                  + "sources). No other music service lets outside apps "
                  + "control it, so the rest open in their own app. Change "
                  + "your pick anytime under ⚙ Settings.")
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
         }
         .floatingCard()
@@ -2708,7 +2708,7 @@ struct NavigationHUD: View {
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).scaledFont(size: 13, weight: .semibold)
-                    Text(detail).font(.caption2).foregroundStyle(.secondary)
+                    Text(detail).scaledFont(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
             }

@@ -37,7 +37,7 @@ struct TouristStopCard: View {
                         .scaledFont(size: 15, weight: .bold)
                         .lineLimit(2)
                     Text(whatItIs)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -51,12 +51,12 @@ struct TouristStopCard: View {
             Text(String(format: "About %.0f mi ahead · about +%.0f min off your route",
                         max(stop.aheadMeters, 0) / 1609.344,
                         2 * stop.detourMeters / POIRanking.detourSpeedMps / 60))
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             sectionHeader("Cost to get in")
             Text(TouristInfo.feeNote(name: stop.item.name, table: Self.fees))
-                .font(.footnote)
+                .scaledFont(.footnote)
 
             if let stars = info?.rating {
                 sectionHeader("Stars")
@@ -67,11 +67,11 @@ struct TouristStopCard: View {
                 sectionHeader("Open hours")
                 HStack(spacing: 8) {
                     if let line = hoursToday {
-                        Text(line).font(.footnote)
+                        Text(line).scaledFont(.footnote)
                     }
                     if let open = info?.isOpenNow {
                         Text(open ? "Open now" : "Closed now")
-                            .font(.caption.weight(.heavy))
+                            .scaledFont(.caption, weight: .heavy)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
                             .background((open ? Theme.riskGreen : Theme.riskRed).opacity(0.15))
@@ -83,7 +83,7 @@ struct TouristStopCard: View {
 
             if let url = stop.item.url {
                 Link("Their website →", destination: url)
-                    .font(.caption.weight(.bold))
+                    .scaledFont(.caption, weight: .bold)
                     .foregroundStyle(Theme.riskGreen)
             }
         }
@@ -99,7 +99,7 @@ struct TouristStopCard: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.caption.weight(.heavy))
+            .scaledFont(.caption, weight: .heavy)
             .foregroundStyle(Theme.riskGreen)
             .textCase(.uppercase)
     }

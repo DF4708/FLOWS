@@ -586,7 +586,7 @@ struct RouteChoicesView: View {
                 if let itin = t.itinerary {
                     Text("\(TransitPlanning.fmt(itin.totalSeconds))"
                          + (itin.fare > 0 ? " · ~$\(String(format: "%.0f", itin.fare)) est." : ""))
-                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        .scaledFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
                 }
                 Button {
                     deactivate(mode)
@@ -610,7 +610,7 @@ struct RouteChoicesView: View {
                           + "\(TransitPlanning.fmt(walkSec)) on foot — "
                           + "consider driving or a rideshare to the station",
                           systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption2.weight(.bold))
+                        .scaledFont(.caption2, weight: .bold)
                         .foregroundStyle(.orange)
                 }
                 ForEach(Array(itin.legs.enumerated()), id: \.offset) { i, leg in
@@ -655,7 +655,7 @@ struct RouteChoicesView: View {
                     if let url = t.ticketURL {
                         Link(destination: url) {
                             Label(label, systemImage: "ticket.fill")
-                                .font(.caption.weight(.bold))
+                                .scaledFont(.caption, weight: .bold)
                                 .padding(.horizontal, 10).padding(.vertical, 6)
                                 .background(Color.purple.opacity(0.9))
                                 .foregroundStyle(.white)
@@ -664,7 +664,7 @@ struct RouteChoicesView: View {
                     } else {
                         Label("\(label) — pay on board / agency app",
                               systemImage: "ticket")
-                            .font(.caption2.weight(.semibold))
+                            .scaledFont(.caption2, weight: .semibold)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -676,7 +676,7 @@ struct RouteChoicesView: View {
                     Divider()
                     Label("Rental cars at the destination",
                           systemImage: "car.2.fill")
-                        .font(.caption2.weight(.bold))
+                        .scaledFont(.caption2, weight: .bold)
                     ForEach(Array(t.rentals.enumerated()), id: \.offset) { _, office in
                         HStack(spacing: 4) {
                             Text("\(office.name) · \(String(format: "%.1f mi", office.miles))")
@@ -692,7 +692,7 @@ struct RouteChoicesView: View {
                     }
                 }
             } else {
-                Text(t.detail).font(.caption).foregroundStyle(.secondary)
+                Text(t.detail).scaledFont(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(8)
@@ -878,7 +878,7 @@ struct RouteChoicesView: View {
             }
             if let notice = model.plannerNotice {
                 Label(notice, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption.weight(.semibold))
+                    .scaledFont(.caption, weight: .semibold)
                     .padding(8)
                     .background(Theme.riskYellow.opacity(0.25))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -911,11 +911,11 @@ struct RouteChoicesView: View {
                     if ctx.choices.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("No route satisfies every active filter — searching for one…")
-                                .font(.footnote)
+                                .scaledFont(.footnote)
                                 .foregroundStyle(.secondary)
                             if let closest = closestMatch {
                                 Text("Closest match (violates \(model.violationCount(closest)) filter\(model.violationCount(closest) == 1 ? "" : "s")):")
-                                    .font(.caption.weight(.semibold))
+                                    .scaledFont(.caption, weight: .semibold)
                                 RouteCard(
                                     route: closest,
                                     keyPoints: keyPoints(for: closest, ctx: ctx),
@@ -986,7 +986,7 @@ struct RouteChoicesView: View {
                     .foregroundStyle(.white).clipShape(Capsule())
                 Spacer()
                 Text("\(TransitPlanning.fmt(h.offer.totalSeconds)) · ~$\(cost) est.")
-                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    .scaledFont(.caption2, weight: .semibold).foregroundStyle(.secondary)
                 Button {
                     model.hybridOption = nil
                     if model.transitItinerary?.mode == "Walk + ride" {
@@ -1003,7 +1003,7 @@ struct RouteChoicesView: View {
                    + "for about $\(cost), walk the rest, and get there \(savedPct)% sooner."
                  : "Walking the whole way takes \(TransitPlanning.fmt(h.walkAloneSeconds)). "
                    + "A ride costs about $\(cost) and gets you there \(savedPct)% sooner.")
-                .font(.caption)
+                .scaledFont(.caption)
             ForEach(Array(h.itinerary.legs.enumerated()), id: \.offset) { i, leg in
                 transitLegRow(leg, isLast: i == h.itinerary.legs.count - 1, hail: true)
             }
@@ -1028,7 +1028,7 @@ struct RouteChoicesView: View {
 
     private func hailButtonLabel(_ text: String) -> some View {
         Label(text, systemImage: "car.fill")
-            .font(.caption.weight(.bold))
+            .scaledFont(.caption, weight: .bold)
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(Color.black.opacity(0.85))
             .foregroundStyle(.white)
@@ -1047,7 +1047,7 @@ struct RouteChoicesView: View {
                     model.toggleFilter(filter)
                 } label: {
                     Text(filter.rawValue)
-                        .font(.caption.weight(.semibold))
+                        .scaledFont(.caption, weight: .semibold)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
@@ -1283,29 +1283,29 @@ private struct RouteCard: View {
                         .scaledFont(size: 17, weight: .bold)
                     if deltaText != "Fastest" {
                         Text(deltaText)
-                            .font(.caption.weight(.semibold))
+                            .scaledFont(.caption, weight: .semibold)
                             .foregroundStyle(.secondary)
                     }
                 }
                 HStack(spacing: 6) {
                     Text("\(milesText) · via \(route.via)")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     if route.hasTolls {
                         Label("Tolls", systemImage: "dollarsign.circle")
-                            .font(.caption2.weight(.semibold))
+                            .scaledFont(.caption2, weight: .semibold)
                             .foregroundStyle(.secondary)
                             .labelStyle(.titleAndIcon)
                     }
                     if let fuelCostText {
                         Text(fuelCostText)
-                            .font(.caption2.weight(.semibold))
+                            .scaledFont(.caption2, weight: .semibold)
                             .foregroundStyle(.secondary)
                     }
                     if route.hasHighways {
                         Image(systemName: "road.lanes")
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -1316,10 +1316,10 @@ private struct RouteCard: View {
                             HStack(spacing: 5) {
                                 Image(systemName: point.good
                                       ? "checkmark.circle.fill" : "minus.circle.fill")
-                                    .font(.caption2)
+                                    .scaledFont(.caption2)
                                     .foregroundStyle(point.good ? Theme.riskGreen : Theme.riskYellow)
                                 Text(point.text)
-                                    .font(.caption)
+                                    .scaledFont(.caption)
                             }
                         }
                     }
@@ -1340,13 +1340,13 @@ private struct RouteCard: View {
                         } label: {
                             Label(showDetails ? "Hide details" : "Risk details",
                                   systemImage: showDetails ? "chevron.up" : "chevron.down")
-                                .font(.caption.weight(.semibold))
+                                .scaledFont(.caption, weight: .semibold)
                                 .foregroundStyle(.blue)
                         }
                         .buttonStyle(.plain)
                     } else {
                         Text(isHighlighted ? "Shown on map" : "Tap to view on map")
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .foregroundStyle(.tertiary)
                     }
                     Spacer()
@@ -1370,7 +1370,7 @@ private struct RouteCard: View {
                             Text(route.scoringProgress > 0
                                  ? "Scoring… \(Int((route.scoringProgress * 100).rounded()))%"
                                  : "Scoring…")
-                                .font(.caption.weight(.semibold))
+                                .scaledFont(.caption, weight: .semibold)
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
@@ -1447,12 +1447,12 @@ private struct RouteCard: View {
                 Text("· typically \(FlowsCore.riskBand(score: route.avgRisk).rawValue.lowercased())")
                     .foregroundStyle(.secondary)
             }
-            .font(.footnote.weight(.semibold))
+            .scaledFont(.footnote, weight: .semibold)
 
             // Physical attributes (verifiable data: USGS grades, OSM
             // clearances, FEMA flood zones) — "checking…" while hydrating.
             Text(attributeLine)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             // Exposure miles per band — where the risk physically is.
@@ -1465,7 +1465,7 @@ private struct RouteCard: View {
                         }
                     }
                 }
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             }
 
@@ -1491,7 +1491,7 @@ private struct RouteCard: View {
             // app's risk_type_summary_text).
             ForEach(route.hazardSummaries, id: \.self) { text in
                 Text(text)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             }
@@ -1505,11 +1505,11 @@ private struct RouteCard: View {
                                    (cl.min()! / 0.3048).rounded(.down),
                                    ((cl.min()! / 0.3048) - (cl.min()! / 0.3048).rounded(.down)) * 12),
                           systemImage: "checkmark.seal.fill")
-                        .font(.caption.weight(.bold))
+                        .scaledFont(.caption, weight: .bold)
                         .foregroundStyle(Theme.riskGreen)
                 } else {
                     Label("Clearance check in progress…", systemImage: "clock")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -1517,19 +1517,19 @@ private struct RouteCard: View {
                 Label(String(format: "No charger found near mile %.0f — verify "
                              + "range before taking this route", gap),
                       systemImage: "bolt.slash.fill")
-                    .font(.footnote.weight(.bold))
+                    .scaledFont(.footnote, weight: .bold)
                     .foregroundStyle(Theme.riskRed)
             }
 
             // Active alerts on top of the field.
             if route.alertCoverage > 0 {
                 Text(exposureLine)
-                    .font(.footnote.weight(.semibold))
+                    .scaledFont(.footnote, weight: .semibold)
                     .foregroundStyle(badgeColor)
                 if !route.alertEvents.isEmpty {
                     Text(route.alertEvents.prefix(3).joined(separator: " · ")
                          + (route.alertEvents.count > 3 ? " · +\(route.alertEvents.count - 3) more" : ""))
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
@@ -1542,7 +1542,7 @@ private struct RouteCard: View {
                 Text(route.peakRisk >= FlowsCore.riskYellowMin
                      ? "No active alerts — elevated by forecast conditions along the corridor."
                      : "All clear — no active alerts or elevated conditions.")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
         }
@@ -1605,7 +1605,7 @@ private struct RouteCard: View {
 
     private func profileChip(_ label: String, _ color: Color) -> some View {
         Text(label)
-            .font(.caption2.weight(.heavy))
+            .scaledFont(.caption2, weight: .heavy)
             // One line, never hyphenated: a route that wins on every count
             // wears four of these, and "Cheap-est" across two lines is not
             // a label anyone can read at a glance.
@@ -1660,7 +1660,7 @@ private struct RouteCard: View {
                     ProgressView().controlSize(.mini)
                     Text(band == .clear ? "Clear so far" : "\(band.rawValue) so far")
                 }
-                .font(.caption.weight(.semibold))
+                .scaledFont(.caption, weight: .semibold)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background((band == .clear ? Color.secondary : band.color)
@@ -1674,7 +1674,7 @@ private struct RouteCard: View {
                     ProgressView().controlSize(.mini)
                     Text("Weather…")
                 }
-                .font(.caption.weight(.semibold))
+                .scaledFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
@@ -1685,7 +1685,7 @@ private struct RouteCard: View {
             // Labeled so it can't be misread against the peak line: this is
             // the whole-route normalized band, peaks can be worse.
             Text(route.riskBand == .clear ? "No risk overall" : "Overall \(route.riskBand.rawValue)")
-                .font(.caption.weight(.bold))
+                .scaledFont(.caption, weight: .bold)
                 .lineLimit(1)
                 .fixedSize()
                 .padding(.horizontal, 10)

@@ -45,6 +45,46 @@ enum TextScale {
         return pinned...pinned
     }
 
+    /// How much larger than the default each step draws — Apple's body
+    /// text point sizes over the default 17. macOS has no Dynamic Type, so
+    /// `@ScaledMetric` never moves there; ScaledFont applies this by hand.
+    static func factor(_ size: DynamicTypeSize) -> CGFloat {
+        switch size {
+        case .xSmall: return 14 / 17
+        case .small: return 15 / 17
+        case .medium: return 16 / 17
+        case .large: return 1
+        case .xLarge: return 19 / 17
+        case .xxLarge: return 21 / 17
+        case .xxxLarge: return 23 / 17
+        case .accessibility1: return 28 / 17
+        case .accessibility2: return 33 / 17
+        case .accessibility3: return 40 / 17
+        case .accessibility4: return 47 / 17
+        case .accessibility5: return 53 / 17
+        @unknown default: return 1
+        }
+    }
+
+    /// The default point size of each semantic style, so `.caption` and
+    /// friends can go through the same scaling as a fixed size.
+    static func baseSize(_ style: Font.TextStyle) -> CGFloat {
+        switch style {
+        case .largeTitle: return 34
+        case .title: return 28
+        case .title2: return 22
+        case .title3: return 20
+        case .headline: return 17
+        case .body: return 17
+        case .callout: return 16
+        case .subheadline: return 15
+        case .footnote: return 13
+        case .caption: return 12
+        case .caption2: return 11
+        @unknown default: return 17
+        }
+    }
+
     /// Where the system's current size sits on the slider (seed value when
     /// the driver first touches it).
     static func index(of size: DynamicTypeSize) -> Int {
