@@ -103,6 +103,17 @@ struct ContentView: View {
     /// Even–odd pairing of the edge intersections handles concave rings.
     /// Returns TWO interleaved stripe sets (alternate hatch lines), so the risk
     /// color and the hazard color can alternate across the same area.
+    /// Hatch with the stripe count bounded by the ring's own height, and
+    /// skipped entirely beyond state scale (they are sub-pixel there).
+    private static func boundedHatch(_ ring: [CLLocationCoordinate2D], minSpacing: Double,
+                                     region: MKCoordinateRegion?)
+        -> (even: [[CLLocationCoordinate2D]], odd: [[CLLocationCoordinate2D]]) {
+        if let span = region?.span.latitudeDelta, span > 3 { return ([], []) }
+        let lats = ring.map(\.latitude)
+        let height = (lats.max() ?? 0) - (lats.min() ?? 0)
+        return hatchLines(ring, spacingDeg: max(minSpacing, height / 12))
+    }
+
     private static func hatchLines(_ ring: [CLLocationCoordinate2D],
                                    spacingDeg: Double)
         -> (even: [[CLLocationCoordinate2D]], odd: [[CLLocationCoordinate2D]]) {
@@ -171,7 +182,12 @@ struct ContentView: View {
             let near = inside.max(by: { $0.realized < $1.realized })
                 ?? elevated.map { ($0, POIRanking.meters($0.coordinate, c)) }
                     .min(by: { $0.1 < $1.1 })?.0
-            let hatch = Self.hatchLines(ring, spacingDeg: 0.012)
+            // Every stripe is its own MapPolyline, re-diffed on every model
+            // publish; forty rings at a fixed 0.012° spacing put hundreds of
+            // overlays on the map and made the planning screen crawl on a
+            // large Mac window. Bound it: ~6 stripes per list per ring, and
+            // none at all beyond state scale, where they are invisible.
+            let hatch = Self.boundedHatch(ring, minSpacing: 0.012, region: visibleRegion)
             return RiskAreaOverlay(id: code, ring: ring,
                                    score: near?.realized ?? worstAll,
                                    kind: near?.kind ?? fallbackKind,
@@ -210,7 +226,7 @@ struct ContentView: View {
                     && $0.longitude == pt.coordinate.longitude }) }
             let worstMember = members.max(by: { $0.realized < $1.realized })
             let ring = RiskBlob.hull(blob, padMeters: viewportHazardRadius)
-            let hatch = Self.hatchLines(ring, spacingDeg: 0.02)
+            let hatch = Self.boundedHatch(ring, minSpacing: 0.02, region: visibleRegion)
             return RiskAreaOverlay(id: "blob-\(bi)", ring: ring,
                                    score: worstMember?.realized ?? 0.25,
                                    kind: worstMember?.kind ?? fallbackKind,
@@ -965,7 +981,7 @@ struct ContentView: View {
             for hz in merged
                 .filter({ $0.realized >= model.riskDisplayFloor })
                 .sorted(by: { $0.realized > $1.realized })
-                .prefix(40) {
+                .prefix(24) {   // worst first; each ring is a polygon plus its stripes
                 if Task.isCancelled { return }   // superseded: skip remaining fetches
                 if let z = await ZCTAFetcher.shared.zcta(containing: hz.coordinate) {
                     rings[z.code] = z.ring
