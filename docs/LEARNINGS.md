@@ -1140,3 +1140,49 @@ destination list — a `ViewThatFits` holding the list twice, free to swap
 which copy is live as suggestions change under the pointer. On the Mac
 the click landed on a row that had just been replaced.
 
+## Auditing against a standard: what the fan-out got right and wrong
+
+Twenty-two agents read the consolidated Rust standard section by section
+against the crates. Nineteen finished before the session limit killed the
+verification phase, so the 184 findings arrived unverified and were checked
+by hand. What that was worth, and what it cost.
+
+**The agents were right about the thing I was ready to dismiss.** Six of them
+reported the FFI layer as a MUST violation of the safe-Rust prohibition. My
+first instinct was that a C ABI Swift calls obviously needs `unsafe` and the
+agents had over-read the rule. Reading 3.15 and 3.25.5 in full showed the
+opposite: the prohibition is stated as absolute, 3.25.5 extends it to Swift
+bindings by name, and it prescribes the remedies (binding generator,
+serialization boundary, value-oriented exports). The rule meant what it said.
+
+**Then the code said the violation was mostly dead.** Searching the Swift app
+for every exported symbol found five of the eight exports with zero
+references. Four were `unsafe extern "C"`; deleting them removed most of the
+unsafe surface without touching the architecture. The finding was real, and
+the fix was a deletion — which is the cheapest kind of compliance there is,
+and would have been missed by arguing about the rule instead of measuring
+the usage.
+
+**A benchmark is not an exception.** The raw-pointer polyline kernel beat the
+safe one by 8%. The project's own doctrine says a hand-written kernel must
+beat the compiler to ship, and it did. The standard says, in terms, that a
+benchmark does not license `unsafe` — and 8% on a decoder costing about a
+millisecond per two thousand polylines is not a mandatory performance
+target. Retired, with the measurement recorded next to the retirement, the
+same way the AArch64 assembly went.
+
+**Findings need a mechanism, not a citation.** Of the 184, the ones that
+survived hand-checking named a specific behaviour: an unknown foreign byte
+becoming `Mode::Commuter`, an unparseable GTFS coordinate becoming a real
+point in the Gulf of Guinea, `read_until` growing unbounded before the cap
+that was supposed to stop it, a trainer reporting success over a discarded
+write. The ones that did not survive cited a section number at a line of
+code — one claimed a dead public function that `lib.rs` re-exports on the
+next line.
+
+**Don't let a fan-out do the verifying.** The session limit killed all 31
+verifiers and left the audit half-finished. The salvage was the same shape as
+last time: read the findings by hand, keep the ones with a mechanism. Twenty
+or so audit agents to generate candidates is defensible; a second fan-out to
+check them is what runs out of room.
+

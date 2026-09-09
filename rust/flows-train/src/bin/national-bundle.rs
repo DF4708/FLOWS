@@ -28,6 +28,9 @@
 //! Usage: national-bundle <week 0-51>
 //! (week passed explicitly so output is reproducible; wrapper passes real week)
 
+// 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
+#![forbid(unsafe_code)]
+
 use std::env;
 use std::f64::consts::PI;
 use std::fs;

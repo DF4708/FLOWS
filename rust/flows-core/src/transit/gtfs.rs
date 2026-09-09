@@ -113,8 +113,24 @@ impl<R: BufRead> CsvReader<R> {
         };
 
         loop {
+            // Bound the READ, not just the field. `read_until` grows until it
+            // finds a newline, so a feed with CR-only line endings (or a file
+            // that is not the CSV it claims to be) was pulled into memory
+            // whole — the MAX_FIELD_BYTES check below could only fire after
+            // the bytes were already resident, which is the opposite of the
+            // 1 MiB ceiling this reader advertises to its callers.
             let mut line: Vec<u8> = Vec::new();
-            let n = self.r.read_until(b'\n', &mut line)?;
+            let budget = (MAX_FIELD_BYTES + 1).saturating_sub(field.len()) as u64;
+            // UFCS so the receiver is `&mut R` (which is `Read` by the
+            // blanket impl) rather than auto-dereffing into `R` and moving it.
+            let mut limited = std::io::Read::take(&mut self.r, budget);
+            let n = limited.read_until(b'\n', &mut line)?;
+            if n as u64 == budget && line.last() != Some(&b'\n') {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "csv: record exceeds the 1 MiB cap (unbalanced quote?)",
+                ));
+            }
             if n == 0 {
                 // EOF: emit the pending record, if any bytes were consumed.
                 if !consumed_anything {
@@ -513,8 +529,22 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
         if id.is_empty() || stop_index.contains_key(id) {
             continue;
         }
-        let lat = f(&row, c_lat).parse::<f64>().unwrap_or(0.0);
-        let lon = f(&row, c_lon).parse::<f64>().unwrap_or(0.0);
+        // Reject, do not rewrite. `unwrap_or(0.0)` turned an unparseable or
+        // missing coordinate into (0, 0) — a real point in the Gulf of
+        // Guinea — so a malformed stop entered the timetable as a place
+        // 5,000 km from the agency and quietly distorted every walk-transfer
+        // radius computed against it.
+        let (lat, lon) = match (f(&row, c_lat).parse::<f64>(), f(&row, c_lon).parse::<f64>()) {
+            (Ok(a), Ok(o))
+                if a.is_finite()
+                    && o.is_finite()
+                    && (-90.0..=90.0).contains(&a)
+                    && (-180.0..=180.0).contains(&o) =>
+            {
+                (a, o)
+            }
+            _ => continue, // skip the stop; the feed keeps its other rows
+        };
         stop_index.insert(id.to_string(), stop_ids.len() as u32);
         stop_ids.push(id.to_string());
         stop_names.push(f(&row, c_name).to_string());

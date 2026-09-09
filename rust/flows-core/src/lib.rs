@@ -24,9 +24,24 @@
 //!
 //! Nothing here performs I/O or holds state; every function is a pure
 //! transform, which is exactly why it can be verified against R exactly.
+//!
+//! # Safe-Rust enforcement (3.15)
+//!
+//! `unsafe_code` is denied crate-wide. The single exception is the `ffi`
+//! module, which carries an explicit `#[allow(unsafe_code)]` because its two
+//! remaining bulk-array exports take raw pointers from Swift; the standard's
+//! remedy for that shape is a binding generator or a serialization boundary,
+//! which is an open architectural decision (docs/RUST_SWIFT_MIGRATION.md).
+//! The deny means unsafe cannot reappear anywhere else in the crate without
+//! a compiler error — which is exactly what caught nothing today, because
+//! the raw-pointer polyline kernel was retired to earn this line.
+#![deny(unsafe_code)]
 
 pub mod ch;
 pub mod distance;
+// The one carve-out, narrowed to a single module and named here so it is
+// visible in the crate root rather than buried at a call site.
+#[allow(unsafe_code)]
 pub mod ffi;
 pub mod polyline;
 pub mod risk;

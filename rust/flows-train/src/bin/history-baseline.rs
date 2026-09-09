@@ -72,6 +72,9 @@
 //! (no system clock inside the tool — scripts/build_history_baseline.sh
 //! computes the week and passes it in, same convention as national-bundle)
 
+// 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
+#![forbid(unsafe_code)]
+
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::env;

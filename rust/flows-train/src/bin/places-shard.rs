@@ -44,6 +44,9 @@
 //!
 //! Usage: places-shard <fsq_places_us.tsv> <out dir e.g. data/places>
 
+// 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;

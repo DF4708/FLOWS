@@ -192,7 +192,8 @@ impl<'a> Raptor<'a> {
                     let stop_id = route_stops[pos as usize];
                     // (1) Alight: if riding a trip, try to improve this stop.
                     if let Some(t) = cur_trip {
-                        let arr = tt.stop_events[ev_base + t as usize * ev_stride + pos as usize].arr;
+                        let arr =
+                            tt.stop_events[ev_base + t as usize * ev_stride + pos as usize].arr;
                         let bound = r.best_arr[stop_id as usize].min(target_bound);
                         if arr < bound {
                             cur_row[stop_id as usize] = arr;

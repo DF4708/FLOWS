@@ -14,3 +14,11 @@ resolver = "2"
 opt-level = 3
 lto = true
 codegen-units = 1
+# Appendix A: release overflow behaviour MUST be a deliberate decision, not
+# whatever the profile happens to default to. It is ON. These crates compute
+# routes and risk bands for a driving app and build the binary bundles the
+# app reads; a silently wrapped index or duration is a wrong turn or a wrong
+# hazard score, and the standard ranks correctness over speed (1.4). Where
+# wrapping or saturation is the INTENDED semantics, the code says so with
+# `wrapping_*` / `saturating_*` / `checked_*` rather than leaning on this.
+overflow-checks = true

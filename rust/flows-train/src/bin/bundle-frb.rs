@@ -35,6 +35,9 @@
 //!
 //! Usage: bundle-frb <in.json> <out.frb1>
 
+// 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
+#![forbid(unsafe_code)]
+
 use std::env;
 use std::fs;
 use std::process;

@@ -12,328 +12,24 @@
 //! symbols via dlsym in dev (libflows_core.dylib) and static-links the .a for
 //! device builds:
 //!
-//!   // flows_core.h (bridging header)
-//!   const char* flows_risk_label(double score);
-//!
 //!   // Swift
-//!   let label = String(cString: flows_risk_label(0.75))  // "Yellow"
+//!   let n = flows_polyline_decode(bytes, len, out, capPairs)
 //!
-//! Exports the app does not yet bind (graph/transit shims) are kept only when
-//! a Rust test exercises them — orphaned bridge shims from the retired R
-//! oracle era were removed once nothing referenced them.
-
-use crate::risk::risk_band;
-use std::os::raw::c_char;
-
-/// Return the risk band label for a score as a static C string.
-/// The returned pointer is to a 'static NUL-terminated string owned by the
-/// library — the caller must NOT free it. This keeps the FFI allocation-free
-/// and leak-free for the fixed label set.
-#[no_mangle]
-pub extern "C" fn flows_risk_label(score: f64) -> *const c_char {
-    // Each label has a matching NUL-terminated 'static byte string so we can
-    // hand out a stable pointer with no allocation.
-    let s: &'static [u8] = match risk_band(score).label() {
-        "Transparent" => b"Transparent\0",
-        "Green" => b"Green\0",
-        "Yellow" => b"Yellow\0",
-        "Red" => b"Red\0",
-        _ => b"Transparent\0",
-    };
-    s.as_ptr() as *const c_char
-}
-
-/// Fill a caller-provided buffer with the n x m Euclidean distance matrix.
-/// `a` points to n*2 doubles (row-major x,y pairs), `b` to m*2, `out` to
-/// n*m doubles the caller owns. Returns 0 on success, -1 on a null/size
-/// error. This is the allocation-across-FFI-free pattern: Swift owns the
-/// output buffer, Rust just fills it.
-///
-/// # Safety
-/// Caller must ensure `a` has 2*n, `b` has 2*m, and `out` has n*m valid
-/// f64 elements. Standard C-ABI contract.
-#[no_mangle]
-pub unsafe extern "C" fn flows_distance_matrix(
-    a: *const f64,
-    n: usize,
-    b: *const f64,
-    m: usize,
-    out: *mut f64,
-) -> i32 {
-    if a.is_null() || b.is_null() || out.is_null() {
-        return -1;
-    }
-    // Guard the n*m size against usize overflow (a malformed size from the
-    // caller must not wrap to a small out-slice length). Match the Dijkstra/CH
-    // shims: wrap the compute in catch_unwind so a panic can never unwind across
-    // the C ABI and abort the host process — return -1 on any failure instead.
-    let total = match n.checked_mul(m) {
-        Some(t) => t,
-        None => return -1,
-    };
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // Delegate to the canonical kernel in distance.rs (same f64 ops, same
-        // row-major order) — one implementation to test/optimise, SIMD swappable.
-        let a_slice = std::slice::from_raw_parts(a as *const [f64; 2], n);
-        let b_slice = std::slice::from_raw_parts(b as *const [f64; 2], m);
-        let res = crate::distance::distance_matrix_scalar(a_slice, b_slice);
-        std::slice::from_raw_parts_mut(out, total).copy_from_slice(&res);
-    }));
-    match result {
-        Ok(()) => 0,
-        Err(_) => -1,
-    }
-}
-
-/// R `.C()`-callable single-source Dijkstra. Builds a CsrGraph from R vectors
-/// (0-based node ids) and writes the `*n_nodes` shortest distances from
-/// `*source` into `out_dist` (R receives f64::INFINITY as Inf for unreachable).
-/// This is the graph-ingest surface for the CONUS router; production edge
-/// lists (1-based) convert to 0-based on the R side before calling.
-///
-/// # Safety
-/// `offsets` must have `*n_nodes + 1` i32s; `targets`/`weights` `*n_edges` each;
-/// `out_dist` `*n_nodes`; all pointers non-null; ids in range.
-#[no_mangle]
-pub unsafe extern "C" fn flows_dijkstra_c(
-    offsets: *const i32,
-    n_nodes: *const i32,
-    targets: *const i32,
-    weights: *const f64,
-    n_edges: *const i32,
-    source: *const i32,
-    out_dist: *mut f64,
-) {
-    if offsets.is_null()
-        || n_nodes.is_null()
-        || targets.is_null()
-        || weights.is_null()
-        || n_edges.is_null()
-        || source.is_null()
-        || out_dist.is_null()
-    {
-        return;
-    }
-    let nn = (*n_nodes).max(0) as usize;
-    let me = (*n_edges).max(0) as usize;
-    let out = std::slice::from_raw_parts_mut(out_dist, nn);
-    // Error sentinel: fill with NaN (valid distances are finite or +Inf, never
-    // NaN), so the R wrapper can detect failure and fall back to pure R
-    // instead of the old behaviour — an index-out-of-bounds PANIC that cannot
-    // unwind across extern "C" and aborted the entire R process.
-    let src_raw = *source;
-    let off_raw = std::slice::from_raw_parts(offsets, nn + 1);
-    let tgt_raw = std::slice::from_raw_parts(targets, me);
-    let wts_raw = std::slice::from_raw_parts(weights, me);
-    let valid = src_raw >= 0 && (src_raw as usize) < nn
-        && off_raw.first().is_some_and(|&o| o == 0)
-        && off_raw.last().is_some_and(|&o| o >= 0 && o as usize == me)
-        && off_raw.windows(2).all(|w| w[0] >= 0 && w[1] >= w[0])
-        && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn)
-        // Weights need the same scrutiny as ids: an R NA marshals to NaN
-        // through .C(), and HeapItem::cmp treats NaN as Equal, so the edge
-        // would be silently ignored — a finite-but-wrong cost the caller's
-        // NaN-sentinel fallback could never detect. Negative weights break
-        // Dijkstra's invariant outright.
-        && wts_raw.iter().all(|&w| w.is_finite() && w >= 0.0);
-    if !valid {
-        out.fill(f64::NAN);
-        return;
-    }
-    let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
-        let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
-        let wts: Vec<f64> = wts_raw.to_vec();
-        let g = crate::routing::CsrGraph {
-            offsets: off,
-            targets: tgt,
-            weights: wts,
-        };
-        g.dijkstra(src_raw as usize)
-    }));
-    match computed {
-        Ok(dist) => out.copy_from_slice(&dist),
-        Err(_) => out.fill(f64::NAN), // belt-and-suspenders: never panic across FFI
-    }
-}
-
-/// R `.C()`-callable contraction-hierarchy batch query. Builds a CsrGraph from
-/// R vectors (0-based), preprocesses the CH ONCE, then answers `*n_queries`
-/// (source, target) pairs, writing costs into `out` (f64::INFINITY = Inf for
-/// unreachable). Amortises the CH preprocessing across all queries — the whole
-/// point of CH. Costs equal the plain Dijkstra costs (cargo-proven).
-///
-/// # Safety
-/// `offsets` has `*n_nodes+1` i32s; `targets`/`weights` `*n_edges`; `srcs`/`dsts`
-/// `*n_queries`; `out` `*n_queries`; all non-null; ids in range.
-#[no_mangle]
-pub unsafe extern "C" fn flows_ch_query_c(
-    offsets: *const i32,
-    n_nodes: *const i32,
-    targets: *const i32,
-    weights: *const f64,
-    n_edges: *const i32,
-    srcs: *const i32,
-    dsts: *const i32,
-    n_queries: *const i32,
-    out: *mut f64,
-) {
-    if offsets.is_null()
-        || n_nodes.is_null()
-        || targets.is_null()
-        || weights.is_null()
-        || n_edges.is_null()
-        || srcs.is_null()
-        || dsts.is_null()
-        || n_queries.is_null()
-        || out.is_null()
-    {
-        return;
-    }
-    let nn = (*n_nodes).max(0) as usize;
-    let me = (*n_edges).max(0) as usize;
-    let nq = (*n_queries).max(0) as usize;
-    let os = std::slice::from_raw_parts_mut(out, nq);
-    let off_raw = std::slice::from_raw_parts(offsets, nn + 1);
-    let tgt_raw = std::slice::from_raw_parts(targets, me);
-    let wts_raw = std::slice::from_raw_parts(weights, me);
-    let ss = std::slice::from_raw_parts(srcs, nq);
-    let ds = std::slice::from_raw_parts(dsts, nq);
-    // Validate ids/offsets up front; on failure fill the NaN error sentinel
-    // rather than clamping negatives to node 0 (silently wrong answers) or
-    // panicking on out-of-range ids (aborts the whole R process — a panic
-    // cannot unwind across extern "C"). Weights get the same treatment: a
-    // NaN or negative weight corrupts costs silently (see flows_dijkstra_c).
-    let valid = off_raw.first().is_some_and(|&o| o == 0)
-        && off_raw.last().is_some_and(|&o| o >= 0 && o as usize == me)
-        && off_raw.windows(2).all(|w| w[0] >= 0 && w[1] >= w[0])
-        && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn)
-        && wts_raw.iter().all(|&w| w.is_finite() && w >= 0.0)
-        && ss.iter().all(|&s| s >= 0 && (s as usize) < nn)
-        && ds.iter().all(|&d| d >= 0 && (d as usize) < nn);
-    if !valid {
-        os.fill(f64::NAN);
-        return;
-    }
-    let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
-        let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
-        let wts: Vec<f64> = wts_raw.to_vec();
-        let g = crate::routing::CsrGraph {
-            offsets: off,
-            targets: tgt,
-            weights: wts,
-        };
-        let ch = crate::ch::ContractionHierarchy::preprocess(&g);
-        (0..nq)
-            .map(|i| ch.query(ss[i] as usize, ds[i] as usize))
-            .collect::<Vec<f64>>()
-    }));
-    match computed {
-        Ok(costs) => os.copy_from_slice(&costs),
-        Err(_) => os.fill(f64::NAN),
-    }
-}
-
-/// R `.C()`-callable single-pair CH shortest-PATH query. Builds a CsrGraph,
-/// preprocesses the CH once, runs `query_path(src,dst)`, and writes the cost
-/// into `*out_cost` (f64::INFINITY = Inf for unreachable, NaN on invalid input)
-/// and the 0-based node sequence into `out_nodes` (up to `*cap` ids). The node
-/// count lands in `*out_len`; it never exceeds `*n_nodes` (a shortest path
-/// visits each node at most once), so an `n_nodes`-length `out_nodes` buffer
-/// never truncates. This is the geometry primitive the R production planner
-/// needs — `flows_ch_query_c` gives only the scalar cost. Costs equal the plain
-/// Dijkstra costs and the path is a real walk (both cargo-proven, non-circular
-/// vs Dijkstra). On invalid ids/offsets `*out_cost` is NaN and `*out_len` is 0,
-/// never an abort (a panic cannot unwind across `extern "C"`).
-///
-/// # Safety
-/// `offsets` has `*n_nodes+1` i32s; `targets`/`weights` `*n_edges`; `src`/`dst`/
-/// `cap`/`out_cost`/`out_len` one element each; `out_nodes` `*cap` i32s; all
-/// non-null; ids in range.
-#[no_mangle]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn flows_ch_path_c(
-    offsets: *const i32,
-    n_nodes: *const i32,
-    targets: *const i32,
-    weights: *const f64,
-    n_edges: *const i32,
-    src: *const i32,
-    dst: *const i32,
-    cap: *const i32,
-    out_cost: *mut f64,
-    out_nodes: *mut i32,
-    out_len: *mut i32,
-) {
-    if offsets.is_null()
-        || n_nodes.is_null()
-        || targets.is_null()
-        || weights.is_null()
-        || n_edges.is_null()
-        || src.is_null()
-        || dst.is_null()
-        || cap.is_null()
-        || out_cost.is_null()
-        || out_nodes.is_null()
-        || out_len.is_null()
-    {
-        return;
-    }
-    let nn = (*n_nodes).max(0) as usize;
-    let me = (*n_edges).max(0) as usize;
-    let cp = (*cap).max(0) as usize;
-    let s = *src;
-    let d = *dst;
-    let off_raw = std::slice::from_raw_parts(offsets, nn + 1);
-    let tgt_raw = std::slice::from_raw_parts(targets, me);
-    let wts_raw = std::slice::from_raw_parts(weights, me);
-    // Same up-front validation as flows_ch_query_c: bad ids or bad weights
-    // (NaN/negative — silent cost corruption) fill the NaN sentinel rather
-    // than clamping to node 0 (silent wrong answers) or panicking on
-    // out-of-range ids (aborts the R process).
-    let valid = off_raw.first().is_some_and(|&o| o == 0)
-        && off_raw.last().is_some_and(|&o| o >= 0 && o as usize == me)
-        && off_raw.windows(2).all(|w| w[0] >= 0 && w[1] >= w[0])
-        && tgt_raw.iter().all(|&t| t >= 0 && (t as usize) < nn)
-        && wts_raw.iter().all(|&w| w.is_finite() && w >= 0.0)
-        && s >= 0
-        && (s as usize) < nn
-        && d >= 0
-        && (d as usize) < nn;
-    if !valid {
-        *out_cost = f64::NAN;
-        *out_len = 0;
-        return;
-    }
-    let computed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let off: Vec<u32> = off_raw.iter().map(|&x| x as u32).collect();
-        let tgt: Vec<u32> = tgt_raw.iter().map(|&x| x as u32).collect();
-        let wts: Vec<f64> = wts_raw.to_vec();
-        let g = crate::routing::CsrGraph {
-            offsets: off,
-            targets: tgt,
-            weights: wts,
-        };
-        let ch = crate::ch::ContractionHierarchy::preprocess(&g);
-        ch.query_path(s as usize, d as usize)
-    }));
-    match computed {
-        Ok((cost, path)) => {
-            *out_cost = cost;
-            let n_write = cp.min(path.len());
-            let ns = std::slice::from_raw_parts_mut(out_nodes, n_write);
-            for (i, &node) in path.iter().take(cp).enumerate() {
-                ns[i] = node as i32;
-            }
-            *out_len = path.len() as i32;
-        }
-        Err(_) => {
-            *out_cost = f64::NAN;
-            *out_len = 0;
-        }
-    }
-}
+//! The surface is deliberately the smallest thing Swift actually calls
+//! (3.6, 3.25.5). Five exports — `flows_risk_label`, `flows_distance_matrix`,
+//! `flows_dijkstra_c`, `flows_ch_query_c`, `flows_ch_path_c` — were removed
+//! after a search of the whole Swift app found zero references to any of
+//! them: four were `unsafe extern "C"` and the fifth handed a raw pointer
+//! across the boundary, all of it dead weight against 3.15 and 5.3. What
+//! remains is `flows_polyline_decode`, `flows_transit_plan` and
+//! `flows_transit_selftest`.
+//!
+//! REMAINING STANDARD GAP (3.15/3.25.5): the two bulk-array exports below
+//! still take raw pointers and are therefore `unsafe`. The standard's
+//! remedy for buffer-passing bridges is a safe binding generator or a
+//! serialization boundary, which is an architectural change to the Swift
+//! interface — see docs/RUST_SWIFT_MIGRATION.md. `flows_transit_selftest`
+//! is already a value-oriented export and needs no unsafe.
 
 /// Decode a Google encoded polyline into interleaved lon,lat doubles.
 /// `bytes`/`len` is the encoded string (need not be NUL-terminated); `out`
@@ -515,12 +211,20 @@ unsafe fn build_timetable_ffi(
                         .collect(),
                 );
             }
+            // An unrecognized byte is a caller error, not a Commuter train.
+            // This catch-all used to admit every value 4..=255 into domain
+            // state as a specific, valid mode, so a one-byte offset mistake
+            // on the Swift side produced a plausible timetable in which every
+            // leg was mislabelled — and both the sizing pass and the fill
+            // pass returned success. The .ftt decoder already refuses the
+            // same byte (transit/ftt.rs); the boundary now agrees with it.
             let mode = match modes[r] {
                 0 => Mode::Rail,
                 1 => Mode::Subway,
                 2 => Mode::Bus,
                 3 => Mode::Coach,
-                _ => Mode::Commuter,
+                4 => Mode::Commuter,
+                _ => return None,
             };
             b.add_route(&pattern, trips, mode);
         }
@@ -716,196 +420,6 @@ pub extern "C" fn flows_transit_selftest() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CStr;
-
-    #[test]
-    fn ffi_label_roundtrips() {
-        // SAFETY: pointer is to a 'static NUL-terminated string.
-        let got = unsafe { CStr::from_ptr(flows_risk_label(0.75)) }
-            .to_str()
-            .unwrap();
-        assert_eq!(got, "Yellow");
-    }
-
-    #[test]
-    fn ffi_dijkstra_invalid_ids_fill_nan_no_abort() {
-        // Out-of-range target id: must fill the NaN sentinel, NOT panic
-        // (a panic across extern "C" aborts the process).
-        let offsets = [0i32, 1, 2];
-        let targets = [9i32, 0]; // 9 >= n_nodes=2 -> invalid
-        let weights = [1.0f64, 1.0];
-        let (nn, me, src) = (2i32, 2i32, 0i32);
-        let mut out = [0.0f64; 2];
-        unsafe {
-            flows_dijkstra_c(
-                offsets.as_ptr(),
-                &nn,
-                targets.as_ptr(),
-                weights.as_ptr(),
-                &me,
-                &src,
-                out.as_mut_ptr(),
-            );
-        }
-        assert!(
-            out.iter().all(|v| v.is_nan()),
-            "expected NaN sentinel, got {out:?}"
-        );
-        // Negative source: also invalid (was silently clamped to node 0).
-        let targets_ok = [1i32, 0];
-        let bad_src = -1i32;
-        let mut out2 = [0.0f64; 2];
-        unsafe {
-            flows_dijkstra_c(
-                offsets.as_ptr(),
-                &nn,
-                targets_ok.as_ptr(),
-                weights.as_ptr(),
-                &me,
-                &bad_src,
-                out2.as_mut_ptr(),
-            );
-        }
-        assert!(out2.iter().all(|v| v.is_nan()));
-        // Valid input still works.
-        let good_src = 0i32;
-        let mut out3 = [0.0f64; 2];
-        unsafe {
-            flows_dijkstra_c(
-                offsets.as_ptr(),
-                &nn,
-                targets_ok.as_ptr(),
-                weights.as_ptr(),
-                &me,
-                &good_src,
-                out3.as_mut_ptr(),
-            );
-        }
-        assert_eq!(out3[0], 0.0);
-        assert_eq!(out3[1], 1.0);
-    }
-
-    #[test]
-    fn ffi_ch_query_invalid_ids_fill_nan_no_abort() {
-        let offsets = [0i32, 1, 2];
-        let targets = [1i32, 0];
-        let weights = [1.0f64, 1.0];
-        let (nn, me, nq) = (2i32, 2i32, 1i32);
-        let srcs = [0i32];
-        let bad_dsts = [5i32]; // >= n_nodes -> invalid
-        let mut out = [0.0f64; 1];
-        unsafe {
-            flows_ch_query_c(
-                offsets.as_ptr(),
-                &nn,
-                targets.as_ptr(),
-                weights.as_ptr(),
-                &me,
-                srcs.as_ptr(),
-                bad_dsts.as_ptr(),
-                &nq,
-                out.as_mut_ptr(),
-            );
-        }
-        assert!(out[0].is_nan());
-        let good_dsts = [1i32];
-        let mut out2 = [0.0f64; 1];
-        unsafe {
-            flows_ch_query_c(
-                offsets.as_ptr(),
-                &nn,
-                targets.as_ptr(),
-                weights.as_ptr(),
-                &me,
-                srcs.as_ptr(),
-                good_dsts.as_ptr(),
-                &nq,
-                out2.as_mut_ptr(),
-            );
-        }
-        assert_eq!(out2[0], 1.0);
-    }
-
-    #[test]
-    fn ffi_graph_shims_reject_nan_and_negative_weights() {
-        // A NaN weight (an R NA marshalled through .C) or a negative weight
-        // must fill the NaN sentinel like any other invalid input — never a
-        // silently wrong finite cost.
-        let offsets = [0i32, 1, 2];
-        let targets = [1i32, 0];
-        let (nn, me, src) = (2i32, 2i32, 0i32);
-        let nan_w = [f64::NAN, 1.0];
-        let neg_w = [-1.0f64, 1.0];
-        let mut out = [0.0f64; 2];
-        unsafe {
-            flows_dijkstra_c(
-                offsets.as_ptr(),
-                &nn,
-                targets.as_ptr(),
-                nan_w.as_ptr(),
-                &me,
-                &src,
-                out.as_mut_ptr(),
-            );
-        }
-        assert!(
-            out.iter().all(|v| v.is_nan()),
-            "NaN weight must fill the sentinel"
-        );
-        let mut out2 = [0.0f64; 2];
-        unsafe {
-            flows_dijkstra_c(
-                offsets.as_ptr(),
-                &nn,
-                targets.as_ptr(),
-                neg_w.as_ptr(),
-                &me,
-                &src,
-                out2.as_mut_ptr(),
-            );
-        }
-        assert!(
-            out2.iter().all(|v| v.is_nan()),
-            "negative weight must fill the sentinel"
-        );
-        let (nq, srcs, dsts) = (1i32, [0i32], [1i32]);
-        let mut out3 = [0.0f64; 1];
-        unsafe {
-            flows_ch_query_c(
-                offsets.as_ptr(),
-                &nn,
-                targets.as_ptr(),
-                nan_w.as_ptr(),
-                &me,
-                srcs.as_ptr(),
-                dsts.as_ptr(),
-                &nq,
-                out3.as_mut_ptr(),
-            );
-        }
-        assert!(out3[0].is_nan());
-        let (s, d, cap) = (0i32, 1i32, 2i32);
-        let mut cost = 0.0f64;
-        let mut nodes = [0i32; 2];
-        let mut len = 0i32;
-        unsafe {
-            flows_ch_path_c(
-                offsets.as_ptr(),
-                &nn,
-                targets.as_ptr(),
-                neg_w.as_ptr(),
-                &me,
-                &s,
-                &d,
-                &cap,
-                &mut cost,
-                nodes.as_mut_ptr(),
-                &mut len,
-            );
-        }
-        assert!(cost.is_nan());
-        assert_eq!(len, 0);
-    }
 
     #[test]
     fn ffi_polyline_decode_two_pass() {
@@ -934,16 +448,6 @@ mod tests {
             unsafe { flows_polyline_decode(std::ptr::null(), 0, std::ptr::null_mut(), 0) },
             0
         );
-    }
-
-    #[test]
-    fn ffi_distance_matrix_fills_buffer() {
-        let a = [0.0f64, 0.0]; // one point (0,0)
-        let b = [3.0f64, 4.0]; // one point (3,4)
-        let mut out = [0.0f64; 1];
-        let rc = unsafe { flows_distance_matrix(a.as_ptr(), 1, b.as_ptr(), 1, out.as_mut_ptr()) };
-        assert_eq!(rc, 0);
-        assert!((out[0] - 5.0).abs() < 1e-15);
     }
 
     #[test]

@@ -310,3 +310,50 @@ green, with the R A* fallback intact.
 **Crate vs hand-roll.** Prefer the `fast_paths` crate (battle-tested CH) once a
 low-memory build window allows adding it; the hand-rolled design above is the
 fallback and the mental model for the equivalence gates either way.
+
+## Standard compliance: where the FFI boundary stands (2026-09-09)
+
+The Rust crates were audited against RUST_CODE_GENERATION_STANDARD_CONSOLIDATED.md.
+Most of it is now enforced by the compiler rather than by intention:
+
+- `flows-train` and every binary carry `#![forbid(unsafe_code)]`.
+- `flows-core` carries `#![deny(unsafe_code)]` with exactly one
+  `#[allow(unsafe_code)]`, on the `ffi` module, named in the crate root.
+- `polyline.rs` is unsafe-free: the raw-pointer kernel was retired after
+  measuring 1.07 ns/byte against the safe kernel's 1.16. Section 3.15 is
+  absolute and says a benchmark does not create an exception, and an 8% edge
+  on a decoder costing ~1 ms per 2000 polylines is not a mandatory
+  performance target. Same doctrine that retired the AArch64 assembly.
+- Five FFI exports (`flows_risk_label`, `flows_distance_matrix`,
+  `flows_dijkstra_c`, `flows_ch_query_c`, `flows_ch_path_c`) were deleted
+  after a search of the whole Swift app found zero references: four were
+  `unsafe extern "C"`, the fifth returned a raw pointer.
+- Release overflow checking is on and deliberate (Appendix A).
+
+### The one open gap, and what closing it costs
+
+Two exports remain `unsafe` because they take raw pointers to caller-owned
+buffers: `flows_polyline_decode` and `flows_transit_plan`.
+`flows_transit_selftest` is already a value-oriented export and needs no
+unsafe, which is the shape 3.25.5 permits.
+
+3.25.5 gives three ways to close a buffer-passing bridge, and each is an
+architectural decision about the Swift interface, not a local edit:
+
+1. **A safe binding generator** (UniFFI, swift-bridge). Closes the gap
+   properly and removes the hand-written bridge. Costs the project's
+   zero-dependency posture for `flows-core`, adds a codegen step to the
+   build, and both symbols would need regenerating on the Swift side.
+2. **A serialization boundary.** Swift hands over a length-prefixed byte
+   buffer and gets one back; the Rust side parses it in safe code. Keeps the
+   zero-dependency posture. Costs a copy in each direction on a path that
+   currently writes straight into a Swift-owned buffer.
+3. **Narrow the API to value-oriented calls.** Works for a scalar operation;
+   it does not work for returning a decoded polyline or a planned itinerary,
+   which are inherently bulk.
+
+Until one is chosen the `#[allow(unsafe_code)]` on `ffi` is the honest
+marker: the crate is safe Rust apart from a boundary that is named, narrowed
+to two functions, and validated at entry (null, length, range, and — as of
+this pass — unknown enum bytes are rejected rather than coerced).
+

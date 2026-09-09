@@ -24,6 +24,9 @@
 //! - `--plan A B HH:MM`: like --verify but between the given GTFS stop_ids at
 //!   the given departure time.
 
+// 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;

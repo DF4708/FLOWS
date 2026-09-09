@@ -13,6 +13,12 @@
 //! gate; the correctness gates live in the test suites.
 //!
 //! The polyline bake-off here is what RETIRED the hand-asm kernel
+//! (2026-09-09: the raw-pointer kernel was retired too — 1.07 ns/byte
+//! against the safe portable kernel's 1.16. An 8% edge on a decoder costing
+//! ~1 ms per 2000 polylines is not a mandatory performance target, and 3.15
+//! says in terms that a benchmark does not license `unsafe`. Both rows below
+//! now measure the same safe kernel; the pair is kept so a future change is
+//! still measured against a baseline.)
 //! (2026-07-19: asm 3.20 ns/byte vs raw-pointer portable 2.59 — rustc
 //! out-scheduled it). The two remaining kernels keep each other honest.
 
@@ -102,7 +108,7 @@ fn main() {
     let t_raw = time(21, || {
         for enc in &corpus {
             out.clear();
-            pk::deltas_rust_rawptr(enc, &mut out);
+            pk::deltas_rust(enc, &mut out);
             sink ^= out.last().copied().unwrap_or(0);
         }
     });

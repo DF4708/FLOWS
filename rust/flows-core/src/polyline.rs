@@ -18,7 +18,7 @@
 //!
 //! Both implementations of the hot loop are kept and equivalence-tested:
 //!   - `decode_deltas_rust`: portable reference.
-//!   - `bench::deltas_rust_rawptr`: the SHIPPED kernel (portable, writes
+//!   - `bench::deltas_rust`: the SHIPPED kernel (portable, safe; writes
 //!     through reserve + raw pointer; formerly an AArch64 inline-asm kernel —
 //!     iPhone / iPad). Integer-only varint+zigzag work is the profitable kind
 //!     of hand-assembly; float math stays in Rust where the compiler is
@@ -68,41 +68,6 @@ pub mod bench {
     pub fn deltas_rust(bytes: &[u8], out: &mut Vec<i64>) {
         super::decode_deltas_rust(bytes, out)
     }
-
-    pub fn deltas_rust_rawptr(bytes: &[u8], out: &mut Vec<i64>) {
-        if bytes.is_empty() {
-            return;
-        }
-        out.reserve(bytes.len());
-        let mut acc: u64 = 0;
-        let mut shift: u32 = 0;
-        let mut chunks: u32 = 0;
-        let mut count = 0usize;
-        unsafe {
-            let base = out.as_mut_ptr().add(out.len());
-            for &raw in bytes {
-                let b = i32::from(raw) - 63;
-                chunks += 1;
-                if chunks > super::MAX_CHUNKS {
-                    break; // malformed varint: drop it and everything after
-                }
-                acc |= u64::from((b & 0x1f) as u32) << shift;
-                shift += 5;
-                if b < 0x20 {
-                    let v = ((acc >> 1) as i64) ^ -((acc & 1) as i64);
-                    // SAFETY: count <= bytes.len() (one store per terminator
-                    // byte), within the reserve above — same argument as the
-                    // asm wrapper's set_len.
-                    base.add(count).write(v);
-                    count += 1;
-                    acc = 0;
-                    shift = 0;
-                    chunks = 0;
-                }
-            }
-            out.set_len(out.len() + count);
-        }
-    }
 }
 
 /// Decode zigzag varints into signed deltas.
@@ -117,7 +82,7 @@ pub mod bench {
 /// wrapper's one real trick, kept); `decode_deltas_rust` stays as the
 /// fully-safe oracle the tests pin both against.
 pub fn decode_deltas(bytes: &[u8], out: &mut Vec<i64>) {
-    bench::deltas_rust_rawptr(bytes, out);
+    bench::deltas_rust(bytes, out);
 }
 
 /// Decode an encoded polyline into (lon, lat) pairs — same column order as the
@@ -223,7 +188,7 @@ mod tests {
             decode_deltas(enc.as_bytes(), &mut b);
             assert_eq!(a, b, "kernel divergence in case {case}: {enc}");
             let mut c: Vec<i64> = Vec::new();
-            bench::deltas_rust_rawptr(enc.as_bytes(), &mut c);
+            bench::deltas_rust(enc.as_bytes(), &mut c);
             assert_eq!(a, c, "rawptr kernel divergence in case {case}: {enc}");
         }
     }
@@ -248,7 +213,7 @@ mod tests {
             decode_deltas(input.as_bytes(), &mut b);
             assert_eq!(a, b, "kernel divergence on malformed input {input:?}");
             let mut c: Vec<i64> = Vec::new();
-            bench::deltas_rust_rawptr(input.as_bytes(), &mut c);
+            bench::deltas_rust(input.as_bytes(), &mut c);
             assert_eq!(a, c, "rawptr divergence on malformed input {input:?}");
         }
     }

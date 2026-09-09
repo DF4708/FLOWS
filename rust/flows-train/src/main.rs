@@ -20,6 +20,9 @@
 //!   [ sin(2π·week/52), cos(2π·week/52), oLat/90, dLat/90,
 //!     min(haversine_km, 4000)/4000, crossCountry ]
 
+// 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
+#![forbid(unsafe_code)]
+
 use std::env;
 use std::f64::consts::PI;
 use std::fs;
@@ -384,7 +387,7 @@ fn rmse(net: &Net, rows: &[Row]) -> f64 {
 
 // ---------------------------------------------------------------- output
 
-fn write_head(net: &Net, version: i64, rows: usize, path: &str) {
+fn write_head(net: &Net, version: i64, rows: usize, path: &str) -> Result<(), String> {
     let mut s = String::from("{\"w1\":[");
     for (j, row) in net.w1.iter().enumerate() {
         if j > 0 {
@@ -418,9 +421,12 @@ fn write_head(net: &Net, version: i64, rows: usize, path: &str) {
         net.b2, version, NI, NH, rows
     ));
     let tmp = format!("{path}.tmp");
-    if fs::write(&tmp, &s).is_ok() {
-        let _ = fs::rename(&tmp, path); // atomic drop-in for the app
-    }
+    // Propagate. Both results used to be discarded, so a full disk or a bad
+    // path produced no model, no error and no non-zero exit — the trainer
+    // reported success and the app kept running the previous weights.
+    fs::write(&tmp, &s).map_err(|e| format!("write {tmp}: {e}"))?;
+    fs::rename(&tmp, path).map_err(|e| format!("rename {tmp} -> {path}: {e}"))?;
+    Ok(())
 }
 
 fn next_version(models_dir: &str) -> i64 {
@@ -477,13 +483,17 @@ fn main() {
     );
 
     let version = next_version(models);
-    write_head(&net, version, tr.len() + va.len(), &head_out);
-    write_head(
-        &net,
-        version,
-        tr.len() + va.len(),
-        &format!("{models}/route_head_v{version}.json"),
-    );
+    // A trainer that cannot write its model has failed; say so and exit
+    // non-zero rather than printing "wrote" over a write that never landed.
+    for path in [
+        head_out.clone(),
+        format!("{models}/route_head_v{version}.json"),
+    ] {
+        if let Err(e) = write_head(&net, version, tr.len() + va.len(), &path) {
+            eprintln!("flows-train: {e}");
+            std::process::exit(1);
+        }
+    }
     eprintln!("  wrote v{version} -> {head_out}");
 }
 
