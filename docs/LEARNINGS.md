@@ -1109,3 +1109,34 @@ and the last partial was all it could produce. The observer for the end
 of the item costs six lines and is what makes a recorded call — the
 only kind you can test on a desk — behave like the live one.
 
+## A freeze I could not reproduce, and what the reading found instead
+
+The Mac's planning screen was reported to freeze after Plan route. I
+could not make it happen by script — the window's accessibility tree
+exposes the fields but setting their value never reaches the SwiftUI
+binding, and keystrokes are swallowed once a value is set — so the
+diagnosis has to come from the user's own run. Two things were done
+about that, and one thing was found on the way.
+
+**Breadcrumbs beat guesses.** The planning path now journals each phase
+— start, geocoded, presenting — and the blend loop, the one stretch that
+runs synchronously on the main actor, reports its sample count and
+milliseconds. A freeze on a machine I cannot drive names the step that
+never returned.
+
+**Count the overlays.** Every hazard ring on the map is a polygon plus
+one polyline per hatch stripe, in two lists, at a fixed 0.012° spacing:
+eight to twenty-five stripes per list, forty rings, several hundred
+overlays. The SwiftUI Map re-diffs every one on every model publish,
+and route scoring publishes several times a second. Nothing in that
+sentence is a bug; together they are the shape of a screen that stops
+responding on a large window. Stripes are bounded by the ring's height,
+skipped beyond state scale, and the ring cap is twenty-four.
+
+**Two lists that differ in one wrapper differ in that wrapper.** The
+start suggestions were clickable and the destination suggestions were
+not; the only structural difference was `ScrollWhenTight` around the
+destination list — a `ViewThatFits` holding the list twice, free to swap
+which copy is live as suggestions change under the pointer. On the Mac
+the click landed on a row that had just been replaced.
+
