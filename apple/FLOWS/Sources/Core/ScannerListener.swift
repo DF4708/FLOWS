@@ -110,6 +110,7 @@ final class ScannerListener: ObservableObject {
     /// doesn't hit the geocoder over and over.
     private var placeCache: [String: CLLocationCoordinate2D] = [:]
     private var sweepTimer: Timer?
+    private var endObserver: NSObjectProtocol?
 
     #if canImport(Speech)
     private var recognizer: SFSpeechRecognizer?
@@ -146,6 +147,8 @@ final class ScannerListener: ObservableObject {
     }
 
     func stop() {
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
         player?.pause()
         player = nil
         currentFeed = nil
@@ -215,6 +218,18 @@ final class ScannerListener: ObservableObject {
         player = p
         isListening = true
         status = "Listening to \(feed.name)"
+        // A live stream never ends; a recorded feed (the test file, an
+        // archived call) does — and without endAudio() at that point the
+        // recognizer never delivers its FINAL result, so the last partial
+        // was all a file could ever produce.
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                FlowsDiag.log(.info, "scanner", "feed \(feed.name): ended — finalizing")
+                self.request?.endAudio()
+            }
+        }
 
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in

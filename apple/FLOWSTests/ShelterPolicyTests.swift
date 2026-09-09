@@ -680,3 +680,49 @@ final class TextScaleFactorTests: XCTestCase {
         XCTAssertGreaterThan(TextScale.baseSize(.title), TextScale.baseSize(.headline))
     }
 }
+
+/// The synthesized dispatch call used to prove the audio path, end to end.
+final class DispatchSentenceTests: XCTestCase {
+    private let full = "Attention all units. Report of a two vehicle crash on Highway 51 at Main Street. Injuries reported. Respond code three."
+
+    func testTheFullSentenceIsACrashAtAPlace() {
+        XCTAssertNotNil(ScannerIncidents.kind(inTranscript: full))
+        XCTAssertNotNil(ScannerIncidents.placePhrase(inTranscript: full),
+                        "Highway 51 at Main Street must resolve as a place")
+    }
+
+    func testAPartialCutBeforeThePlaceIsNotAnIncident() {
+        // The Mac's recognizer delivered exactly this much — 63 characters,
+        // ending before "at Main Street" — and no final result, so nothing
+        // was drawn. The parser is right to refuse; the listener must let
+        // the recognizer finish (endAudio at the end of the item).
+        let partial = String(full.prefix(63))
+        XCTAssertNotNil(ScannerIncidents.kind(inTranscript: partial))
+        XCTAssertNil(ScannerIncidents.placePhrase(inTranscript: partial))
+    }
+}
+
+/// What a live transcript actually looks like, and what must not kill us.
+final class DispatchTranscriptRobustnessTests: XCTestCase {
+    func testAPartialEndingInARouteNumberDoesNotCrash() {
+        // "…crash on Highway 51" is the most ordinary partial there is.
+        // The address scan built a backwards range from it — a fatal error.
+        XCTAssertNil(ScannerIncidents.placePhrase(inTranscript: "two vehicle crash on Highway 51"))
+        XCTAssertNil(ScannerIncidents.placePhrase(inTranscript: "51"))
+        XCTAssertNil(ScannerIncidents.placePhrase(inTranscript: "respond to 2100"))
+    }
+
+    func testSentencePunctuationDoesNotHideARoadWord() {
+        XCTAssertNotNil(ScannerIncidents.placePhrase(
+            inTranscript: "crash on Highway 51 at Main Street. Injuries reported."))
+        XCTAssertNotNil(ScannerIncidents.placePhrase(
+            inTranscript: "respond to 2100 Washington Road, for the alarm"))
+    }
+
+    func testTheWordsDispatchersActuallyUseAreACrash() {
+        for t in ["two vehicle crash on the interstate", "a wreck at Fifth and Main",
+                  "rollover on Route 12", "vehicle crash with entrapment"] {
+            XCTAssertNotNil(ScannerIncidents.kind(inTranscript: t), t)
+        }
+    }
+}

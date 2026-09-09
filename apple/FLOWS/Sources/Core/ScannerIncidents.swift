@@ -75,7 +75,13 @@ enum ScannerIncidents {
         var phrases: [String] {
             switch self {
             case .traffic:
-                return ["motor vehicle accident", "mva", "vehicle accident",
+                // The plain words first: the list had every formal phrase
+                // and not one of "crash", "wreck" or "accident" on its own,
+                // so the most ordinary dispatch there is — "two vehicle
+                // crash on Highway 51" — was not a call at all.
+                return ["crash", "wreck", "accident", "rollover", "pileup",
+                        "pile up", "jackknifed", "overturned",
+                        "motor vehicle accident", "mva", "vehicle accident",
                         "traffic collision", "ten fifty", "10-50",
                         "car accident", "collision", "vehicle rollover",
                         "hit and run", "vehicle versus"]
@@ -90,7 +96,7 @@ enum ScannerIncidents {
                         "ems responding", "medic", "ambulance", "injury",
                         "unconscious"]
             case .rescue:
-                return ["water rescue", "swift water", "extrication",
+                return ["water rescue", "swift water", "extrication", "entrapment", "pin in", "pinned in",
                         "trapped", "rescue squad", "entrapment",
                         "person in the water"]
             case .hazard:
@@ -143,9 +149,14 @@ enum ScannerIncidents {
     /// is not a location this app can put a pin on, so it returns nil and
     /// the incident is dropped.
     static func placePhrase(inTranscript text: String) -> String? {
-        let words = text.lowercased()
-            .replacingOccurrences(of: ",", with: " ")
-            .split(separator: " ").map(String.init)
+        // Dispatch transcripts arrive with sentence punctuation attached to
+        // words ("Main Street." / "Highway 51,"), and "street." is not a
+        // road word. Strip it all to spaces first.
+        var cleaned = text.lowercased()
+        for p in [",", ".", ";", ":", "!", "?"] {
+            cleaned = cleaned.replacingOccurrences(of: p, with: " ")
+        }
+        let words = cleaned.split(separator: " ").map(String.init)
         guard words.count >= 2 else { return nil }
 
         // Cross streets: "<name> road and <name> road", "<name> and <name>".
@@ -161,6 +172,12 @@ enum ScannerIncidents {
         // Street address: a number followed within a few words by a road word.
         for (i, w) in words.enumerated() {
             guard let n = Int(w), n > 0, n < 100_000 else { continue }
+            // A number as the LAST word — every partial transcript that
+            // stops on "…Highway 51" — made this range run backwards, and
+            // a backwards range is a fatal error, not nil. That took the
+            // whole app down on the first live partial that ended in a
+            // route number.
+            guard i + 1 < words.count else { continue }
             let tail = words[(i + 1)...min(words.count - 1, i + 4)]
             guard let end = tail.firstIndex(where: roadWords.contains) else { continue }
             return words[i...end].joined(separator: " ")
