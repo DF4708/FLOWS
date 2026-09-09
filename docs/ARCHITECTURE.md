@@ -473,7 +473,25 @@ the map, the route scorer, and the live corridor monitor):
   wind/geocode/work-zone/lane lookups, the spoken-turn dedupe, the
   plan-time DOT closures the live corridor watch now scores against.
 
-### 7.5c Staging a dispatch feed
+### 7.5c A start without GPS
+
+`AppModel.bestKnownPosition` is the one answer to "where is the driver"
+when there is no fix: the saved Home favourite, else the centre of the
+learned everyday area (`EverydayPlaces.homeAnchor`). The planner uses it
+as the start (labelled "From: Home (no GPS)"), and the map opens on it
+at city scale instead of framing CONUS, so the planning-mode risk sweep
+has something to draw. On the Mac this is the normal case.
+
+### 7.5d Text size on macOS
+
+macOS has no Dynamic Type. The root pins the chosen step into the
+environment's `dynamicTypeSize`, and `ScaledFont` reads that on macOS
+and multiplies the base size by `TextScale.factor` itself; on iOS
+`@ScaledMetric` does the same job. Semantic styles go through
+`scaledFont(.caption)` etc. — a plain `.font(.caption)` is a fixed size
+on the Mac and must not be used in the menus.
+
+### 7.5e Staging a dispatch feed
 
 `ScannerListener` reads `scanner_feeds.json` from the app's own
 Application Support directory, which is inside a sandbox container on

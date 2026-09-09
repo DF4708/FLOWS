@@ -1036,3 +1036,47 @@ listener instrumented one journal line per state. What each line taught:
 - Apple shows the usage description verbatim in the prompt, and it never
   mentioned the one use that runs unattended. It does now.
 
+## The Mac, used as a Mac
+
+Running the dispatch feed on the Mac for the first time found four
+things the phone never showed, and one of them was a crash that had
+been shipping for as long as the Mac target has existed.
+
+**A missing usage string is not a missing prompt on macOS — it is a
+kill.** The macOS target's Info.plist had no speech or microphone usage
+description (both existed on the iOS target only). TCC does not prompt
+in that case; it hangs the request and then aborts the process
+(`__TCC_CRASHING_DUE_TO_PRIVACY_VIOLATION__`). So the spoken yes/no to a
+faster route, the crash check-in's "I'm okay", and the dispatch feed
+each froze the Mac app for forty-odd seconds and then vanished — read
+by a user as "FLOWS froze after I pressed Start", because starting a
+drive is what triggers the trip-share offer that listens for a reply.
+The keys are on the macOS target now, and a test reads `project.yml`
+(as a bundled resource — the runner cannot open `~/Documents`) so the
+gap cannot reopen quietly.
+
+**The Mac target is `com.flows.app.mac` and sandboxed.** Its journal,
+Application Support and preferences live in
+`~/Library/Containers/com.flows.app.mac`, and a sandboxed app cannot
+read a file in `/tmp`. Three sessions of "the Mac journal is empty" and
+"the feed never loads" were this one fact.
+
+**macOS has no Dynamic Type.** `@ScaledMetric` never moves there and
+`.font(.caption)` is a fixed size, so the in-app text-size slider
+changed nothing on a Mac — including the 258 menu labels written as
+plain semantic fonts. `ScaledFont` now applies the pinned step by hand
+on macOS, and every semantic font in the menus goes through it.
+
+**A click on the Mac moves focus first.** The suggestion list was keyed
+on the field having focus, so clicking a suggestion removed the list
+before the click could land; no address was ever selectable by mouse.
+The list now holds open for a third of a second after focus leaves.
+
+**A desk has no GPS.** The planner refused to plan without a typed
+start and the map opened on the whole continent, where the risk sweep
+draws nothing. `bestKnownPosition` — the fix, else the saved Home, else
+the centre of the learned everyday area — now seeds both. IP
+geolocation was deliberately left out: it needs a provider decision
+under the standing rules and a privacy-policy line before it earns a
+place in that chain.
+
