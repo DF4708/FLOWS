@@ -453,3 +453,78 @@ under one implementation means a bulk boundary through swift-bridge, which is
 the same decision the transit engine forces, and it should be made once for
 both rather than twice.
 
+## Is Swift only the GUI? An accounting (2026-09-09)
+
+The stated architecture is Rust for compute, Swift for the UI. Measured
+against the 39,766 lines of Swift in the app, it is not what shipped:
+
+| role | lines | share |
+|---|---:|---:|
+| UI (SwiftUI views, theme, intents, CarPlay) | 11,376 | 29% |
+| App model (`FLOWSApp.swift`) | 4,708 | 12% |
+| Platform glue (audio, speech, music, Bluetooth, watch, keychain, MapKit routing/search, location) | 8,249 | 21% |
+| Feed ingestion and parsing (NWS, WMO, live hazard feeds, EPA, fuel, radio) | 5,941 | 15% |
+| **Pure compute and models — no platform dependency** | **9,492** | **24%** |
+
+The last row is the expansion. It is 49 files that import
+nothing beyond Foundation (or CoreLocation for the coordinate struct alone)
+and compute something: risk equations, learned models, a trainer, policies,
+rankings, tables. Add the roughly 803 lines of
+route-scoring functions inside the app model (`scored`, `attributeScored`,
+`hydrateRouteRisk`, `learnedETA`, the grade and corridor updaters) and about
+a quarter of the Swift in the app is compute that the architecture says
+belongs in Rust.
+
+The platform-glue and feed rows are Swift by necessity: the frameworks are
+Apple's, and network I/O is fine in Swift. What is *not* fine is that the
+parsing inside the feed row — the third-party bytes the standard's §6.4 calls
+the natural fuzz targets — is also Swift.
+
+### The one Swift↔Rust interface that exists, and it passes
+
+There is no call boundary. The interface today is three binary artifacts
+Rust writes and Swift reads, and each Swift reader validates the way §3.20
+and §3.25.1 require before trusting a byte:
+
+| artifact | writer | Swift reader | validates |
+|---|---|---|---|
+| `.fps` place shards (`FPS1`) | `places-shard` | `PlacesStore` | magic, version, record and cell counts, grid offset, FNV-1a body hash |
+| `history_harmonic.bin` (`FLHH`) | `history-baseline` | `HarmonicClimatology` | magic, version, per-section bounds, exact total length |
+| risk bundle (`FRB1`) | `bundle-frb` | `RiskFieldService` | magic, family and ZIP counts, FNV-1a body hash, bounds guard per section |
+
+The `.ftt` transit tables (`FTT1`) have a Rust reader and no Swift reader
+yet; the transit engine is not live.
+
+### Migration order, if Swift is to be the GUI
+
+Ordered by how much of the app's *answer* each one decides, and by whether
+a Rust twin already exists:
+
+1. **Risk equations** — `RiskEquations.swift` (476 lines). The Rust port exists
+   (`flows-core::families`, `::scoring`) and the two are pinned bit-for-bit.
+   This is the first crossing for swift-bridge, and it retires a duplicate.
+2. **Route scoring in the app model** — `scored`, `attributeScored`,
+   `hydrateRouteRisk`, `sampleRealizedRisk` (~450 lines). Runs per sample
+   per route on the main actor; it is the leading candidate for the Mac
+   planning stall as well as the clearest "compute in the UI layer".
+3. **The learned models** — `SeasonalRiskModel` (672), `TrafficLearning`
+   (279), `RoadEfficiencyLearning` (202), `EverydayRadius`
+   (520), and `RouteHeadTrainer` (149) — an on-device *trainer*
+   in the UI language, whose offline twin is `flows-train`.
+4. **The field and climatology readers** — `RiskFieldService` (492),
+   `HarmonicClimatology` (171), `LatitudeBands`, `ClimateProfiles`: they
+   read Rust-written bytes and would be simpler as Rust returning values.
+5. **Policies and tables** — `CrashLogic`, `EscalationPolicy`,
+   `ShelterPolicy`, `SpeedLaw`, `TowingLimits`, `FilterLimits`,
+   `DriveEfficiency`, `POIRanking`, `BadgeClustering`: pure, already pinned
+   by tests, mechanical to move.
+6. **Parsers of third-party bytes** — `ScannerIncidents`,
+   `AlertEntityParser`, and the JSON feature parsing inside the feed files:
+   the fuzz targets, which the standard wants in safe Rust with property
+   tests.
+
+Each step crosses the swift-bridge boundary verified earlier in this
+document. Step 1 is sized at one bridge module, a `build.rs`, the generated
+Swift and header added to the Xcode project, and the three cross-compiled
+slices restored to `project.yml`.
+
