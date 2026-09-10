@@ -499,6 +499,31 @@ pub fn dominant_family<'a>(families: &[(&'a str, f64)], floor: f64) -> Option<&'
     best.map(|(f, _)| f)
 }
 
+/// The single worst family at or above `floor` — a plain maximum with NO
+/// acute nudge, for callers that want the dominant reading rather than the
+/// name to draw (the traffic-delay weather bucket, the learned-ETA road
+/// class). `None` when nothing clears the floor.
+///
+/// # Determinism
+///
+/// Exact ties go to the lower family name, so the answer is a function of
+/// the input set and not of its order.
+#[must_use]
+pub fn peak_family<'a>(families: &[(&'a str, f64)], floor: f64) -> Option<&'a str> {
+    let mut best: Option<(&'a str, f64)> = None;
+    for (f, s) in families {
+        if !s.is_finite() || *s < floor {
+            continue;
+        }
+        best = match best {
+            Some((bf, bs)) if *s > bs || (*s == bs && *f < bf) => Some((f, *s)),
+            Some(prev) => Some(prev),
+            None => Some((f, *s)),
+        };
+    }
+    best.map(|(f, _)| f)
+}
+
 /// Is this family a distinct named danger rather than a dial reading?
 #[must_use]
 pub fn is_acute(family: &str) -> bool {
@@ -926,6 +951,94 @@ mod tests {
             dominant_family(&b, DOMINANT_FLOOR)
         );
         assert_eq!(dominant_family(&a, DOMINANT_FLOOR), Some("convective"));
+    }
+
+    /// The cross-language fixture. These six inputs are pinned bit-for-bit
+    /// here AND in the Swift suite (FLOWSTests/RiskDeterminismTests.swift):
+    /// if either implementation drifts from the other by a single bit, its
+    /// own suite fails. Run with `--nocapture` to print fresh values after a
+    /// deliberate model change, then update both files together.
+    #[test]
+    fn cross_language_fixture_is_bit_exact() {
+        let cases: [(&str, Vec<(&str, f64)>); 6] = [
+            (
+                "flood_in_rain",
+                vec![("qpf_flood", 0.7), ("precip", 0.9), ("wind", 0.6)],
+            ),
+            (
+                "fire_in_weather",
+                vec![("fire", 0.85), ("wind", 0.95), ("heat", 0.9)],
+            ),
+            (
+                "mixed_with_ignored",
+                vec![
+                    ("closure", 0.3),
+                    ("heat", 0.2),
+                    ("wind", 0.4),
+                    ("qpf_flood", 0.7),
+                    ("environmental", 0.9),
+                ],
+            ),
+            (
+                "all_predictors_maxed",
+                SECONDARY_FAMILIES.iter().map(|f| (*f, 1.0)).collect(),
+            ),
+            ("two_primaries", vec![("seismic", 0.5), ("fire", 0.5)]),
+            // Nine predictors at SMALL values plus a small primary: the one
+            // case where the secondary stays below the ceiling and both
+            // accumulators multiply ten terms, so the ORDER is what is being
+            // pinned. (The maxed case above saturates at exactly 0.80 and
+            // proves the ceiling, not the sequence.)
+            (
+                "ten_terms_unsaturated",
+                vec![
+                    ("wind", 0.13),
+                    ("cold", 0.07),
+                    ("air", 0.11),
+                    ("radiation", 0.09),
+                    ("avalanche", 0.12),
+                    ("convective", 0.08),
+                    ("winter", 0.06),
+                    ("precip", 0.15),
+                    ("heat", 0.05),
+                    ("fire", 0.2),
+                ],
+            ),
+        ];
+        let expected: [u64; 6] = FIXTURE_BITS;
+        for (i, (name, fams)) in cases.iter().enumerate() {
+            let mut sorted = fams.clone();
+            canonical_order(&mut sorted);
+            let v = realized_risk(&sorted);
+            println!("FIXTURE {name} {:#018x} {v:.17}", v.to_bits());
+            if expected[i] != 0 {
+                assert_eq!(v.to_bits(), expected[i], "{name}: {v:.17} drifted");
+            }
+        }
+    }
+
+    /// Filled in from the printer above; a zero means "not yet pinned".
+    const FIXTURE_BITS: [u64; 6] = [
+        0x3feb_0790_1739_d869, // flood_in_rain        0.84467320000000001
+        0x3fee_b030_4973_e758, // fire_in_weather      0.95900739999999995
+        0x3feb_3128_0d87_9f69, // mixed_with_ignored   0.84975054400000005
+        0x3fe9_9999_9999_999a, // all_predictors_maxed 0.80000000000000004 (the ceiling)
+        0x3fe8_0000_0000_0000, // two_primaries        0.75
+        0x3fdd_4910_b178_ba6a, // ten_terms_unsaturated 0.45758454638681789
+    ];
+
+    #[test]
+    fn peak_family_is_a_plain_max_with_name_ties() {
+        assert_eq!(
+            peak_family(&[("fire", 0.6), ("convective", 0.6)], 0.4),
+            Some("convective")
+        );
+        assert_eq!(
+            peak_family(&[("fire", 0.6), ("convective", 0.7)], 0.4),
+            Some("convective")
+        );
+        assert_eq!(peak_family(&[("wind", 0.2)], 0.4), None);
+        assert_eq!(peak_family(&[("wind", f64::NAN)], 0.0), None);
     }
 
     #[test]

@@ -105,6 +105,10 @@ enum RiskEquations {
     // MARK: R/families.R noisy_or_combine (line 497) — exact shape
 
     /// 1 − Π(1 − wᵢ·clamp(sᵢ)) over (family, score) pairs.
+    ///
+    /// The product is taken in ARRAY order; the caller owns that order and,
+    /// if two callers must agree bit for bit, should sort by family name
+    /// first (the canonical order `realizedRisk` uses).
     static func noisyOr(_ scores: [(family: String, score: Double)]) -> Double {
         var keep = 1.0
         for (family, raw) in scores {
@@ -131,10 +135,17 @@ enum RiskEquations {
     /// `closure` = a DOT-reported road closure (WZDx all-lanes-closed) — the
     /// literal "proof of blocked road" primary: uncleared snow, washouts, and
     /// slides band Red the moment the state DOT reports the closure.
-    static let primaryFamilies: Set<String> = [
-        "fire", "qpf_flood", "flood", "storm", "closure",
-        "seismic", "tsunami", "tropical", "volcanic",
+    ///
+    /// SORTED BY NAME, and the array is the source of truth: `realizedRisk`
+    /// walks it in this order so the noisy-OR product is multiplied in the
+    /// same sequence on every launch and on both sides of the language line
+    /// (rust/flows-core/src/families.rs sorts by name too). Keep it sorted —
+    /// a test checks.
+    static let primaryOrder: [String] = [
+        "closure", "fire", "flood", "qpf_flood", "seismic",
+        "storm", "tropical", "tsunami", "volcanic",
     ]
+    static let primaryFamilies: Set<String> = Set(primaryOrder)
 
     /// PREDICTOR / amplifier families — conditions or FORECASTS that raise the
     /// likelihood or severity of a realized primary but are NOT proof of a
@@ -146,10 +157,13 @@ enum RiskEquations {
     /// They spike a realized primary; alone they only advise (capped below Red).
     /// Each realized form (a Tornado/Flash-Flood/Tsunami Warning, an avalanche or
     /// snow road closure) becomes a primary the moment that proof feed is wired.
-    static let secondaryFamilies: Set<String> = [
-        "wind", "heat", "cold", "air", "radiation", "precip", "winter",
-        "convective", "avalanche",
+    ///
+    /// SORTED BY NAME — see `primaryOrder`.
+    static let secondaryOrder: [String] = [
+        "air", "avalanche", "cold", "convective", "heat",
+        "precip", "radiation", "wind", "winter",
     ]
+    static let secondaryFamilies: Set<String> = Set(secondaryOrder)
 
     /// Upper-Yellow ceiling for a secondary-only situation: a pile of
     /// predictors (extreme fire-weather with no fire, high UV, haze, a windy
@@ -219,17 +233,24 @@ enum RiskEquations {
     static func realizedRisk(_ families: [String: Double]) -> Double {
         func clamp(_ x: Double) -> Double { x.isFinite ? min(max(x, 0), 1) : 0 }
         // One pass, no intermediate collections: this runs per corridor
-        // sample per route (and per progress tick while scoring) — the old
-        // filter+map into noisyOr allocated a Dictionary and an Array of
-        // String tuples per call. Both products accumulate in the SAME
-        // dictionary-iteration order the two-pass form used, so results are
-        // bit-identical.
+        // sample per route (and per progress tick while scoring).
+        //
+        // The walk is over the FIXED, name-sorted family lists with a lookup
+        // per name — not over the dictionary. Floating-point multiplication
+        // is not associative, and a Swift Dictionary iterates in an order
+        // seeded per process, so the old `for (f, s) in families` multiplied
+        // the same terms in a different sequence on different launches and
+        // could differ in the last bits between runs. A last bit either side
+        // of a band cut is a different band on a driver's route. This order
+        // is the same one rust/flows-core uses, and a fixture pins the two
+        // implementations to each other bit for bit.
         var keep = 1.0            // primaries: a maxed primary stays maxed (weight 1)
         var secondaryKeep = 1.0   // predictors: weighted noisy-OR (R combine shape)
-        for (f, s) in families {
-            if primaryFamilies.contains(f) {
-                keep *= 1 - clamp(s)
-            } else if secondaryFamilies.contains(f) {
+        for f in primaryOrder {
+            if let s = families[f] { keep *= 1 - clamp(s) }
+        }
+        for f in secondaryOrder {
+            if let s = families[f] {
                 let w = min(max(familyWeights[f] ?? 1, 0), 1)
                 secondaryKeep *= 1 - w * clamp(s)
             }
@@ -367,6 +388,22 @@ enum RiskEquations {
 }
 
 
+extension RiskEquations {
+    /// The single worst family at or above `floor` — a plain maximum with no
+    /// acute nudge, for callers that want the dominant READING rather than
+    /// the name to draw (the traffic-delay weather bucket, the learned-ETA
+    /// road class). Exact ties go to the lower name, so two launches agree.
+    /// `nil` when nothing clears the floor.
+    static func peakFamily(_ families: [String: Double], floor: Double) -> String? {
+        var best: (family: String, s: Double)?
+        for (f, s) in families where s.isFinite && s >= floor {
+            if let b = best, !(s > b.s || (s == b.s && f < b.family)) { continue }
+            best = (f, s)
+        }
+        return best?.family
+    }
+}
+
 /// How a whole route's risk band is decided from its pieces.
 enum RouteRiskBand {
     /// The band to LABEL a route with.
@@ -417,15 +454,19 @@ enum HazardRanking {
     ///
     /// Now the highest score wins, with acute hazards carrying a small
     /// nudge for ties. Returns nil when nothing is elevated enough to name.
+    ///
+    /// Exact ties go to the LOWER family name, so the answer depends on the
+    /// input set and not on the order a Dictionary happens to yield it in
+    /// (which changes between launches). Same rule as rust/flows-core.
     static func dominantFamily(_ families: [String: Double],
                                floor: Double = 0.45) -> String? {
-        let ranked = families
-            .filter { $0.value >= floor }
-            .max { a, b in
-                weight(family: a.key, score: a.value)
-                    < weight(family: b.key, score: b.value)
-            }
-        return ranked?.key
+        var best: (family: String, w: Double)?
+        for (f, s) in families where s.isFinite && s >= floor {
+            let w = weight(family: f, score: s)
+            if let b = best, !(w > b.w || (w == b.w && f < b.family)) { continue }
+            best = (f, w)
+        }
+        return best?.family
     }
 
     private static func weight(family: String, score: Double) -> Double {

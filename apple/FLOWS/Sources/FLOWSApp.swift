@@ -1652,9 +1652,7 @@ final class AppModel: ObservableObject {
     /// device has actually measured steers which route looks fastest, not
     /// only the number shown once driving.
     func learnedETA(for route: PlannedRoute) -> Double {
-        let worst = route.familyPeaks
-            .filter { $0.value >= FlowsCore.riskGreenMin }
-            .max(by: { $0.value < $1.value })?.key
+        let worst = RiskEquations.peakFamily(route.familyPeaks, floor: FlowsCore.riskGreenMin)
         // Judge the route by the roads it's actually made of: a highway run
         // reads the pooled highway learning, a cross-town errand reads this
         // neighbourhood's own.
@@ -4343,9 +4341,9 @@ final class AppModel: ObservableObject {
     /// The coarse weather bucket the delay model learns on, from the risk
     /// engine's own corridor scoring — no new data source.
     var currentTrafficWeather: TrafficWeather {
-        let worst = navigation.route?.familyPeaks
-            .filter { $0.value >= FlowsCore.riskGreenMin }
-            .max(by: { $0.value < $1.value })?.key
+        let worst = navigation.route.flatMap {
+            RiskEquations.peakFamily($0.familyPeaks, floor: FlowsCore.riskGreenMin)
+        }
         return TrafficWeather.from(family: worst)
     }
 

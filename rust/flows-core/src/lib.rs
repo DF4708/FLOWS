@@ -64,7 +64,7 @@ pub mod transit;
 
 pub use families::{
     alert_family, dominant_family, family_weight, flood_elevation_multiplier, is_primary,
-    is_secondary, noisy_or, ranking_risk, realized_risk, SECONDARY_CEILING,
+    is_secondary, noisy_or, peak_family, ranking_risk, realized_risk, SECONDARY_CEILING,
 };
 pub use risk::{risk_band, RiskBand, RISK_GREEN_MIN, RISK_RED_MIN, RISK_YELLOW_MIN};
 pub use scoring::{

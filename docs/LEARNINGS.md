@@ -1275,3 +1275,31 @@ cold-side sigma is (comfort − record)/3, which is 16.67 in that climate and
 not the 10 I had assumed, and a non-finite score clamps to ABSENT rather than
 to maximal. Both are now pinned with the reasoning in the assertion message.
 
+## The same bits on every launch
+
+`realizedRisk` walked a Swift `Dictionary`. Swift seeds its hasher per
+process, floating-point multiplication is not associative, and a noisy-OR is
+a product — so the same corridor sample could come out a last bit different
+on two launches, and a last bit either side of 0.6990 is a different band on
+a driver's route. `dominantFamily` had the sibling defect: exact ties went to
+whichever entry the dictionary yielded first.
+
+**Walk the fixed list, not the dictionary.** The fix is not a sort — sorting
+allocates on a path that runs per sample per route. It is to iterate the
+name-sorted family lists (nine primaries, nine secondaries, static) and look
+each one up. Allocation-free, deterministic, and — because
+rust/flows-core sorts by name too — the same multiplication sequence on both
+sides of the language line.
+
+**Pin the two implementations to each other, in bits.** Six inputs are
+pinned bit-for-bit in both suites. A Rust test prints them; the Swift test
+asserts `bitPattern`. If either side drifts by one bit, its own suite fails.
+Two of the six saturated at the 0.80 ceiling on first draft — which proves
+the ceiling and nothing about the order — so one was replaced with ten small
+terms that stay under it.
+
+**Optional chaining extends through the whole postfix expression.**
+`route?.familyPeaks.flatMap { … }` is `Dictionary.flatMap` inside the chain,
+not `Optional.flatMap` outside it. The macOS Debug test build accepted it
+and iOS/macOS Release did not; the matrix is what caught it.
+
