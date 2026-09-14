@@ -8,76 +8,38 @@
 
 import Foundation
 
-/// Swift-native compute the app used to reach into Rust for.
-///
-/// There is no longer a Rust boundary here. The library it called
-/// (rust/flows-core) is safe Rust under `forbid(unsafe_code)`, and a C-ABI
-/// export cannot exist in such a crate — `#[no_mangle]` is itself rejected
-/// by that lint. Removing the boundary took away, on this side, a `dlsym`
-/// whose result was `unsafeBitCast` into a function pointer, two
-/// `withUnsafe*BufferPointer` scopes, and a copy of every decoded double out
-/// of a scratch buffer; and on the Rust side, every raw pointer it had.
-///
-/// The measured cost of that safety is about 23 microseconds on a 10 KB
-/// route polyline (Rust 1.16 ns/byte, Swift 4.73). flows-core remains the
-/// reference implementation and still runs in the offline tooling. When the
-/// RAPTOR transit engine goes live it needs a real bulk boundary; that comes
-/// back through swift-bridge, which exports via `#[export_name]` and is
-/// verified to compile under the crate's `forbid` — see
-/// docs/RUST_SWIFT_MIGRATION.md.
+/// Polyline decoding and risk banding, computed in rust/flows-core and called
+/// through rust/flows-bridge. No arithmetic and no thresholds live here; the
+/// band cuts are read from Rust, so Swift holds no copy of them.
 enum FlowsCore {
     /// Decode a Google encoded polyline into (lon, lat) pairs.
-    ///
-    /// Swift-native, and deliberately so. This used to call through the C ABI
-    /// into Rust, which cost an `unsafeBitCast` of a `dlsym` result, two
-    /// `withUnsafe*BufferPointer` scopes, and a full copy of the decoded
-    /// doubles out of a scratch buffer — to save about 23 microseconds on a
-    /// 10 KB route polyline (measured: Rust 1.16 ns/byte, Swift 4.73). That
-    /// is not a cost worth a raw pointer on either side of the boundary, and
-    /// the two implementations were already value-identical by test.
-    /// rust/flows-core/src/polyline.rs remains the reference and is still
-    /// used by the offline tooling.
     static func decodePolyline(_ encoded: String) -> [(lon: Double, lat: Double)] {
-        decodePolylineSwift(Array(encoded.utf8))
+        decodePolyline(bytes: Array(encoded.utf8))
     }
 
-    /// The decoder — same algorithm as rust/flows-core/src/polyline.rs.
-    static func decodePolylineSwift(_ bytes: [UInt8]) -> [(lon: Double, lat: Double)] {
-        var deltas: [Int64] = []
-        var acc: UInt64 = 0, shift: UInt64 = 0, chunks = 0
-        for raw in bytes {
-            let b = Int32(raw) - 63
-            chunks += 1
-            if chunks > 10 { break }   // malformed varint: stop
-            acc |= UInt64(UInt32(bitPattern: b & 0x1f)) << shift
-            shift += 5
-            if b < 0x20 {
-                deltas.append(Int64(bitPattern: acc >> 1) ^ -(Int64(bitPattern: acc & 1)))
-                acc = 0; shift = 0; chunks = 0
-            }
+    /// Decode polyline bytes into (lon, lat) pairs. Rust returns the pairs
+    /// interleaved; this copies them out once.
+    static func decodePolyline(bytes: [UInt8]) -> [(lon: Double, lat: Double)] {
+        // An empty polyline has no points; nothing to send across.
+        guard !bytes.isEmpty else { return [] }
+        let flat = bytes.withUnsafeBufferPointer { flows_decode_polyline_lonlat($0) }
+        let pairs = flat.len() / 2
+        return withExtendedLifetime(flat) {
+            let p = flat.as_ptr()
+            return (0..<pairs).map { (lon: p[2 * $0], lat: p[2 * $0 + 1]) }
         }
-        var lat: Int64 = 0, lon: Int64 = 0
-        var out: [(lon: Double, lat: Double)] = []
-        out.reserveCapacity(deltas.count / 2)
-        var i = 0
-        while i + 1 < deltas.count {
-            lat += deltas[i]
-            lon += deltas[i + 1]
-            out.append((lon: Double(lon) / 1e5, lat: Double(lat) / 1e5))
-            i += 2
-        }
-        return out
     }
 
-    /// FLOWS risk banding — same cuts as R/risk_constants.R + rust risk.rs.
-    static let riskGreenMin = 0.3980
-    static let riskYellowMin = 0.6990
+    static let riskGreenMin = flows_risk_green_min()
+    static let riskYellowMin = flows_risk_yellow_min()
 
     static func riskBand(score: Double) -> RiskBand {
-        if !score.isFinite || score < riskGreenMin { return .clear }
-        if score < riskYellowMin { return .green }
-        if score <= 0.8751 { return .yellow }  // RISK_RED_MIN inclusive, as in risk.rs
-        return .red
+        switch flows_risk_band_code(score) {
+        case 1: return .green
+        case 2: return .yellow
+        case 3: return .red
+        default: return .clear
+        }
     }
 }
 

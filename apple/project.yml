@@ -19,21 +19,38 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     GENERATE_INFOPLIST_FILE: NO
-    # No Rust is linked into the app. flows-core is `forbid(unsafe_code)`, and
-    # a C-ABI export cannot exist in such a crate (`#[no_mangle]` trips that
-    # lint) — when the last export turned out to have no caller, the surface
-    # was deleted rather than the lint weakened. The compute the app used to
-    # call across is Swift-native now; the boundary returns with the RAPTOR
-    # transit engine, through swift-bridge. See docs/RUST_SWIFT_MIGRATION.md.
+    # Compute lives in Rust (rust/flows-core) and reaches Swift through
+    # swift-bridge (rust/flows-bridge). The app and test targets depend on the
+    # RustBridge aggregate target, which builds the static library; the
+    # generated Swift and C half is committed in FLOWS/RustBridge. See
+    # docs/RUST_SWIFT_MIGRATION.md.
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+aggregateTargets:
+  # Builds rust/flows-bridge for the SDK being built (scripts/build_rust_bridge.sh).
+  # Script sandboxing is off for THIS target only: cargo writes incremental
+  # state throughout rust/target, which a sandboxed script phase may not do. An
+  # external-build (legacy) target was tried first and fails under the
+  # project's sandboxing. The app and test targets stay sandboxed.
+  RustBridge:
+    settings:
+      base:
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    buildScripts:
+      - name: Build flows-bridge (Rust)
+        script: '"$SRCROOT/../scripts/build_rust_bridge.sh"'
+        basedOnDependencyAnalysis: false
 
 targets:
   FLOWS-iOS:
     type: application
     platform: iOS
+    dependencies:
+      - target: RustBridge
     sources:
       - path: FLOWS/Sources
       - path: FLOWS/Resources
+      - path: FLOWS/RustBridge
     info:
       path: FLOWS/Generated/Info-iOS.plist
       properties:
@@ -135,11 +152,12 @@ targets:
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: 3T5JWQ4XW4
         CODE_SIGN_IDENTITY[sdk=iphoneos*]: "Apple Development"
-        # No Rust is linked into the app right now: flows-core carries no
-        # C-ABI surface (see rust/flows-core/src/lib.rs — `forbid(unsafe_code)`
-        # and `#[no_mangle]` cannot coexist, and the last export had no
-        # caller). The static-link and its `-u` force-keeps come back with the
-        # transit engine, through swift-bridge.
+        # Swift <-> Rust (rust/flows-bridge). The bridging header pulls in the
+        # generated C declarations; the library is built for this SDK by the
+        # RustBridge aggregate target this target depends on.
+        SWIFT_OBJC_BRIDGING_HEADER: FLOWS/RustBridge/BridgingHeader.h
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../rust/target/xcode/$(PLATFORM_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -lflows_bridge"
 
   FLOWS-Watch:
     type: application
@@ -165,9 +183,12 @@ targets:
   FLOWS-macOS:
     type: application
     platform: macOS
+    dependencies:
+      - target: RustBridge
     sources:
       - path: FLOWS/Sources
       - path: FLOWS/Resources
+      - path: FLOWS/RustBridge
     info:
       path: FLOWS/Generated/Info-macOS.plist
       properties:
@@ -243,6 +264,12 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: 3T5JWQ4XW4
+        # Swift <-> Rust (rust/flows-bridge). The bridging header pulls in the
+        # generated C declarations; the library is built for this SDK by the
+        # RustBridge aggregate target this target depends on.
+        SWIFT_OBJC_BRIDGING_HEADER: FLOWS/RustBridge/BridgingHeader.h
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../rust/target/xcode/$(PLATFORM_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -lflows_bridge"
 
   FLOWSTests:
     type: bundle.unit-test
@@ -353,11 +380,20 @@ targets:
       - path: FLOWS/Sources/Core/WeatherAlertService.swift
       - path: FLOWS/Sources/Core/RouteService.swift
       - path: FLOWSTests
+      - path: FLOWS/RustBridge
+    dependencies:
+      - target: RustBridge
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.flows.app.tests
         CODE_SIGN_IDENTITY: "-"
         GENERATE_INFOPLIST_FILE: YES   # test bundles get a stub plist
+        # Swift <-> Rust (rust/flows-bridge). The bridging header pulls in the
+        # generated C declarations; the library is built for this SDK by the
+        # RustBridge aggregate target this target depends on.
+        SWIFT_OBJC_BRIDGING_HEADER: FLOWS/RustBridge/BridgingHeader.h
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../rust/target/xcode/$(PLATFORM_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -lflows_bridge"
 
 schemes:
   FLOWSTests:

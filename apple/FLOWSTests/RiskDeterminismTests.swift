@@ -9,19 +9,18 @@
 import XCTest
 @testable import FLOWS
 
-/// The risk combine must give the SAME BITS on every launch and on both
-/// sides of the language line.
+/// The risk combine must give the SAME BITS on every launch, through the
+/// bridge, as Rust gives directly.
 ///
 /// Floating-point multiplication is not associative, and a Swift Dictionary
-/// iterates in an order seeded per process — so a noisy-OR that walked the
-/// dictionary could put the same route a last bit either side of a band cut
-/// on two different days. `realizedRisk` now walks the fixed, name-sorted
-/// family lists instead, which is the order rust/flows-core uses. These six
-/// inputs are pinned bit-for-bit HERE and in
-/// rust/flows-core/src/families.rs (`cross_language_fixture_is_bit_exact`):
-/// if either implementation drifts from the other by one bit, its own suite
-/// fails. After a deliberate model change, run the Rust test with
-/// `--nocapture`, and update both files together.
+/// iterates in an order seeded per process. `realizedRisk` now runs in Rust
+/// over a dense slot encoding the Swift side fills in fixed positions, so the
+/// dictionary's order cannot reach the product. These six inputs are pinned
+/// bit-for-bit HERE (through the bridge) and in rust/flows-core/src/families.rs
+/// (`cross_language_fixture_is_bit_exact`, directly): if the Swift encoding
+/// and the Rust combine ever disagree by one bit, one of the two suites fails.
+/// After a deliberate model change, run the Rust test with `--nocapture` and
+/// update both files together.
 final class RiskDeterminismTests: XCTestCase {
 
     private let fixture: [(name: String, families: [String: Double], bits: UInt64)] = [

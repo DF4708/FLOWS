@@ -16,6 +16,7 @@
 //! literals as R/global.R and Rust risk.rs — reused here, not redefined, so
 //! the risk bands and the score curve can never drift apart.
 
+use crate::fcmp::{smax, smin};
 use crate::risk::{RISK_GREEN_MIN, RISK_RED_MIN, RISK_YELLOW_MIN};
 
 /// Scalar piecewise score. Byte-identical to R `piecewise_score(value, low,
@@ -29,20 +30,19 @@ use crate::risk::{RISK_GREEN_MIN, RISK_RED_MIN, RISK_YELLOW_MIN};
 ///
 /// Branch structure mirrors R's early returns exactly; there is no clever
 /// re-association of the arithmetic, which is what preserves bit-equality.
+///
+/// `min`/`max` follow the app's Swift edge semantics ([`crate::fcmp`]), so the
+/// result is bit-identical to what the app computed on every input — pinned
+/// by the frozen Swift oracle. On finite thresholds that is also R's result;
+/// a non-finite threshold propagates as NaN, as it always did in the app,
+/// where the R original returned 0.
 #[inline]
 pub fn piecewise_score(value: f64, low: f64, medium: f64, high: f64) -> f64 {
+    // No finiteness guard on the thresholds. The R original returned 0 for a
+    // non-finite threshold; the app never guarded them, and the app's numbers
+    // are the ones drivers have had. Callers pass constants or climate-table
+    // values, never a non-finite threshold.
     if !value.is_finite() || value <= 0.0 {
-        return 0.0;
-    }
-    // Non-finite thresholds -> 0, matching the R vector path's valid-mask
-    // (vector_piecewise_score_rowwise_rimpl). Without this guard, Rust's
-    // NaN-swallowing .min/.max (they return the non-NaN operand, unlike R's
-    // pmin/pmax) fabricated a score of 1.0 from an NA threshold while the R
-    // fallback returned 0 — same input, opposite hazard, depending on whether
-    // the dylib loaded. (The R SCALAR piecewise_score errors on NA thresholds,
-    // so no caller can depend on scalar-NA behaviour; the vector semantics is
-    // the one contract that must match.)
-    if !(low.is_finite() && medium.is_finite() && high.is_finite()) {
         return 0.0;
     }
     if value <= low {
@@ -50,13 +50,16 @@ pub fn piecewise_score(value: f64, low: f64, medium: f64, high: f64) -> f64 {
     }
     if value <= medium {
         return RISK_GREEN_MIN
-            + (RISK_YELLOW_MIN - RISK_GREEN_MIN) * ((value - low) / (medium - low).max(1e-9));
+            + (RISK_YELLOW_MIN - RISK_GREEN_MIN) * ((value - low) / smax(medium - low, 1e-9));
     }
     if value <= high {
         return RISK_YELLOW_MIN
-            + (RISK_RED_MIN - RISK_YELLOW_MIN) * ((value - medium) / (high - medium).max(1e-9));
+            + (RISK_RED_MIN - RISK_YELLOW_MIN) * ((value - medium) / smax(high - medium, 1e-9));
     }
-    (RISK_RED_MIN + (1.0 - RISK_RED_MIN) * ((value - high) / high.max(1e-9))).min(1.0)
+    smin(
+        1.0,
+        RISK_RED_MIN + (1.0 - RISK_RED_MIN) * ((value - high) / smax(high, 1e-9)),
+    )
 }
 
 /// Per-element (rowwise) piecewise score — byte-identical port of R/scoring.R
@@ -93,7 +96,9 @@ pub fn piecewise_score_rowwise(value: f64, low: f64, mid: f64, high: f64) -> f64
 /// where 0 is both possible and intentional. Same comparison structure and
 /// operation order as R, so IEEE-754 f64 results match bit-for-bit on the real
 /// domain (finite comfort/record bounds; the scalar R form errors on NA
-/// bounds, which never occur — profiles are always populated).
+/// bounds, which never occur — profiles are always populated). `min`/`max`
+/// follow the app's Swift edge semantics ([`crate::fcmp`]), bit-identical to
+/// the app on every input.
 #[inline]
 pub fn temperature_risk(
     temp_f: f64,
@@ -109,9 +114,15 @@ pub fn temperature_risk(
         return 0.0;
     }
     if temp_f < comfort_low_f {
-        return ((comfort_low_f - temp_f) / (comfort_low_f - record_low_f).max(1e-9)).min(1.0);
+        return smin(
+            1.0,
+            (comfort_low_f - temp_f) / smax(comfort_low_f - record_low_f, 1e-9),
+        );
     }
-    ((temp_f - comfort_high_f) / (record_high_f - comfort_high_f).max(1e-9)).min(1.0)
+    smin(
+        1.0,
+        (temp_f - comfort_high_f) / smax(record_high_f - comfort_high_f, 1e-9),
+    )
 }
 
 // ---------------------------------------------------------------- forecast
@@ -149,7 +160,7 @@ pub fn pop_risk(pct: f64) -> f64 {
 #[inline]
 #[must_use]
 pub fn forecast_composite(temp: f64, wind: f64, pop: f64) -> f64 {
-    (0.45 * temp + 0.30 * wind + 0.25 * pop).min(1.0)
+    smin(1.0, 0.45 * temp + 0.30 * wind + 0.25 * pop)
 }
 
 /// Is this temperature an UNUSUAL deviation for this climate — outside about
@@ -176,11 +187,11 @@ pub fn temperature_anomalous(
         return false;
     }
     if temp_f > comfort_high_f {
-        let sigma = ((record_high_f - comfort_high_f) / 3.0).max(1e-9);
+        let sigma = smax((record_high_f - comfort_high_f) / 3.0, 1e-9);
         return temp_f - comfort_high_f > sigma;
     }
     if temp_f < comfort_low_f {
-        let sigma = ((comfort_low_f - record_low_f) / 3.0).max(1e-9);
+        let sigma = smax((comfort_low_f - record_low_f) / 3.0, 1e-9);
         return comfort_low_f - temp_f > sigma;
     }
     false
@@ -223,11 +234,20 @@ mod tests {
         assert!((piecewise_score(150.0, 25.0, 75.0, 150.0) - RISK_RED_MIN).abs() < 1e-12);
         // Far above high -> clamped at 1.
         assert_eq!(piecewise_score(1e9, 25.0, 75.0, 150.0), 1.0);
-        // Non-finite thresholds -> 0 (match the R vector valid-mask; the old
-        // behaviour fabricated 1.0 via NaN-swallowing min/max).
-        assert_eq!(piecewise_score(50.0, f64::NAN, 75.0, 150.0), 0.0);
-        assert_eq!(piecewise_score(50.0, 25.0, f64::INFINITY, 150.0), 0.0);
-        assert_eq!(piecewise_score(50.0, 25.0, 75.0, f64::NAN), 0.0);
+        // Non-finite thresholds follow the app, not R's valid-mask. A NaN
+        // threshold on the path the value takes propagates NaN — which bands
+        // as Clear — and never fabricates a score (the f64::max version made
+        // 1.0 out of it). An infinite medium leaves exactly the green floor;
+        // a NaN high the value never reaches changes nothing.
+        assert!(piecewise_score(50.0, f64::NAN, 75.0, 150.0).is_nan());
+        assert_eq!(
+            piecewise_score(50.0, 25.0, f64::INFINITY, 150.0),
+            RISK_GREEN_MIN
+        );
+        assert_eq!(
+            piecewise_score(50.0, 25.0, 75.0, f64::NAN).to_bits(),
+            piecewise_score(50.0, 25.0, 75.0, 150.0).to_bits()
+        );
     }
 
     // ---- R/forecast.R predictors ----

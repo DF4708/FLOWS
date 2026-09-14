@@ -49,7 +49,8 @@
 //! None. Lookups are binary searches over sorted `&'static` tables; the
 //! combines are single passes over a caller-owned slice.
 
-use crate::risk::RISK_RED_MIN;
+use crate::fcmp::{smax, smin, sunit};
+use crate::risk::{risk_band, RiskBand};
 
 /// Per-family weight for the secondary (predictor) noisy-OR.
 ///
@@ -149,7 +150,7 @@ pub const SECONDARY_FAMILIES: &[&str] = &[
 /// A pile of predictors — extreme fire weather with no fire, high UV, haze, a
 /// windy clear day — can warn strongly but must never read as
 /// life-threatening without a realized primary. Structurally below
-/// [`RISK_RED_MIN`], which a test enforces against the constant rather than
+/// [`RISK_RED_MIN`](crate::risk::RISK_RED_MIN), which a test enforces against the constant rather than
 /// against a copy of its value.
 pub const SECONDARY_CEILING: f64 = 0.80;
 
@@ -169,10 +170,28 @@ pub fn is_secondary(family: &str) -> bool {
 #[inline]
 fn clamp01(x: f64) -> f64 {
     if x.is_finite() {
-        x.clamp(0.0, 1.0)
+        sunit(x)
     } else {
         0.0
     }
+}
+
+/// A family's weight as the equations use it: `min(max(w, 0), 1)`.
+#[inline]
+fn unit_weight(family: &str) -> f64 {
+    sunit(family_weight(family))
+}
+
+/// The two-tier combine shared by the slice and dense entry points: the
+/// primary amplified by the predictors, or the capped predictor advisory,
+/// whichever is greater.
+#[inline]
+fn combine_tiers(keep: f64, secondary_keep: f64) -> f64 {
+    let primary_base = 1.0 - keep;
+    let secondary = 1.0 - secondary_keep;
+    let primary_amplified = primary_base * (1.0 + (1.0 - primary_base) * secondary);
+    let secondary_advisory = smin(SECONDARY_CEILING, secondary);
+    smax(primary_amplified, secondary_advisory)
 }
 
 /// Weighted noisy-OR: `1 − Π(1 − wᵢ·clamp(sᵢ))`.
@@ -188,7 +207,7 @@ fn clamp01(x: f64) -> f64 {
 pub fn noisy_or(scores: &[(&str, f64)]) -> f64 {
     let mut keep = 1.0;
     for (family, raw) in scores {
-        keep *= 1.0 - family_weight(family) * clamp01(*raw);
+        keep *= 1.0 - unit_weight(family) * clamp01(*raw);
     }
     1.0 - keep
 }
@@ -225,16 +244,65 @@ pub fn realized_risk(families: &[(&str, f64)]) -> f64 {
         if is_primary(f) {
             keep *= 1.0 - clamp01(*s);
         } else if is_secondary(f) {
-            secondary_keep *= 1.0 - family_weight(f) * clamp01(*s);
+            secondary_keep *= 1.0 - unit_weight(f) * clamp01(*s);
         }
     }
-    let primary_base = 1.0 - keep;
-    let secondary = 1.0 - secondary_keep;
-    // Predictors spike a realized primary; the factor goes to 1 (no effect)
-    // as primary_base goes to 0.
-    let primary_amplified = primary_base * (1.0 + (1.0 - primary_base) * secondary);
-    let secondary_advisory = secondary.min(SECONDARY_CEILING);
-    primary_amplified.max(secondary_advisory)
+    combine_tiers(keep, secondary_keep)
+}
+
+/// Number of slots in the dense family encoding: every primary, then every
+/// secondary, each in name order.
+pub const DENSE_FAMILY_COUNT: usize = PRIMARY_FAMILIES.len() + SECONDARY_FAMILIES.len();
+
+/// The family at `index` in the dense encoding, or `None` past the end.
+#[must_use]
+pub fn dense_family(index: usize) -> Option<&'static str> {
+    if index < PRIMARY_FAMILIES.len() {
+        PRIMARY_FAMILIES.get(index).copied()
+    } else {
+        SECONDARY_FAMILIES
+            .get(index - PRIMARY_FAMILIES.len())
+            .copied()
+    }
+}
+
+/// The dense slot for `family`, or `None` if it is in neither tier.
+#[must_use]
+pub fn dense_family_index(family: &str) -> Option<usize> {
+    if let Ok(i) = PRIMARY_FAMILIES.binary_search(&family) {
+        return Some(i);
+    }
+    SECONDARY_FAMILIES
+        .binary_search(&family)
+        .ok()
+        .map(|i| i + PRIMARY_FAMILIES.len())
+}
+
+/// [`realized_risk`] over the dense encoding — the app's per-sample entry.
+///
+/// `scores` has one slot per [`dense_family`]; an absent family is NaN. A NaN
+/// (absent) and a non-finite (present) score both clamp to 0 and multiply
+/// their product by exactly 1.0, so one sentinel serves both without changing
+/// a bit. Walking the slots in order is the same multiplication sequence as
+/// walking the name-sorted tiers, so this is bit-identical to
+/// [`realized_risk`] on canonical input — and to the app.
+///
+/// `None` when `scores` is not exactly [`DENSE_FAMILY_COUNT`] long.
+#[must_use]
+pub fn realized_risk_dense(scores: &[f64]) -> Option<f64> {
+    if scores.len() != DENSE_FAMILY_COUNT {
+        return None;
+    }
+    let (primaries, secondaries) = scores.split_at(PRIMARY_FAMILIES.len());
+    let mut keep = 1.0;
+    for s in primaries {
+        keep *= 1.0 - clamp01(*s);
+    }
+    let mut secondary_keep = 1.0;
+    for (s, f) in secondaries.iter().zip(SECONDARY_FAMILIES) {
+        secondary_keep *= 1.0 - unit_weight(f) * clamp01(*s);
+    }
+    Some(combine_tiers(keep, secondary_keep))
 }
 
 /// Sort a family list into the canonical order — by family name — so that
@@ -285,22 +353,28 @@ pub fn flood_elevation_multiplier(
         _ => return 1.0,
     };
     let rain_meters = qpf * 0.0254;
-    let evidence = clamp01(supporting_evidence);
+    // `min(max(e, 0), 1)` with no finiteness check, as the app wrote it: a NaN
+    // evidence stays NaN.
+    let evidence = sunit(supporting_evidence);
     let (e, lo) = match (sample_elevation, local_min_elevation) {
         (Some(e), Some(lo)) if e.is_finite() && lo.is_finite() => (e, lo),
         // No elevation data: rain matters only where there is water evidence.
-        _ => return 1.0 + 0.5 * evidence * (qpf / 2.0).min(1.0),
+        _ => return 1.0 + 0.5 * evidence * smin(qpf / 2.0, 1.0),
     };
-    let headroom = (e - lo).max(0.0);
+    let headroom = smax(e - lo, 0.0);
     if headroom <= rain_meters {
-        let submerge = ((rain_meters - headroom) / rain_meters.max(0.01)).min(1.0);
+        let submerge = smin((rain_meters - headroom) / smax(rain_meters, 0.01), 1.0);
         return 1.0 + (0.6 + 0.4 * submerge); // 1.6 … 2.0
     }
-    if evidence <= 0.0 {
-        return 1.0;
+    if evidence > 0.0 {
+        let proximity = smax(
+            0.0,
+            1.0 - (headroom - rain_meters) / smax(rain_meters, 0.01),
+        );
+        1.0 + 0.5 * evidence * proximity
+    } else {
+        1.0
     }
-    let proximity = (1.0 - (headroom - rain_meters) / rain_meters.max(0.01)).max(0.0);
-    1.0 + 0.5 * evidence * proximity
 }
 
 /// Balance the two truths for ROUTE ORDERING — never for the display band.
@@ -321,11 +395,12 @@ pub fn ranking_risk(
     seasonal_prior: f64,
     prior_confidence: f64,
 ) -> f64 {
-    let z = clamp01(zip_exposure);
-    let p = clamp01(seasonal_prior);
-    let c = clamp01(prior_confidence);
+    // `min(max(x, 0), 1)` with no finiteness check, as the app wrote it.
+    let z = sunit(zip_exposure);
+    let p = sunit(seasonal_prior);
+    let c = sunit(prior_confidence);
     let identified = z * (1.0 - c) + p * c;
-    1.0 - (1.0 - clamp01(band)) * (1.0 - 0.6 * identified)
+    1.0 - (1.0 - sunit(band)) * (1.0 - 0.6 * identified)
 }
 
 /// Classify an NWS alert EVENT name into the [`realized_risk`] family it
@@ -436,8 +511,8 @@ pub fn alert_family(event: &str) -> Option<&'static str> {
 /// travel it.
 #[must_use]
 pub fn displayed_band(weighted: f64, peak: f64) -> f64 {
-    if peak > RISK_RED_MIN {
-        weighted.max(peak)
+    if risk_band(peak) == RiskBand::Red {
+        smax(weighted, peak)
     } else {
         weighted
     }
@@ -485,16 +560,16 @@ pub fn dominant_family<'a>(families: &[(&'a str, f64)], floor: f64) -> Option<&'
     let score = |f: &str, s: f64| s + if is_acute(f) { ACUTE_NUDGE } else { 0.0 };
     let mut best: Option<(&'a str, f64)> = None;
     for (f, s) in families {
-        if !s.is_finite() || *s < floor {
-            continue;
+        // `s >= floor`, not `!(s < floor)`: a NaN floor admits nothing.
+        if s.is_finite() && *s >= floor {
+            let w = score(f, *s);
+            best = match best {
+                // Strictly greater wins; an exact tie goes to the lower name.
+                Some((bf, bw)) if w > bw || (w == bw && *f < bf) => Some((f, w)),
+                Some(prev) => Some(prev),
+                None => Some((f, w)),
+            };
         }
-        let w = score(f, *s);
-        best = match best {
-            // Strictly greater wins; an exact tie goes to the lower name.
-            Some((bf, bw)) if w > bw || (w == bw && *f < bf) => Some((f, w)),
-            Some(prev) => Some(prev),
-            None => Some((f, w)),
-        };
     }
     best.map(|(f, _)| f)
 }
@@ -512,14 +587,13 @@ pub fn dominant_family<'a>(families: &[(&'a str, f64)], floor: f64) -> Option<&'
 pub fn peak_family<'a>(families: &[(&'a str, f64)], floor: f64) -> Option<&'a str> {
     let mut best: Option<(&'a str, f64)> = None;
     for (f, s) in families {
-        if !s.is_finite() || *s < floor {
-            continue;
+        if s.is_finite() && *s >= floor {
+            best = match best {
+                Some((bf, bs)) if *s > bs || (*s == bs && *f < bf) => Some((f, *s)),
+                Some(prev) => Some(prev),
+                None => Some((f, *s)),
+            };
         }
-        best = match best {
-            Some((bf, bs)) if *s > bs || (*s == bs && *f < bf) => Some((f, *s)),
-            Some(prev) => Some(prev),
-            None => Some((f, *s)),
-        };
     }
     best.map(|(f, _)| f)
 }
@@ -533,7 +607,7 @@ pub fn is_acute(family: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::risk::RISK_YELLOW_MIN;
+    use crate::risk::{RISK_RED_MIN, RISK_YELLOW_MIN};
 
     // ---- the sorted-table invariant the binary searches depend on ----
 
@@ -880,6 +954,22 @@ mod tests {
         assert_eq!(alert_family("Tsunami Advisory"), None);
         assert_eq!(alert_family("Special Marine Bulletin"), None);
         assert_eq!(alert_family(""), None);
+    }
+
+    #[test]
+    fn keyword_matching_is_by_bytes_not_by_grapheme_cluster() {
+        // The one documented divergence from the Swift original. Swift's
+        // String.contains compares whole Characters, so "storm" followed by a
+        // combining acute accent is not "storm" to it; this matches bytes and
+        // finds the keyword. Exact parity needs Unicode grapheme-break tables
+        // this dependency-free crate does not carry. No NWS, ECCC or WMO event
+        // name puts a combining mark on an English keyword, and the family it
+        // yields here is a capped predictor. Pinned so the choice stays
+        // visible; the oracle test allow-lists exactly this record.
+        assert_eq!(alert_family("storm\u{301}"), Some("convective"));
+        assert!(is_secondary("convective"));
+        // Precomposed text is unaffected either way.
+        assert_eq!(alert_family("Tornado Warning"), Some("storm"));
     }
 
     #[test]

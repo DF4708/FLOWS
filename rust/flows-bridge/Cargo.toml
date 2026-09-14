@@ -1,0 +1,34 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) 2026 David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
+[package]
+name = "flows-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "The Swift <-> Rust boundary: swift-bridge declarations over flows-core, and nothing else"
+publish = false
+build = "build.rs"
+
+[lib]
+# staticlib: linked into the iOS and macOS app targets (scripts/build_rust_bridge.sh).
+# rlib: lets the oracle and containment tests call the same functions directly.
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+flows-core = { path = "../flows-core" }
+# swift-bridge (MIT OR Apache-2.0), pinned exactly. Why a dependency at all
+# (3.23): calling Rust from Swift needs raw-pointer ABI glue on both sides, and
+# the standard forbids hand-writing it (3.15, 3.25.5) and prescribes a safe
+# binding generator instead. This crate's macro expands that glue — `unsafe`
+# blocks and `#[export_name]` extern functions — into THIS crate; rustc does
+# not apply `unsafe_code` to external proc-macro output, so the lint below
+# stays silent about it. That glue is the provider's trusted computing base,
+# reviewed at this pinned version; no project-authored unsafe exists. The
+# domain crate flows-core never sees swift-bridge and stays dependency-free.
+# Runtime transitive surface: swift-bridge-macro -> swift-bridge-ir -> syn 1,
+# quote, proc-macro2, unicode-ident (all build-time).
+swift-bridge = "=0.1.59"
+
+[build-dependencies]
+swift-bridge-build = "=0.1.59"

@@ -31,21 +31,26 @@ jobs:
       - name: clippy (warnings are errors)
         run: cargo clippy --workspace --all-targets -- -D warnings
         working-directory: rust
-      - name: tests (release — includes the CH/RAPTOR oracle gates)
+      - name: tests (release — includes the CH/RAPTOR and Swift oracle gates)
         run: cargo test --release --workspace
         working-directory: rust
+      # flows-bridge's build.rs regenerates apple/FLOWS/RustBridge on every
+      # build above. Generated bindings are committed and never hand-edited
+      # (3.25.5): any difference here means someone edited them, or forgot to
+      # commit a regeneration.
+      - name: bridge bindings match their declarations
+        run: git diff --exit-code -- apple/FLOWS/RustBridge
 
   swift:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      # The app/test targets static-link rust/target/release/libflows_core.a,
-      # which is build output (untracked) — build it from source first, same
-      # pinned toolchain as the rust job.
+      # The test target depends on the RustBridge aggregate target, which runs
+      # scripts/build_rust_bridge.sh: a universal macOS library, so both darwin
+      # targets are needed on the same pinned toolchain as the rust job.
       - uses: dtolnay/rust-toolchain@1.93.1
-      - name: rust core (release staticlib)
-        run: cargo build --release
-        working-directory: rust
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
       - name: xcodegen
         run: brew install xcodegen
       - name: generate project

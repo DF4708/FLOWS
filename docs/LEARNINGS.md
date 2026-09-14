@@ -1303,3 +1303,39 @@ terms that stay under it.
 not `Optional.flatMap` outside it. The macOS Debug test build accepted it
 and iOS/macOS Release did not; the matrix is what caught it.
 
+## Moving the answers out of Swift without changing one
+
+**A lint is not an audit of generated code.** `forbid(unsafe_code)` compiled
+clean over swift-bridge, and last session read that as "no unsafe in the
+expansion". Expanding it on stable showed ten `unsafe` blocks. rustc simply
+does not lint an external proc macro's output. The control that settles such
+a claim is cheap: a local macro emitting `unsafe` in the same crate, which is
+rejected. Without it, a silent tool looks like a clean one.
+
+**Freeze the oracle before touching the code.** The original Swift was
+compiled into a harness that wrote 7,381 bit patterns before a single line
+was replaced. Every later argument about fidelity became a diff instead of an
+opinion. It paid for itself three times:
+- it caught that Rust's `f64::max` drops NaN where Swift's `max` keeps it;
+- it caught an R-era guard the app never had;
+- it caught one string-matching difference that is now named, allow-listed
+  and self-checking.
+
+**Make the oracle reproducible, or it isn't one.** The first two runs of the
+harness differed. The code under test was fine; the harness injected ties
+through `Dictionary.keys.first`, whose order is seeded per process. Three
+byte-identical runs, including one with deterministic hashing, are the bar.
+
+**Read the provider's source for the rules it imposes on you.** swift-bridge
+turns an empty Swift buffer into `slice::from_raw_parts(null, 0)`, which is
+undefined behaviour, and panics on invalid UTF-8 before any containment can
+run. Neither fact is in its documentation. Both are now written rules, and
+every facade honours them.
+
+**Measure the crossing, not the kernel.** The Rust combine is faster, and the
+per-sample path went 2× faster. The same bridge made a small string-keyed
+rule 6.5× slower, because the keys had to be joined and copied. Whether that
+matters is a question about call frequency, answered by reading the caller:
+at most 49 calls per debounced sweep. Speed claims without the call site are
+half a measurement.
+

@@ -85,6 +85,31 @@ pub fn decode_deltas(bytes: &[u8], out: &mut Vec<i64>) {
     bench::deltas_rust(bytes, out);
 }
 
+/// Decode an encoded polyline into interleaved degrees
+/// `[lon0, lat0, lon1, lat1, …]` — the app's decoder.
+///
+/// A dangling latitude with no longitude is dropped. An `i64` overflow while
+/// accumulating, which trapped (crashed the app) in the Swift original, ends
+/// the decode at the last whole point instead.
+#[must_use]
+pub fn decode_lonlat(bytes: &[u8]) -> Vec<f64> {
+    let mut deltas: Vec<i64> = Vec::new();
+    decode_deltas(bytes, &mut deltas);
+    let mut out = Vec::with_capacity(deltas.len() / 2 * 2);
+    let (mut lat, mut lon) = (0i64, 0i64);
+    for pair in deltas.chunks_exact(2) {
+        let (Some(next_lat), Some(next_lon)) = (lat.checked_add(pair[0]), lon.checked_add(pair[1]))
+        else {
+            break;
+        };
+        lat = next_lat;
+        lon = next_lon;
+        out.push(lon as f64 / 1e5);
+        out.push(lat as f64 / 1e5);
+    }
+    out
+}
+
 /// Decode an encoded polyline into (lon, lat) pairs — same column order as the
 /// R decoder's matrix.
 #[cfg(test)]

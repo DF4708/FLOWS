@@ -10,8 +10,9 @@
 //!
 //! See docs/RUST_SWIFT_MIGRATION.md. This crate is the first slice of the
 //! R → Rust port: pure, side-effect-free functions verified byte-identical
-//! to their R oracle. It is the compute library for the transit engine and
-//! the offline tooling (gtfs-ftt, the trainers).
+//! to their R oracle. It is the compute library behind the app's risk
+//! equations and polyline decoding (through flows-bridge), the transit engine,
+//! and the offline tooling (gtfs-ftt, the trainers).
 //!
 //! Modules:
 //!   risk     — risk band classification (port of R/scoring.R)
@@ -23,14 +24,10 @@
 //!   polyline — encoded-polyline decoder (safe; the hand-asm and raw-pointer
 //!              variants were both retired on measurement — see bin/bench.rs)
 //!
-//! There is no FFI module. `#[no_mangle]` is itself rejected by
-//! `forbid(unsafe_code)`, so a C-ABI export and a forbidden crate cannot
-//! coexist — and when the last export turned out to have no caller, the
-//! honest resolution was to delete it rather than weaken the lint to `deny`
-//! for a diagnostic nothing read. The Swift app is Swift-native today; the
-//! boundary returns with the transit engine, through swift-bridge, which
-//! exports via `#[export_name]` and is verified to compile under this same
-//! `forbid` (docs/RUST_SWIFT_MIGRATION.md).
+//! flows-core has no FFI of its own and never will: `#[no_mangle]` is
+//! rejected by `forbid(unsafe_code)`. The app reaches these functions through
+//! the separate `flows-bridge` crate, whose swift-bridge declarations forward
+//! here; this crate does not know Swift exists.
 //!
 //! Nothing here performs I/O or holds state; every function is a pure
 //! transform, which is exactly why it can be verified against R exactly.
@@ -46,16 +43,17 @@
 //! `flows_polyline_decode`, whose Swift caller already had a value-identical
 //! native decoder, and `flows_transit_plan`, which had no caller at all.
 //!
-//! What crosses to Swift now is one value-oriented export returning an i64,
-//! which is the shape 3.25.5 permits and needs no unsafe. When the transit
-//! engine goes live and a real bulk boundary is required, the decision is
-//! recorded in docs/RUST_SWIFT_MIGRATION.md: swift-bridge, verified to
-//! compile under this same `forbid`.
+//! Nothing here crosses a language boundary. `flows-bridge` holds the
+//! swift-bridge declarations and forwards into this crate, so the domain code
+//! stays dependency-free and free of unsafe. (swift-bridge's generated glue
+//! does contain `unsafe`; it lives in flows-bridge, not here — see that
+//! crate's Cargo.toml.)
 #![forbid(unsafe_code)]
 
 pub mod ch;
 pub mod distance;
 pub mod families;
+pub mod fcmp;
 pub mod polyline;
 pub mod risk;
 pub mod routing;

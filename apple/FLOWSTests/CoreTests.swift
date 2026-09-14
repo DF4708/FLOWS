@@ -30,7 +30,7 @@ final class CoreTests: XCTestCase {
     // MARK: polyline decoder fallback — must match the Rust/R twins
 
     func testGoogleSpecReferenceVectorDecodesExactly() {
-        let out = FlowsCore.decodePolylineSwift(Array("_p~iF~ps|U_ulLnnqC_mqNvxq`@".utf8))
+        let out = FlowsCore.decodePolyline(bytes: Array("_p~iF~ps|U_ulLnnqC_mqNvxq`@".utf8))
         XCTAssertEqual(out.count, 3)
         XCTAssertEqual(out[0].lon.bitPattern, (-120.2).bitPattern)
         XCTAssertEqual(out[0].lat.bitPattern, (38.5).bitPattern)
@@ -41,30 +41,27 @@ final class CoreTests: XCTestCase {
     func testMalformedOverlongVarintStopsWithoutTrap() {
         // The R decoder's old bit-31 overflow case: must be finite, no crash.
         let enc = String(repeating: "~", count: 6) + "^" + String(repeating: "~", count: 6) + "^"
-        let out = FlowsCore.decodePolylineSwift(Array(enc.utf8))
+        let out = FlowsCore.decodePolyline(bytes: Array(enc.utf8))
         XCTAssertEqual(out.count, 1)
         XCTAssertTrue(out[0].lon.isFinite && out[0].lat.isFinite)
         // > 10 chunks = malformed -> decoding stops, prior pairs kept.
         let overlong = Array((String(repeating: "~", count: 15) + "^").utf8)
-        XCTAssertTrue(FlowsCore.decodePolylineSwift(overlong).isEmpty)
+        XCTAssertTrue(FlowsCore.decodePolyline(bytes: overlong).isEmpty)
     }
 
     func testTruncatedTrailingVarintIsDropped() {
         let full = "_p~iF~ps|U"
-        let out = FlowsCore.decodePolylineSwift(Array(full.dropLast().utf8))
+        let out = FlowsCore.decodePolyline(bytes: Array(full.dropLast().utf8))
         XCTAssertTrue(out.isEmpty)   // dangling lat without lon
     }
 }
 
-/// The decoder is Swift-native and is pinned to the PUBLISHED spec vector,
-/// not to a second implementation of the same algorithm.
-///
-/// It used to be pinned to the Rust FFI decoder — two implementations agreeing
-/// with each other, which proves they share an algorithm but not that the
-/// algorithm is right. The Rust boundary is gone (flows-core is
-/// `forbid(unsafe_code)`, and a C-ABI export cannot live in such a crate), so
-/// the oracle is now the Google encoded-polyline specification's own worked
-/// example and its documented coordinates — an independent oracle, per 6.3.
+/// The decoder runs in Rust (flows-core polyline.rs, through flows-bridge) and
+/// is pinned here to the PUBLISHED spec vector — the Google encoded-polyline
+/// specification's own worked example and its documented coordinates — an
+/// independent oracle (6.3), not a second implementation of the algorithm.
+/// The frozen Swift oracle in rust/flows-bridge separately pins it bit for bit
+/// to the Swift decoder it replaced.
 final class PolylineDecoderTests: XCTestCase {
     func testTheSpecReferenceVectorDecodesToItsPublishedCoordinates() {
         // The example from the Google encoded-polyline format specification,
@@ -81,11 +78,11 @@ final class PolylineDecoderTests: XCTestCase {
     }
 
     func testTheTwoEntryPointsAgree() {
-        // decodePolyline is a thin wrapper over decodePolylineSwift; keep them
+        // decodePolyline(_:) is a thin wrapper over decodePolyline(bytes:); keep them
         // from drifting apart.
         for enc in ["_p~iF~ps|U_ulLnnqC_mqNvxq`@", "u{~vFvyys@fS]", ""] {
             let a = FlowsCore.decodePolyline(enc)
-            let b = FlowsCore.decodePolylineSwift(Array(enc.utf8))
+            let b = FlowsCore.decodePolyline(bytes: Array(enc.utf8))
             XCTAssertEqual(a.count, b.count, "point count for \(enc)")
             for (x, y) in zip(a, b) {
                 XCTAssertEqual(x.lon.bitPattern, y.lon.bitPattern)
