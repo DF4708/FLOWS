@@ -53,7 +53,15 @@
 
 #![forbid(unsafe_code)]
 
+pub mod alerts;
+pub mod climate;
+pub mod geo;
+pub mod learning;
+pub mod places_text;
 pub mod risk;
+pub mod seasonal;
+pub mod trip_vehicle;
+pub mod vehicle_policy;
 
 /// Run `f`, turning a panic into `fallback`.
 pub(crate) fn contain<T>(fallback: T, f: impl FnOnce() -> T) -> T {

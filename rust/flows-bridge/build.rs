@@ -15,7 +15,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const BRIDGES: &[&str] = &["src/risk.rs"];
+const BRIDGES: &[&str] = &[
+    "src/alerts.rs",
+    "src/climate.rs",
+    "src/geo.rs",
+    "src/learning.rs",
+    "src/places_text.rs",
+    "src/risk.rs",
+    "src/seasonal.rs",
+    "src/trip_vehicle.rs",
+    "src/vehicle_policy.rs",
+];
 
 fn copy_if_changed(from: &Path, to: &Path) -> std::io::Result<()> {
     for entry in fs::read_dir(from)? {

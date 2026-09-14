@@ -1,3 +1,13 @@
+
+
+
+
+
+
+
+
+
+
 public func flows_risk_green_min() -> Double {
     __swift_bridge__$flows_risk_green_min()
 }
@@ -84,5 +94,11 @@ public func flows_displayed_band(_ weighted: Double, _ peak: Double) -> Double {
 public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) -> RustVec<Double> {
     RustVec(ptr: __swift_bridge__$flows_decode_polyline_lonlat(bytes.toFfiSlice()))
 }
+
+
+
+
+
+
 
 

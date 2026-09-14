@@ -50,15 +50,23 @@
 //! crate's Cargo.toml.)
 #![forbid(unsafe_code)]
 
+pub mod alerts;
 pub mod ch;
+pub mod climate;
 pub mod distance;
 pub mod families;
 pub mod fcmp;
+pub mod geo;
+pub mod learning;
+pub mod places_text;
 pub mod polyline;
 pub mod risk;
 pub mod routing;
 pub mod scoring;
+pub mod seasonal;
 pub mod transit;
+pub mod trip_vehicle;
+pub mod vehicle_policy;
 
 pub use families::{
     alert_family, dominant_family, family_weight, flood_elevation_multiplier, is_primary,
