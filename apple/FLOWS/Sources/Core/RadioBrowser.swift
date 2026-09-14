@@ -344,7 +344,7 @@ final class RadioBrowser: ObservableObject {
     /// vocabulary when a spoken ask ("play me some old country") matches
     /// no station directly: the on-device model maps the ask onto ONE of
     /// these, and the search retries with that tag.
-    static let commonGenres = [
+    nonisolated static let commonGenres = [
         "country", "classic country", "bluegrass", "folk",
         "rock", "classic rock", "metal", "pop", "top 40",
         "oldies", "80s", "90s", "jazz", "blues", "classical",

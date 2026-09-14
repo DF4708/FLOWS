@@ -765,3 +765,79 @@ Dependencies decide it. Nothing moves before what it calls.
   install is no longer in the keychain. Signed Mac builds and the reinstall
   wait on restoring it.
 
+## Audit, 2026-09-15: what the code says about itself
+
+Method: compiler gates (clippy default and pedantic, the Swift compiler for
+every target, a Swift 6 strict-concurrency preview), pattern scans for
+crash-capable, blocking, quadratic and order-dependent code, then reading
+every hit by hand. No agents.
+
+### Fixed (commit "Audit fixes")
+
+CI target gap; unbounded `with_capacity` from a shard header; a NaN-capable
+float sort; a main-actor table read from tests; an unreachable duplicate in
+the hazard classifier. Details in that commit.
+
+### Cleared: suspicions that turned out not to be defects
+
+- `roadClosures` picks at most three uncached feeds per sweep. The registry
+  is an array in fetch order, not a dictionary, so the choice is the same
+  on every launch; feeds beyond the budget are fetched on later sweeps as
+  earlier ones become cached.
+- `statesContaining` returns codes in dictionary order, but every consumer
+  treats the list as a set and the alert union is built over sorted state
+  codes, so no answer depends on that order.
+- Every `unwrap` in the transit and shard parsers is invariant-backed: a
+  trip with a missing first or last time is dropped before the fill loop,
+  the `.ftt` header is length-checked before the fixed slices, and each
+  length-prefixed read is bounds-checked by `take`.
+- The 16 direct indexes in the hazard-feed parser are each behind a count
+  guard on the same or the preceding line.
+- The per-sample feed scans (gauges, water, closures) are linear in the
+  points, but every feed is capped at 200 points, so a route of a few
+  hundred samples costs well under a millisecond there. Not the stall.
+- The shard writer emits the grid index in ascending key order; the Swift
+  reader's binary search is valid. The Rust reader rejects invalid UTF-8
+  where the Swift reader is lossy; the writer never emits any, so no file
+  can tell them apart.
+
+### Recorded for the owner: contradictions and gaps that change an answer
+
+1. **The route scorer never sees the live-feed primaries.** The map sweep
+   fetches fire perimeters and hotspots, earthquakes, tsunami events,
+   elevated volcanoes, avalanche zones, tropical storms and the SPC outlook,
+   and bands each grid point with them. Route scoring (`scored`,
+   `sampleRealizedRisk`) fetches only flood gauges, road closures and water
+   proximity. A route through an active wildfire perimeter or a fresh
+   epicentre with no NWS alert is not Red on the route while the map beside
+   it is Red and labelled FIRE. Tsunami, ashfall and hurricane usually reach
+   the route through their NWS warnings; fire perimeters and earthquakes
+   have no such proxy. Recommendation: feed the same primaries into the
+   corridor score, which is a change to route answers and belongs to a
+   decision, then to wave 3 where route scoring becomes one Rust call.
+2. **A Dust Storm Warning is drawn as air quality but banded as a realized
+   storm.** `HazardStyle.kind(forEvent:)` returns `air` for "dust";
+   `alert_family` returns `storm`, a Red-capable primary. The icon says
+   haze; the band says zero visibility. One of them is wrong for a driver.
+3. **Alert event names are classified three ways** — display kind, band
+   family, shelter kind — with three tables. Some differences are
+   deliberate (Red Flag is a fire icon but a heat predictor). None of the
+   three files says so. If they are meant to differ, the code should say
+   where and why; if not, one table.
+4. **Safest and fastest are computed in two places each** (the route cards
+   and the storm reroute; the cards and the choice log) by the same rule.
+   Not wrong today; a rule change would have to be made twice.
+5. **`PlannedRoute` is not `Sendable`** and crosses task boundaries in the
+   app model. Swift 5 allows it; Swift 6 will not. It holds an `MKRoute`,
+   immutable after creation, so it is safe in practice. A migration item.
+
+### Not defects, noted
+
+- Pedantic clippy: "identical match arms" in the GTFS route-type and RAPTOR
+  parent matches are separate arms with separate comments by intent; the
+  float `while` loop is in a test; the "overflowing midpoint" is on latitudes.
+- Six wave-1 worktrees under `.claude/worktrees/wf_10090775-85a-*` hold
+  uncommitted partial work from the run that died with the last session,
+  including a geo oracle fixture and harness. They are left in place to be
+  resumed, not deleted.
+

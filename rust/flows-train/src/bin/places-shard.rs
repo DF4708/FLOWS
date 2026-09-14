@@ -273,6 +273,16 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Shard> {
         return Err(bad("fps: body hash mismatch (corrupt shard)"));
     }
 
+    // Bound the count by the bytes present before trusting it for an
+    // allocation (3.25.1). Every record carries at least lat, lon, group and
+    // flags — 10 bytes — before its strings, so a header claiming more
+    // records than the body could hold is corrupt, and `with_capacity` on a
+    // forged u32 would otherwise reserve gigabytes (or abort) before the
+    // per-record reads had a chance to fail.
+    const MIN_RECORD_BYTES: usize = 4 + 4 + 1 + 1;
+    if n_records > (grid_off - FPS_HEADER_LEN) / MIN_RECORD_BYTES {
+        return Err(bad("fps: record count exceeds the body size"));
+    }
     let mut c = Cursor {
         buf: &bytes[..grid_off],
         pos: FPS_HEADER_LEN,
@@ -516,6 +526,32 @@ mod tests {
                 },
             })
             .collect()
+    }
+
+    #[test]
+    fn a_forged_record_count_is_rejected_before_any_allocation() {
+        // A header claiming more records than the body could hold must fail
+        // with an error, not reserve memory for the claim. The forged file
+        // passes magic, version, grid and hash checks — the hash is not a
+        // MAC, so a hostile file can always recompute it — and is refused by
+        // the size bound alone.
+        let mut forged = to_bytes(&[Place {
+            lat: 1.0,
+            lon: 2.0,
+            group: 0,
+            flags: 0,
+            name: "a".into(),
+            street: String::new(),
+            city: String::new(),
+            website: String::new(),
+            tel: String::new(),
+            postcode: 0,
+        }]);
+        forged[8..12].copy_from_slice(&u32::MAX.to_le_bytes()); // record count
+        let h = fnv1a64(&forged[FPS_HEADER_LEN..]);
+        forged[20..28].copy_from_slice(&h.to_le_bytes()); // body hash
+        let err = from_bytes(&forged).err().expect("must error");
+        assert!(err.to_string().contains("record count"), "{err}");
     }
 
     #[test]

@@ -80,7 +80,7 @@ enum HazardStyle {
         if e.contains("wind") { return wind }
         if e.contains("fire") || e.contains("red flag") { return fire }
         if e.contains("fog") { return fog }
-        if e.contains("smoke") || e.contains("air quality") || e.contains("dust") { return air }
+        if e.contains("smoke") || e.contains("air quality") { return air }   // "dust" matched above
         if e.contains("volcan") || e.contains("ashfall") || e.contains("ash advisory") { return volcanic }
         if e.contains("avalanche") { return avalanche }
         if e.contains("tsunami") { return tsunami }

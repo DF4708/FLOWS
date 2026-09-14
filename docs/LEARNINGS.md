@@ -1339,3 +1339,28 @@ matters is a question about call frequency, answered by reading the caller:
 at most 49 calls per debounced sweep. Speed claims without the call site are
 half a measurement.
 
+## An audit is mostly clearing suspicions
+
+Asked to check the code for bugs, contradictions and gaps, the useful shape
+was: run every mechanical gate first, scan for the patterns that crash or
+drift, then read each hit until it is either a defect or cleared with a
+reason. Most hits cleared.
+
+**The lints found the real ones.** Pedantic clippy pointed at a
+`partial_cmp().unwrap()` in a float sort and, indirectly, at an
+allocation bounded by nothing but a header field. Neither was in the
+earlier fan-out's confirmed list; both were in its unverified overflow.
+
+**Write down what cleared, not only what failed.** The earlier
+classification flagged hash-order iteration at two sites and O(n²) feed
+scans. Reading showed the registry is an array, the union is sorted, and
+every feed is capped at 200. Without the record, the next audit re-raises
+the same suspicions.
+
+**The biggest finding was a gap, not a bug.** Nothing crashes and nothing
+lints: the route scorer simply never receives the fire-perimeter and
+earthquake feeds the map beside it uses. Two correct subsystems, fed
+different evidence, giving different answers about the same road. That is
+not a fix to make in an audit; it is the owner's decision, written up with
+the mechanism.
+

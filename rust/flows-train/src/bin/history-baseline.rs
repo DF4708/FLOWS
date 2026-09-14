@@ -696,7 +696,7 @@ impl History {
             if v.is_empty() {
                 continue;
             }
-            v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            v.sort_by(f32::total_cmp);
             let rank = ((v.len() as f64 * 0.95).ceil() as usize).clamp(1, v.len());
             *o = v[rank - 1] as f64;
         }

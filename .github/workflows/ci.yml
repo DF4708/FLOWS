@@ -48,9 +48,12 @@ jobs:
       # The test target depends on the RustBridge aggregate target, which runs
       # scripts/build_rust_bridge.sh: a universal macOS library, so both darwin
       # targets are needed on the same pinned toolchain as the rust job.
+      # scripts/build_rust_bridge.sh builds every platform library on every
+      # run (the aggregate target cannot tell which SDK the app wants), so all
+      # five targets must be installed or the script's hard error fires.
       - uses: dtolnay/rust-toolchain@1.93.1
         with:
-          targets: aarch64-apple-darwin, x86_64-apple-darwin
+          targets: aarch64-apple-darwin, x86_64-apple-darwin, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
       - name: xcodegen
         run: brew install xcodegen
       - name: generate project
