@@ -1297,11 +1297,35 @@ oracle never touches. That recipe (`oracle-harness/forecast/README.md`)
 serves every remaining group whose original already called the bridge —
 most of wave 2.
 
+## Wave 2, third landing: the live feeds' scores and the alert service's rules (2026-09-16)
+
+Everything the live feeds and the alert service *decide* is Rust:
+`flows_core::hazard_feeds` holds every `HazardFeedScores` score (fire
+hotspots and perimeters, quakes, flood gauges and mapped water, space
+weather, volcanoes, avalanche and outlook zones, tropical storms, tsunamis,
+closures), the snapshot clip and the per-point assembly the map sweep and
+the route share, the alert service's cell key, state and marine boxes, ring
+containment, the client-side spatial join, the GeoJSON ring decimation and
+the corridor's noisy-OR, coverage and worst-first sort, plus the CRE fuel
+files' tag scan. The snapshot crosses once as an opaque `FlowsHazardSnapshot`
+built from the fetched feeds and is scored per point in place; `clipped`
+answers a new one whose lists the facade reads back, so the Swift struct
+keeps its fields and its memberwise construction for the tests and the
+viewport sweep.
+
+The oracle (6,670 records, 35 kinds) is bridge-linked from commit f36ee9e
+and taught two small things recorded in its README: `Double(Substring)`
+fails at an embedded NUL where `Double(String)` stops there, and a harness
+should sort by bytes, not with Swift's canonical `<`. The fetchers, caches,
+actors and the JSON shape reading stay in Swift; `stateBBoxes` stays too,
+because `roadClosures` still reads it for its state pick (its Rust twin
+`STATE_BOXES` serves the containment test).
+
 ### Wave 2 remaining
 
 | item | state |
 |---|---|
 | the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
-| LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | not started |
+| LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
 | POIRanking, PlacesStore (FPS1), POIService decisions | not started |
 | the long tail (OfflineCorridors, Amtrak, radio, recents, breadcrumbs, FuelWarning, HybridWalk, AirTravel, transit estimates, Mobility, AdaptiveTuning, SignalQuality, playback, spoken replies, TripShare, VehicleLink, RouteAttributes) | not started |

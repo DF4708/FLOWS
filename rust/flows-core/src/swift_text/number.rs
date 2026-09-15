@@ -49,6 +49,21 @@ pub fn swift_double(text: &str) -> Option<f64> {
     Some(if negative { -magnitude } else { magnitude })
 }
 
+/// Swift's `Double(text)` for a `Substring`. The generic `StringProtocol`
+/// path copies the bytes out and requires every one consumed, so an
+/// embedded NUL — which the `String` path silently ends the text at — makes
+/// the parse fail. Otherwise the two agree (the hazard-feeds oracle pins the
+/// difference on the CRE price scan).
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn swift_double_substring(text: &str) -> Option<f64> {
+    if text.contains('\0') {
+        return None;
+    }
+    swift_double(text)
+}
+
 const QUIET_NAN: u64 = 0x7FF8_0000_0000_0000;
 const SIGNALING_NAN: u64 = 0x7FF4_0000_0000_0000;
 const PAYLOAD_MASK: u64 = (1 << 50) - 1;
@@ -366,6 +381,13 @@ mod tests {
         );
         assert_eq!(bits("-0x0p0"), Some(0x8000_0000_0000_0000));
         assert_eq!(bits("0x0"), Some(0));
+    }
+
+    #[test]
+    fn a_substring_does_not_end_at_an_embedded_nul() {
+        assert_eq!(swift_double_substring("24.\u{0}9"), None);
+        assert_eq!(swift_double("24.\u{0}9"), Some(24.0));
+        assert_eq!(swift_double_substring("24.9"), Some(24.9));
     }
 
     #[test]

@@ -9,6 +9,11 @@ arrays; `swift_places_text_oracle.rs` checks the arrays against the same
 records over the whole scalar domain, so a stale table fails the test.
 
     python3 gen_tables.py [fixture.tsv] [tables.rs]
+
+The `u-wsnl` records (`CharacterSet.whitespacesAndNewlines`) live in the
+hazard-feeds fixture, `../../fixtures/swift_hazard_feeds_oracle.tsv`, whose
+harness reads them from the runtime the same way; this script reads that
+fixture too (or a file named by `WSNL_FIXTURE`).
 """
 import sys, os
 
@@ -40,7 +45,13 @@ PATTERNS = {
     "10000001001000000": 17,            # LVT
 }
 
-word, num, ws, gcb, ccc, lower, upper, nfd = [], [], [], [], [], [], [], []
+WSNL_FIXTURE = os.environ.get("WSNL_FIXTURE", os.path.join(HERE, "../../fixtures/swift_hazard_feeds_oracle.tsv"))
+
+word, num, ws, gcb, ccc, lower, upper, nfd, wsnl = [], [], [], [], [], [], [], [], []
+for line in open(WSNL_FIXTURE, encoding="utf-8"):
+    if line.startswith("u-wsnl\t"):
+        f = line.rstrip("\n").split("\t")
+        wsnl.append((int(f[1], 16), int(f[2], 16)))
 for line in open(FIXTURE, encoding="utf-8"):
     if line.startswith("#") or not line.strip():
         continue
@@ -63,7 +74,7 @@ def check_sorted(name, rows):
     keys = [r[0] for r in rows]
     if keys != sorted(keys) or len(set(keys)) != len(keys):
         sys.exit(f"{name} is not sorted and unique")
-for name, rows in [("word", word), ("num", num), ("ws", ws), ("gcb", gcb), ("ccc", ccc), ("lower", lower), ("upper", upper), ("nfd", nfd)]:
+for name, rows in [("word", word), ("num", num), ("ws", ws), ("wsnl", wsnl), ("gcb", gcb), ("ccc", ccc), ("lower", lower), ("upper", upper), ("nfd", nfd)]:
     check_sorted(name, rows)
     if not rows: sys.exit(f"no {name} records in {FIXTURE}")
 
@@ -89,6 +100,7 @@ body = "".join([
     array("WORD_RANGES", ["Scalars whose `Character` answers `isLetter || isNumber`, as inclusive `lo, hi` pairs."], 2, word, 8),
     array("NUMBER_RANGES", ["Scalars whose `Character` answers `isNumber`, as inclusive `lo, hi` pairs."], 2, num, 8),
     array("WHITESPACE_RANGES", ["`CharacterSet.whitespaces`, as inclusive `lo, hi` pairs."], 2, ws, 8),
+    array("WHITESPACE_NEWLINE_RANGES", ["`CharacterSet.whitespacesAndNewlines`, as inclusive `lo, hi` pairs (from the", "hazard-feeds fixture)."], 2, wsnl, 8),
     array("GCB_RANGES", ["Grapheme-break classes as `lo, hi, class` triples (the codes of `Gcb`); a", "scalar in no range is `Other`."], 3, gcb, 6),
     array("CCC_RANGES", ["Canonical combining classes as `lo, hi, ccc` triples; a scalar in no range has class 0."], 3, ccc, 6),
     array("LOWER_MAP", ["`Unicode.Scalar.Properties.lowercaseMapping` where it is not the scalar itself:", "`scalar, first, second` with 0 for an absent second."], 3, padded(lower, 3, "lower"), 6),
@@ -111,7 +123,8 @@ header = f"""// ----------------------------------------------------------------
 //! and `swift_places_text_oracle.rs` checks each one against the fixture over
 //! the whole scalar domain.
 //!
-//! Counts: {len(word)} word ranges, {len(num)} number ranges, {len(ws)} whitespace ranges,
+//! Counts: {len(word)} word ranges, {len(num)} number ranges, {len(ws)} whitespace ranges
+//! ({len(wsnl)} with newlines),
 //! {len(gcb)} grapheme-class ranges, {len(ccc)} combining-class ranges, {len(lower)} lowercase
 //! mappings, {len(upper)} uppercase mappings, {len(nfd)} decompositions.
 

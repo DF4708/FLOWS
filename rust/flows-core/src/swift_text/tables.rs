@@ -14,7 +14,8 @@
 //! and `swift_places_text_oracle.rs` checks each one against the fixture over
 //! the whole scalar domain.
 //!
-//! Counts: 849 word ranges, 235 number ranges, 8 whitespace ranges,
+//! Counts: 849 word ranges, 235 number ranges, 8 whitespace ranges
+//! (10 with newlines),
 //! 1617 grapheme-class ranges, 403 combining-class ranges, 1488 lowercase
 //! mappings, 1580 uppercase mappings, 2079 decompositions.
 
@@ -234,6 +235,15 @@ pub const WHITESPACE_RANGES: &[u32] = &[
 ];
 /// Numbers per entry of [`WHITESPACE_RANGES`].
 pub const WHITESPACE_RANGES_STRIDE: usize = 2;
+
+/// `CharacterSet.whitespacesAndNewlines`, as inclusive `lo, hi` pairs (from the
+/// hazard-feeds fixture).
+pub const WHITESPACE_NEWLINE_RANGES: &[u32] = &[
+    0x9, 0xD, 0x20, 0x20, 0x85, 0x85, 0xA0, 0xA0, 0x1680, 0x1680, 0x2000, 0x200B, 0x2028, 0x2029,
+    0x202F, 0x202F, 0x205F, 0x205F, 0x3000, 0x3000,
+];
+/// Numbers per entry of [`WHITESPACE_NEWLINE_RANGES`].
+pub const WHITESPACE_NEWLINE_RANGES_STRIDE: usize = 2;
 
 /// Grapheme-break classes as `lo, hi, class` triples (the codes of `Gcb`); a
 /// scalar in no range is `Other`.

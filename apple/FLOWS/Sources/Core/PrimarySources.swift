@@ -22,55 +22,34 @@ import Foundation
 ///    DOT work-zone GeoJSON feeds (tokens included in the registry rows).
 ///    Live roadwork locations along the corridor, straight from each DOT.
 enum MexicoFuelParsing {
-    /// Flat-XML tag scan (the CRE files are simple, ~3 MB each).
+    /// Flat-XML tag scan of the CRE price file, done in Rust; one string per
+    /// place comes back (id, then `type=bits` pairs), prices as IEEE bit
+    /// patterns. Pinned to the original by
+    /// rust/flows-bridge/tests/fixtures/swift_hazard_feeds_oracle.tsv.
     static func parsePrices(_ xml: String) -> [String: [String: Double]] {
         var out: [String: [String: Double]] = [:]
-        var search = xml[xml.startIndex...]
-        while let open = search.range(of: "<place place_id=\"") {
-            guard let idEnd = search.range(of: "\"", range: open.upperBound..<search.endIndex),
-                  let close = search.range(of: "</place>", range: idEnd.upperBound..<search.endIndex)
-            else { break }
-            let id = String(search[open.upperBound..<idEnd.lowerBound])
-            let body = search[idEnd.upperBound..<close.lowerBound]
+        for row in flows_hazard_fuel_prices(xml) {
+            let parts = row.text.split(separator: "\u{1F}", omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
             var prices: [String: Double] = [:]
-            var inner = body[body.startIndex...]
-            while let t = inner.range(of: "<gas_price type=\"") {
-                guard let tEnd = inner.range(of: "\"", range: t.upperBound..<inner.endIndex),
-                      let vStart = inner.range(of: ">", range: tEnd.upperBound..<inner.endIndex),
-                      let vEnd = inner.range(of: "<", range: vStart.upperBound..<inner.endIndex)
-                else { break }
-                let type = String(inner[t.upperBound..<tEnd.lowerBound])
-                if let v = Double(inner[vStart.upperBound..<vEnd.lowerBound]) {
-                    prices[type] = v
-                }
-                inner = inner[vEnd.upperBound...]
+            for pair in parts[1].split(separator: "\u{1D}") {
+                guard let eq = pair.lastIndex(of: "="),
+                      let bits = UInt64(pair[pair.index(after: eq)...], radix: 16) else { continue }
+                prices[String(pair[..<eq])] = Double(bitPattern: bits)
             }
-            if !prices.isEmpty { out[id] = prices }
-            search = search[close.upperBound...]
+            out[String(parts[0])] = prices
         }
         return out
     }
 
+    /// The CRE place file: id → (latitude, longitude), kept in Rust when the
+    /// latitude lies in 13…34.
     static func parsePlaces(_ xml: String) -> [String: CLLocationCoordinate2D] {
         var out: [String: CLLocationCoordinate2D] = [:]
-        var search = xml[xml.startIndex...]
-        while let open = search.range(of: "<place place_id=\"") {
-            guard let idEnd = search.range(of: "\"", range: open.upperBound..<search.endIndex),
-                  let close = search.range(of: "</place>", range: idEnd.upperBound..<search.endIndex)
-            else { break }
-            let id = String(search[open.upperBound..<idEnd.lowerBound])
-            let body = String(search[idEnd.upperBound..<close.lowerBound])
-            func tag(_ name: String) -> Double? {
-                guard let s = body.range(of: "<\(name)>"),
-                      let e = body.range(of: "</\(name)>", range: s.upperBound..<body.endIndex)
-                else { return nil }
-                return Double(body[s.upperBound..<e.lowerBound]
-                    .trimmingCharacters(in: .whitespacesAndNewlines))
-            }
-            if let x = tag("x"), let y = tag("y"), y > 13, y < 34 {
-                out[id] = CLLocationCoordinate2D(latitude: y, longitude: x)
-            }
-            search = search[close.upperBound...]
+        for row in flows_hazard_fuel_places(xml) {
+            let parts = row.text.split(separator: "\u{1F}", omittingEmptySubsequences: false)
+            guard parts.count == 3, let lat = UInt64(parts[1], radix: 16), let lon = UInt64(parts[2], radix: 16) else { continue }
+            out[String(parts[0])] = CLLocationCoordinate2D(latitude: Double(bitPattern: lat), longitude: Double(bitPattern: lon))
         }
         return out
     }

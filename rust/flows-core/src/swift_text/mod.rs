@@ -30,7 +30,8 @@
 //!   `hasSuffix` compares clusters — [`has_suffix`]; `trimmingCharacters(in:
 //!   .whitespaces)` trims scalars — [`trim_whitespace`].
 //! - `Double(String)` is Darwin's `strtod` behind Swift's own checks —
-//!   [`swift_double`].
+//!   [`swift_double`]; `Double(Substring)` differs only at an embedded NUL —
+//!   [`swift_double_substring`].
 //!
 //! Nothing here reads a locale or holds state; every function is a pure
 //! transform of its arguments, and none panics on any input.
@@ -38,7 +39,7 @@
 mod number;
 pub(crate) mod tables;
 
-pub use number::swift_double;
+pub use number::{swift_double, swift_double_substring};
 
 use tables::{
     CCC_RANGES, CCC_RANGES_STRIDE, GCB_RANGES, GCB_RANGES_STRIDE, LOWER_MAP, LOWER_MAP_STRIDE,
@@ -606,6 +607,23 @@ pub fn has_suffix(text: &str, suffix: &str) -> bool {
 #[must_use]
 pub fn trim_whitespace(text: &str) -> &str {
     text.trim_matches(is_whitespace)
+}
+
+/// `CharacterSet.whitespacesAndNewlines.contains(c)`.
+#[must_use]
+pub fn is_whitespace_or_newline(c: char) -> bool {
+    range_entry(
+        tables::WHITESPACE_NEWLINE_RANGES,
+        tables::WHITESPACE_NEWLINE_RANGES_STRIDE,
+        c as u32,
+    )
+    .is_some()
+}
+
+/// `trimmingCharacters(in: .whitespacesAndNewlines)`: scalars, from both ends.
+#[must_use]
+pub fn trim_whitespace_newlines(text: &str) -> &str {
+    text.trim_matches(is_whitespace_or_newline)
 }
 
 #[cfg(test)]

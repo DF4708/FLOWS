@@ -198,17 +198,17 @@ final class WeatherAlertService: ObservableObject {
             for h in hits where seen.insert(h.id).inserted
                 && alertSampleCount[h.id, default: 0] > 0 { unique.append(h) }
         }
-        unique.sort { $0.severityScore > $1.severityScore }
+        if !unique.isEmpty {
+            let order = unique.map { $0.severityScore }.withUnsafeBufferPointer { flows_hazard_worst_first($0) }
+            unique = order.compactMap { Int($0) < unique.count && $0 >= 0 ? unique[Int($0)] : nil }
+        }
 
         // Noisy-OR normalization (mirror of R/families.R noisy_or_combine):
         // each alert contributes severity × corridor-coverage.
         let n = Double(max(samples.count, 1))
-        var survival = 1.0
-        for h in unique {
-            let cov = Double(alertSampleCount[h.id] ?? 0) / n
-            survival *= 1 - min(max(h.severityScore * cov, 0), 1)
-        }
-        let normalized = 1 - survival
+        let coverages = unique.map { Double(alertSampleCount[$0.id] ?? 0) / n }
+        let normalized = unique.isEmpty ? 0
+            : HazardFeedScores.two(unique.map { $0.severityScore }, coverages) { flows_hazard_corridor_noisy_or($0, $1) }
 
         var eventSeen = Set<String>()
         let events = unique.compactMap { eventSeen.insert($0.event).inserted ? $0.event : nil }
@@ -228,7 +228,7 @@ final class WeatherAlertService: ObservableObject {
             risk: normalized,
             worstSeverity: unique.first?.severityScore ?? 0,
             coverage: riskSamples.isEmpty ? 0
-                : Double(riskSamples.filter { $0.risk > 0 }.count) / Double(riskSamples.count),
+                : riskSamples.map { $0.risk }.withUnsafeBufferPointer { flows_hazard_corridor_coverage($0) },
             headlines: unique.map(\.headline),
             events: events,
             samples: riskSamples,
@@ -241,7 +241,7 @@ final class WeatherAlertService: ObservableObject {
     /// adjacent 40 km corridor samples. Internal (not private) so the tests
     /// can key `provisionalSamples` fixtures the way the scorer does.
     nonisolated static func cellKey(_ pt: CLLocationCoordinate2D) -> String {
-        "\(Int((pt.latitude * 4).rounded()))|\(Int((pt.longitude * 4).rounded()))"
+        flows_hazard_cell_key(pt.latitude, pt.longitude).text
     }
 
     /// Per-sample view of a PARTIALLY fetched corridor: samples whose cell
@@ -255,21 +255,42 @@ final class WeatherAlertService: ObservableObject {
         arrivalOffsets: [TimeInterval]?,
         now: Date
     ) -> [RiskSample?] {
-        samples.enumerated().map { i, pt in
-            guard let hits = cellAlerts[Self.cellKey(pt)] else { return nil }
-            let offset: TimeInterval = {
-                guard let arrivalOffsets, i < arrivalOffsets.count else { return 0 }
-                return arrivalOffsets[i]
-            }()
-            let active = hits.filter {
-                RiskTiming.isActive(expires: $0.expires, arrivalOffset: offset, now: now)
+        guard !samples.isEmpty else { return [] }
+        // The cells' alerts as one flat list the Rust indexes into; a cell's
+        // hits are its indices into it.
+        var all: [NWSAlert] = []
+        var keys: [String] = [], counts: [Int64] = [], indices: [Int64] = []
+        for key in cellAlerts.keys.sorted() {
+            let hits = cellAlerts[key] ?? []
+            keys.append(key); counts.append(Int64(hits.count))
+            for h in hits { indices.append(Int64(all.count)); all.append(h) }
+        }
+        let severities = all.isEmpty ? [0.0] : all.map { $0.severityScore }
+        let expires = all.isEmpty ? [0.0] : all.map { $0.expires?.timeIntervalSinceReferenceDate ?? 0 }
+        let hasExpires: [Int64] = all.isEmpty ? [0] : all.map { $0.expires == nil ? 0 : 1 }
+        let countsOrOne = counts.isEmpty ? [0] : counts, indicesOrOne = indices.isEmpty ? [0] : indices
+        let offsets = arrivalOffsets ?? [], offsetsOrOne = offsets.isEmpty ? [0.0] : offsets
+        let flat = HazardFeedScores.two(samples.map { $0.latitude }, samples.map { $0.longitude }) { la, lo in
+            HazardFeedScores.two(severities, expires) { sev, exp in
+                hasExpires.withUnsafeBufferPointer { he in
+                    countsOrOne.withUnsafeBufferPointer { cc in
+                        indicesOrOne.withUnsafeBufferPointer { ci in
+                            offsetsOrOne.withUnsafeBufferPointer { off in
+                                flows_hazard_provisional_samples(
+                                    la, lo, sev, exp, he, keys.joined(separator: "\u{1F}"), cc, ci,
+                                    off, arrivalOffsets != nil, now.timeIntervalSinceReferenceDate)
+                            }
+                        }
+                    }
+                }
             }
-            let worst = active.max { $0.severityScore < $1.severityScore }
-            return RiskSample(
-                coordinate: pt,
-                risk: worst?.severityScore ?? 0,
-                worstEvent: worst?.event,
-                alertID: worst?.id)
+        }
+        guard flat.len() == samples.count * 3 else { return samples.map { _ in nil } }
+        return samples.enumerated().map { i, pt in
+            guard flat[i * 3] == 1 else { return nil }
+            let idx = Int(flat[i * 3 + 2])
+            let worst = idx >= 0 && idx < all.count ? all[idx] : nil
+            return RiskSample(coordinate: pt, risk: flat[i * 3 + 1], worstEvent: worst?.event, alertID: worst?.id)
         }
     }
 
@@ -282,48 +303,18 @@ final class WeatherAlertService: ObservableObject {
     /// points off the table (Canada/Mexico/offshore) — those cells ride the
     /// per-point path with its foreign-feed chain.
     nonisolated static func statesContaining(_ pt: CLLocationCoordinate2D) -> [String] {
-        LiveHazardFeedFetcher.stateBBoxes.compactMap { code, b in
-            (pt.latitude >= b.s && pt.latitude <= b.n
-             && pt.longitude >= b.w && pt.longitude <= b.e) ? code : nil
-        }
+        flows_hazard_states_containing(pt.latitude, pt.longitude).map { $0.text }
     }
 
     /// Marine REGION lists a cell near the water must also union — state
     /// lists carry land zones only, but the per-point oracle includes marine
     /// zones, and route samples DO sit over water on long bridges
     /// (Chesapeake, Mackinac, the Keys), where a gale warning is exactly the
-    /// high-profile-vehicle hazard FLOWS warns about. Verified live: the
-    /// parity harness's only mismatches were offshore cells whose marine
-    /// alerts area= queries never carry. Generous rough boxes — an extra
-    /// region is one cached request.
-    /// Source keys carry a "marine:" prefix so a marine REGION code can
-    /// never collide with a state code ("AL" is both Alabama and Alaska
-    /// waters); the fetcher maps the prefix to the `region=` query.
+    /// high-profile-vehicle hazard FLOWS warns about. Source keys carry a
+    /// "marine:" prefix so a marine REGION code can never collide with a
+    /// state code ("AL" is both Alabama and Alaska waters).
     nonisolated static func marineRegionsContaining(_ pt: CLLocationCoordinate2D) -> [String] {
-        var out: [String] = []
-        if pt.longitude <= -115, (30...50).contains(pt.latitude) { out.append("marine:PA") }
-        if pt.longitude >= -83, (24...46).contains(pt.latitude) { out.append("marine:AT") }
-        if pt.latitude <= 31.5, (-98...(-80)).contains(pt.longitude) { out.append("marine:GM") }
-        if (40.5...49.5).contains(pt.latitude), (-93...(-75.5)).contains(pt.longitude) {
-            out.append("marine:GL")
-        }
-        return out
-    }
-
-    /// Bbox pre-reject, then ray-cast — most alerts are nowhere near a cell.
-    nonisolated private static func ringContains(
-        _ p: CLLocationCoordinate2D, _ ring: [CLLocationCoordinate2D]
-    ) -> Bool {
-        guard ring.count >= 3 else { return false }
-        var minLat = ring[0].latitude, maxLat = minLat
-        var minLon = ring[0].longitude, maxLon = minLon
-        for c in ring {
-            minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
-            minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
-        }
-        guard p.latitude >= minLat, p.latitude <= maxLat,
-              p.longitude >= minLon, p.longitude <= maxLon else { return false }
-        return HazardFeedScores.pointInPolygon(p, ring)
+        flows_hazard_marine_regions_containing(pt.latitude, pt.longitude).map { $0.text }
     }
 
     /// The client-side replacement for the server's per-point spatial join:
@@ -333,22 +324,36 @@ final class WeatherAlertService: ObservableObject {
     /// null) match if any of their zones' rings contain the point. An alert
     /// whose zones are absent from `zoneRings` cannot match — the RESOLVER
     /// guarantees every needed zone geometry is present before this runs,
-    /// falling back to per-point queries otherwise.
+    /// falling back to per-point queries otherwise. The rings and the
+    /// containment tests are Rust's; the alerts cross as flat rings.
     nonisolated static func alertsCovering(
         _ point: CLLocationCoordinate2D,
         alerts: [NWSAlert],
         zoneRings: [String: [[CLLocationCoordinate2D]]]
     ) -> [NWSAlert] {
-        alerts.filter { a in
-            var rings = (a.polygon?.count ?? 0) >= 3 ? [a.polygon!] : []
-            rings += a.extraRings.filter { $0.count >= 3 }
-            if !rings.isEmpty {
-                return rings.contains { ringContains(point, $0) }
-            }
-            return a.affectedZones.contains { z in
-                (zoneRings[z] ?? []).contains { ringContains(point, $0) }
-            }
+        guard !alerts.isEmpty else { return [] }
+        var ringCounts: [Int64] = [], zoneCounts: [Int64] = [], alertRings: [[CLLocationCoordinate2D]] = []
+        var zoneNames: [String] = []
+        for a in alerts {
+            var rings: [[CLLocationCoordinate2D]] = []
+            if let p = a.polygon { rings.append(p) }
+            rings += a.extraRings
+            ringCounts.append(Int64(rings.count)); alertRings += rings
+            zoneCounts.append(Int64(a.affectedZones.count)); zoneNames += a.affectedZones
         }
+        let flat = HazardFeedScores.flatten(alertRings)
+        let zoneKeys = zoneRings.keys.sorted()
+        let zoneRingCounts: [Int64] = zoneKeys.isEmpty ? [0] : zoneKeys.map { Int64(zoneRings[$0]?.count ?? 0) }
+        let zflat = HazardFeedScores.flatten(zoneKeys.flatMap { zoneRings[$0] ?? [] })
+        let indices = ringCounts.withUnsafeBufferPointer { rc in zoneCounts.withUnsafeBufferPointer { zc in
+            flat.lens.withUnsafeBufferPointer { lens in HazardFeedScores.two(flat.lats, flat.lons) { la, lo in
+                zoneRingCounts.withUnsafeBufferPointer { zrc in zflat.lens.withUnsafeBufferPointer { zlens in
+                    HazardFeedScores.two(zflat.lats, zflat.lons) { zla, zlo in
+                        flows_hazard_alerts_covering(point.latitude, point.longitude, rc, zc, lens, la, lo,
+                                                     zoneNames.joined(separator: "\u{1F}"),
+                                                     zoneKeys.joined(separator: "\u{1F}"), zrc, zlens, zla, zlo)
+                    } } } } } } }
+        return indices.compactMap { Int($0) < alerts.count && $0 >= 0 ? alerts[Int($0)] : nil }
     }
 
     /// Join every cell against the union of state alerts — nonisolated so
@@ -713,13 +718,7 @@ final class WeatherAlertService: ObservableObject {
     /// ECCC each had a copy differing only in case — tuning one would skew
     /// cross-border ranking).
     nonisolated static func severityScore(_ severity: String) -> Double {
-        switch severity.lowercased() {
-        case "extreme": return 0.95
-        case "severe": return 0.88
-        case "moderate": return 0.72
-        case "minor": return 0.45
-        default: return 0.30
-        }
+        flows_hazard_severity_score(severity)
     }
 
     nonisolated private func ecccAlerts(at point: CLLocationCoordinate2D) async -> [NWSAlert]? {
@@ -837,18 +836,16 @@ final class WeatherAlertService: ObservableObject {
         default:
             raws = []
         }
-        return raws.compactMap { raw in
-            var pts = raw
-            guard pts.count >= 3 else { return nil }
-            if pts.count > maxPoints {
-                let step = pts.count / maxPoints + 1
-                pts = stride(from: 0, to: pts.count, by: step).map { pts[$0] }
-            }
-            let ring = pts.compactMap { c in
-                c.count >= 2 ? CLLocationCoordinate2D(latitude: c[1], longitude: c[0]) : nil
-            }
-            return ring.count >= 3 ? ring : nil
-        }
+        guard !raws.isEmpty else { return [] }
+        // The decimation and the (lat, lon) reading are Rust's; the JSON shape
+        // above is the platform's. Coordinates cross as number lists.
+        let ringCoordCounts = raws.map { Int64($0.count) }
+        var coordLens: [Int64] = [], values: [Double] = []
+        for ring in raws { for c in ring { coordLens.append(Int64(c.count)); values += c } }
+        let lensOrOne = coordLens.isEmpty ? [0] : coordLens, valuesOrOne = values.isEmpty ? [0.0] : values
+        let flat = ringCoordCounts.withUnsafeBufferPointer { rc in lensOrOne.withUnsafeBufferPointer { cl in
+            valuesOrOne.withUnsafeBufferPointer { flows_hazard_all_rings(rc, cl, $0, Int64(maxPoints)) } } }
+        return LiveHazardSnapshot.decodeRings(Array(flat))
     }
 }
 
@@ -928,11 +925,7 @@ actor BackupWarningsCache {
     /// maps to (tornado warnings run Extreme; the rest of the warning class
     /// Severe; marine statements Moderate).
     nonisolated static func severity(phenomena: String) -> Double {
-        switch phenomena {
-        case "TO": return 0.95
-        case "MA": return 0.72
-        default: return 0.88
-        }
+        flows_hazard_backup_severity(phenomena)
     }
 
     /// Pure feature mapping (testable): IEM props → the app's alert shape.

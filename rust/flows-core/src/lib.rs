@@ -30,6 +30,8 @@
 //!   risk_field — the ZIP-level risk field: FRB1 reader, grid lookup,
 //!              viewport selection, harmonic rescore
 //!   forecast — the forecast predictors over climate + scoring
+//!   hazard_feeds — live feed scores, the alert service's geometry and
+//!              severity rules, the CRE fuel scan
 //!
 //! flows-core has no FFI of its own and never will: `#[no_mangle]` is
 //! rejected by `forbid(unsafe_code)`. The app reaches these functions through
@@ -66,6 +68,7 @@ pub mod fcmp;
 pub(crate) mod fmath;
 pub mod forecast;
 pub mod geo;
+pub mod hazard_feeds;
 pub mod learning;
 pub mod places_text;
 pub mod polyline;

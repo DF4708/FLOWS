@@ -32,429 +32,216 @@ import Foundation
 ///   * convective— SPC Day-1 categorical severe-weather outlook polygons.
 /// The score MAPPINGS are pure (HazardFeedScores) and pinned by FLOWSTests;
 /// this actor does the fetching/caching.
+/// The live feeds' scores, computed in rust/flows-core (hazard_feeds.rs) and
+/// called through rust/flows-bridge. Points cross as parallel latitude and
+/// longitude lists, rings as one flat pair with their lengths in front, and
+/// text as a joined list; an empty feed never crosses — it scores 0 here, as
+/// the original did. Pinned to the original by
+/// rust/flows-bridge/tests/fixtures/swift_hazard_feeds_oracle.tsv.
 enum HazardFeedScores {
+    typealias Point = CLLocationCoordinate2D
 
     /// US AQI → 0…1 risk (EPA category edges: 50/100/150/200/300).
-    static func airScore(usAQI: Double) -> Double {
-        switch usAQI {
-        case ..<50: return usAQI / 50 * 0.2
-        case ..<100: return 0.2 + (usAQI - 50) / 50 * 0.25
-        case ..<150: return 0.45 + (usAQI - 100) / 50 * 0.25
-        case ..<200: return 0.7 + (usAQI - 150) / 50 * 0.2
-        default: return min(0.9 + (usAQI - 200) / 300 * 0.1, 1)
-        }
-    }
+    static func airScore(usAQI: Double) -> Double { flows_hazard_air_score(usAQI) }
 
     /// UV index → 0…1 (WHO bands: 3 moderate, 6 high, 8 very high, 11 extreme).
-    static func uvScore(index: Double) -> Double {
-        switch index {
-        case ..<3: return index / 3 * 0.2
-        case ..<6: return 0.2 + (index - 3) / 3 * 0.2
-        case ..<8: return 0.4 + (index - 6) / 2 * 0.2
-        case ..<11: return 0.6 + (index - 8) / 3 * 0.25
-        default: return min(0.85 + (index - 11) / 5 * 0.15, 1)
-        }
-    }
+    static func uvScore(index: Double) -> Double { flows_hazard_uv_score(index) }
 
-    /// Fire hotspots near a point → 0…1: each detection contributes by
-    /// distance (30 km reach) and radiative power; noisy-OR combined.
+    /// Fire hotspots near a point → 0…1: the strongest nearby detection by
+    /// distance (30 km reach) and radiative power — never a noisy-OR, which a
+    /// swarm of correlated pixels saturated.
     static func fireScore(
         hotspots: [(lat: Double, lon: Double, frp: Double)],
-        at point: CLLocationCoordinate2D
+        at point: Point
     ) -> Double {
-        // Score by the STRONGEST nearby detection, not a noisy-OR over all of
-        // them. NOAA HMS reports dozens of correlated detections around one fire,
-        // and a noisy-OR (which assumes independence) let a swarm of weak, distant
-        // pixels multiply up to a false RED. Max-of-detection reflects the actual
-        // proximity/intensity of the worst signal and can't be saturated by count.
-        var best = 0.0
-        for h in hotspots {
-            let d = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: h.lat, longitude: h.lon), point)
-            guard d < 30_000 else { continue }
-            let proximity = 1 - d / 30_000
-            let power = min(max(h.frp, 1) / 100, 1)   // 100 MW = severe
-            best = max(best, min(0.3 + 0.7 * power, 1) * proximity)
+        guard !hotspots.isEmpty else { return 0 }
+        return three(hotspots.map { $0.lat }, hotspots.map { $0.lon }, hotspots.map { $0.frp }) {
+            flows_hazard_fire_score($0, $1, $2, point.latitude, point.longitude)
         }
-        return best
     }
 
     /// Recent quakes near a point → 0…1: magnitude past M3, decayed by
     /// distance (150 km) and age (24 h).
     static func seismicScore(
         quakes: [(lat: Double, lon: Double, magnitude: Double, ageHours: Double)],
-        at point: CLLocationCoordinate2D
+        at point: Point
     ) -> Double {
-        var best = 0.0
-        for q in quakes {
-            let d = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: q.lat, longitude: q.lon), point)
-            guard d < 150_000, q.ageHours < 24 else { continue }
-            let mag = min(max(q.magnitude - 3, 0) / 4, 1)        // M7+ = 1
-            let near = 1 - d / 150_000
-            let fresh = 1 - q.ageHours / 24
-            best = max(best, mag * near * (0.5 + 0.5 * fresh))
+        guard !quakes.isEmpty else { return 0 }
+        let ages = quakes.map { $0.ageHours }
+        return three(quakes.map { $0.lat }, quakes.map { $0.lon }, quakes.map { $0.magnitude }) { la, lo, mag in
+            ages.withUnsafeBufferPointer { flows_hazard_seismic_score(la, lo, mag, $0, point.latitude, point.longitude) }
         }
-        return best
     }
 
-    // MARK: fire perimeters — WFIGS active-incident polygons (NIFC)
-
-    /// Ray-cast point-in-polygon (ring is a closed lon/lat outline).
-    /// Uses raw longitude arithmetic, so a ring straddling the ±180°
-    /// antimeridian would test wrong — not a concern here since every feed's
-    /// polygons (WFIGS/SPC/avalanche/NWS) are queried within a NA bounding box
-    /// well east of 180°.
-    static func pointInPolygon(
-        _ p: CLLocationCoordinate2D, _ ring: [CLLocationCoordinate2D]
-    ) -> Bool {
+    /// Ray-cast point-in-polygon (ring is a closed lon/lat outline). Raw
+    /// longitude arithmetic, so a ring straddling the antimeridian would test
+    /// wrong — every feed's polygons are queried within a NA bounding box.
+    static func pointInPolygon(_ p: Point, _ ring: [Point]) -> Bool {
         guard ring.count >= 3 else { return false }
-        var inside = false
-        var j = ring.count - 1
-        for i in 0..<ring.count {
-            let a = ring[i], b = ring[j]
-            if (a.latitude > p.latitude) != (b.latitude > p.latitude) {
-                let t = (p.latitude - a.latitude) / (b.latitude - a.latitude)
-                if p.longitude < a.longitude + t * (b.longitude - a.longitude) {
-                    inside.toggle()
-                }
-            }
-            j = i
+        return two(ring.map { $0.latitude }, ring.map { $0.longitude }) {
+            flows_hazard_point_in_polygon($0, $1, p.latitude, p.longitude)
         }
-        return inside
-    }
-
-    /// Distance in meters from `p` to the SEGMENT a→b, via a local
-    /// equirectangular projection (exact enough at fire-perimeter scale).
-    static func distanceToSegmentMeters(
-        _ p: CLLocationCoordinate2D, _ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D
-    ) -> Double {
-        distanceToSegmentMeters(p, a, b, mPerDegLon: 111_320.0 * cos(p.latitude * .pi / 180))
-    }
-
-    /// Hot-loop overload: `mPerDegLon` depends on `p` ONLY, so a caller
-    /// scanning every edge of a ring computes it once instead of paying a
-    /// libm `cos` per edge (a fire season's viewport sweep is ~10⁵ edges).
-    static func distanceToSegmentMeters(
-        _ p: CLLocationCoordinate2D, _ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D,
-        mPerDegLon: Double
-    ) -> Double {
-        let mPerDegLat = 111_320.0
-        // p at the origin; a, b in local meters.
-        let ax = (a.longitude - p.longitude) * mPerDegLon
-        let ay = (a.latitude - p.latitude) * mPerDegLat
-        let bx = (b.longitude - p.longitude) * mPerDegLon
-        let by = (b.latitude - p.latitude) * mPerDegLat
-        let dx = bx - ax, dy = by - ay
-        let len2 = dx * dx + dy * dy
-        if len2 == 0 { return (ax * ax + ay * ay).squareRoot() }
-        let t = max(0, min(1, -(ax * dx + ay * dy) / len2))
-        let cx = ax + t * dx, cy = ay + t * dy
-        return (cx * cx + cy * cy).squareRoot()
     }
 
     /// Active fire perimeters near a point → 0…1: inside a mapped fire is 1.0;
-    /// a 12 km buffer ramps down for the smoke/evacuation fringe.
-    ///
-    /// Ring scan is a single fused pass: crossing parity (inside?) and the
-    /// nearest-EDGE distance accumulate together — the old two-pass form
-    /// walked every ring twice. Distance is to the edge, not the nearest
-    /// vertex: WFIGS perimeters have long segments between sparse vertices,
-    /// so a vertex-only distance left a point beside a long edge reading far
-    /// from the fire and the smoke buffer never fired. A bounding-box reject
-    /// (min/max only, no trig) skips rings whose whole extent is beyond the
-    /// buffer — during fire season the viewport sweep tests dozens of grid
-    /// points against every active perimeter in the country, and almost all
-    /// of them are nowhere near.
-    static func firePerimeterScore(
-        perimeters: [[CLLocationCoordinate2D]], at point: CLLocationCoordinate2D
-    ) -> Double {
-        var best = 0.0
-        let mPerDegLat = 111_320.0
-        let mPerDegLon = 111_320.0 * cos(point.latitude * .pi / 180)
-        for ring in perimeters {
-            guard ring.count >= 2 else {
-                if let only = ring.first {
-                    let d = POIRanking.meters(only, point)
-                    if d < 12_000 { best = max(best, (1 - d / 12_000) * 0.7) }
-                }
-                continue
-            }
-            var minLat = ring[0].latitude, maxLat = minLat
-            var minLon = ring[0].longitude, maxLon = minLon
-            for c in ring {
-                minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
-                minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
-            }
-            let dLat = max(0, max(minLat - point.latitude, point.latitude - maxLat)) * mPerDegLat
-            let dLon = max(0, max(minLon - point.longitude, point.longitude - maxLon)) * mPerDegLon
-            if dLat * dLat + dLon * dLon > 12_000.0 * 12_000.0 { continue }
-
-            var inside = false
-            var minD = Double.infinity
-            var prev = ring.count - 1
-            for i in 0..<ring.count {
-                let a = ring[i], b = ring[prev]
-                if (a.latitude > point.latitude) != (b.latitude > point.latitude) {
-                    let t = (point.latitude - a.latitude) / (b.latitude - a.latitude)
-                    if point.longitude < a.longitude + t * (b.longitude - a.longitude) {
-                        inside.toggle()
-                    }
-                }
-                minD = min(minD, distanceToSegmentMeters(
-                    point, ring[prev], ring[i], mPerDegLon: mPerDegLon))
-                prev = i
-            }
-            if inside { return 1.0 }
-            if minD < 12_000 { best = max(best, (1 - minD / 12_000) * 0.7) }
+    /// a 12 km buffer ramps down for the smoke/evacuation fringe, measured to
+    /// the nearest EDGE.
+    static func firePerimeterScore(perimeters: [[Point]], at point: Point) -> Double {
+        guard !perimeters.isEmpty else { return 0 }
+        let flat = flatten(perimeters)
+        return flat.lens.withUnsafeBufferPointer { lens in
+            two(flat.lats, flat.lons) { flows_hazard_fire_perimeter_score(lens, $0, $1, point.latitude, point.longitude) }
         }
-        return best
     }
-
-    // MARK: flood — live NWS/NWPS river-gauge flood categories
 
     /// NWPS observed flood category → 0…1.
-    static func floodCategoryScore(_ category: String) -> Double {
-        switch category {
-        case "action": return 0.25
-        case "minor": return 0.45
-        case "moderate": return 0.70
-        case "major": return 1.0
-        default: return 0   // no_flooding / not_defined / obs_not_current / out_of_service
-        }
-    }
+    static func floodCategoryScore(_ category: String) -> Double { flows_hazard_flood_category_score(category) }
 
     /// Nearest gauge at/above flood stage within ~20 km → category × proximity.
     static func floodGaugeScore(
         gauges: [(lat: Double, lon: Double, category: String)],
-        at point: CLLocationCoordinate2D
+        at point: Point
     ) -> Double {
-        var best = 0.0
-        for g in gauges {
-            let base = floodCategoryScore(g.category)
-            guard base > 0 else { continue }
-            let d = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: g.lat, longitude: g.lon), point)
-            guard d < 20_000 else { continue }
-            best = max(best, base * (1 - 0.5 * d / 20_000))
-        }
-        return best
-    }
-
-    /// Topographic flood evidence: proximity to a mapped river or lake (USGS
-    /// NHD). `waterPoints` are corridor samples confirmed to have water within
-    /// the query radius; the score is 1 at such a sample, tapering to 0 by
-    /// ~6 km — a road beside the Yahara reads high, one on a ridge reads 0.
-    static func waterProximityScore(
-        waterPoints: [CLLocationCoordinate2D], at point: CLLocationCoordinate2D
-    ) -> Double {
-        var best = 0.0
-        for w in waterPoints {
-            let d = POIRanking.meters(w, point)
-            guard d < 6_000 else { continue }
-            best = max(best, 1 - d / 6_000)
-        }
-        return best
-    }
-
-    // MARK: radiation — NOAA SWPC space weather (S / G scales)
-
-    /// A single NOAA space-weather scale (0…5) → 0…1. Quiet levels (0–2) stay
-    /// advisory-low; a strong storm (3+) ramps toward the top of the band.
-    static func spaceWeatherScore(scale: Int) -> Double {
-        switch max(0, min(scale, 5)) {
-        case 0: return 0
-        case 1: return 0.15
-        case 2: return 0.30
-        case 3: return 0.55
-        case 4: return 0.78
-        default: return 1.0
+        guard !gauges.isEmpty else { return 0 }
+        return two(gauges.map { $0.lat }, gauges.map { $0.lon }) {
+            flows_hazard_flood_gauge_score($0, $1, joined(gauges.map { $0.category }), point.latitude, point.longitude)
         }
     }
 
-    /// Radiation-family contribution from space weather: the solar radiation
-    /// storm (S) at full weight, the geomagnetic storm (G) weighted by
-    /// latitude (its GPS/aurora effects concentrate toward the poles).
-    static func radiationSpaceWeatherScore(
-        sScale: Int, gScale: Int, latitude: Double
-    ) -> Double {
-        let s = spaceWeatherScore(scale: sScale)
-        let latWeight = min(max((abs(latitude) - 30) / 30, 0.2), 1.0)
-        let g = spaceWeatherScore(scale: gScale) * latWeight
-        return max(s, g)
-    }
-
-    // MARK: volcanic — USGS HANS elevated-volcano alert levels
-
-    /// USGS volcano alert level → 0…1, banded to driving danger: ADVISORY
-    /// (unrest) = green, WATCH (eruption imminent/underway) = yellow, WARNING
-    /// (hazardous eruption) = red.
-    static func volcanoAlertScore(_ level: String) -> Double {
-        switch level.uppercased() {
-        case "WARNING": return 1.0
-        case "WATCH": return 0.72
-        case "ADVISORY": return 0.42
-        default: return 0   // NORMAL / unset
+    /// Topographic flood evidence: 1 at a corridor sample with mapped water
+    /// nearby, tapering to 0 by ~6 km.
+    static func waterProximityScore(waterPoints: [Point], at point: Point) -> Double {
+        guard !waterPoints.isEmpty else { return 0 }
+        return two(waterPoints.map { $0.latitude }, waterPoints.map { $0.longitude }) {
+            flows_hazard_water_proximity_score($0, $1, point.latitude, point.longitude)
         }
     }
 
-    /// Nearest elevated volcano within ~80 km (ashfall/proximity) → level ×
-    /// proximity.
+    /// A single NOAA space-weather scale (0…5) → 0…1.
+    static func spaceWeatherScore(scale: Int) -> Double { flows_hazard_space_weather_score(Int64(scale)) }
+
+    /// Radiation-family contribution from space weather: the S scale at full
+    /// weight, the G scale weighted toward the poles.
+    static func radiationSpaceWeatherScore(sScale: Int, gScale: Int, latitude: Double) -> Double {
+        flows_hazard_radiation_space_weather_score(Int64(sScale), Int64(gScale), latitude)
+    }
+
+    /// USGS volcano alert level → 0…1 (ADVISORY green, WATCH yellow, WARNING red).
+    static func volcanoAlertScore(_ level: String) -> Double { flows_hazard_volcano_alert_score(level) }
+
+    /// Nearest elevated volcano within ~80 km → level × proximity.
     static func volcanicScore(
         volcanoes: [(lat: Double, lon: Double, level: String)],
-        at point: CLLocationCoordinate2D
+        at point: Point
     ) -> Double {
-        var best = 0.0
-        for v in volcanoes {
-            let base = volcanoAlertScore(v.level)
-            guard base > 0 else { continue }
-            let d = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: v.lat, longitude: v.lon), point)
-            guard d < 80_000 else { continue }
-            best = max(best, base * (1 - 0.5 * d / 80_000))
-        }
-        return best
-    }
-
-    // MARK: avalanche — EAWS/North-American danger ratings (1 Low … 5 Extreme)
-
-    /// EAWS danger rating → 0…1, banded to lethality: most avalanche deaths
-    /// occur at Considerable (3) and High (4), so 3 = yellow, 4 = red.
-    static func avalancheRatingScore(_ rating: Int) -> Double {
-        switch max(0, min(rating, 5)) {
-        case 0: return 0
-        case 1: return 0.25   // Low — green
-        case 2: return 0.45   // Moderate — green
-        case 3: return 0.72   // Considerable — yellow (most accidents)
-        case 4: return 0.90   // High — red
-        default: return 1.0   // Extreme — red
+        guard !volcanoes.isEmpty else { return 0 }
+        return two(volcanoes.map { $0.lat }, volcanoes.map { $0.lon }) {
+            flows_hazard_volcanic_score($0, $1, joined(volcanoes.map { $0.level }), point.latitude, point.longitude)
         }
     }
 
-    /// Danger rating of the forecast zone the point falls inside (US polygons
-    /// or Canadian bbox rings) → 0…1.
+    /// EAWS danger rating → 0…1 (3 = yellow, 4 = red).
+    static func avalancheRatingScore(_ rating: Int) -> Double { flows_hazard_avalanche_rating_score(Int64(rating)) }
+
+    /// Danger rating of the forecast zone the point falls inside → 0…1.
     static func avalancheScore(
-        zones: [(rings: [[CLLocationCoordinate2D]], rating: Int)],
-        at point: CLLocationCoordinate2D
+        zones: [(rings: [[Point]], rating: Int)],
+        at point: Point
     ) -> Double {
-        var best = 0.0
-        for z in zones {
-            let s = avalancheRatingScore(z.rating)
-            guard s > best else { continue }
-            if z.rings.contains(where: { pointInPolygon(point, $0) }) { best = s }
-        }
-        return best
-    }
-
-    // MARK: tropical — NHC active-storm intensity + reach
-
-    /// Max sustained wind (knots) → 0…1, banded to driving danger: a Cat-1
-    /// hurricane (do-not-drive) is already yellow, Cat-3+ (major) is red.
-    static func tropicalIntensityScore(maxWindKt: Double) -> Double {
-        switch maxWindKt {
-        case ..<34: return 0.30    // tropical depression — green
-        case ..<64: return 0.52    // tropical storm — green
-        case ..<83: return 0.72    // category 1 — yellow
-        case ..<96: return 0.82    // category 2 — yellow
-        case ..<113: return 0.90   // category 3 — red (major)
-        case ..<137: return 0.96   // category 4 — red
-        default: return 1.0        // category 5 — red
+        guard !zones.isEmpty else { return 0 }
+        let counts = zones.map { Int64($0.rings.count) }, ratings = zones.map { Int64($0.rating) }
+        let flat = flatten(zones.flatMap { $0.rings })
+        return counts.withUnsafeBufferPointer { zc in
+            ratings.withUnsafeBufferPointer { rt in
+                flat.lens.withUnsafeBufferPointer { lens in
+                    two(flat.lats, flat.lons) { flows_hazard_avalanche_score(zc, rt, lens, $0, $1, point.latitude, point.longitude) }
+                }
+            }
         }
     }
 
-    /// Nearest active storm, with a hazard radius that grows with intensity
-    /// (~150 km tropical storm → ~400 km major hurricane).
+    /// Max sustained wind (knots) → 0…1, banded to driving danger.
+    static func tropicalIntensityScore(maxWindKt: Double) -> Double { flows_hazard_tropical_intensity_score(maxWindKt) }
+
+    /// Nearest active storm, with a hazard radius that grows with intensity.
     static func tropicalScore(
         storms: [(lat: Double, lon: Double, maxWindKt: Double)],
-        at point: CLLocationCoordinate2D
+        at point: Point
     ) -> Double {
-        var best = 0.0
-        for s in storms {
-            let d = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: s.lat, longitude: s.lon), point)
-            let reach = 150_000 + 250_000 * min(max((s.maxWindKt - 34) / 103, 0), 1)
-            guard d < reach else { continue }
-            best = max(best, tropicalIntensityScore(maxWindKt: s.maxWindKt)
-                       * (1 - 0.6 * d / reach))
+        guard !storms.isEmpty else { return 0 }
+        return three(storms.map { $0.lat }, storms.map { $0.lon }, storms.map { $0.maxWindKt }) {
+            flows_hazard_tropical_score($0, $1, $2, point.latitude, point.longitude)
         }
-        return best
     }
 
-    // MARK: tsunami — NWS Tsunami Warning Center CAP levels
+    /// Tsunami product level word → 0…1 (watch yellow, advisory high yellow, warning red).
+    static func tsunamiLevelScore(_ level: String) -> Double { flows_hazard_tsunami_level_score(level) }
 
-    /// Product level word → 0…1 (Information/Statement/Cancellation = 0),
-    /// banded to action: Watch (prepare) = yellow, Advisory (dangerous
-    /// currents, stay off coast) = high yellow, Warning (evacuate) = red.
-    static func tsunamiLevelScore(_ level: String) -> Double {
-        let l = level.lowercased()
-        if l.contains("warning") { return 1.0 }
-        if l.contains("advisory") { return 0.82 }
-        if l.contains("watch") { return 0.72 }
-        return 0
-    }
-
-    /// Active tsunami warning/watch near the event epicenter (broad coastal
-    /// threat radius) → level × proximity.
+    /// Active tsunami warning/watch near the event epicenter → level × proximity.
     static func tsunamiScore(
         events: [(lat: Double, lon: Double, level: String)],
-        at point: CLLocationCoordinate2D
+        at point: Point
     ) -> Double {
-        var best = 0.0
-        for e in events {
-            let base = tsunamiLevelScore(e.level)
-            guard base > 0 else { continue }
-            let d = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: e.lat, longitude: e.lon), point)
-            guard d < 500_000 else { continue }
-            best = max(best, base * (1 - 0.5 * d / 500_000))
-        }
-        return best
-    }
-
-    // MARK: convective — SPC categorical severe-weather outlook
-
-    /// SPC categorical outlook `dn` code → 0…1, banded to driving danger:
-    /// SLGT = yellow, MDT/HIGH (tornado-outbreak potential) = red.
-    static func spcCategoricalScore(dn: Int) -> Double {
-        switch dn {
-        case 2: return 0.35   // TSTM  general thunderstorms
-        case 3: return 0.45   // MRGL  marginal
-        case 4: return 0.60   // SLGT  slight
-        case 5: return 0.72   // ENH   enhanced
-        case 6: return 0.88   // MDT   moderate (red)
-        case 8: return 1.0    // HIGH  high (red)
-        default: return 0
+        guard !events.isEmpty else { return 0 }
+        return two(events.map { $0.lat }, events.map { $0.lon }) {
+            flows_hazard_tsunami_score($0, $1, joined(events.map { $0.level }), point.latitude, point.longitude)
         }
     }
+
+    /// SPC categorical outlook `dn` code → 0…1 (SLGT yellow, MDT/HIGH red).
+    static func spcCategoricalScore(dn: Int) -> Double { flows_hazard_spc_categorical_score(Int64(dn)) }
 
     /// Highest score among outlook polygons the point falls inside.
     static func outlookScore(
-        zones: [(rings: [[CLLocationCoordinate2D]], score: Double)],
-        at point: CLLocationCoordinate2D
+        zones: [(rings: [[Point]], score: Double)],
+        at point: Point
     ) -> Double {
-        var best = 0.0
-        for z in zones where z.score > best {
-            if z.rings.contains(where: { pointInPolygon(point, $0) }) { best = z.score }
+        guard !zones.isEmpty else { return 0 }
+        let counts = zones.map { Int64($0.rings.count) }, scores = zones.map { $0.score }
+        let flat = flatten(zones.flatMap { $0.rings })
+        return counts.withUnsafeBufferPointer { zc in
+            scores.withUnsafeBufferPointer { sc in
+                flat.lens.withUnsafeBufferPointer { lens in
+                    two(flat.lats, flat.lons) { flows_hazard_outlook_score(zc, sc, lens, $0, $1, point.latitude, point.longitude) }
+                }
+            }
         }
-        return best
     }
 
-    /// DOT-reported road closure near a point → 0…1. A closure is PROOF of a
-    /// blocked road — the realized primary the user's rule demands ("you need
-    /// proof of blocked roads"). 1.0 within 300 m of a reported full closure,
-    /// ramping to 0 at 2 km (a closure one block over still matters; one two
-    /// towns over doesn't).
-    static func closureScore(
-        closures: [(lat: Double, lon: Double)], at point: CLLocationCoordinate2D
-    ) -> Double {
-        var best = 0.0
-        for c in closures {
-            let d = POIRanking.meters(
-                CLLocationCoordinate2D(latitude: c.lat, longitude: c.lon), point)
-            if d <= 300 { return 1.0 }
-            if d < 2_000 { best = max(best, 1 - (d - 300) / 1_700) }
+    /// DOT-reported road closure near a point → 0…1: 1.0 within 300 m of a
+    /// full closure, ramping to 0 at 2 km.
+    static func closureScore(closures: [(lat: Double, lon: Double)], at point: Point) -> Double {
+        guard !closures.isEmpty else { return 0 }
+        return two(closures.map { $0.lat }, closures.map { $0.lon }) {
+            flows_hazard_closure_score($0, $1, point.latitude, point.longitude)
         }
-        return best
+    }
+
+    // MARK: crossing helpers
+
+    /// Rings as the bridge reads them: lengths in front, then one flat pair
+    /// of lists. A ring list with no points at all carries one placeholder
+    /// point the lengths never reach, because an empty buffer must not cross.
+    static func flatten(_ rings: [[Point]]) -> (lens: [Int64], lats: [Double], lons: [Double]) {
+        var lats: [Double] = [], lons: [Double] = []
+        for ring in rings {
+            for c in ring { lats.append(c.latitude); lons.append(c.longitude) }
+        }
+        if lats.isEmpty { lats = [0]; lons = [0] }
+        return (rings.isEmpty ? [0] : rings.map { Int64($0.count) }, lats, lons)
+    }
+
+    /// Text lists cross joined by U+001F.
+    static func joined(_ texts: [String]) -> String { texts.joined(separator: "\u{1F}") }
+
+    static func two<R>(_ a: [Double], _ b: [Double],
+                       _ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>) -> R) -> R {
+        a.withUnsafeBufferPointer { x in b.withUnsafeBufferPointer { y in body(x, y) } }
+    }
+
+    static func three<R>(_ a: [Double], _ b: [Double], _ c: [Double],
+                         _ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>) -> R) -> R {
+        a.withUnsafeBufferPointer { x in b.withUnsafeBufferPointer { y in c.withUnsafeBufferPointer { z in body(x, y, z) } } }
     }
 }
 

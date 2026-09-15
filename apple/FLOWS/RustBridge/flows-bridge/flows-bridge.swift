@@ -567,6 +567,325 @@ public func flows_forecast_predictor_families(_ temperature_f: Double, _ has_tem
 
 
 
+public func flows_hazard_air_score(_ us_aqi: Double) -> Double {
+    __swift_bridge__$flows_hazard_air_score(us_aqi)
+}
+public func flows_hazard_uv_score(_ index: Double) -> Double {
+    __swift_bridge__$flows_hazard_uv_score(index)
+}
+public func flows_hazard_space_weather_score(_ scale: Int64) -> Double {
+    __swift_bridge__$flows_hazard_space_weather_score(scale)
+}
+public func flows_hazard_radiation_space_weather_score(_ s_scale: Int64, _ g_scale: Int64, _ latitude: Double) -> Double {
+    __swift_bridge__$flows_hazard_radiation_space_weather_score(s_scale, g_scale, latitude)
+}
+public func flows_hazard_volcano_alert_score<GenericToRustStr: ToRustStr>(_ level: GenericToRustStr) -> Double {
+    return level.toRustStr({ levelAsRustStr in
+        __swift_bridge__$flows_hazard_volcano_alert_score(levelAsRustStr)
+    })
+}
+public func flows_hazard_avalanche_rating_score(_ rating: Int64) -> Double {
+    __swift_bridge__$flows_hazard_avalanche_rating_score(rating)
+}
+public func flows_hazard_tropical_intensity_score(_ max_wind_kt: Double) -> Double {
+    __swift_bridge__$flows_hazard_tropical_intensity_score(max_wind_kt)
+}
+public func flows_hazard_tsunami_level_score<GenericToRustStr: ToRustStr>(_ level: GenericToRustStr) -> Double {
+    return level.toRustStr({ levelAsRustStr in
+        __swift_bridge__$flows_hazard_tsunami_level_score(levelAsRustStr)
+    })
+}
+public func flows_hazard_spc_categorical_score(_ dn: Int64) -> Double {
+    __swift_bridge__$flows_hazard_spc_categorical_score(dn)
+}
+public func flows_hazard_flood_category_score<GenericToRustStr: ToRustStr>(_ category: GenericToRustStr) -> Double {
+    return category.toRustStr({ categoryAsRustStr in
+        __swift_bridge__$flows_hazard_flood_category_score(categoryAsRustStr)
+    })
+}
+public func flows_hazard_severity_score<GenericToRustStr: ToRustStr>(_ severity: GenericToRustStr) -> Double {
+    return severity.toRustStr({ severityAsRustStr in
+        __swift_bridge__$flows_hazard_severity_score(severityAsRustStr)
+    })
+}
+public func flows_hazard_backup_severity<GenericToRustStr: ToRustStr>(_ phenomena: GenericToRustStr) -> Double {
+    return phenomena.toRustStr({ phenomenaAsRustStr in
+        __swift_bridge__$flows_hazard_backup_severity(phenomenaAsRustStr)
+    })
+}
+public func flows_hazard_fire_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ frps: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_fire_score(lats.toFfiSlice(), lons.toFfiSlice(), frps.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_seismic_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ magnitudes: UnsafeBufferPointer<Double>, _ age_hours: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_seismic_score(lats.toFfiSlice(), lons.toFfiSlice(), magnitudes.toFfiSlice(), age_hours.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_water_proximity_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_water_proximity_score(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_closure_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_closure_score(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_tropical_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ max_wind_kts: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_tropical_score(lats.toFfiSlice(), lons.toFfiSlice(), max_wind_kts.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_flood_gauge_score<GenericToRustStr: ToRustStr>(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ categories_joined: GenericToRustStr, _ lat: Double, _ lon: Double) -> Double {
+    return categories_joined.toRustStr({ categories_joinedAsRustStr in
+        __swift_bridge__$flows_hazard_flood_gauge_score(lats.toFfiSlice(), lons.toFfiSlice(), categories_joinedAsRustStr, lat, lon)
+    })
+}
+public func flows_hazard_volcanic_score<GenericToRustStr: ToRustStr>(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ levels_joined: GenericToRustStr, _ lat: Double, _ lon: Double) -> Double {
+    return levels_joined.toRustStr({ levels_joinedAsRustStr in
+        __swift_bridge__$flows_hazard_volcanic_score(lats.toFfiSlice(), lons.toFfiSlice(), levels_joinedAsRustStr, lat, lon)
+    })
+}
+public func flows_hazard_tsunami_score<GenericToRustStr: ToRustStr>(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ levels_joined: GenericToRustStr, _ lat: Double, _ lon: Double) -> Double {
+    return levels_joined.toRustStr({ levels_joinedAsRustStr in
+        __swift_bridge__$flows_hazard_tsunami_score(lats.toFfiSlice(), lons.toFfiSlice(), levels_joinedAsRustStr, lat, lon)
+    })
+}
+public func flows_hazard_point_in_polygon(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_hazard_point_in_polygon(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_ring_contains(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Bool {
+    __swift_bridge__$flows_hazard_ring_contains(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_fire_perimeter_score(_ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_fire_perimeter_score(ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_avalanche_score(_ zone_ring_counts: UnsafeBufferPointer<Int64>, _ ratings: UnsafeBufferPointer<Int64>, _ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_avalanche_score(zone_ring_counts.toFfiSlice(), ratings.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_outlook_score(_ zone_ring_counts: UnsafeBufferPointer<Int64>, _ scores: UnsafeBufferPointer<Double>, _ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_outlook_score(zone_ring_counts.toFfiSlice(), scores.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_hazard_cell_key(_ lat: Double, _ lon: Double) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_hazard_cell_key(lat, lon))
+}
+public func flows_hazard_states_containing(_ lat: Double, _ lon: Double) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_hazard_states_containing(lat, lon))
+}
+public func flows_hazard_marine_regions_containing(_ lat: Double, _ lon: Double) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_hazard_marine_regions_containing(lat, lon))
+}
+public func flows_hazard_provisional_samples<GenericToRustStr: ToRustStr>(_ sample_lats: UnsafeBufferPointer<Double>, _ sample_lons: UnsafeBufferPointer<Double>, _ alert_severities: UnsafeBufferPointer<Double>, _ alert_expires: UnsafeBufferPointer<Double>, _ alert_has_expires: UnsafeBufferPointer<Int64>, _ cell_keys_joined: GenericToRustStr, _ cell_alert_counts: UnsafeBufferPointer<Int64>, _ cell_alert_indices: UnsafeBufferPointer<Int64>, _ arrival_offsets: UnsafeBufferPointer<Double>, _ has_offsets: Bool, _ now: Double) -> RustVec<Double> {
+    return cell_keys_joined.toRustStr({ cell_keys_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_hazard_provisional_samples(sample_lats.toFfiSlice(), sample_lons.toFfiSlice(), alert_severities.toFfiSlice(), alert_expires.toFfiSlice(), alert_has_expires.toFfiSlice(), cell_keys_joinedAsRustStr, cell_alert_counts.toFfiSlice(), cell_alert_indices.toFfiSlice(), arrival_offsets.toFfiSlice(), has_offsets, now))
+    })
+}
+public func flows_hazard_alerts_covering<GenericToRustStr: ToRustStr>(_ lat: Double, _ lon: Double, _ alert_ring_counts: UnsafeBufferPointer<Int64>, _ alert_zone_counts: UnsafeBufferPointer<Int64>, _ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ alert_zones_joined: GenericToRustStr, _ zone_names_joined: GenericToRustStr, _ zone_ring_counts: UnsafeBufferPointer<Int64>, _ zone_ring_lens: UnsafeBufferPointer<Int64>, _ zone_lats: UnsafeBufferPointer<Double>, _ zone_lons: UnsafeBufferPointer<Double>) -> RustVec<Int64> {
+    return zone_names_joined.toRustStr({ zone_names_joinedAsRustStr in
+        return alert_zones_joined.toRustStr({ alert_zones_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_hazard_alerts_covering(lat, lon, alert_ring_counts.toFfiSlice(), alert_zone_counts.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), alert_zones_joinedAsRustStr, zone_names_joinedAsRustStr, zone_ring_counts.toFfiSlice(), zone_ring_lens.toFfiSlice(), zone_lats.toFfiSlice(), zone_lons.toFfiSlice()))
+    })
+    })
+}
+public func flows_hazard_all_rings(_ ring_coord_counts: UnsafeBufferPointer<Int64>, _ coord_lens: UnsafeBufferPointer<Int64>, _ values: UnsafeBufferPointer<Double>, _ max_points: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_hazard_all_rings(ring_coord_counts.toFfiSlice(), coord_lens.toFfiSlice(), values.toFfiSlice(), max_points))
+}
+public func flows_hazard_corridor_noisy_or(_ severities: UnsafeBufferPointer<Double>, _ coverages: UnsafeBufferPointer<Double>) -> Double {
+    __swift_bridge__$flows_hazard_corridor_noisy_or(severities.toFfiSlice(), coverages.toFfiSlice())
+}
+public func flows_hazard_corridor_coverage(_ risks: UnsafeBufferPointer<Double>) -> Double {
+    __swift_bridge__$flows_hazard_corridor_coverage(risks.toFfiSlice())
+}
+public func flows_hazard_worst_first(_ severities: UnsafeBufferPointer<Double>) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_hazard_worst_first(severities.toFfiSlice()))
+}
+public func flows_hazard_fuel_prices<GenericToRustStr: ToRustStr>(_ xml: GenericToRustStr) -> RustVec<RustString> {
+    return xml.toRustStr({ xmlAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_hazard_fuel_prices(xmlAsRustStr))
+    })
+}
+public func flows_hazard_fuel_places<GenericToRustStr: ToRustStr>(_ xml: GenericToRustStr) -> RustVec<RustString> {
+    return xml.toRustStr({ xmlAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_hazard_fuel_places(xmlAsRustStr))
+    })
+}
+public func flows_hazard_clip_margin_degrees() -> Double {
+    __swift_bridge__$flows_hazard_clip_margin_degrees()
+}
+public func flows_hazard_snapshot_new() -> FlowsHazardSnapshot {
+    FlowsHazardSnapshot(ptr: __swift_bridge__$flows_hazard_snapshot_new())
+}
+
+public class FlowsHazardSnapshot: FlowsHazardSnapshotRefMut {
+    var isOwned: Bool = true
+
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+
+    deinit {
+        if isOwned {
+            __swift_bridge__$FlowsHazardSnapshot$_free(ptr)
+        }
+    }
+}
+public class FlowsHazardSnapshotRefMut: FlowsHazardSnapshotRef {
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+}
+extension FlowsHazardSnapshotRefMut {
+    public func add_hotspots(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ frps: UnsafeBufferPointer<Double>) {
+        __swift_bridge__$FlowsHazardSnapshot$add_hotspots(ptr, lats.toFfiSlice(), lons.toFfiSlice(), frps.toFfiSlice())
+    }
+
+    public func add_perimeters(_ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) {
+        __swift_bridge__$FlowsHazardSnapshot$add_perimeters(ptr, ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice())
+    }
+
+    public func add_quakes(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ magnitudes: UnsafeBufferPointer<Double>, _ age_hours: UnsafeBufferPointer<Double>) {
+        __swift_bridge__$FlowsHazardSnapshot$add_quakes(ptr, lats.toFfiSlice(), lons.toFfiSlice(), magnitudes.toFfiSlice(), age_hours.toFfiSlice())
+    }
+
+    public func set_space(_ r: Int64, _ s: Int64, _ g: Int64) {
+        __swift_bridge__$FlowsHazardSnapshot$set_space(ptr, r, s, g)
+    }
+
+    public func add_volcanoes<GenericToRustStr: ToRustStr>(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ levels_joined: GenericToRustStr) {
+        levels_joined.toRustStr({ levels_joinedAsRustStr in
+            __swift_bridge__$FlowsHazardSnapshot$add_volcanoes(ptr, lats.toFfiSlice(), lons.toFfiSlice(), levels_joinedAsRustStr)
+        })
+    }
+
+    public func add_avalanche_zones(_ zone_ring_counts: UnsafeBufferPointer<Int64>, _ ratings: UnsafeBufferPointer<Int64>, _ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) {
+        __swift_bridge__$FlowsHazardSnapshot$add_avalanche_zones(ptr, zone_ring_counts.toFfiSlice(), ratings.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice())
+    }
+
+    public func add_storms(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ max_wind_kts: UnsafeBufferPointer<Double>) {
+        __swift_bridge__$FlowsHazardSnapshot$add_storms(ptr, lats.toFfiSlice(), lons.toFfiSlice(), max_wind_kts.toFfiSlice())
+    }
+
+    public func add_tsunamis<GenericToRustStr: ToRustStr>(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ levels_joined: GenericToRustStr) {
+        levels_joined.toRustStr({ levels_joinedAsRustStr in
+            __swift_bridge__$FlowsHazardSnapshot$add_tsunamis(ptr, lats.toFfiSlice(), lons.toFfiSlice(), levels_joinedAsRustStr)
+        })
+    }
+
+    public func add_spc_zones(_ zone_ring_counts: UnsafeBufferPointer<Int64>, _ scores: UnsafeBufferPointer<Double>, _ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) {
+        __swift_bridge__$FlowsHazardSnapshot$add_spc_zones(ptr, zone_ring_counts.toFfiSlice(), scores.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice())
+    }
+}
+public class FlowsHazardSnapshotRef {
+    var ptr: UnsafeMutableRawPointer
+
+    public init(ptr: UnsafeMutableRawPointer) {
+        self.ptr = ptr
+    }
+}
+extension FlowsHazardSnapshotRef {
+    public func clipped(_ min_lat: Double, _ min_lon: Double, _ max_lat: Double, _ max_lon: Double) -> FlowsHazardSnapshot {
+        FlowsHazardSnapshot(ptr: __swift_bridge__$FlowsHazardSnapshot$clipped(ptr, min_lat, min_lon, max_lat, max_lon))
+    }
+
+    public func live(_ lat: Double, _ lon: Double) -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$live(ptr, lat, lon))
+    }
+
+    public func hotspots_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$hotspots_flat(ptr))
+    }
+
+    public func perimeters_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$perimeters_flat(ptr))
+    }
+
+    public func quakes_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$quakes_flat(ptr))
+    }
+
+    public func space() -> RustVec<Int64> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$space(ptr))
+    }
+
+    public func volcanoes_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$volcanoes_flat(ptr))
+    }
+
+    public func volcano_levels() -> RustVec<RustString> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$volcano_levels(ptr))
+    }
+
+    public func avalanche_zones_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$avalanche_zones_flat(ptr))
+    }
+
+    public func avalanche_ratings() -> RustVec<Int64> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$avalanche_ratings(ptr))
+    }
+
+    public func storms_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$storms_flat(ptr))
+    }
+
+    public func tsunamis_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$tsunamis_flat(ptr))
+    }
+
+    public func tsunami_levels() -> RustVec<RustString> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$tsunami_levels(ptr))
+    }
+
+    public func spc_zones_flat() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$spc_zones_flat(ptr))
+    }
+
+    public func spc_scores() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsHazardSnapshot$spc_scores(ptr))
+    }
+}
+extension FlowsHazardSnapshot: Vectorizable {
+    public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
+        __swift_bridge__$Vec_FlowsHazardSnapshot$new()
+    }
+
+    public static func vecOfSelfFree(vecPtr: UnsafeMutableRawPointer) {
+        __swift_bridge__$Vec_FlowsHazardSnapshot$drop(vecPtr)
+    }
+
+    public static func vecOfSelfPush(vecPtr: UnsafeMutableRawPointer, value: FlowsHazardSnapshot) {
+        __swift_bridge__$Vec_FlowsHazardSnapshot$push(vecPtr, {value.isOwned = false; return value.ptr;}())
+    }
+
+    public static func vecOfSelfPop(vecPtr: UnsafeMutableRawPointer) -> Optional<Self> {
+        let pointer = __swift_bridge__$Vec_FlowsHazardSnapshot$pop(vecPtr)
+        if pointer == nil {
+            return nil
+        } else {
+            return (FlowsHazardSnapshot(ptr: pointer!) as! Self)
+        }
+    }
+
+    public static func vecOfSelfGet(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsHazardSnapshotRef> {
+        let pointer = __swift_bridge__$Vec_FlowsHazardSnapshot$get(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsHazardSnapshotRef(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsHazardSnapshotRefMut> {
+        let pointer = __swift_bridge__$Vec_FlowsHazardSnapshot$get_mut(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsHazardSnapshotRefMut(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<FlowsHazardSnapshotRef> {
+        UnsafePointer<FlowsHazardSnapshotRef>(OpaquePointer(__swift_bridge__$Vec_FlowsHazardSnapshot$as_ptr(vecPtr)))
+    }
+
+    public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
+        __swift_bridge__$Vec_FlowsHazardSnapshot$len(vecPtr)
+    }
+}
+
+
+
 public func flows_learning_everyday_default_miles() -> Double {
     __swift_bridge__$flows_learning_everyday_default_miles()
 }

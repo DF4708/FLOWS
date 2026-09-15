@@ -1541,6 +1541,25 @@ without a regression:
 - **One opaque Rust type** was enough: the 5.5 MB harmonic table is parsed
   once in Rust and Swift holds a handle; nothing that big should be copied
   across on every launch.
+- **`Double(Substring)` is not `Double(String)`.** The `String` overload hands
+  a C string to `strtod` and stops at an embedded NUL; the generic
+  `StringProtocol` path copies the bytes and demands all of them consumed,
+  so the same text with a NUL parses in one and fails in the other. The CRE
+  price scan reads a `Substring`; the oracle caught 11 records before the
+  port learned the difference (`swift_text::swift_double_substring`).
+- **Sort a harness's output by bytes, never with Swift's `<`.** Swift orders
+  strings canonically — a Kelvin sign sorts as K — so a `keys.sorted()` in
+  the harness produced an order no byte-ordered map reproduces. The test
+  had to re-sort both sides; the next harness sorts `Array(s.utf8)`.
+- **An original that already calls the bridge is still an oracle: link the
+  bridge.** By wave 2 most originals compose facades (`RiskEquations`,
+  `RiskTiming`), so `swiftc` of the pre-facade Swift needs
+  `-import-objc-header RustBridge/BridgingHeader.h`, the two generated
+  Swift files, and `-L rust/target/xcode/macosx -lflows_bridge`, plus stubs
+  for the network, cache and diagnostics types the oracle never touches.
+  The composition is then pinned over the very Rust primitives it called.
+  Pick the ORIGINAL at the last commit before the facade switch, not at the
+  wave-1 base: files fixed after that base carry deliberate behaviour changes.
 - **Give Rust the runtime's rules, do not approximate them.** The text group
   looked unportable — grapheme clusters, case mapping, canonical
   equivalence, `strtod` — until the harness simply read the Swift runtime's
