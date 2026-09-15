@@ -22,6 +22,12 @@ import Foundation
 ///   $$$$$  > $120  — top 1–3% territory
 /// Live per-business data plugs in via the Yelp Fusion key (free tier,
 /// Settings → Data sources): Yelp's $–$$$$ maps into tiers 1–4/5.
+///
+/// The country boxes, the tier edges and the shower ladder are computed in
+/// rust/flows-core (places_text.rs) and called through rust/flows-bridge;
+/// countries and shower answers cross as codes in declaration order. Pinned
+/// to the original Swift by
+/// rust/flows-bridge/tests/fixtures/swift_places_text_oracle.tsv.
 enum RatingsAndCost {
     /// COUNTRY-SPECIFIC cost profiles, switched automatically by GPS.
     /// Each anchors tier 1 to that country's minimum-wage dining-out budget
@@ -53,51 +59,36 @@ enum RatingsAndCost {
             }
         }
 
-        var checkBreakpoints: [Double] {
+        var checkBreakpoints: [Double] { Array(flows_places_text_check_breakpoints(rustCode)) }
+
+        /// The bridge's code: the `allCases` position.
+        var rustCode: UInt8 {
             switch self {
-            case .us: return [12, 30, 60, 120]
-            case .canada: return [16, 40, 80, 160]
-            case .mexico: return [90, 250, 600, 1500]
+            case .us: return 0
+            case .canada: return 1
+            case .mexico: return 2
+            }
+        }
+        init(rustCode: UInt8) {
+            switch rustCode {
+            case 1: self = .canada
+            case 2: self = .mexico
+            default: self = .us
             }
         }
 
         /// GPS → country (rough NA boxes; the app refines with reverse
-        /// geocoding when available, this pure fallback is tested).
+        /// geocoding when available, this pure fallback is tested). The US–MX
+        /// border is three line segments and the Rio Grande diagonal, not a
+        /// flat parallel, so Houston, San Antonio, Tucson and San Diego stay US.
         static func forCoordinate(latitude: Double, longitude: Double) -> Country {
-            // The US–MX border is NOT a flat parallel: CA ~32.5, AZ/NM ~31.3–31.8,
-            // then the Rio Grande runs DIAGONALLY from El Paso (31.8, −106.4)
-            // to Brownsville (25.9, −97.1). The old flat 32.72 cut classified
-            // Houston, San Antonio, Tucson, and San Diego as Mexico (MX$ tiers
-            // + CRE fuel feed for US stations).
-            func isMexico() -> Bool {
-                guard longitude > -118, longitude < -86 else { return false }
-                if latitude < 25.9 { return true }                       // south of Brownsville
-                if longitude < -114.7 { return latitude < 32.5 }         // Baja/CA line
-                if longitude < -106.4 { return latitude < 31.3 }         // AZ/NM line
-                if longitude < -97.1 {                                    // Rio Grande diagonal
-                    let borderLat = 31.75 - 0.63 * (longitude + 106.4)
-                    return latitude < borderLat
-                }
-                return false                                              // Gulf side
-            }
-            if isMexico() { return .mexico }
-            if latitude > 49 { return .canada }
-            // Eastern Canada dips below 49 (Quebec/Maritimes)…
-            if latitude > 44.8 && longitude > -83.6 && longitude < -52 { return .canada }
-            // …and the southern-Ontario peninsula (Toronto/Hamilton) dips
-            // to ~43.2 between Lakes Huron and Ontario — the strip north of
-            // Rochester/Buffalo latitudes within those longitudes is Canada.
-            if latitude > 43.4 && longitude > -81.8 && longitude < -76.3 { return .canada }
-            return .us
+            Country(rustCode: flows_places_text_country_for_coordinate(latitude, longitude))
         }
     }
 
     /// Average per-person check (local currency) → 1…5 tier for a country.
     static func costTier(averageCheck: Double, country: Country = .us) -> Int {
-        for (i, edge) in country.checkBreakpoints.enumerated() where averageCheck <= edge {
-            return i + 1
-        }
-        return 5
+        Int(flows_places_text_cost_tier_for_check(averageCheck, country.rustCode))
     }
 
     /// Back-compat US entry point (tests + Yelp path).
@@ -110,26 +101,14 @@ enum RatingsAndCost {
     /// estimate (the UI labels it "est."); a live rate always replaces it.
     /// Unknown tier reads as the mid-market median.
     static func estimatedNightly(costTier: Int?) -> Double {
-        switch costTier {
-        case 1: return 75
-        case 2: return 120
-        case 3: return 190
-        case 4: return 320
-        case 5: return 500
-        default: return 120
-        }
+        flows_places_text_estimated_nightly(Int64(costTier ?? 0), costTier != nil)
     }
 
     /// Yelp "price" string ("$"…"$$$$") → tier; Yelp's top band spans our
     /// 4 and 5, splitting on rating-weighted prestige (4.5★+ $$$$ reads
     /// as luxury).
     static func costTier(yelpPrice: String, rating: Double?) -> Int {
-        let count = yelpPrice.filter { $0 == "$" }.count
-        switch count {
-        case ..<1: return 1
-        case 1, 2, 3: return count
-        default: return (rating ?? 0) >= 4.5 ? 5 : 4
-        }
+        Int(flows_places_text_yelp_cost_tier(yelpPrice, rating ?? 0, rating != nil))
     }
 
     /// Star color ramp: plain yellow at 1★ → rich gold at 5★ (the shimmer
@@ -317,6 +296,17 @@ enum ShowerAvailability: String {
     case disproven = "No showers (reported)"
     case unknown = ""
 
+    /// The bridge's code, in declaration order; anything else is unknown.
+    init(rustCode: UInt8) {
+        switch rustCode {
+        case 0: self = .standard
+        case 1: self = .likely
+        case 2: self = .none
+        case 3: self = .disproven
+        default: self = .unknown
+        }
+    }
+
     /// Per-LOCATION table: 1,505 major-brand truck stops (OSM pull, bundled
     /// as truckstop_showers.json) + the driver's own "no showers here"
     /// reports (persisted). Explicit data beats the brand default — exactly
@@ -330,25 +320,15 @@ enum ShowerAvailability: String {
         }
         let entries: [Entry]
 
-        // Grid index at the same 0.01° resolution as the lookup box, so
-        // `entry(nearLat:lon:)` is O(1) instead of O(entries) — the ~1,505-row
-        // table was scanned in full on every shower lookup during POI ranking.
-        private struct Cell: Hashable { let x: Int; let y: Int }
-        private static let cellDeg = 0.01
-        private let grid: [Cell: [Int]]
-
-        private static func cell(_ lat: Double, _ lon: Double) -> Cell {
-            Cell(x: Int((lon / cellDeg).rounded(.down)),
-                 y: Int((lat / cellDeg).rounded(.down)))
-        }
+        // The entries' coordinates as parallel lists, so the nearest-entry
+        // lookup crosses to Rust without copying the rows.
+        private let lats: [Double]
+        private let lons: [Double]
 
         init(entries: [Entry]) {
             self.entries = entries
-            var g: [Cell: [Int]] = [:]
-            for (i, e) in entries.enumerated() {
-                g[Self.cell(e.lat, e.lon), default: []].append(i)
-            }
-            self.grid = g
+            self.lats = entries.map(\.lat)
+            self.lons = entries.map(\.lon)
         }
 
         static func loadBundled() -> LocationTable {
@@ -360,28 +340,18 @@ enum ShowerAvailability: String {
             return LocationTable(entries: parsed)
         }
 
-        /// Nearest table entry within the ±0.01° box of a stop. Any entry inside
-        /// that box is at most one cell away, so a 3×3 neighborhood scan is exact
-        /// — same box filter, same nearest, same lowest-index tie-break as before.
+        /// Nearest table entry within the ±0.01° box of a stop, ties to the
+        /// lowest index, found in Rust through the same 0.01° grid the original
+        /// kept (an empty table never crosses). nil for a stop that cannot be
+        /// placed.
         func entry(nearLat lat: Double, lon: Double) -> Entry? {
-            let c0 = Self.cell(lat, lon)
-            var bestIdx = -1
-            var bestD = Double.greatestFiniteMagnitude
-            for dy in -1...1 {
-                for dx in -1...1 {
-                    guard let idxs = grid[Cell(x: c0.x + dx, y: c0.y + dy)] else { continue }
-                    for i in idxs {
-                        let e = entries[i]
-                        guard abs(e.lat - lat) < 0.01, abs(e.lon - lon) < 0.01 else { continue }
-                        let d = (e.lat - lat) * (e.lat - lat) + (e.lon - lon) * (e.lon - lon)
-                        if d < bestD || (d == bestD && (bestIdx < 0 || i < bestIdx)) {
-                            bestD = d
-                            bestIdx = i
-                        }
-                    }
+            guard !entries.isEmpty else { return nil }
+            let index = lats.withUnsafeBufferPointer { la in
+                lons.withUnsafeBufferPointer { lo in
+                    flows_places_text_shower_table_entry(la, lo, lat, lon)
                 }
             }
-            return bestIdx >= 0 ? entries[bestIdx] : nil
+            return index >= 0 && Int(index) < entries.count ? entries[Int(index)] : nil
         }
     }
 
@@ -407,18 +377,27 @@ enum ShowerAvailability: String {
                 guard let state = row["state"] as? String,
                       let city = row["city"] as? String,
                       let showers = row["showers"] as? Int else { continue }
-                m["\(state.lowercased())|\(city.lowercased())"] = showers
+                m["\(lowercased(state))|\(lowercased(city))"] = showers
             }
             return CityTable(map: m)
         }
 
         init(map: [String: Int]) { self.map = map }
 
+        /// Swift's `lowercased()`, computed in Rust so the keys the loader
+        /// writes and the keys the lookup builds agree letter for letter.
+        private static func lowercased(_ s: String) -> String {
+            flows_places_text_lowercased(s).text
+        }
+
         /// nil = city not in the scrape; 0 = verified no showers; n = count.
+        /// The two keys tried (spaces as hyphens, then as spelled) are built
+        /// in Rust; the dictionary itself is this store's.
         func showers(state: String?, city: String?) -> Int? {
             guard let state, let city else { return nil }
-            return map["\(state.lowercased())|\(city.lowercased().replacingOccurrences(of: " ", with: "-"))"]
-                ?? map["\(state.lowercased())|\(city.lowercased())"]
+            let keys = flows_places_text_city_keys(state, city)
+            guard keys.len() == 2 else { return nil }
+            return map[keys[0].text] ?? map[keys[1].text]
         }
     }
 
@@ -441,37 +420,26 @@ enum ShowerAvailability: String {
     }
 
     /// Full resolution ladder: driver report → explicit table tag → brand.
+    /// The store's reads (the report, the table entry) happen here; the
+    /// decision is Rust's.
     static func forStop(
         named name: String?, lat: Double? = nil, lon: Double? = nil,
         table: LocationTable? = nil
     ) -> ShowerAvailability {
+        var disproved = false
+        var tag: String?
         if let lat, let lon {
-            if isDisproved(lat: lat, lon: lon) { return .disproven }
-            if let entry = table?.entry(nearLat: lat, lon: lon),
-               let tag = entry.shower {
-                return tag == "no" ? .none : .standard
-            }
+            disproved = isDisproved(lat: lat, lon: lon)
+            tag = table?.entry(nearLat: lat, lon: lon)?.shower
         }
-        return forStop(named: name)
+        return ShowerAvailability(rustCode: flows_places_text_shower_ladder(
+            name ?? "", name != nil, lat != nil && lon != nil, disproved, tag ?? "", tag != nil))
     }
 
+    /// The brand default by name: chains where showers are the standard at
+    /// travel centers, chains where they are likely, and formats that
+    /// famously omit them.
     static func forStop(named name: String?) -> ShowerAvailability {
-        let lower = (name ?? "").lowercased()
-        // Chains where showers are the brand standard at travel centers.
-        for brand in ["love's", "loves travel", "pilot", "flying j",
-                      "ta travel", "travelcenters of america", "petro stopping",
-                      "sapp bros"] where lower.contains(brand) {
-            return .standard
-        }
-        for brand in ["kwik trip", "road ranger", "ambest", "roady"]
-        where lower.contains(brand) {
-            return .likely
-        }
-        for brand in ["buc-ee", "bucee", "casey's", "caseys", "speedway",
-                      "circle k", "7-eleven", "kum & go", "quiktrip", "wawa",
-                      "sheetz"] where lower.contains(brand) {
-            return .none
-        }
-        return .unknown
+        ShowerAvailability(rustCode: flows_places_text_shower_for_name(name ?? "", name != nil))
     }
 }

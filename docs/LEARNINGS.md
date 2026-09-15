@@ -1516,6 +1516,13 @@ without a regression:
   array's nil base to `slice::from_raw_parts`; every facade answers the
   empty case itself first — no trips is the default radius, no places is
   nothing to rank, no rows is no tune — and each is the Swift's own answer.
+- **An empty Rust string is nil in Swift.** swift-bridge's `RustStr.toString()`
+  is `String(bytes:encoding:)!`, and Foundation answers nil for a buffer with
+  no storage behind it — an empty `String::new()` — so the force-unwrap
+  traps. The places_text facades were the first to answer "" across the
+  bridge (no site, no state code) and the Swift suite crashed twice before
+  the rule was found. Every facade reads Rust text through
+  `RustStringRef.text`, which answers the empty case itself.
 - **Optionals are a value plus a `has_` flag**, never NaN, because a present
   NaN is meaningful to most of this code; an optional *answer* is a struct
   with `is_some`, for the same reason.
@@ -1534,6 +1541,14 @@ without a regression:
 - **One opaque Rust type** was enough: the 5.5 MB harmonic table is parsed
   once in Rust and Swift holds a handle; nothing that big should be copied
   across on every launch.
+- **Give Rust the runtime's rules, do not approximate them.** The text group
+  looked unportable — grapheme clusters, case mapping, canonical
+  equivalence, `strtod` — until the harness simply read the Swift runtime's
+  tables out scalar by scalar (a 17-probe vector per scalar names its
+  grapheme class) and the Rust embedded them. The port then matched all
+  23,594 records on the first run, because nothing was guessed. Probe the
+  semantics first (`Double("nan(012)")`, `"$\u{301}".contains("$")`) and
+  write the rules down before writing the code.
 - **A private function is still an oracle's subject.** `ClimateProfiles.cell`
   could not be called from the harness, so the harness drove the store that
   uses it — load a marker at one point, probe at another — and pinned the

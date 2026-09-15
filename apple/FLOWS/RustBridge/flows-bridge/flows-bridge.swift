@@ -988,6 +988,246 @@ extension __swift_bridge__$Option$FlowsLearningEta {
 }
 
 
+public func flows_places_text_cost_tier<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Int64 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_text_cost_tier(nameAsRustStr)
+    })
+}
+public func flows_places_text_website<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_places_text_website(nameAsRustStr))
+    })
+}
+public func flows_places_text_gym_has_showers<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Int32 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_text_gym_has_showers(nameAsRustStr)
+    })
+}
+public func flows_places_text_parking_fee<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Int32 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_text_parking_fee(nameAsRustStr)
+    })
+}
+public func flows_places_text_shelter_type<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ query: GenericToRustStr) -> UInt8 {
+    return query.toRustStr({ queryAsRustStr in
+        return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_text_shelter_type(nameAsRustStr, queryAsRustStr)
+    })
+    })
+}
+public func flows_places_text_is_shelter_noise<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Bool {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_text_is_shelter_noise(nameAsRustStr)
+    })
+}
+public func flows_places_text_asked_name_matches<GenericToRustStr: ToRustStr>(_ asked: GenericToRustStr, _ name: GenericToRustStr) -> Bool {
+    return name.toRustStr({ nameAsRustStr in
+        return asked.toRustStr({ askedAsRustStr in
+        __swift_bridge__$flows_places_text_asked_name_matches(askedAsRustStr, nameAsRustStr)
+    })
+    })
+}
+public func flows_places_text_country_for_coordinate(_ latitude: Double, _ longitude: Double) -> UInt8 {
+    __swift_bridge__$flows_places_text_country_for_coordinate(latitude, longitude)
+}
+public func flows_places_text_check_breakpoints(_ country: UInt8) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_places_text_check_breakpoints(country))
+}
+public func flows_places_text_cost_tier_for_check(_ average_check: Double, _ country: UInt8) -> Int64 {
+    __swift_bridge__$flows_places_text_cost_tier_for_check(average_check, country)
+}
+public func flows_places_text_estimated_nightly(_ cost_tier: Int64, _ has_tier: Bool) -> Double {
+    __swift_bridge__$flows_places_text_estimated_nightly(cost_tier, has_tier)
+}
+public func flows_places_text_yelp_cost_tier<GenericToRustStr: ToRustStr>(_ price: GenericToRustStr, _ rating: Double, _ has_rating: Bool) -> Int64 {
+    return price.toRustStr({ priceAsRustStr in
+        __swift_bridge__$flows_places_text_yelp_cost_tier(priceAsRustStr, rating, has_rating)
+    })
+}
+public func flows_places_text_shower_for_name<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool) -> UInt8 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_text_shower_for_name(nameAsRustStr, has_name)
+    })
+}
+public func flows_places_text_shower_ladder<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool, _ has_position: Bool, _ disproved: Bool, _ tag: GenericToRustStr, _ has_tag: Bool) -> UInt8 {
+    return tag.toRustStr({ tagAsRustStr in
+        return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_text_shower_ladder(nameAsRustStr, has_name, has_position, disproved, tagAsRustStr, has_tag)
+    })
+    })
+}
+public func flows_places_text_shower_table_entry(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ latitude: Double, _ longitude: Double) -> Int64 {
+    __swift_bridge__$flows_places_text_shower_table_entry(lats.toFfiSlice(), lons.toFfiSlice(), latitude, longitude)
+}
+public func flows_places_text_city_keys<GenericToRustStr: ToRustStr>(_ state: GenericToRustStr, _ city: GenericToRustStr) -> RustVec<RustString> {
+    return city.toRustStr({ cityAsRustStr in
+        return state.toRustStr({ stateAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_places_text_city_keys(stateAsRustStr, cityAsRustStr))
+    })
+    })
+}
+public func flows_places_text_lowercased<GenericToRustStr: ToRustStr>(_ text: GenericToRustStr) -> RustString {
+    return text.toRustStr({ textAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_places_text_lowercased(textAsRustStr))
+    })
+}
+public func flows_places_text_uppercased<GenericToRustStr: ToRustStr>(_ text: GenericToRustStr) -> RustString {
+    return text.toRustStr({ textAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_places_text_uppercased(textAsRustStr))
+    })
+}
+public func flows_places_text_national_gas() -> Double {
+    __swift_bridge__$flows_places_text_national_gas()
+}
+public func flows_places_text_national_diesel() -> Double {
+    __swift_bridge__$flows_places_text_national_diesel()
+}
+public func flows_places_text_national_kwh() -> Double {
+    __swift_bridge__$flows_places_text_national_kwh()
+}
+public func flows_places_text_mxn_per_usd() -> Double {
+    __swift_bridge__$flows_places_text_mxn_per_usd()
+}
+public func flows_places_text_liters_per_gallon() -> Double {
+    __swift_bridge__$flows_places_text_liters_per_gallon()
+}
+public func flows_places_text_usd_per_gallon(_ mxn_per_liter: Double) -> Double {
+    __swift_bridge__$flows_places_text_usd_per_gallon(mxn_per_liter)
+}
+public func flows_places_text_mexico_estimate(_ fuel: UInt8) -> Double {
+    __swift_bridge__$flows_places_text_mexico_estimate(fuel)
+}
+public func flows_places_text_fuel_state_code<GenericToRustStr: ToRustStr>(_ state: GenericToRustStr, _ has_state: Bool) -> RustString {
+    return state.toRustStr({ stateAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_places_text_fuel_state_code(stateAsRustStr, has_state))
+    })
+}
+public func flows_places_text_fuel_estimate<GenericToRustStr: ToRustStr>(_ fuel: UInt8, _ code: GenericToRustStr, _ has_code: Bool, _ live_gas: Double, _ live_diesel: Double, _ has_live: Bool) -> Double {
+    return code.toRustStr({ codeAsRustStr in
+        __swift_bridge__$flows_places_text_fuel_estimate(fuel, codeAsRustStr, has_code, live_gas, live_diesel, has_live)
+    })
+}
+public func flows_places_text_parse_current_avg<GenericToRustStr: ToRustStr>(_ html: GenericToRustStr) -> FlowsPlacesTextPrices {
+    return html.toRustStr({ htmlAsRustStr in
+        __swift_bridge__$flows_places_text_parse_current_avg(htmlAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_places_text_state_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_places_text_state_names())
+}
+public func flows_places_text_state_codes() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_places_text_state_codes())
+}
+public func flows_places_text_parse_turn_lanes<GenericToRustStr: ToRustStr>(_ turn_lanes: GenericToRustStr) -> RustVec<Int64> {
+    return turn_lanes.toRustStr({ turn_lanesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_places_text_parse_turn_lanes(turn_lanesAsRustStr))
+    })
+}
+public func flows_places_text_turn_side(_ turn: UInt8) -> UInt8 {
+    __swift_bridge__$flows_places_text_turn_side(turn)
+}
+public func flows_places_text_lane_allows(_ turns: UnsafeBufferPointer<Int64>, _ side: UInt8) -> Bool {
+    __swift_bridge__$flows_places_text_lane_allows(turns.toFfiSlice(), side)
+}
+public func flows_places_text_recommended_lanes(_ lanes_flat: UnsafeBufferPointer<Int64>, _ side: UInt8) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_text_recommended_lanes(lanes_flat.toFfiSlice(), side))
+}
+public func flows_places_text_camera_kind<GenericToRustStr: ToRustStr>(_ highway: GenericToRustStr, _ enforcement: GenericToRustStr, _ traffic_signals: GenericToRustStr, _ red_light_camera: GenericToRustStr) -> Int32 {
+    return red_light_camera.toRustStr({ red_light_cameraAsRustStr in
+        return traffic_signals.toRustStr({ traffic_signalsAsRustStr in
+        return enforcement.toRustStr({ enforcementAsRustStr in
+        return highway.toRustStr({ highwayAsRustStr in
+        __swift_bridge__$flows_places_text_camera_kind(highwayAsRustStr, enforcementAsRustStr, traffic_signalsAsRustStr, red_light_cameraAsRustStr)
+    })
+    })
+    })
+    })
+}
+public func flows_places_text_camera_limit_mph<GenericToRustStr: ToRustStr>(_ maxspeed: GenericToRustStr, _ has_maxspeed: Bool) -> FlowsPlacesTextOptional {
+    return maxspeed.toRustStr({ maxspeedAsRustStr in
+        __swift_bridge__$flows_places_text_camera_limit_mph(maxspeedAsRustStr, has_maxspeed).intoSwiftRepr()
+    })
+}
+public struct FlowsPlacesTextOptional {
+    public var is_some: Double
+    public var value: Double
+
+    public init(is_some: Double,value: Double) {
+        self.is_some = is_some
+        self.value = value
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsPlacesTextOptional {
+        { let val = self; return __swift_bridge__$FlowsPlacesTextOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$FlowsPlacesTextOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsPlacesTextOptional {
+        { let val = self; return FlowsPlacesTextOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsPlacesTextOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsPlacesTextOptional> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsPlacesTextOptional>) -> __swift_bridge__$Option$FlowsPlacesTextOptional {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsPlacesTextOptional(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsPlacesTextOptional(is_some: false, val: __swift_bridge__$FlowsPlacesTextOptional())
+        }
+    }
+}
+public struct FlowsPlacesTextPrices {
+    public var has: Double
+    public var gas: Double
+    public var diesel: Double
+
+    public init(has: Double,gas: Double,diesel: Double) {
+        self.has = has
+        self.gas = gas
+        self.diesel = diesel
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsPlacesTextPrices {
+        { let val = self; return __swift_bridge__$FlowsPlacesTextPrices(has: val.has, gas: val.gas, diesel: val.diesel); }()
+    }
+}
+extension __swift_bridge__$FlowsPlacesTextPrices {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsPlacesTextPrices {
+        { let val = self; return FlowsPlacesTextPrices(has: val.has, gas: val.gas, diesel: val.diesel); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsPlacesTextPrices {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsPlacesTextPrices> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsPlacesTextPrices>) -> __swift_bridge__$Option$FlowsPlacesTextPrices {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsPlacesTextPrices(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsPlacesTextPrices(is_some: false, val: __swift_bridge__$FlowsPlacesTextPrices())
+        }
+    }
+}
 
 
 public func flows_risk_green_min() -> Double {

@@ -23,6 +23,10 @@
 //!   distance — Euclidean distance kernel (scalar reference; R-bridge only)
 //!   polyline — encoded-polyline decoder (safe; the hand-asm and raw-pointer
 //!              variants were both retired on measurement — see bin/bench.rs)
+//!   swift_text — Swift's String rules (clusters, casing, canonical
+//!              equivalence, Foundation search, Double parsing) from the
+//!              runtime's own tables
+//!   places_text — brand, price and tag text on swift_text
 //!
 //! flows-core has no FFI of its own and never will: `#[no_mangle]` is
 //! rejected by `forbid(unsafe_code)`. The app reaches these functions through
@@ -65,6 +69,7 @@ pub mod risk;
 pub mod routing;
 pub mod scoring;
 pub mod seasonal;
+pub mod swift_text;
 pub mod transit;
 pub mod trip_vehicle;
 pub mod vehicle_policy;

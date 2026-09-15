@@ -28,7 +28,10 @@ import Foundation
 /// and warned about here.
 ///
 /// The warning exists to slow a driver down before the line, which is what
-/// the cameras are for. Pure math, pinned by FLOWSTests.
+/// the cameras are for. The tag reading is computed in rust/flows-core
+/// (places_text.rs) through rust/flows-bridge, pinned to the original by
+/// rust/flows-bridge/tests/fixtures/swift_places_text_oracle.tsv; the
+/// bearing, the cone and the warning line move with the geo kernel's callers.
 enum EnforcementCameras {
     /// A camera on the road.
     struct Camera: Identifiable, Equatable, Hashable {
@@ -45,6 +48,16 @@ enum EnforcementCameras {
 
     enum Kind: String, Equatable {
         case speed, redLight, both
+
+        /// The bridge's code, in declaration order.
+        init?(rustCode: Int32) {
+            switch rustCode {
+            case 0: self = .speed
+            case 1: self = .redLight
+            case 2: self = .both
+            default: return nil
+            }
+        }
 
         /// Plain words — a driver reads this at a glance, at speed.
         var title: String {
@@ -78,34 +91,17 @@ enum EnforcementCameras {
     /// `highway=traffic_signals` + `traffic_signals=camera`; a device
     /// enforcing both carries both markers.
     static func kind(fromTags tags: [String: String]) -> Kind? {
-        let highway = tags["highway"] ?? ""
-        let enforcement = tags["enforcement"] ?? ""
-        let signals = tags["traffic_signals"] ?? ""
-        let isSpeed = highway == "speed_camera"
-            || enforcement.contains("maxspeed")
-            || enforcement.contains("average_speed")
-        let isLight = enforcement.contains("traffic_signals")
-            || signals.contains("camera")
-            || tags["red_light_camera"] == "yes"
-        switch (isSpeed, isLight) {
-        case (true, true): return .both
-        case (true, false): return .speed
-        case (false, true): return .redLight
-        default: return nil
-        }
+        Kind(rustCode: flows_places_text_camera_kind(
+            tags["highway"] ?? "", tags["enforcement"] ?? "",
+            tags["traffic_signals"] ?? "", tags["red_light_camera"] ?? ""))
     }
 
     /// The limit a camera enforces, from `maxspeed` on the device itself.
     /// Bare numbers in OSM are km/h; "45 mph" is already what it says.
     static func limitMph(fromTags tags: [String: String]) -> Double? {
-        guard let raw = tags["maxspeed"]?.lowercased()
-            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
-        if raw.hasSuffix("mph") {
-            return Double(raw.replacingOccurrences(of: "mph", with: "")
-                .trimmingCharacters(in: .whitespaces))
-        }
-        guard let kph = Double(raw) else { return nil }
-        return kph * 0.621371
+        let raw = tags["maxspeed"]
+        let r = flows_places_text_camera_limit_mph(raw ?? "", raw != nil)
+        return r.is_some == 1 ? r.value : nil
     }
 
     /// The camera to warn about right now: the nearest one AHEAD, inside the

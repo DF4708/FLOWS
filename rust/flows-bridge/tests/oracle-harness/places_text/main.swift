@@ -85,6 +85,14 @@ for s in allScalars where s.value >= 0x80 {
     let d = String(s).decomposedStringWithCanonicalMapping.unicodeScalars
     if d.allSatisfy({ $0.isASCII }) { emit("u-canon", u32(s.value), d.map { u32($0.value) }.joined(separator: ",")) }
 }
+// Canonical decompositions (full, recursive) of every scalar outside the Hangul syllables, which decompose
+// algorithmically, and the canonical combining class of every scalar that has one: together they define
+// String's == (canonical equivalence), which the original code relies on for every word and key comparison.
+for s in allScalars where !(0xAC00...0xD7A3).contains(s.value) {
+    let d = String(s).decomposedStringWithCanonicalMapping.unicodeScalars.map { $0.value }
+    if d != [s.value] { emit("u-nfd", u32(s.value), d.map(u32).joined(separator: ",")) }
+}
+ranges("u-ccc") { s in let c = s.properties.canonicalCombiningClass.rawValue; return c == 0 ? "" : String(c) }
 // Grapheme probes: bit i is whether probe i, with the scalar spliced in, is ONE Character.
 let probes: [(String, String)] = [("", "\u{301}"), ("a", ""), ("", "a"), ("\u{1F600}", "\u{200D}\u{1F600}"),
   ("\u{1F600}\u{200D}", ""), ("", "\u{1F1E6}"), ("", "\u{1100}"), ("\u{1100}", ""), ("", "\u{1161}"), ("\u{AC00}", ""),
@@ -313,6 +321,18 @@ var shNames: [String?] = [nil, "", "Love's Travel Stop #312", "Pilot Travel Cent
 for b in showerBrands { shNames.append(b); shNames.append(decorate(b)); shNames.append(decorate(b.uppercased())) }
 for _ in 0..<150 { shNames.append(chance(2) ? decorate(pick(showerBrands)) + pick(seps) + randName() : randName()) }
 for n in shNames { emit("sh-name", hto(n), ht(ShowerAvailability.forStop(named: n).rawValue)) }
+
+// CityTable.showers(state:city:): the two keys it tries, against a small table with the keys the loader builds.
+let cityTable = ShowerAvailability.CityTable(map: ["wi|madison": 4, "tx|el-paso": 0, "tx|el paso": 2, "qc|montr\u{E9}al": 3,
+  "ca|los-angeles": 6, "ny|new-york": 1, "\u{212A}s|salina": 5, "oh|akron\u{301}": 7, "": 9, "|": 8])
+var cityInputs: [(String?, String?)] = [(nil, nil), ("WI", nil), (nil, "Madison"), ("WI", "Madison"), ("wi", "madison"), ("Wi", "MADISON"),
+  ("TX", "El Paso"), ("TX", "el-paso"), ("TX", "El  Paso"), ("TX", "El\u{A0}Paso"), ("QC", "Montr\u{E9}al"), ("QC", "Montre\u{301}al"),
+  ("QC", "MONTR\u{C9}AL"), ("CA", "Los Angeles"), ("CA", "Los Angeles "), ("NY", "New York"), ("NY", "New-York"), ("KS", "Salina"),
+  ("\u{212A}S", "Salina"), ("ks", "salina"), ("OH", "Akron\u{301}"), ("OH", "Akron"), ("", ""), ("", "|"), ("|", ""), ("W\u{130}", "Madison"),
+  ("WI", "Madi\u{0}son"), ("WI", "Madison\u{200D}"), ("WI", " Madison"), ("TX", "El\u{200B}Paso"), ("TX", "El Paso\u{301}")]
+for _ in 0..<80 { cityInputs.append((chance(4) ? nil : decorate(pick(["WI", "TX", "QC", "CA", "NY", "KS", "OH", "wi", "tx"])),
+  chance(4) ? nil : decorate(pick(["Madison", "El Paso", "El-Paso", "Montr\u{E9}al", "Los Angeles", "New York", "Salina", "Akron", "Akron\u{301}"])))) }
+for (st, ci) in cityInputs { emit("sh-city", hto(st), hto(ci), cityTable.showers(state: st, city: ci).map(String.init) ?? "-") }
 
 precondition(UserDefaults.standard.object(forKey: "flows.showersDisproved") == nil,
              "this process's defaults must not already hold driver shower reports")

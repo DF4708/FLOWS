@@ -18,7 +18,12 @@ import Foundation
 /// keyless, and FLOWS already reads OSM through Overpass for clearances,
 /// weight limits and speed limits.
 ///
-/// Pure parsing + matching; the fetch lives in LiveHazardFeedFetcher.
+/// The parsing and the lane matching are computed in rust/flows-core
+/// (places_text.rs) and called through rust/flows-bridge; lanes cross flat as
+/// turn codes with -1 closing each lane, and turns and sides are codes in
+/// declaration order. Pinned to the original Swift by
+/// rust/flows-bridge/tests/fixtures/swift_places_text_oracle.tsv. The fetch
+/// lives in LiveHazardFeedFetcher.
 enum LaneData {
 
     /// What a single lane permits. Ordered so `arrow` can pick the most
@@ -31,23 +36,10 @@ enum LaneData {
         case reverse          // U-turn lane
         case none             // tagged but unspecified
 
-        /// OSM spells these with underscores.
-        static func from(_ raw: String) -> Turn? {
-            switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
-            case "sharp_left": return .sharpLeft
-            case "left": return .left
-            case "slight_left": return .slightLeft
-            case "through": return .through
-            case "slight_right": return .slightRight
-            case "right": return .right
-            case "sharp_right": return .sharpRight
-            case "merge_to_left": return .mergeToLeft
-            case "merge_to_right": return .mergeToRight
-            case "reverse": return .reverse
-            case "none", "": return Turn.none
-            default: return nil
-            }
-        }
+        /// Turns by the bridge's code, in declaration order.
+        static let byCode: [Turn] = [.sharpLeft, .left, .slightLeft, .through, .slightRight, .right,
+                                     .sharpRight, .mergeToLeft, .mergeToRight, .reverse, Turn.none]
+        var rustCode: UInt8 { UInt8(Turn.byCode.firstIndex(of: self) ?? 10) }
 
         /// The arrow drawn for a lane offering this movement.
         var symbol: String {
@@ -62,13 +54,7 @@ enum LaneData {
         }
 
         /// Which way this movement heads — used to match the maneuver.
-        var side: ManeuverSymbol.Side {
-            switch self {
-            case .sharpLeft, .left, .slightLeft, .mergeToLeft, .reverse: return .left
-            case .sharpRight, .right, .slightRight, .mergeToRight: return .right
-            case .through, .none: return ManeuverSymbol.Side.none
-            }
-        }
+        var side: ManeuverSymbol.Side { ManeuverSymbol.Side(rustCode: flows_places_text_turn_side(rustCode)) }
     }
 
     /// One lane, left to right in the direction of travel.
@@ -84,23 +70,29 @@ enum LaneData {
         var symbol: String { primary.symbol }
 
         func allows(_ side: ManeuverSymbol.Side) -> Bool {
-            switch side {
-            case .none: return turns.contains(.through) || turns.contains(Turn.none)
-            default: return turns.contains { $0.side == side }
-            }
+            guard !turns.isEmpty else { return false }   // an empty buffer never crosses
+            let codes = turns.map { Int64($0.rustCode) }
+            return codes.withUnsafeBufferPointer { flows_places_text_lane_allows($0, side.rustCode) }
         }
+
+        /// The flat form the bridge reads: turn codes, then -1.
+        fileprivate var flat: [Int64] { turns.map { Int64($0.rustCode) } + [-1] }
     }
 
     /// Parse an OSM `turn:lanes` value. Empty lane entries are legal and
     /// mean "unspecified", not "missing".
     static func parse(turnLanes: String) -> [Lane] {
-        let trimmed = turnLanes.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return [] }
-        return trimmed.components(separatedBy: "|").map { field in
-            let turns = field.components(separatedBy: ";")
-                .compactMap(Turn.from)
-            return Lane(turns: turns.isEmpty ? [Turn.none] : turns)
+        var lanes: [Lane] = []
+        var turns: [Turn] = []
+        for code in flows_places_text_parse_turn_lanes(turnLanes) {
+            if code < 0 {
+                lanes.append(Lane(turns: turns.isEmpty ? [Turn.none] : turns))
+                turns = []
+            } else if let turn = Turn.byCode.indices.contains(Int(code)) ? Turn.byCode[Int(code)] : nil {
+                turns.append(turn)
+            }
         }
+        return lanes
     }
 
     /// Which lanes serve the upcoming maneuver — the ones to fill green.
@@ -109,8 +101,9 @@ enum LaneData {
     /// whole feature exists to prevent.
     static func recommended(lanes: [Lane], maneuver: ManeuverSymbol.Side) -> Set<Int> {
         guard !lanes.isEmpty else { return [] }
-        let matching = lanes.indices.filter { lanes[$0].allows(maneuver) }
-        return Set(matching)
+        let flat = lanes.flatMap(\.flat)
+        let indices = flat.withUnsafeBufferPointer { flows_places_text_recommended_lanes($0, maneuver.rustCode) }
+        return Set(indices.map { Int($0) })
     }
 
     /// Plain-words summary of the highlighted lanes ("2 right lanes").
@@ -124,5 +117,23 @@ enum LaneData {
         if sorted.first == 0 { return "Use the \(n) left \(plural)" }
         if sorted.last == lanes.count - 1 { return "Use the \(n) right \(plural)" }
         return "Use the \(n) middle \(plural)"
+    }
+}
+
+extension ManeuverSymbol.Side {
+    /// The bridge's code: 0 left, 1 right, 2 none.
+    var rustCode: UInt8 {
+        switch self {
+        case .left: return 0
+        case .right: return 1
+        case .none: return 2
+        }
+    }
+    init(rustCode: UInt8) {
+        switch rustCode {
+        case 0: self = .left
+        case 1: self = .right
+        default: self = .none
+        }
     }
 }

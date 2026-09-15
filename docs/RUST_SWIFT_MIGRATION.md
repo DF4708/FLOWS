@@ -1190,6 +1190,57 @@ record unchanged, every new record matched bit for bit:
 `SeasonalStore.totalTrips`, a sum of the routes' trip counts, stays: it is
 the store's bookkeeping, like `count`.
 
+## Wave 1, sixth landing: brand, price and tag text (2026-09-15)
+
+The last wave-1 group is in Rust: `BrandKnowledge`, the pure parts of
+`RatingsAndCost` (countries, tiers, the shower ladder and tables),
+`FuelPrices` with the AAA row parser, `LaneData.parse` and the
+`EnforcementCameras` tag reading — `flows_core::places_text`, behind 36
+bridge functions and five facades. It was the heaviest because those files
+stand on Swift's `String`, and the answer was to give Rust Swift's text
+rules rather than approximate them: `flows_core::swift_text`.
+
+**`swift_text`.** Six facts about Swift text decide every answer in the
+group, and each is reproduced from tables the harness read out of the Swift
+6.4 runtime scalar by scalar (`swift_text/tables.rs`, 5,761 generated lines,
+checked over all 1,112,064 scalars by the oracle test):
+
+- a `Character` is an extended grapheme cluster — UAX #29 including the
+  Indic-conjunct rule, from the runtime's own classes, which a 17-probe
+  vector per scalar tells apart; 2,500 random sequences pin the segmenter;
+- `isLetter`/`isNumber` read a cluster's first scalar;
+- `lowercased()`/`uppercased()` are the full one-to-many mappings, no
+  context (a final sigma stays σ, İ becomes i̇, ß becomes SS);
+- `==` and dictionary keys are canonical equivalence (`"café" ==
+  "cafe\u{301}"`, `"\u{212A}S" == "KS"`), through NFD with the runtime's
+  decompositions and combining classes;
+- Foundation's `range(of:)`, `contains`, `components(separatedBy:)` and
+  `replacingOccurrences` match whole clusters canonically, so `"$\u{301}"`
+  holds no `"$"`; `hasSuffix` compares clusters; `trimmingCharacters` trims
+  scalars;
+- `Double(String)` is Darwin's `strtod` behind Swift's own checks: hex
+  floats (lowercase `x` only) correctly rounded to the subnormals, `nan(…)`
+  and `snan(…)` payloads read as hex, octal or decimal and kept to 50 bits
+  under Apple's quiet or signaling marker, overflow to infinity and
+  underflow to zero, a NUL ending the string, a leading space refusing it.
+
+**The oracle.** 23,594 records in 35 kinds, adversarial on purpose (marks
+after `$`, joiners, prepends, flags, conjuncts, fullwidth and Kelvin
+letters, NULs, every whitespace, hex and NaN speed tags, the AAA window
+probed with multi-scalar clusters); three runs byte-identical; every record
+matched on the first run of the test — the tables did the work. The
+store's own steps are recomposed in the test the way the Swift did them: the
+live AAA cache through the harness's stub transport, the driver's shower
+report, the city table's dictionary.
+
+**Facades.** The five files keep their types, their UI words (`symbol`,
+`title`, `currencySymbol`, `summary`), their I/O (the AAA fetch and cache,
+Yelp and Google, `UserDefaults`, the bundled tables) and their colours, and
+call the bridge for every decision. `FuelPrices.stateNameToCode` is built
+from the Rust table; `stateFactor` is Rust's alone. `EnforcementCameras.
+imminent`, `isAhead`, `bearingDegrees` and `warning` stay for the geo
+facade, with `LaneData.summary` (plain words for the HUD).
+
 ### Remaining wave-1 groups
 
 | group | state | next |
@@ -1198,6 +1249,6 @@ the store's bookkeeping, like `count`.
 | learning | LANDED: core + oracle (11,283 records) + bridge (73 functions) + seven facades switched | — |
 | vehicle_policy | LANDED: core + bridge (49 functions) + oracle (14,454 records) + all seven facades switched | — |
 | climate | LANDED: core + oracle (14,830 records) + bridge (38 functions, one opaque table type) + five facades switched | — |
-| places_text | harness only | port from scratch — the heaviest: it needs Swift's grapheme segmentation, case mapping and canonical equivalence in zero-dependency Rust |
+| places_text | LANDED: `swift_text` + core + oracle (23,594 records) + bridge (36 functions) + all five facades switched | `EnforcementCameras.imminent`/`warning` and `LaneData.summary` (UI words) wait for the geo callers |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
 
