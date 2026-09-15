@@ -32,6 +32,8 @@
 //!   forecast — the forecast predictors over climate + scoring
 //!   hazard_feeds — live feed scores, the alert service's geometry and
 //!              severity rules, the CRE fuel scan
+//!   long_trips — the fuel warning, the long-trip share and the saved road
+//!              corridors
 //!
 //! flows-core has no FFI of its own and never will: `#[no_mangle]` is
 //! rejected by `forbid(unsafe_code)`. The app reaches these functions through
@@ -71,6 +73,7 @@ pub mod forecast;
 pub mod geo;
 pub mod hazard_feeds;
 pub mod learning;
+pub mod long_trips;
 pub mod media_policy;
 pub mod places;
 pub mod places_text;

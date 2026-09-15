@@ -46,32 +46,33 @@ struct SavedCorridor: Codable, Identifiable, Equatable {
 enum CorridorRetention {
     /// Saved routing degrades after a week even if nothing else clears it —
     /// a corridor from last month is a stale map, not a lifeline.
-    static let maxAge: TimeInterval = 7 * 24 * 3600
+    private static let constants = Array(flows_long_trips_corridor_constants())
+    private static let limits = Array(flows_long_trips_corridor_limits())
+    static let maxAge: TimeInterval = constants[0]
     /// Within this of the destination counts as arrived.
-    static let arrivedMeters: CLLocationDistance = 1_500
+    static let arrivedMeters: CLLocationDistance = constants[1]
     /// Further than this from EVERY point of the corridor means the stretch
     /// is behind (or beside) the vehicle — it is no longer the road ahead.
-    static let passedMeters: CLLocationDistance = 30_000
+    static let passedMeters: CLLocationDistance = constants[2]
     /// Corridors worth keeping at once: the one being driven plus a little
     /// history for the way back.
-    static let maxStored = 3
+    static let maxStored = Int(limits[0])
 
     /// Should this corridor stay on the device?
     static func keep(_ corridor: SavedCorridor,
                      now: Date,
                      position: CLLocationCoordinate2D?) -> Bool {
-        // One-week degradation, regardless of anything else.
-        guard now.timeIntervalSince(corridor.savedAt) < maxAge else { return false }
-        guard let position else { return true }   // no fix: keep what we have
-        let coords = corridor.coordinates
-        guard !coords.isEmpty else { return false }
-        // Destination reached — the corridor did its job.
-        if let end = coords.last, POIRanking.meters(end, position) <= arrivedMeters {
-            return false
+        // One-week degradation regardless of anything else; with no fix,
+        // keep what we have; otherwise drop it once the destination is
+        // reached or nothing on the stretch is near the vehicle
+        // (rust/flows-core long_trips.rs).
+        let geometry = CorridorGeometry([corridor])
+        return geometry.call { _, lats, lons, counts in
+            flows_long_trips_keep_corridor(
+                corridor.savedAt.timeIntervalSinceReferenceDate, lats, lons, Int64(counts[0]),
+                now.timeIntervalSinceReferenceDate,
+                position?.latitude ?? 0, position?.longitude ?? 0, position != nil)
         }
-        // The whole stretch is far behind: nothing on it is near the vehicle.
-        let nearest = coords.map { POIRanking.meters($0, position) }.min() ?? .infinity
-        return nearest <= passedMeters
     }
 
     /// Prune a stored set: drop what no longer helps, newest first, capped.
@@ -79,11 +80,13 @@ enum CorridorRetention {
     static func prune(_ corridors: [SavedCorridor],
                       now: Date,
                       position: CLLocationCoordinate2D?) -> [SavedCorridor] {
-        corridors
-            .filter { keep($0, now: now, position: position) }
-            .sorted { $0.savedAt > $1.savedAt }
-            .prefix(maxStored)
-            .map { $0 }
+        let order = CorridorGeometry(corridors).call { saved, lats, lons, counts in
+            Array(flows_long_trips_prune_corridors(
+                saved, lats, lons, counts, Int64(corridors.count),
+                now.timeIntervalSinceReferenceDate,
+                position?.latitude ?? 0, position?.longitude ?? 0, position != nil))
+        }
+        return order.map { corridors[Int($0)] }
     }
 
     // MARK: what is worth saving in the first place
@@ -91,39 +94,95 @@ enum CorridorRetention {
     /// Short hops inside one town are not worth storing: signal is good, the
     /// roads are dense, and a driver who loses the app can see where they
     /// are. Corridors earn their place on the open road between places.
-    static let minTripMeters: CLLocationDistance = 25_000
+    static let minTripMeters: CLLocationDistance = constants[3]
     static func worthSaving(tripMeters: CLLocationDistance) -> Bool {
-        tripMeters >= minTripMeters
+        flows_long_trips_worth_saving(tripMeters)
     }
 
     /// A newer corridor covering the same road supersedes an older one — the
     /// next city coming into range replaces the stretch just driven.
     static func supersedes(_ new: SavedCorridor, _ old: SavedCorridor) -> Bool {
-        guard let newEnd = new.destination, let oldEnd = old.destination else {
-            return false
+        let (a, b) = (new.destination, old.destination)
+        return flows_long_trips_supersedes(a?.latitude ?? 0, a?.longitude ?? 0, a != nil,
+                                           b?.latitude ?? 0, b?.longitude ?? 0, b != nil)
+    }
+
+    /// The stored list once `corridor` is recorded: the corridors it does
+    /// not supersede, then it, pruned with no position — so a corridor to
+    /// the same destination replaces the old one rather than stacking
+    /// (rust/flows-core long_trips.rs).
+    static func recorded(_ corridor: SavedCorridor, into corridors: [SavedCorridor],
+                         now: Date) -> [SavedCorridor] {
+        let ends = corridors.map(\.destination)
+        let saved = corridors.isEmpty ? [0] : corridors.map(\.savedAt.timeIntervalSinceReferenceDate)
+        let endLats = corridors.isEmpty ? [0] : ends.map { $0?.latitude ?? 0 }
+        let endLons = corridors.isEmpty ? [0] : ends.map { $0?.longitude ?? 0 }
+        let hasEnd: [UInt8] = corridors.isEmpty ? [0] : ends.map { $0 == nil ? 0 : 1 }
+        let end = corridor.destination
+        let order = saved.withUnsafeBufferPointer { s in
+            endLats.withUnsafeBufferPointer { la in
+                endLons.withUnsafeBufferPointer { lo in
+                    hasEnd.withUnsafeBufferPointer { h in
+                        Array(flows_long_trips_record_corridor(
+                            s, la, lo, h, Int64(corridors.count),
+                            end?.latitude ?? 0, end?.longitude ?? 0, end != nil,
+                            now.timeIntervalSinceReferenceDate))
+                    }
+                }
+            }
         }
-        return POIRanking.meters(newEnd, oldEnd) <= arrivedMeters
+        return order.map { Int($0) < corridors.count ? corridors[Int($0)] : corridor }
     }
 
     /// Thin a route's geometry for storage: one point per `stepMeters`, so a
     /// cross-country route costs kilobytes, not megabytes, and still draws
     /// as a followable line.
+    static let decimateStepMeters: CLLocationDistance = constants[4]
+    static let decimateLimit = Int(limits[1])
     static func decimate(_ coords: [CLLocationCoordinate2D],
-                         stepMeters: CLLocationDistance = 400,
-                         limit: Int = 1_200) -> [CLLocationCoordinate2D] {
-        guard let first = coords.first else { return [] }
-        var out = [first]
-        for c in coords.dropFirst() {
-            if POIRanking.meters(out[out.count - 1], c) >= stepMeters { out.append(c) }
+                         stepMeters: CLLocationDistance = decimateStepMeters,
+                         limit: Int = decimateLimit) -> [CLLocationCoordinate2D] {
+        // Always keeps the true destination, even if the last step was short;
+        // too long even decimated, it keeps an even sample across the whole
+        // run (rust/flows-core long_trips.rs).
+        let lats = coords.isEmpty ? [0] : coords.map(\.latitude)
+        let lons = coords.isEmpty ? [0] : coords.map(\.longitude)
+        let kept = lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in
+                Array(flows_long_trips_decimate(la, lo, Int64(coords.count), stepMeters, Int64(limit)))
+            }
         }
-        // Always keep the true destination, even if the last step was short.
-        if let last = coords.last, out.last.map({ POIRanking.meters($0, last) > 1 }) == true {
-            out.append(last)
+        return kept.map { coords[Int($0)] }
+    }
+}
+
+/// Saved corridors as the bridge reads them: the save times, every decoded
+/// point in order and each corridor's point count — with placeholders
+/// behind a zero count for an empty list.
+struct CorridorGeometry {
+    let saved: [Double]
+    let lats: [Double]
+    let lons: [Double]
+    let counts: [Int64]
+
+    init(_ corridors: [SavedCorridor]) {
+        let coordinates = corridors.map(\.coordinates)
+        let flat = coordinates.flatMap { $0 }
+        saved = corridors.isEmpty ? [0] : corridors.map(\.savedAt.timeIntervalSinceReferenceDate)
+        lats = flat.isEmpty ? [0] : flat.map(\.latitude)
+        lons = flat.isEmpty ? [0] : flat.map(\.longitude)
+        counts = corridors.isEmpty ? [0] : coordinates.map { Int64($0.count) }
+    }
+
+    func call<R>(_ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>,
+                          UnsafeBufferPointer<Double>, UnsafeBufferPointer<Int64>) -> R) -> R {
+        saved.withUnsafeBufferPointer { s in
+            lats.withUnsafeBufferPointer { la in
+                lons.withUnsafeBufferPointer { lo in
+                    counts.withUnsafeBufferPointer { c in body(s, la, lo, c) }
+                }
+            }
         }
-        guard out.count > limit else { return out }
-        // Too long even decimated: keep an even sample across the whole run.
-        let stride = Double(out.count - 1) / Double(limit - 1)
-        return (0..<limit).map { out[Int((Double($0) * stride).rounded())] }
     }
 }
 
@@ -159,9 +218,7 @@ final class OfflineCorridorStore: ObservableObject {
         let corridor = SavedCorridor(
             id: UUID(), savedAt: now, destinationName: destinationName,
             points: thinned.map { [$0.latitude, $0.longitude] })
-        var next = corridors.filter { !CorridorRetention.supersedes(corridor, $0) }
-        next.append(corridor)
-        corridors = CorridorRetention.prune(next, now: now, position: nil)
+        corridors = CorridorRetention.recorded(corridor, into: corridors, now: now)
         persist()
     }
 
@@ -176,25 +233,28 @@ final class OfflineCorridorStore: ObservableObject {
 
     /// The corridor most useful from here: the one whose road passes nearest.
     func nearest(to position: CLLocationCoordinate2D) -> SavedCorridor? {
-        corridors.min { a, b in
-            let da = coordinates(of: a).map { POIRanking.meters($0, position) }.min() ?? .infinity
-            let db = coordinates(of: b).map { POIRanking.meters($0, position) }.min() ?? .infinity
-            return da < db
+        let index = geometry().call { _, lats, lons, counts in
+            flows_geo_corridor_nearest(lats, lons, counts, Int64(corridors.count),
+                                       position.latitude, position.longitude)
         }
+        return index >= 0 ? corridors[Int(index)] : nil
     }
 
-    /// Decoded geometry, cached by corridor id. `SavedCorridor.coordinates`
-    /// rebuilds the array from `[[Double]]` on every access, and the map
-    /// asked for the nearest corridor on every frame while offline — a
-    /// decode of every saved polyline per render. A corridor is immutable,
-    /// so an entry can never go stale; the cache is bounded by maxStored.
-    private var decoded: [UUID: [CLLocationCoordinate2D]] = [:]
-    private func coordinates(of c: SavedCorridor) -> [CLLocationCoordinate2D] {
-        if let hit = decoded[c.id] { return hit }
-        let coords = c.coordinates
-        decoded[c.id] = coords
-        if decoded.count > 64 { decoded = decoded.filter { k, _ in corridors.contains { $0.id == k } } }
-        return coords
+    /// Decoded geometry of the stored list, cached by its ids.
+    /// `SavedCorridor.coordinates` rebuilds the array from `[[Double]]` on
+    /// every access, and the map asks for the nearest corridor on every frame
+    /// while offline — a decode of every saved polyline per render. A
+    /// corridor is immutable, so the cache goes stale only when the list
+    /// itself changes.
+    private var geometryIDs: [UUID] = []
+    private var geometryCache = CorridorGeometry([])
+    private func geometry() -> CorridorGeometry {
+        let ids = corridors.map(\.id)
+        if ids != geometryIDs {
+            geometryIDs = ids
+            geometryCache = CorridorGeometry(corridors)
+        }
+        return geometryCache
     }
 
     private func persist() {

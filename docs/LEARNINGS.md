@@ -1647,3 +1647,25 @@ without a regression:
   checked against every record in a scratch copy of flows-core, which has no
   dependencies and so no compiler plugins to relink, while the previous
   landing's gate held the tree.
+
+## A store's rules can move without moving the store
+
+- **Return a plan and let the store apply it.** `ShareHistoryStore.recordShare`
+  and `OfflineCorridorStore.record` mix a decision (which recipient a share
+  joins, how many old dates fall off, who is evicted, which corridors remain)
+  with list edits and saving. Rust returns the decision as a few integers and
+  indices, and the store appends, trims and saves as before. The oracle drove
+  real stores and the Rust test replays every step, so both the plan and its
+  application are pinned.
+- **An oracle can shrink without losing coverage.** The first long-trip
+  fixture was 3.4 MB. A thinned line written as indices into its input, a
+  store's list printed every fifth step while the Rust still replays every
+  step, and shorter random lists brought it to 1.6 MB with the same kinds and
+  edges.
+- **zsh reads `$BASE:a` as a path modifier.** `git show "$BASE:apple/..."`
+  became an absolute scratchpad path and git refused the revision. Write
+  `${BASE}:apple/...`.
+- **Check the core before porting a function twice.** The geo kernel already
+  twinned the fuel warning's bearing and reachability test and the nearest
+  saved corridor, pinned by the geo oracle, but no bridge function exported
+  them. This landing added the bridge functions instead of new twins.

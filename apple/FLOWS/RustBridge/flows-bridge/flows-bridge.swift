@@ -765,6 +765,21 @@ public func flows_forecast_predictor_families(_ temperature_f: Double, _ has_tem
 }
 
 
+public func flows_geo_bearing_degrees(_ a_lat: Double, _ a_lon: Double, _ b_lat: Double, _ b_lon: Double) -> Double {
+    __swift_bridge__$flows_geo_bearing_degrees(a_lat, a_lon, b_lat, b_lon)
+}
+public func flows_geo_ahead_cone_degrees() -> Double {
+    __swift_bridge__$flows_geo_ahead_cone_degrees()
+}
+public func flows_geo_fuel_corridor_meters() -> Double {
+    __swift_bridge__$flows_geo_fuel_corridor_meters()
+}
+public func flows_geo_fuel_station_is_reachable(_ station_lat: Double, _ station_lon: Double, _ here_lat: Double, _ here_lon: Double, _ course_degrees: Double, _ route_lats: UnsafeBufferPointer<Double>, _ route_lons: UnsafeBufferPointer<Double>, _ route_count: Int64, _ corridor_meters: Double) -> Bool {
+    __swift_bridge__$flows_geo_fuel_station_is_reachable(station_lat, station_lon, here_lat, here_lon, course_degrees, route_lats.toFfiSlice(), route_lons.toFfiSlice(), route_count, corridor_meters)
+}
+public func flows_geo_corridor_nearest(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ point_counts: UnsafeBufferPointer<Int64>, _ corridor_count: Int64, _ lat: Double, _ lon: Double) -> Int64 {
+    __swift_bridge__$flows_geo_corridor_nearest(lats.toFfiSlice(), lons.toFfiSlice(), point_counts.toFfiSlice(), corridor_count, lat, lon)
+}
 
 
 public func flows_hazard_air_score(_ us_aqi: Double) -> Double {
@@ -1513,6 +1528,118 @@ extension __swift_bridge__$Option$FlowsLearningEta {
             return __swift_bridge__$Option$FlowsLearningEta(is_some: true, val: v.intoFfiRepr())
         } else {
             return __swift_bridge__$Option$FlowsLearningEta(is_some: false, val: __swift_bridge__$FlowsLearningEta())
+        }
+    }
+}
+
+
+public func flows_long_trips_fuel_severity(_ fraction: Double) -> Double {
+    __swift_bridge__$flows_long_trips_fuel_severity(fraction)
+}
+public func flows_long_trips_fuel_band(_ fraction: Double) -> UInt8 {
+    __swift_bridge__$flows_long_trips_fuel_band(fraction)
+}
+public func flows_long_trips_warn_at_reachable_count() -> Int64 {
+    __swift_bridge__$flows_long_trips_warn_at_reachable_count()
+}
+public func flows_long_trips_reachable_stations(_ miles: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ priced: UnsafeBufferPointer<UInt8>, _ count: Int64, _ range_miles: Double, _ reserve_miles: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_reachable_stations(miles.toFfiSlice(), prices.toFfiSlice(), priced.toFfiSlice(), count, range_miles, reserve_miles))
+}
+public func flows_long_trips_fuel_level(_ miles: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ priced: UnsafeBufferPointer<UInt8>, _ count: Int64, _ range_miles: Double, _ reserve_miles: Double) -> Int64 {
+    __swift_bridge__$flows_long_trips_fuel_level(miles.toFfiSlice(), prices.toFfiSlice(), priced.toFfiSlice(), count, range_miles, reserve_miles)
+}
+public func flows_long_trips_cheapest_station(_ miles: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ priced: UnsafeBufferPointer<UInt8>, _ count: Int64, _ range_miles: Double, _ reserve_miles: Double) -> Int64 {
+    __swift_bridge__$flows_long_trips_cheapest_station(miles.toFfiSlice(), prices.toFfiSlice(), priced.toFfiSlice(), count, range_miles, reserve_miles)
+}
+public func flows_long_trips_should_offer_share(_ route_meters: Double, _ driven_today_meters: Double) -> Bool {
+    __swift_bridge__$flows_long_trips_should_offer_share(route_meters, driven_today_meters)
+}
+public func flows_long_trips_share_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_share_constants())
+}
+public func flows_long_trips_share_caps() -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_share_caps())
+}
+public func flows_long_trips_daily_drive_add(_ day: Double, _ meters: Double, _ today: Double, _ delta: Double) -> FlowsLongTripsDay {
+    __swift_bridge__$flows_long_trips_daily_drive_add(day, meters, today, delta).intoSwiftRepr()
+}
+public func flows_long_trips_ranked_recipients(_ dates: UnsafeBufferPointer<Double>, _ date_counts: UnsafeBufferPointer<Int64>, _ recipient_count: Int64, _ now: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_ranked_recipients(dates.toFfiSlice(), date_counts.toFfiSlice(), recipient_count, now))
+}
+public func flows_long_trips_normalized_phone<GenericToRustStr: ToRustStr>(_ phone: GenericToRustStr) -> RustString {
+    return phone.toRustStr({ phoneAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_long_trips_normalized_phone(phoneAsRustStr))
+    })
+}
+public func flows_long_trips_record_share<GenericToRustStr: ToRustStr>(_ phones: GenericToRustStr, _ phone_lengths: UnsafeBufferPointer<Int64>, _ dates: UnsafeBufferPointer<Double>, _ date_counts: UnsafeBufferPointer<Int64>, _ recipient_count: Int64, _ name: GenericToRustStr, _ phone: GenericToRustStr, _ date: Double) -> RustVec<Int64> {
+    return phone.toRustStr({ phoneAsRustStr in
+        return name.toRustStr({ nameAsRustStr in
+        return phones.toRustStr({ phonesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_long_trips_record_share(phonesAsRustStr, phone_lengths.toFfiSlice(), dates.toFfiSlice(), date_counts.toFfiSlice(), recipient_count, nameAsRustStr, phoneAsRustStr, date))
+    })
+    })
+    })
+}
+public func flows_long_trips_corridor_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_corridor_constants())
+}
+public func flows_long_trips_corridor_limits() -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_corridor_limits())
+}
+public func flows_long_trips_keep_corridor(_ saved_at: Double, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ count: Int64, _ now: Double, _ lat: Double, _ lon: Double, _ has_position: Bool) -> Bool {
+    __swift_bridge__$flows_long_trips_keep_corridor(saved_at, lats.toFfiSlice(), lons.toFfiSlice(), count, now, lat, lon, has_position)
+}
+public func flows_long_trips_prune_corridors(_ saved_at: UnsafeBufferPointer<Double>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ point_counts: UnsafeBufferPointer<Int64>, _ corridor_count: Int64, _ now: Double, _ lat: Double, _ lon: Double, _ has_position: Bool) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_prune_corridors(saved_at.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), point_counts.toFfiSlice(), corridor_count, now, lat, lon, has_position))
+}
+public func flows_long_trips_worth_saving(_ trip_meters: Double) -> Bool {
+    __swift_bridge__$flows_long_trips_worth_saving(trip_meters)
+}
+public func flows_long_trips_supersedes(_ newer_lat: Double, _ newer_lon: Double, _ has_newer: Bool, _ older_lat: Double, _ older_lon: Double, _ has_older: Bool) -> Bool {
+    __swift_bridge__$flows_long_trips_supersedes(newer_lat, newer_lon, has_newer, older_lat, older_lon, has_older)
+}
+public func flows_long_trips_decimate(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ count: Int64, _ step_meters: Double, _ limit: Int64) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_decimate(lats.toFfiSlice(), lons.toFfiSlice(), count, step_meters, limit))
+}
+public func flows_long_trips_record_corridor(_ saved_at: UnsafeBufferPointer<Double>, _ end_lats: UnsafeBufferPointer<Double>, _ end_lons: UnsafeBufferPointer<Double>, _ has_end: UnsafeBufferPointer<UInt8>, _ corridor_count: Int64, _ new_lat: Double, _ new_lon: Double, _ has_new: Bool, _ now: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_long_trips_record_corridor(saved_at.toFfiSlice(), end_lats.toFfiSlice(), end_lons.toFfiSlice(), has_end.toFfiSlice(), corridor_count, new_lat, new_lon, has_new, now))
+}
+public struct FlowsLongTripsDay {
+    public var day: Double
+    public var meters: Double
+
+    public init(day: Double,meters: Double) {
+        self.day = day
+        self.meters = meters
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsLongTripsDay {
+        { let val = self; return __swift_bridge__$FlowsLongTripsDay(day: val.day, meters: val.meters); }()
+    }
+}
+extension __swift_bridge__$FlowsLongTripsDay {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsLongTripsDay {
+        { let val = self; return FlowsLongTripsDay(day: val.day, meters: val.meters); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsLongTripsDay {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsLongTripsDay> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsLongTripsDay>) -> __swift_bridge__$Option$FlowsLongTripsDay {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsLongTripsDay(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsLongTripsDay(is_some: false, val: __swift_bridge__$FlowsLongTripsDay())
         }
     }
 }

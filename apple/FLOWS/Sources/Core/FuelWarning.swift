@@ -26,8 +26,7 @@ enum FuelWarning {
     /// needle's color, and the last stretch before empty climbs fast. Keeps
     /// the gauge green through the ordinary middle of a tank.
     static func severity(fraction: Double) -> Double {
-        let empty = min(max(1 - fraction, 0), 1)
-        return pow(empty, 3)
+        flows_long_trips_fuel_severity(fraction)
     }
 
     /// Gauge band from the severity curve. Green holds until roughly the
@@ -36,10 +35,13 @@ enum FuelWarning {
     enum Band: Equatable { case green, yellow, red }
 
     static func band(fraction: Double) -> Band {
-        let s = severity(fraction: fraction)
-        if s >= 0.65 { return .red }        // ≲14% of tank
-        if s >= 0.35 { return .yellow }     // ≲29% of tank
-        return .green
+        // Red from severity 0.65 (≲14% of tank), yellow from 0.35 (≲29%):
+        // rust/flows-core long_trips.rs.
+        switch flows_long_trips_fuel_band(fraction) {
+        case 2: return .red
+        case 1: return .yellow
+        default: return .green
+        }
     }
 
     // MARK: reachable-station warning
@@ -60,7 +62,7 @@ enum FuelWarning {
     /// to measure along — the same 100° either side the camera warning uses.
     /// Wide enough to keep a station just off a bend, narrow enough to
     /// exclude one the driver has already passed.
-    static let aheadConeDegrees = 100.0
+    static let aheadConeDegrees = flows_geo_ahead_cone_degrees()
 
     /// Is this station somewhere the driver can still REACH, or one they
     /// have already driven past?
@@ -81,33 +83,28 @@ enum FuelWarning {
                             from here: CLLocationCoordinate2D,
                             courseDegrees: Double,
                             routeAhead: [CLLocationCoordinate2D],
-                            corridorMeters: Double = 8_000) -> Bool {
-        if !routeAhead.isEmpty {
-            return routeAhead.contains {
-                POIRanking.meters(station, $0) <= corridorMeters
+                            corridorMeters: Double = flows_geo_fuel_corridor_meters()) -> Bool {
+        // rust/flows-core geo.rs. With no route the columns hold a
+        // placeholder behind a zero count: the bridge never sees an empty
+        // buffer.
+        let lats = routeAhead.isEmpty ? [0] : routeAhead.map(\.latitude)
+        let lons = routeAhead.isEmpty ? [0] : routeAhead.map(\.longitude)
+        return lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in
+                flows_geo_fuel_station_is_reachable(
+                    station.latitude, station.longitude, here.latitude, here.longitude,
+                    courseDegrees, la, lo, Int64(routeAhead.count), corridorMeters)
             }
         }
-        guard courseDegrees >= 0 else { return true }
-        let bearing = bearingDegrees(from: here, to: station)
-        var delta = (bearing - courseDegrees).truncatingRemainder(dividingBy: 360)
-        if delta > 180 { delta -= 360 }
-        if delta < -180 { delta += 360 }
-        return abs(delta) <= aheadConeDegrees
     }
 
     /// Compass bearing from one point to another, 0..<360.
     static func bearingDegrees(from a: CLLocationCoordinate2D,
                                to b: CLLocationCoordinate2D) -> Double {
-        let rad = Double.pi / 180
-        let dLon = (b.longitude - a.longitude) * rad
-        let y = sin(dLon) * cos(b.latitude * rad)
-        let x = cos(a.latitude * rad) * sin(b.latitude * rad)
-            - sin(a.latitude * rad) * cos(b.latitude * rad) * cos(dLon)
-        let deg = atan2(y, x) / rad
-        return deg < 0 ? deg + 360 : deg
+        flows_geo_bearing_degrees(a.latitude, a.longitude, b.latitude, b.longitude)
     }
 
-    static let warnAtReachableCount = 3
+    static let warnAtReachableCount = Int(flows_long_trips_warn_at_reachable_count())
 
     enum Level: Equatable {
         case none
@@ -121,10 +118,11 @@ enum FuelWarning {
     /// (never route a driver to arrive on fumes), nearest first.
     static func reachable(stationsAhead: [Station], rangeMiles: Double,
                           reserveMiles: Double = VehicleProfile.reserveMiles) -> [Station] {
-        let usable = rangeMiles - reserveMiles
-        return stationsAhead
-            .filter { $0.milesAhead <= usable }
-            .sorted { $0.milesAhead < $1.milesAhead }
+        let order = StationColumns(stationsAhead).call { miles, prices, priced, count in
+            Array(flows_long_trips_reachable_stations(miles, prices, priced, count,
+                                                      rangeMiles, reserveMiles))
+        }
+        return order.map { stationsAhead[Int($0)] }
     }
 
     /// The warning level for this range and this list of matching stations.
@@ -132,17 +130,17 @@ enum FuelWarning {
     /// a diesel truck is not helped by knowing about gas pumps.
     static func level(stationsAhead: [Station], rangeMiles: Double,
                       reserveMiles: Double = VehicleProfile.reserveMiles) -> Level {
-        let inRange = reachable(stationsAhead: stationsAhead, rangeMiles: rangeMiles,
-                                reserveMiles: reserveMiles)
-        if inRange.isEmpty {
-            // Nothing sells this fuel within the usable range. If the search
-            // found nothing at all we still say so — silence is the failure
-            // mode this whole feature exists to prevent.
-            return .unreachable
+        // Nothing reachable is .unreachable even when the search found
+        // nothing at all — silence is the failure mode this whole feature
+        // exists to prevent (rust/flows-core long_trips.rs).
+        let code = StationColumns(stationsAhead).call { miles, prices, priced, count in
+            flows_long_trips_fuel_level(miles, prices, priced, count, rangeMiles, reserveMiles)
         }
-        return inRange.count <= warnAtReachableCount
-            ? .lastChances(remaining: inRange.count)
-            : .none
+        switch code {
+        case 0: return .none
+        case let remaining where remaining > 0: return .lastChances(remaining: Int(remaining))
+        default: return .unreachable
+        }
     }
 
     /// Cheapest of the reachable stations (ties → nearest). Stations with no
@@ -150,14 +148,35 @@ enum FuelWarning {
     /// price we can actually stand behind.
     static func cheapest(stationsAhead: [Station], rangeMiles: Double,
                          reserveMiles: Double = VehicleProfile.reserveMiles) -> Station? {
-        let inRange = reachable(stationsAhead: stationsAhead, rangeMiles: rangeMiles,
-                                reserveMiles: reserveMiles)
-        let priced = inRange.filter { $0.pricePerUnit != nil }
-        guard !priced.isEmpty else { return inRange.first }
-        return priced.min {
-            let (a, b) = ($0.pricePerUnit ?? .infinity, $1.pricePerUnit ?? .infinity)
-            if abs(a - b) > 0.001 { return a < b }
-            return $0.milesAhead < $1.milesAhead
+        let index = StationColumns(stationsAhead).call { miles, prices, priced, count in
+            flows_long_trips_cheapest_station(miles, prices, priced, count, rangeMiles, reserveMiles)
+        }
+        return index >= 0 ? stationsAhead[Int(index)] : nil
+    }
+
+    /// The stations as the bridge reads them: distance, price and whether a
+    /// price is known, with a placeholder behind a zero count for an empty
+    /// list.
+    private struct StationColumns {
+        let miles: [Double]
+        let prices: [Double]
+        let priced: [UInt8]
+        let count: Int64
+
+        init(_ stations: [Station]) {
+            miles = stations.isEmpty ? [0] : stations.map(\.milesAhead)
+            prices = stations.isEmpty ? [0] : stations.map { $0.pricePerUnit ?? 0 }
+            priced = stations.isEmpty ? [0] : stations.map { $0.pricePerUnit == nil ? 0 : 1 }
+            count = Int64(stations.count)
+        }
+
+        func call<R>(_ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>,
+                              UnsafeBufferPointer<UInt8>, Int64) -> R) -> R {
+            miles.withUnsafeBufferPointer { m in
+                prices.withUnsafeBufferPointer { p in
+                    priced.withUnsafeBufferPointer { f in body(m, p, f, count) }
+                }
+            }
         }
     }
 

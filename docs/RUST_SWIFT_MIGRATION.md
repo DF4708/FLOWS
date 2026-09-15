@@ -1459,6 +1459,34 @@ scalar. `swift_text` also gained `split(separator:)` on clusters and
 The oracle (26,164 records, 25 kinds) is bridge-linked from bea472d; the
 three files are identical at 49492c9.
 
+## Wave 2, long tail, second landing: fuel, trip sharing and saved corridors (2026-09-15)
+
+The decisions in three more files are Rust. `flows_core::long_trips` holds
+the fuel gauge's colour and the last-chance fuel warning (`FuelWarning`: how
+many stations selling the vehicle's fuel are still reachable, and which one
+is cheapest), the long-trip share (`TripShare`: the 200-mile trigger, the
+day's odometer, who to suggest first, and how a share joins or evicts a
+stored recipient) and the saved road corridors (`OfflineCorridors`: what is
+worth saving, when a corridor goes, how a new one replaces the old, and how
+its line is thinned). The fuel warning's bearing and reachability test and
+the nearest saved corridor use the geo kernel, whose first bridge functions
+landed here; the rest of the geo facade still waits for wave 3.
+
+The stores keep their files and keychain entries. Rust returns a plan (which
+recipient a share joins, how many old dates fall off, which recipients stay,
+which corridors remain) and the store applies it. The spoken and on-screen
+fuel sentences, the share message with its clock time and map link, the
+`sms:` link and the calendar's start of day stay in Swift.
+
+The oracle (6,815 records, 20 kinds) is bridge-linked from d1197b5 and
+matched on the first run, in debug and release. Both stores were driven for
+real: forty share histories fed one share at a time, and forty corridor
+stores recording, pruning and answering the nearest corridor. The keychain
+and file stores were stubbed, and the share history got defaults that read
+and write nothing, so the harness never touched the owner's data. Two
+reachability answers sit within a nanodegree of the cone's edge, the
+fused-sine allowance the geo oracle already makes.
+
 ### Wave 2 remaining
 
 | item | state |
@@ -1466,5 +1494,5 @@ three files are identical at 49492c9.
 | the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
 | POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
-| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. Not started: OfflineCorridors, recents, FuelWarning, transit estimates (TransitItinerary), spoken replies (VoiceReply), TripShare, VehicleLink, RouteAttributes, RadioBrowser |
+| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). Not started: recents, transit estimates (TransitItinerary), spoken replies (VoiceReply), VehicleLink, RouteAttributes, RadioBrowser |
 | wave-1 leftovers | LANDED: EscalationPolicy, AlertEntityParser, ScannerIncidents (`flows_core::alert_text`) |

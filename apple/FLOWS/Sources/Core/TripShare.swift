@@ -23,8 +23,9 @@ enum TripShareLogic {
 
     /// The long-trip line, in miles. Applies to BOTH triggers: a plotted
     /// route over this long, or a driving day that has passed it.
-    static let longTripMiles = 200.0
-    static let metersPerMile = 1609.344
+    private static let constants = Array(flows_long_trips_share_constants())
+    static let longTripMiles = constants[0]
+    static let metersPerMile = constants[1]
 
     /// Offer the share when the plotted route is over 200 miles OR the day's
     /// cumulative driving has passed 200 miles. Strictly over — a route of
@@ -32,8 +33,7 @@ enum TripShareLogic {
     /// the day's meters grow, so a short leg late in a long driving day still
     /// triggers mid-drive.
     static func shouldOffer(routeMeters: Double, drivenTodayMeters: Double) -> Bool {
-        let limit = longTripMiles * metersPerMile
-        return routeMeters > limit || drivenTodayMeters > limit
+        flows_long_trips_should_offer_share(routeMeters, drivenTodayMeters)
     }
 
     /// The prefilled text: where, when, and a map link. Plain words. Arrival
@@ -76,23 +76,34 @@ enum TripShareLogic {
     /// yesterday, but a pile of year-old shares loses to anyone current.
     /// Ties break on the most recent share (Swift's sort isn't stable).
     static func ranked(_ recipients: [ShareRecipient], now: Date) -> [ShareRecipient] {
-        struct Scored {
-            let recipient: ShareRecipient
-            let score: Double
-            let latest: Date
+        let order = ShareColumns(recipients).withDates { dates, counts, count in
+            Array(flows_long_trips_ranked_recipients(dates, counts, count,
+                                                     now.timeIntervalSinceReferenceDate))
         }
-        let scored: [Scored] = recipients.map { r in
-            var total = 0.0
-            for date in r.shareDates {
-                let ageDays: Double = max(now.timeIntervalSince(date), 0) / 86_400
-                total += pow(0.5, ageDays / 30)
-            }
-            return Scored(recipient: r, score: total,
-                          latest: r.shareDates.max() ?? .distantPast)
-        }
-        return scored
-            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.latest > $1.latest }
-            .map(\.recipient)
+        return order.map { recipients[Int($0)] }
+    }
+}
+
+/// Recipients as the bridge reads them: every share date in one list
+/// (seconds since the reference date), each recipient's date count, and the
+/// phones joined by UTF-8 length — with placeholders behind a zero count for
+/// an empty list.
+struct ShareColumns {
+    let dates: [Double]
+    let counts: [Int64]
+    let phones: RustTextColumn
+    let count: Int64
+
+    init(_ recipients: [ShareRecipient]) {
+        let flat = recipients.flatMap { $0.shareDates.map(\.timeIntervalSinceReferenceDate) }
+        dates = flat.isEmpty ? [0] : flat
+        counts = recipients.isEmpty ? [0] : recipients.map { Int64($0.shareDates.count) }
+        phones = RustTextColumn(recipients.map(\.phone))
+        count = Int64(recipients.count)
+    }
+
+    func withDates<R>(_ body: (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Int64>, Int64) -> R) -> R {
+        dates.withUnsafeBufferPointer { d in counts.withUnsafeBufferPointer { c in body(d, c, count) } }
     }
 }
 
@@ -110,12 +121,14 @@ struct DailyDriveLog: Codable, Equatable {
 
     mutating func add(meters delta: Double, at date: Date = Date(),
                       calendar: Calendar = .current) {
-        let today = calendar.startOfDay(for: date)
-        if today != day {
-            day = today
-            meters = 0
-        }
-        meters += max(delta, 0)   // a GPS glitch must never drive the total down
+        // A new calendar day starts the count over, and a GPS glitch must
+        // never drive the total down (rust/flows-core long_trips.rs). The
+        // calendar's start of day stays here.
+        let next = flows_long_trips_daily_drive_add(
+            day.timeIntervalSinceReferenceDate, meters,
+            calendar.startOfDay(for: date).timeIntervalSinceReferenceDate, delta)
+        day = Date(timeIntervalSinceReferenceDate: next.day)
+        meters = next.meters
     }
 }
 
@@ -141,8 +154,9 @@ final class ShareHistoryStore: ObservableObject {
     private let useKeychain: Bool
     private static let key = "flows.shareHistory"
     private static let keychainKey = "shareHistory"
-    static let maxRecipients = 12
-    static let maxDatesPerRecipient = 10
+    private static let caps = Array(flows_long_trips_share_caps())
+    static let maxRecipients = Int(caps[0])
+    static let maxDatesPerRecipient = Int(caps[1])
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -170,25 +184,34 @@ final class ShareHistoryStore: ObservableObject {
     /// one person. (The same number typed with and without a country code
     /// still makes two entries — acceptable for a suggestion list.)
     static func normalized(_ phone: String) -> String {
-        phone.filter(\.isNumber)
+        flows_long_trips_normalized_phone(phone).text
     }
 
     func recordShare(name: String, phone: String, at date: Date = Date()) {
-        let key = Self.normalized(phone)
-        guard !key.isEmpty else { return }
-        if let i = recipients.firstIndex(where: { Self.normalized($0.phone) == key }) {
-            if !name.isEmpty { recipients[i].name = name }
-            recipients[i].shareDates.append(date)
-            let overflow = recipients[i].shareDates.count - Self.maxDatesPerRecipient
-            if overflow > 0 { recipients[i].shareDates.removeFirst(overflow) }
+        // The plan comes from rust/flows-core long_trips.rs: [matched index
+        // or -1, renames, dropped dates, order length or -1, order…], empty
+        // when the number has no digits and nothing is recorded.
+        let columns = ShareColumns(recipients)
+        let plan: [Int64] = columns.phones.with { joined, lengths, _ in
+            columns.withDates { dates, counts, count in
+                Array(flows_long_trips_record_share(joined, lengths, dates, counts, count,
+                                                    name, phone, date.timeIntervalSinceReferenceDate))
+            }
+        }
+        guard plan.count >= 4 else { return }
+        let matched = Int(plan[0])
+        if matched >= 0 {
+            if plan[1] != 0 { recipients[matched].name = name }
+            recipients[matched].shareDates.append(date)
+            recipients[matched].shareDates.removeFirst(Int(plan[2]))
         } else {
             recipients.append(ShareRecipient(name: name, phone: phone, shareDates: [date]))
         }
-        if recipients.count > Self.maxRecipients {
+        if plan[3] >= 0 {
             // Evict the WEAKEST suggestion, not the oldest entry — the list
             // exists to rank, so the ranking decides who stays.
-            recipients = Array(TripShareLogic.ranked(recipients, now: date)
-                .prefix(Self.maxRecipients))
+            let current = recipients
+            recipients = plan[4...].map { current[Int($0)] }
         }
         persist()
     }
