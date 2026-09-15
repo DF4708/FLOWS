@@ -725,6 +725,9 @@ struct ContentView: View {
                 hotspots: hotspots, perimeters: perimeters, quakes: quakes, space: space,
                 volcanoes: volcanoes, avalancheZones: avalancheZones, storms: storms,
                 tsunamis: tsunamis, spcZones: spcZones)
+            // Laid out once for every grid point below, not once per point.
+            let preparedGauges = HazardFeedScores.PreparedGauges(floodGauges)
+            let preparedClosures = HazardFeedScores.PreparedPoints(closures)
             var found: [ViewportHazard] = []
             // N×N grid (5×5 on capable devices, 4×4 / 3×3 on weaker, hot, or
             // Low-Power ones) — fewer sample points is fewer requests AND less
@@ -777,7 +780,7 @@ struct ContentView: View {
                             families["fire"] = live.fire
                             families["seismic"] = live.seismic
                             let floodRealized = HazardFeedScores.floodGaugeScore(
-                                gauges: floodGauges, at: pt)
+                                prepared: preparedGauges, at: pt)
                             families["qpf_flood"] = max(families["qpf_flood"] ?? 0, floodRealized)
                             let (aqi, uv) = await LiveHazardFeedFetcher.shared.airAndUV(at: pt)
                             if let aqi { families["air"] = HazardFeedScores.airScore(usAQI: aqi) }
@@ -869,7 +872,7 @@ struct ContentView: View {
                                 bandInput[fam] = max(bandInput[fam] ?? 0, alertSeverity)
                             }
                             // DOT-reported closure = PROOF the road is blocked.
-                            let closed = HazardFeedScores.closureScore(closures: closures, at: pt)
+                            let closed = HazardFeedScores.closureScore(prepared: preparedClosures, at: pt)
                             if closed > 0 {
                                 bandInput["closure"] = closed
                                 families["closure"] = closed

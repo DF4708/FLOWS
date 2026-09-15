@@ -295,19 +295,6 @@ fn candidates(
         .collect()
 }
 
-/// The first `count` texts of a joined column, by UTF-8 length; `None` when
-/// a length is negative, runs past the text or splits a character.
-fn texts<'a>(joined: &'a str, lens: &[i64], count: usize) -> Option<Vec<&'a str>> {
-    let mut at = 0usize;
-    let mut out = Vec::with_capacity(count);
-    for &len in lens.iter().take(count) {
-        let end = at.checked_add(usize::try_from(len).ok()?)?;
-        out.push(joined.get(at..end)?);
-        at = end;
-    }
-    (out.len() == count).then_some(out)
-}
-
 /// A joined column of texts that may be nil.
 fn optional_texts<'a>(
     joined: &'a str,
@@ -315,7 +302,7 @@ fn optional_texts<'a>(
     present: &[u8],
     count: usize,
 ) -> Option<Vec<Option<&'a str>>> {
-    let all = texts(joined, lens, count)?;
+    let all = crate::split_texts(joined, lens, count)?;
     (present.len() >= count).then(|| {
         all.into_iter()
             .zip(present)
@@ -676,7 +663,7 @@ pub fn flows_places_pinned(
         let Some(keys) = e
             .checked_add(c)
             .and_then(|n| n.checked_add(r))
-            .and_then(|n| texts(keys_joined, key_lens, n))
+            .and_then(|n| crate::split_texts(keys_joined, key_lens, n))
         else {
             return Vec::new();
         };
@@ -701,7 +688,7 @@ pub fn flows_places_merge(
         };
         let Some(keys) = e
             .checked_add(n)
-            .and_then(|t| texts(keys_joined, key_lens, t))
+            .and_then(|t| crate::split_texts(keys_joined, key_lens, t))
         else {
             return Vec::new();
         };
@@ -782,15 +769,18 @@ mod tests {
 
     #[test]
     fn text_columns_split_by_length_and_refuse_bad_lengths() {
-        assert_eq!(texts("a|bcé", &[2, 4], 2), Some(vec!["a|", "bcé"]));
-        assert_eq!(texts("abc", &[1, 1, 1], 0), Some(vec![]));
         assert_eq!(
-            texts("é", &[1], 1),
+            crate::split_texts("a|bcé", &[2, 4], 2),
+            Some(vec!["a|", "bcé"])
+        );
+        assert_eq!(crate::split_texts("abc", &[1, 1, 1], 0), Some(vec![]));
+        assert_eq!(
+            crate::split_texts("é", &[1], 1),
             None,
             "a length that splits a character"
         );
-        assert_eq!(texts("abc", &[-1], 1), None);
-        assert_eq!(texts("abc", &[4], 1), None);
+        assert_eq!(crate::split_texts("abc", &[-1], 1), None);
+        assert_eq!(crate::split_texts("abc", &[4], 1), None);
         assert_eq!(
             optional_texts("ab", &[1, 1], &[1, 0], 2),
             Some(vec![Some("a"), None])

@@ -68,6 +68,21 @@ pub mod trip_vehicle;
 pub mod vehicle_policy;
 
 /// Run `f`, turning a panic into `fallback`.
+/// The first `count` texts of a joined column, split by their UTF-8
+/// lengths; `None` when a length is negative, runs past the text or splits a
+/// character. Lengths rather than a separator, so a text holding any
+/// character splits back exactly.
+pub(crate) fn split_texts<'a>(joined: &'a str, lens: &[i64], count: usize) -> Option<Vec<&'a str>> {
+    let mut at = 0usize;
+    let mut out = Vec::with_capacity(count);
+    for &len in lens.iter().take(count) {
+        let end = at.checked_add(usize::try_from(len).ok()?)?;
+        out.push(joined.get(at..end)?);
+        at = end;
+    }
+    (out.len() == count).then_some(out)
+}
+
 pub(crate) fn contain<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or(fallback)
 }

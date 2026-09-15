@@ -387,16 +387,53 @@ pub fn prefix_clusters(text: &str, n: usize) -> &str {
     &text[..end]
 }
 
-/// The byte offsets of every cluster boundary in `text`, first `0`, last
-/// `text.len()` (just `[0]` for an empty string).
-fn boundaries(text: &str) -> Vec<usize> {
-    let mut out = vec![0];
-    let mut pos = 0;
-    for cluster in graphemes(text) {
-        pos += cluster.len();
-        out.push(pos);
+/// The byte offsets of every cluster boundary in a text, first `0`, last
+/// the text's length: `u32` offsets for any text a feed or a page will ever
+/// be (half the memory), `usize` past 4 GiB.
+enum Bounds {
+    Narrow(Vec<u32>),
+    Wide(Vec<usize>),
+}
+
+impl Bounds {
+    fn of(text: &str) -> Bounds {
+        let narrow = u32::try_from(text.len()).is_ok();
+        let mut wide: Vec<usize> = Vec::new();
+        let mut small: Vec<u32> = Vec::new();
+        let mut pos = 0usize;
+        let mut push = |p: usize| {
+            if narrow {
+                small.push(p as u32);
+            } else {
+                wide.push(p);
+            }
+        };
+        push(0);
+        for cluster in graphemes(text) {
+            pos += cluster.len();
+            push(pos);
+        }
+        if narrow {
+            Bounds::Narrow(small)
+        } else {
+            Bounds::Wide(wide)
+        }
     }
-    out
+
+    fn get(&self, k: usize) -> usize {
+        match self {
+            Bounds::Narrow(v) => v[k] as usize,
+            Bounds::Wide(v) => v[k],
+        }
+    }
+
+    /// The index of `offset` among the boundaries; `None` when it is not one.
+    fn position(&self, offset: usize) -> Option<usize> {
+        match self {
+            Bounds::Narrow(v) => v.binary_search(&u32::try_from(offset).ok()?).ok(),
+            Bounds::Wide(v) => v.binary_search(&offset).ok(),
+        }
+    }
 }
 
 // ------------------------------------------------------------------ casing
@@ -515,23 +552,32 @@ pub fn ascii_form(text: &str) -> Option<String> {
 
 // ------------------------------------------------------ Foundation search
 
-/// Foundation's `range(of:)` inside `hay[from..to]` (byte offsets on cluster
-/// boundaries of `hay`): the first run of whole clusters canonically equal to
-/// `needle`, as its byte range. `None` for an empty needle, as Foundation
-/// answers, for offsets that are not cluster boundaries, and when nothing
-/// matches.
-#[must_use]
-pub fn find_in(hay: &str, needle: &str, from: usize, to: usize) -> Option<(usize, usize)> {
+/// Foundation's `range(of:)` inside `hay[from..to]` over known boundaries.
+fn search(
+    hay: &str,
+    bounds: &Bounds,
+    needle: &str,
+    from: usize,
+    to: usize,
+) -> Option<(usize, usize)> {
     if needle.is_empty() || from >= to || to > hay.len() {
         return None;
     }
-    let all = boundaries(hay);
-    let first = all.binary_search(&from).ok()?;
-    let last = all.binary_search(&to).ok()?;
-    let bounds = &all[first..=last];
+    let first = bounds.position(from)?;
+    let last = bounds.position(to)?;
     let target = nfd(needle);
-    for (si, &s) in bounds.iter().enumerate().take(bounds.len() - 1) {
-        for &e in &bounds[si + 1..] {
+    let &head = target.first()?;
+    let bytes = hay.as_bytes();
+    for si in first..last {
+        let s = bounds.get(si);
+        // A one-byte cluster is ASCII and its own decomposition: when it is
+        // not the needle's first character no run starts here, which is
+        // where the comparison below would stop anyway, without allocating.
+        if bounds.get(si + 1) - s == 1 && char::from(bytes[s]) != head {
+            continue;
+        }
+        for ei in si + 1..=last {
+            let e = bounds.get(ei);
             let run = nfd(&hay[s..e]);
             if run.len() > target.len() || !target.starts_with(&run) {
                 break;
@@ -542,6 +588,52 @@ pub fn find_in(hay: &str, needle: &str, from: usize, to: usize) -> Option<(usize
         }
     }
     None
+}
+
+/// Foundation's `range(of:)` inside `hay[from..to]` (byte offsets on cluster
+/// boundaries of `hay`): the first run of whole clusters canonically equal to
+/// `needle`, as its byte range. `None` for an empty needle, as Foundation
+/// answers, for offsets that are not cluster boundaries, and when nothing
+/// matches. Segments all of `hay`: a caller searching one long text many
+/// times builds a [`ClusterIndex`] once instead.
+#[must_use]
+pub fn find_in(hay: &str, needle: &str, from: usize, to: usize) -> Option<(usize, usize)> {
+    if needle.is_empty() || from >= to || to > hay.len() {
+        return None;
+    }
+    search(hay, &Bounds::of(hay), needle, from, to)
+}
+
+/// A text's cluster boundaries, found once and shared by many searches.
+/// Every answer equals [`find_in`] on the same text; the difference is cost.
+/// A feed file or a web page searched once per tag used to be segmented
+/// again for every search, which made those scans quadratic.
+pub struct ClusterIndex<'a> {
+    text: &'a str,
+    bounds: Bounds,
+}
+
+impl<'a> ClusterIndex<'a> {
+    /// Segments `text` once.
+    #[must_use]
+    pub fn new(text: &'a str) -> ClusterIndex<'a> {
+        ClusterIndex {
+            text,
+            bounds: Bounds::of(text),
+        }
+    }
+
+    /// [`find_in`] on the indexed text.
+    #[must_use]
+    pub fn find_in(&self, needle: &str, from: usize, to: usize) -> Option<(usize, usize)> {
+        search(self.text, &self.bounds, needle, from, to)
+    }
+
+    /// [`find`] on the indexed text.
+    #[must_use]
+    pub fn find(&self, needle: &str) -> Option<(usize, usize)> {
+        self.find_in(needle, 0, self.text.len())
+    }
 }
 
 /// Foundation's `range(of:)` over the whole string.
@@ -560,9 +652,10 @@ pub fn contains(hay: &str, needle: &str) -> bool {
 /// matches, empty pieces included; a string with no match is one piece.
 #[must_use]
 pub fn components(text: &str, separator: &str) -> Vec<String> {
+    let index = ClusterIndex::new(text);
     let mut out = Vec::new();
     let mut pos = 0;
-    while let Some((a, b)) = find_in(text, separator, pos, text.len()) {
+    while let Some((a, b)) = index.find_in(separator, pos, text.len()) {
         out.push(text[pos..a].to_string());
         pos = b;
     }
@@ -574,9 +667,10 @@ pub fn components(text: &str, separator: &str) -> Vec<String> {
 /// replaced.
 #[must_use]
 pub fn replacing(text: &str, target: &str, replacement: &str) -> String {
+    let index = ClusterIndex::new(text);
     let mut out = String::with_capacity(text.len());
     let mut pos = 0;
-    while let Some((a, b)) = find_in(text, target, pos, text.len()) {
+    while let Some((a, b)) = index.find_in(target, pos, text.len()) {
         out.push_str(&text[pos..a]);
         out.push_str(replacement);
         pos = b;
@@ -639,6 +733,58 @@ pub fn trim_whitespace_newlines(text: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cluster_index_answers_every_search_as_find_in_does() {
+        let texts = [
+            "ab\r\ncd\r\n",
+            "cafe\u{301} caf\u{e9} cafe",
+            "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}x\u{1F1FA}\u{1F1F8}\u{1F1FA}",
+            "\u{212A}elvin K k",
+            "<a>\u{301}<b></b></a>",
+            "",
+        ];
+        let needles = [
+            "a",
+            "\r",
+            "\n",
+            "\r\n",
+            "caf\u{e9}",
+            "e",
+            "\u{301}",
+            "K",
+            "\u{1F1FA}",
+            "\u{1F1FA}\u{1F1F8}",
+            "</b>",
+            "<",
+            "x",
+        ];
+        for text in texts {
+            let index = ClusterIndex::new(text);
+            for needle in needles {
+                for from in 0..=text.len() {
+                    for to in from..=text.len() {
+                        assert_eq!(
+                            index.find_in(needle, from, to),
+                            search(text, &Bounds::Wide(wide_bounds(text)), needle, from, to),
+                            "{text:?} {needle:?} {from}..{to}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The boundaries the original computed, as plain offsets.
+    fn wide_bounds(text: &str) -> Vec<usize> {
+        let mut out = vec![0];
+        let mut pos = 0;
+        for cluster in graphemes(text) {
+            pos += cluster.len();
+            out.push(pos);
+        }
+        out
+    }
 
     fn sizes(scalars: &[u32]) -> Vec<usize> {
         let s: String = scalars.iter().filter_map(|&v| char::from_u32(v)).collect();

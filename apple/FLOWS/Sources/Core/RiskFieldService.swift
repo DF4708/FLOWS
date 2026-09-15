@@ -38,7 +38,12 @@ private let riskLog = Logger(subsystem: "com.flows.app", category: "riskfield")
 @MainActor
 final class RiskFieldService: ObservableObject {
     struct ZipEntry: Identifiable {
-        let id = UUID()
+        /// The entry's index in the loaded bundle, so a ZIP keeps one identity
+        /// across viewport changes and the map's ForEach updates only the
+        /// polygons that changed. (A fresh UUID per selection tore down and
+        /// re-added every polygon on each camera settle.) Entries decoded from
+        /// JSON before the field indexes them carry -1; they are never drawn.
+        var id: Int = -1
         let zip: String
         let centroid: CLLocationCoordinate2D
         let scores: [Double]           // aligned with `families`
@@ -194,7 +199,11 @@ final class RiskFieldService: ObservableObject {
                         summary: z.t,
                         ring: (ring?.count ?? 0) >= 3 ? ring : nil)
                 }
-                return RiskField(generated: raw.generated_utc, families: raw.families, entries: entries)
+                // A bundle the field refuses is skipped like an unreadable
+                // file: the next candidate still gets its turn.
+                if let field = RiskField(generated: raw.generated_utc, families: raw.families, entries: entries) {
+                    return field
+                }
             }
             return nil
         }.value
@@ -232,7 +241,6 @@ final class RiskFieldService: ObservableObject {
 /// so it moves between the loading task and the main actor as a value would.
 final class RiskField: @unchecked Sendable {
     let handle: FlowsRiskField
-    private static let join = "\u{1F}"
 
     init(handle: FlowsRiskField) { self.handle = handle }
 
@@ -247,15 +255,17 @@ final class RiskField: @unchecked Sendable {
     }
 
     /// From entries already decoded (the JSON path, and the tests). Columns
-    /// cross as parallel lists with names and summaries joined by U+001F and a
-    /// presence flag beside each optional; a column that would be empty carries
+    /// cross as parallel lists, names and summaries as one joined text plus each
+    /// text's length (RustTextColumn) and a presence flag beside each optional; a column that would be empty carries
     /// one placeholder the counts ignore, because swift-bridge must never see an
     /// empty buffer. Rings cross as the entry carries them (the JSON path has
     /// already dropped rings under three points).
     convenience init?(generated: String, families: [String], entries: [RiskFieldService.ZipEntry]) {
-        let join = RiskField.join
+        let familyColumn = RustTextColumn(families)
         guard !entries.isEmpty else {
-            self.init(handle: flows_risk_field_empty(generated, families.joined(separator: join)))
+            self.init(handle: familyColumn.with { joined, lens, _ in
+                flows_risk_field_empty(generated, joined, lens, Int64(families.count))
+            })
             return
         }
         var lats: [Double] = [], lons: [Double] = [], scores: [Double] = [], ringPoints: [Double] = []
@@ -275,7 +285,9 @@ final class RiskField: @unchecked Sendable {
         }
         if scores.isEmpty { scores = [0] }
         if ringPoints.isEmpty { ringPoints = [0] }
-        let handle: FlowsRiskField? = lats.withUnsafeBufferPointer { la in
+        let zipColumn = RustTextColumn(zips), summaryColumn = RustTextColumn(summaries)
+        let handle: FlowsRiskField? = familyColumn.with { fj, fl, _ in zipColumn.with { zj, zl, _ in
+          summaryColumn.with { sj, sl, _ in lats.withUnsafeBufferPointer { la in
             lons.withUnsafeBufferPointer { lo in
                 scoreCounts.withUnsafeBufferPointer { sc in
                     scores.withUnsafeBufferPointer { s in
@@ -284,8 +296,8 @@ final class RiskField: @unchecked Sendable {
                                 hasRing.withUnsafeBufferPointer { hr in
                                     ringPoints.withUnsafeBufferPointer { rp in
                                         flows_risk_field_from_columns(
-                                            generated, families.joined(separator: join), zips.joined(separator: join),
-                                            la, lo, sc, s, summaries.joined(separator: join), hs, rc, hr, rp)
+                                            generated, fj, fl, Int64(families.count), zj, zl,
+                                            la, lo, sc, s, sj, sl, hs, rc, hr, rp)
                                     }
                                 }
                             }
@@ -294,6 +306,7 @@ final class RiskField: @unchecked Sendable {
                 }
             }
         }
+        } } }
         guard let handle else { return nil }
         self.init(handle: handle)
     }
@@ -329,6 +342,7 @@ final class RiskField: @unchecked Sendable {
             }
         }
         return RiskFieldService.ZipEntry(
+            id: index,
             zip: handle.zip(i).text,
             centroid: CLLocationCoordinate2D(latitude: handle.latitude(i), longitude: handle.longitude(i)),
             scores: scores(at: index), summary: summary(at: index), ring: ring)

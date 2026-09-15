@@ -1599,3 +1599,28 @@ without a regression:
   "Vista Travel" no longer reads as TA; the code still matches it through
   "ta travel". The oracle and the port follow the code; the discrepancy
   goes to the owner as a finding.
+
+## What a bit-exact oracle cannot see
+
+- **An oracle pins answers, not cost.** The live-feeds port matched all
+  6,670 records while turning the CRE tag scan quadratic: the fixture's
+  largest file had 8 stations, the real one about 13,000. Every parser of a
+  downloaded file gets a test at the real file's scale, timed.
+- **Identity is behaviour in SwiftUI.** A facade that rebuilds values on
+  every call must keep their `id`; a fresh UUID per selection made the map
+  tear down and redraw every overlay polygon on each camera settle, with
+  every number still bit-exact.
+- **A bridge crossing inside a per-sample loop multiplies.** Laying a list
+  out for Rust costs nothing once and a great deal per corridor sample or per
+  cell. Prepare the columns once per route or join; pass the buffers per
+  call.
+- **Review the facade layer with skeptics, not just oracles.** Five readers
+  over the landing diffs, each finding sent to one verifier told to refute
+  it, confirmed three real regressions and refuted one claim that was the
+  owner's rule. Nine agents, not hundreds.
+- **This Mac's linker writes compiler plugins dyld refuses.** Xcode 27's
+  ld-27037.1 links proc-macro dylibs with a "mis-aligned LINKEDIT string
+  pool"; rustc reports that as `E0463 can't find crate for
+  swift_bridge_macro`. The main tree builds only because its plugins were
+  linked earlier. Never `cargo clean` it; another checkout can reuse a
+  loadable plugin copied with a fresh modification time.

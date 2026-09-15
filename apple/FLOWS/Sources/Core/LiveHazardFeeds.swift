@@ -108,6 +108,63 @@ enum HazardFeedScores {
         }
     }
 
+    /// Flood gauges laid out once for many points (route scoring reads the
+    /// same gauges at every corridor sample). Only gauges at or above flood
+    /// stage are kept: the scorer skips every gauge whose category scores
+    /// zero or not-a-number, so the answers are the same as the plain list's.
+    struct PreparedGauges: Sendable {
+        let lats: [Double]
+        let lons: [Double]
+        let categories: String
+
+        init(_ gauges: [(lat: Double, lon: Double, category: String)]) {
+            let flooding = gauges.filter { HazardFeedScores.floodCategoryScore($0.category) > 0 }
+            lats = flooding.map { $0.lat }
+            lons = flooding.map { $0.lon }
+            categories = HazardFeedScores.joined(flooding.map { $0.category })
+        }
+    }
+
+    /// Points laid out once for many queries (closures, mapped water).
+    struct PreparedPoints: Sendable {
+        let lats: [Double]
+        let lons: [Double]
+
+        init(_ points: [(lat: Double, lon: Double)]) {
+            lats = points.map { $0.lat }
+            lons = points.map { $0.lon }
+        }
+
+        init(_ points: [Point]) {
+            lats = points.map { $0.latitude }
+            lons = points.map { $0.longitude }
+        }
+    }
+
+    /// `floodGaugeScore(gauges:at:)` over gauges laid out once.
+    static func floodGaugeScore(prepared gauges: PreparedGauges, at point: Point) -> Double {
+        guard !gauges.lats.isEmpty else { return 0 }
+        return two(gauges.lats, gauges.lons) {
+            flows_hazard_flood_gauge_score($0, $1, gauges.categories, point.latitude, point.longitude)
+        }
+    }
+
+    /// `waterProximityScore(waterPoints:at:)` over points laid out once.
+    static func waterProximityScore(prepared water: PreparedPoints, at point: Point) -> Double {
+        guard !water.lats.isEmpty else { return 0 }
+        return two(water.lats, water.lons) {
+            flows_hazard_water_proximity_score($0, $1, point.latitude, point.longitude)
+        }
+    }
+
+    /// `closureScore(closures:at:)` over closures laid out once.
+    static func closureScore(prepared closures: PreparedPoints, at point: Point) -> Double {
+        guard !closures.lats.isEmpty else { return 0 }
+        return two(closures.lats, closures.lons) {
+            flows_hazard_closure_score($0, $1, point.latitude, point.longitude)
+        }
+    }
+
     /// Topographic flood evidence: 1 at a corridor sample with mapped water
     /// nearby, tapering to 0 by ~6 km.
     static func waterProximityScore(waterPoints: [Point], at point: Point) -> Double {

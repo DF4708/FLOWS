@@ -958,25 +958,26 @@ pub fn worst_first(severities: &[f64]) -> Vec<usize> {
 #[must_use]
 pub fn parse_fuel_prices(xml: &str) -> BTreeMap<String, BTreeMap<String, f64>> {
     let mut out: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
+    let index = st::ClusterIndex::new(xml);
     let mut search = 0;
-    while let Some((_, id_start)) = st::find_in(xml, "<place place_id=\"", search, xml.len()) {
-        let Some((id_end, after_id)) = st::find_in(xml, "\"", id_start, xml.len()) else {
+    while let Some((_, id_start)) = index.find_in("<place place_id=\"", search, xml.len()) {
+        let Some((id_end, after_id)) = index.find_in("\"", id_start, xml.len()) else {
             break;
         };
-        let Some((close, after_close)) = st::find_in(xml, "</place>", after_id, xml.len()) else {
+        let Some((close, after_close)) = index.find_in("</place>", after_id, xml.len()) else {
             break;
         };
         let id = xml[id_start..id_end].to_string();
         let mut prices: BTreeMap<String, f64> = BTreeMap::new();
         let mut inner = after_id;
-        while let Some((_, t_start)) = st::find_in(xml, "<gas_price type=\"", inner, close) {
-            let Some((t_end, after_t)) = st::find_in(xml, "\"", t_start, close) else {
+        while let Some((_, t_start)) = index.find_in("<gas_price type=\"", inner, close) {
+            let Some((t_end, after_t)) = index.find_in("\"", t_start, close) else {
                 break;
             };
-            let Some((_, v_start)) = st::find_in(xml, ">", after_t, close) else {
+            let Some((_, v_start)) = index.find_in(">", after_t, close) else {
                 break;
             };
-            let Some((v_end, after_v)) = st::find_in(xml, "<", v_start, close) else {
+            let Some((v_end, after_v)) = index.find_in("<", v_start, close) else {
                 break;
             };
             // `Double(inner[…])` reads a Substring: an embedded NUL fails it.
@@ -998,12 +999,13 @@ pub fn parse_fuel_prices(xml: &str) -> BTreeMap<String, BTreeMap<String, f64>> {
 #[must_use]
 pub fn parse_fuel_places(xml: &str) -> BTreeMap<String, Point> {
     let mut out: BTreeMap<String, Point> = BTreeMap::new();
+    let index = st::ClusterIndex::new(xml);
     let mut search = 0;
-    while let Some((_, id_start)) = st::find_in(xml, "<place place_id=\"", search, xml.len()) {
-        let Some((id_end, after_id)) = st::find_in(xml, "\"", id_start, xml.len()) else {
+    while let Some((_, id_start)) = index.find_in("<place place_id=\"", search, xml.len()) {
+        let Some((id_end, after_id)) = index.find_in("\"", id_start, xml.len()) else {
             break;
         };
-        let Some((close, after_close)) = st::find_in(xml, "</place>", after_id, xml.len()) else {
+        let Some((close, after_close)) = index.find_in("</place>", after_id, xml.len()) else {
             break;
         };
         let id = xml[id_start..id_end].to_string();
@@ -1026,6 +1028,63 @@ pub fn parse_fuel_places(xml: &str) -> BTreeMap<String, Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A CRE-shaped prices file: `n` stations, accented names, three prices.
+    fn cre_prices_file(n: usize) -> String {
+        let mut s = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?><places>");
+        for i in 0..n {
+            s.push_str(&format!(
+                "<place place_id=\"{i}\"><name>Gasolinería Peñón {i}</name><gas_price type=\"regular\">23.{d}9</gas_price><gas_price type=\"premium\">25.{d}4</gas_price><gas_price type=\"diesel\">24.{d}1</gas_price></place>\n",
+                d = i % 10
+            ));
+        }
+        s.push_str("</places>");
+        s
+    }
+
+    /// A CRE-shaped places file: `n` stations with coordinates.
+    fn cre_places_file(n: usize) -> String {
+        let mut s = String::from("<places>");
+        for i in 0..n {
+            s.push_str(&format!(
+                "<place place_id=\"{i}\"><name>Peñón {i}</name><x>-99.{d}3</x><y>19.4{d}</y></place>\n",
+                d = i % 10
+            ));
+        }
+        s.push_str("</places>");
+        s
+    }
+
+    #[test]
+    fn the_fuel_files_parse_in_time_linear_in_their_size() {
+        // The scan once segmented the whole file for every tag it looked
+        // for: 300 stations took 11 s in release, a real 13,000-station file
+        // hours. Two thousand stations must stay far under the bound even
+        // in a debug build.
+        let prices = cre_prices_file(2_000);
+        let places = cre_places_file(2_000);
+        let t = std::time::Instant::now();
+        assert_eq!(parse_fuel_prices(&prices).len(), 2_000);
+        assert_eq!(parse_fuel_places(&places).len(), 2_000);
+        let secs = t.elapsed().as_secs_f64();
+        assert!(secs < 20.0, "parsing 2,000 stations took {secs:.1} s");
+    }
+
+    #[test]
+    #[ignore = "timing probe; run with --ignored --nocapture"]
+    fn fuel_parse_timing_probe() {
+        for n in [300usize, 2000, 13_000] {
+            let xml = cre_prices_file(n);
+            let t = std::time::Instant::now();
+            let got = parse_fuel_prices(&xml);
+            println!(
+                "probe: {n} stations, {} bytes, {:.3} s, {} parsed",
+                xml.len(),
+                t.elapsed().as_secs_f64(),
+                got.len()
+            );
+        }
+    }
 
     fn ring(pts: &[(f64, f64)]) -> Vec<Point> {
         pts.to_vec()

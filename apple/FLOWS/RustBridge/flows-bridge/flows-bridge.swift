@@ -2134,19 +2134,19 @@ public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) ->
 public func flows_risk_field_parse_frb1(_ data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsRiskField> {
     { let val = __swift_bridge__$flows_risk_field_parse_frb1(data.toFfiSlice()); if val != nil { return FlowsRiskField(ptr: val!) } else { return nil } }()
 }
-public func flows_risk_field_empty<GenericToRustStr: ToRustStr>(_ generated: GenericToRustStr, _ families_joined: GenericToRustStr) -> FlowsRiskField {
+public func flows_risk_field_empty<GenericToRustStr: ToRustStr>(_ generated: GenericToRustStr, _ families_joined: GenericToRustStr, _ family_lens: UnsafeBufferPointer<Int64>, _ family_count: Int64) -> FlowsRiskField {
     return families_joined.toRustStr({ families_joinedAsRustStr in
         return generated.toRustStr({ generatedAsRustStr in
-        FlowsRiskField(ptr: __swift_bridge__$flows_risk_field_empty(generatedAsRustStr, families_joinedAsRustStr))
+        FlowsRiskField(ptr: __swift_bridge__$flows_risk_field_empty(generatedAsRustStr, families_joinedAsRustStr, family_lens.toFfiSlice(), family_count))
     })
     })
 }
-public func flows_risk_field_from_columns<GenericToRustStr: ToRustStr>(_ generated: GenericToRustStr, _ families_joined: GenericToRustStr, _ zips_joined: GenericToRustStr, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ score_counts: UnsafeBufferPointer<Int64>, _ scores: UnsafeBufferPointer<Double>, _ summaries_joined: GenericToRustStr, _ has_summary: UnsafeBufferPointer<Int64>, _ ring_counts: UnsafeBufferPointer<Int64>, _ has_ring: UnsafeBufferPointer<Int64>, _ ring_points: UnsafeBufferPointer<Double>) -> Optional<FlowsRiskField> {
+public func flows_risk_field_from_columns<GenericToRustStr: ToRustStr>(_ generated: GenericToRustStr, _ families_joined: GenericToRustStr, _ family_lens: UnsafeBufferPointer<Int64>, _ family_count: Int64, _ zips_joined: GenericToRustStr, _ zip_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ score_counts: UnsafeBufferPointer<Int64>, _ scores: UnsafeBufferPointer<Double>, _ summaries_joined: GenericToRustStr, _ summary_lens: UnsafeBufferPointer<Int64>, _ has_summary: UnsafeBufferPointer<Int64>, _ ring_counts: UnsafeBufferPointer<Int64>, _ has_ring: UnsafeBufferPointer<Int64>, _ ring_points: UnsafeBufferPointer<Double>) -> Optional<FlowsRiskField> {
     return summaries_joined.toRustStr({ summaries_joinedAsRustStr in
         return zips_joined.toRustStr({ zips_joinedAsRustStr in
         return families_joined.toRustStr({ families_joinedAsRustStr in
         return generated.toRustStr({ generatedAsRustStr in
-        { let val = __swift_bridge__$flows_risk_field_from_columns(generatedAsRustStr, families_joinedAsRustStr, zips_joinedAsRustStr, lats.toFfiSlice(), lons.toFfiSlice(), score_counts.toFfiSlice(), scores.toFfiSlice(), summaries_joinedAsRustStr, has_summary.toFfiSlice(), ring_counts.toFfiSlice(), has_ring.toFfiSlice(), ring_points.toFfiSlice()); if val != nil { return FlowsRiskField(ptr: val!) } else { return nil } }()
+        { let val = __swift_bridge__$flows_risk_field_from_columns(generatedAsRustStr, families_joinedAsRustStr, family_lens.toFfiSlice(), family_count, zips_joinedAsRustStr, zip_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), score_counts.toFfiSlice(), scores.toFfiSlice(), summaries_joinedAsRustStr, summary_lens.toFfiSlice(), has_summary.toFfiSlice(), ring_counts.toFfiSlice(), has_ring.toFfiSlice(), ring_points.toFfiSlice()); if val != nil { return FlowsRiskField(ptr: val!) } else { return nil } }()
     })
     })
     })

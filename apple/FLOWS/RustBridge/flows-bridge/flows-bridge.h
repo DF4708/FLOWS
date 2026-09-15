@@ -425,8 +425,8 @@ uintptr_t __swift_bridge__$Vec_FlowsRiskField$len(void* vec_ptr);
 void* __swift_bridge__$Vec_FlowsRiskField$as_ptr(void* vec_ptr);
 
 void* __swift_bridge__$flows_risk_field_parse_frb1(struct __private__FfiSlice data);
-void* __swift_bridge__$flows_risk_field_empty(struct RustStr generated, struct RustStr families_joined);
-void* __swift_bridge__$flows_risk_field_from_columns(struct RustStr generated, struct RustStr families_joined, struct RustStr zips_joined, struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct __private__FfiSlice score_counts, struct __private__FfiSlice scores, struct RustStr summaries_joined, struct __private__FfiSlice has_summary, struct __private__FfiSlice ring_counts, struct __private__FfiSlice has_ring, struct __private__FfiSlice ring_points);
+void* __swift_bridge__$flows_risk_field_empty(struct RustStr generated, struct RustStr families_joined, struct __private__FfiSlice family_lens, int64_t family_count);
+void* __swift_bridge__$flows_risk_field_from_columns(struct RustStr generated, struct RustStr families_joined, struct __private__FfiSlice family_lens, int64_t family_count, struct RustStr zips_joined, struct __private__FfiSlice zip_lens, struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct __private__FfiSlice score_counts, struct __private__FfiSlice scores, struct RustStr summaries_joined, struct __private__FfiSlice summary_lens, struct __private__FfiSlice has_summary, struct __private__FfiSlice ring_counts, struct __private__FfiSlice has_ring, struct __private__FfiSlice ring_points);
 void* __swift_bridge__$FlowsRiskField$generated(void* self);
 void* __swift_bridge__$FlowsRiskField$families(void* self);
 int64_t __swift_bridge__$FlowsRiskField$family_index(void* self, struct RustStr family);

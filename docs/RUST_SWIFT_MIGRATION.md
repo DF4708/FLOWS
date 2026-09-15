@@ -764,6 +764,11 @@ Dependencies decide it. Nothing moves before what it calls.
   (Since the fourth wave-2 landing the app reads shards with
   `flows_core::places::PlacesIndex`, a faithful port of the Swift reader;
   the `flows-train` reader still differs on those four points.)
+- A warning of the same threat rank never replaces a showing imminent
+  banner, even when it needs shelter and the banner does not (the guard in
+  `FLOWSApp.swift` compares ranks only). This is the owner's ded56c1 rule;
+  the facade review flagged it as the one place a Red shelter-level warning
+  ahead is not announced.
 - The shower brand pick's comment says anchored matches stopped "Vista
   Travel" reading as TA, but `"ta travel"` still matches inside it. The
   port keeps the answer the code gave.
@@ -1353,6 +1358,45 @@ place name holding any character splits back exactly. What stays in Swift:
 the MapKit requests, the ratings and price providers, the published state,
 the single-kind row decorations, and `POIRanking.meters` with its ~85
 callers (wave 3).
+
+## Review fixes: what the oracles could not see (2026-09-16)
+
+A review read every facade switch since the wave-1 scaffold for mistakes a
+user would notice that a bit-exact oracle cannot catch: the oracles pin
+answers, not cost or identity. It confirmed three regressions, and this
+landing fixes them and one smaller defect.
+
+- **The Mexico fuel files.** The Foundation-style search rebuilt the whole
+  file's cluster boundaries for every tag it looked for, and the price
+  searches spanned the whole file where the Swift looked inside one station.
+  Measured in release, 300 stations took 10.8 s; a real 13,000-station file
+  would have taken hours, holding the price actor and every Mexican fuel
+  search behind it. `swift_text::ClusterIndex` segments a text once for many
+  searches, with every answer equal to `find_in` (checked exhaustively over
+  edge texts and all offset pairs). The CRE parsers, the AAA page parser,
+  `components` and `replacing` use it. 13,000 stations now parse in 0.55 s,
+  and a test keeps the parse linear. The oracle's largest file had 8
+  stations.
+- **The ZIP overlay.** Every viewport change built entries with fresh UUIDs,
+  so the map redrew every polygon on each camera settle. An entry's identity
+  is now its bundle index.
+- **Route scoring.** The per-sample loop on the main actor laid the
+  corridor's gauges, water points and closures out for the bridge again at
+  every sample. They are laid out once per route (`PreparedGauges`,
+  `PreparedPoints`, also in the navigation watch and the map sweep), and the
+  alert join lays the alert rings out once per join (`PreparedAlertRings`)
+  instead of once per cell. Only gauges at or above flood stage are kept,
+  which are the only ones the scorer counts.
+- **The risk bundle's JSON fallback.** A one-ZIP bundle with no summary, or a
+  text holding U+001F, split wrongly and failed to load, and a refused bundle
+  stopped the candidate search. Text columns now cross by length, and a
+  refused bundle moves on to the next candidate.
+
+One claim was refuted: a same-rank alert that cannot replace the imminent
+banner is the owner's rule from ded56c1, not a port defect (listed below as
+an owner question). Left as it is: the map sweep copies each fetched
+snapshot into Rust once per camera settle, a cost proportional to the feeds
+paid once per sweep, not per point.
 
 ### Wave 2 remaining
 

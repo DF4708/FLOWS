@@ -332,26 +332,67 @@ final class WeatherAlertService: ObservableObject {
         zoneRings: [String: [[CLLocationCoordinate2D]]]
     ) -> [NWSAlert] {
         guard !alerts.isEmpty else { return [] }
-        var ringCounts: [Int64] = [], zoneCounts: [Int64] = [], alertRings: [[CLLocationCoordinate2D]] = []
-        var zoneNames: [String] = []
-        for a in alerts {
-            var rings: [[CLLocationCoordinate2D]] = []
-            if let p = a.polygon { rings.append(p) }
-            rings += a.extraRings
-            ringCounts.append(Int64(rings.count)); alertRings += rings
-            zoneCounts.append(Int64(a.affectedZones.count)); zoneNames += a.affectedZones
+        return alertsCovering(point, alerts: alerts,
+                              prepared: PreparedAlertRings(alerts: alerts, zoneRings: zoneRings))
+    }
+
+    /// The alerts' rings and zone names and the zone geometry, laid out once
+    /// for the bridge: a join tests every corridor cell against the same
+    /// alerts, so the columns are built once per join instead of per cell.
+    struct PreparedAlertRings: Sendable {
+        let ringCounts: [Int64]
+        let zoneCounts: [Int64]
+        let ringLens: [Int64]
+        let lats: [Double]
+        let lons: [Double]
+        let zoneNames: String
+        let zoneKeys: String
+        let zoneRingCounts: [Int64]
+        let zoneRingLens: [Int64]
+        let zoneLats: [Double]
+        let zoneLons: [Double]
+
+        init(alerts: [NWSAlert], zoneRings: [String: [[CLLocationCoordinate2D]]]) {
+            var ringCounts: [Int64] = [], zoneCounts: [Int64] = [], alertRings: [[CLLocationCoordinate2D]] = []
+            var names: [String] = []
+            for a in alerts {
+                var rings: [[CLLocationCoordinate2D]] = []
+                if let p = a.polygon { rings.append(p) }
+                rings += a.extraRings
+                ringCounts.append(Int64(rings.count)); alertRings += rings
+                zoneCounts.append(Int64(a.affectedZones.count)); names += a.affectedZones
+            }
+            let flat = HazardFeedScores.flatten(alertRings)
+            let keys = zoneRings.keys.sorted()
+            let zflat = HazardFeedScores.flatten(keys.flatMap { zoneRings[$0] ?? [] })
+            self.ringCounts = ringCounts.isEmpty ? [0] : ringCounts
+            self.zoneCounts = zoneCounts.isEmpty ? [0] : zoneCounts
+            ringLens = flat.lens
+            lats = flat.lats
+            lons = flat.lons
+            zoneNames = names.joined(separator: "\u{1F}")
+            zoneKeys = keys.joined(separator: "\u{1F}")
+            zoneRingCounts = keys.isEmpty ? [0] : keys.map { Int64(zoneRings[$0]?.count ?? 0) }
+            zoneRingLens = zflat.lens
+            zoneLats = zflat.lats
+            zoneLons = zflat.lons
         }
-        let flat = HazardFeedScores.flatten(alertRings)
-        let zoneKeys = zoneRings.keys.sorted()
-        let zoneRingCounts: [Int64] = zoneKeys.isEmpty ? [0] : zoneKeys.map { Int64(zoneRings[$0]?.count ?? 0) }
-        let zflat = HazardFeedScores.flatten(zoneKeys.flatMap { zoneRings[$0] ?? [] })
-        let indices = ringCounts.withUnsafeBufferPointer { rc in zoneCounts.withUnsafeBufferPointer { zc in
-            flat.lens.withUnsafeBufferPointer { lens in HazardFeedScores.two(flat.lats, flat.lons) { la, lo in
-                zoneRingCounts.withUnsafeBufferPointer { zrc in zflat.lens.withUnsafeBufferPointer { zlens in
-                    HazardFeedScores.two(zflat.lats, zflat.lons) { zla, zlo in
+    }
+
+    /// `alertsCovering` over alerts laid out once; `alerts` must be the list
+    /// the columns were built from.
+    nonisolated static func alertsCovering(
+        _ point: CLLocationCoordinate2D,
+        alerts: [NWSAlert],
+        prepared p: PreparedAlertRings
+    ) -> [NWSAlert] {
+        guard !alerts.isEmpty else { return [] }
+        let indices = p.ringCounts.withUnsafeBufferPointer { rc in p.zoneCounts.withUnsafeBufferPointer { zc in
+            p.ringLens.withUnsafeBufferPointer { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
+                p.zoneRingCounts.withUnsafeBufferPointer { zrc in p.zoneRingLens.withUnsafeBufferPointer { zlens in
+                    HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
                         flows_hazard_alerts_covering(point.latitude, point.longitude, rc, zc, lens, la, lo,
-                                                     zoneNames.joined(separator: "\u{1F}"),
-                                                     zoneKeys.joined(separator: "\u{1F}"), zrc, zlens, zla, zlo)
+                                                     p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
                     } } } } } } }
         return indices.compactMap { Int($0) < alerts.count && $0 >= 0 ? alerts[Int($0)] : nil }
     }
@@ -364,8 +405,13 @@ final class WeatherAlertService: ObservableObject {
         zoneRings: [String: [[CLLocationCoordinate2D]]]
     ) async -> [String: [NWSAlert]] {
         var out: [String: [NWSAlert]] = [:]
+        guard !alerts.isEmpty else {
+            for (key, _) in cells { out[key] = [] }
+            return out
+        }
+        let prepared = PreparedAlertRings(alerts: alerts, zoneRings: zoneRings)
         for (key, pt) in cells {
-            out[key] = alertsCovering(pt, alerts: alerts, zoneRings: zoneRings)
+            out[key] = alertsCovering(pt, alerts: alerts, prepared: prepared)
         }
         return out
     }

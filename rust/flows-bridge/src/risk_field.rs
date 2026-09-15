@@ -11,10 +11,12 @@
 //! (or built from the JSON path's columns) and queried in place. Functions
 //! are named `flows_risk_field_…`; the type's methods are Swift methods.
 //!
-//! Columns cross as parallel lists; names and summaries joined by U+001F
-//! (an absent summary is an empty piece, so `has_summary` tells them
-//! apart); rings as a per-entry point count, a presence flag and one flat
-//! (lat, lon) list — the flag because an entry may carry an empty ring.
+//! Columns cross as parallel lists; family names, ZIP codes and summaries as
+//! one joined string plus each text's UTF-8 length (an absent summary is an
+//! empty text, so `has_summary` tells them apart), never a separator, so a
+//! one-ZIP bundle or a text holding any character splits back exactly;
+//! rings as a per-entry point count, a presence flag and one flat (lat, lon)
+//! list — the flag because an entry may carry an empty ring.
 //! swift-bridge must never see an empty buffer, so the facade passes a
 //! one-element placeholder for a column that would be empty and the counts
 //! say it holds nothing. Optional answers are `-1` for no index and the
@@ -39,16 +41,25 @@ mod ffi {
     extern "Rust" {
         type FlowsRiskField;
         fn flows_risk_field_parse_frb1(data: &[u8]) -> Option<FlowsRiskField>;
-        fn flows_risk_field_empty(generated: &str, families_joined: &str) -> FlowsRiskField;
+        fn flows_risk_field_empty(
+            generated: &str,
+            families_joined: &str,
+            family_lens: &[i64],
+            family_count: i64,
+        ) -> FlowsRiskField;
         fn flows_risk_field_from_columns(
             generated: &str,
             families_joined: &str,
+            family_lens: &[i64],
+            family_count: i64,
             zips_joined: &str,
+            zip_lens: &[i64],
             lats: &[f64],
             lons: &[f64],
             score_counts: &[i64],
             scores: &[f64],
             summaries_joined: &str,
+            summary_lens: &[i64],
             has_summary: &[i64],
             ring_counts: &[i64],
             has_ring: &[i64],
@@ -92,13 +103,15 @@ use flows_core::risk_field::{Entry, RiskField};
 /// The field behind Swift's `RiskFieldService`.
 pub struct FlowsRiskField(RiskField);
 
-const JOIN: char = '\u{1F}';
-
-fn split_joined(joined: &str) -> Vec<String> {
-    if joined.is_empty() {
-        return Vec::new();
-    }
-    joined.split(JOIN).map(str::to_string).collect()
+/// A joined text column as owned strings; `None` when it does not split.
+fn owned_texts(joined: &str, lens: &[i64], count: i64) -> Option<Vec<String>> {
+    let count = usize::try_from(count).ok()?;
+    Some(
+        crate::split_texts(joined, lens, count)?
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 fn index(i: i64) -> Option<usize> {
@@ -113,39 +126,49 @@ pub fn flows_risk_field_parse_frb1(data: &[u8]) -> Option<FlowsRiskField> {
     contain(None, || RiskField::parse_frb1(data).map(FlowsRiskField))
 }
 
-pub fn flows_risk_field_empty(generated: &str, families_joined: &str) -> FlowsRiskField {
+/// A field with no entries. Family names that do not split leave the field
+/// with no families, which every lookup answers as absent.
+pub fn flows_risk_field_empty(
+    generated: &str,
+    families_joined: &str,
+    family_lens: &[i64],
+    family_count: i64,
+) -> FlowsRiskField {
     FlowsRiskField(RiskField::from_entries(
         generated.to_string(),
-        split_joined(families_joined),
+        owned_texts(families_joined, family_lens, family_count).unwrap_or_default(),
         Vec::new(),
     ))
 }
 
 /// The JSON path's entries as columns; `None` when the columns disagree in
-/// length or a count runs past its list.
+/// length, a count runs past its list, or a text column does not split.
 #[allow(clippy::too_many_arguments)]
 pub fn flows_risk_field_from_columns(
     generated: &str,
     families_joined: &str,
+    family_lens: &[i64],
+    family_count: i64,
     zips_joined: &str,
+    zip_lens: &[i64],
     lats: &[f64],
     lons: &[f64],
     score_counts: &[i64],
     scores: &[f64],
     summaries_joined: &str,
+    summary_lens: &[i64],
     has_summary: &[i64],
     ring_counts: &[i64],
     has_ring: &[i64],
     ring_points: &[f64],
 ) -> Option<FlowsRiskField> {
     contain(None, || {
-        let zips = split_joined(zips_joined);
-        let summaries = split_joined(summaries_joined);
-        let n = zips.len();
-        if lats.len() != n
-            || lons.len() != n
+        let n = lats.len();
+        let families = owned_texts(families_joined, family_lens, family_count)?;
+        let zips = owned_texts(zips_joined, zip_lens, as_i64(n))?;
+        let summaries = owned_texts(summaries_joined, summary_lens, as_i64(n))?;
+        if lons.len() != n
             || score_counts.len() != n
-            || summaries.len() != n
             || has_summary.len() != n
             || ring_counts.len() != n
             || has_ring.len() != n
@@ -176,7 +199,7 @@ pub fn flows_risk_field_from_columns(
         }
         Some(FlowsRiskField(RiskField::from_entries(
             generated.to_string(),
-            split_joined(families_joined),
+            families,
             entries,
         )))
     })
@@ -260,5 +283,67 @@ impl FlowsRiskField {
         contain(0, || {
             as_i64(field.harmonic_rescore(table.inner(), &trig, &pairs))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_single_entry_with_no_summary_and_any_text_crosses_whole() {
+        let zip = "53\u{1F}703";
+        let field = flows_risk_field_from_columns(
+            "2026-09-15",
+            "heat",
+            &[4],
+            1,
+            zip,
+            &[zip.len() as i64],
+            &[43.07],
+            &[-89.4],
+            &[1],
+            &[0.5],
+            "",
+            &[0],
+            &[0],
+            &[0],
+            &[0],
+            &[0.0],
+        )
+        .expect("a one-ZIP bundle with no summary is a field");
+        assert_eq!(field.count(), 1);
+        assert_eq!(field.zip(0), zip);
+        assert!(!field.has_summary(0));
+        assert_eq!(field.families(), vec!["heat".to_string()]);
+        assert!(
+            flows_risk_field_from_columns(
+                "",
+                "heat",
+                &[5],
+                1,
+                "a",
+                &[1],
+                &[0.0],
+                &[0.0],
+                &[0],
+                &[0.0],
+                "",
+                &[0],
+                &[0],
+                &[0],
+                &[0],
+                &[0.0]
+            )
+            .is_none(),
+            "a family length past its text"
+        );
+        assert_eq!(
+            flows_risk_field_empty("", "ab", &[1, 1], 2).families(),
+            vec!["a".to_string(), "b".to_string()]
+        );
+        assert!(flows_risk_field_empty("", "", &[0], 0)
+            .families()
+            .is_empty());
     }
 }

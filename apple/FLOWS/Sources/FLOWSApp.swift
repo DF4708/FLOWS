@@ -3356,6 +3356,11 @@ final class AppModel: ObservableObject {
         let envIdx = riskField.familyIndex("environmental")
         let filterIdx = filterFamilies.map { ($0, riskField.familyIndex($0)) }
         var identifiedSum = 0.0
+        // The gauges, mapped water and closures are the same at every sample:
+        // lay them out for the Rust scorers once per route, not per sample.
+        let preparedGauges = HazardFeedScores.PreparedGauges(corridorGauges)
+        let preparedWater = HazardFeedScores.PreparedPoints(corridorWater)
+        let preparedClosures = HazardFeedScores.PreparedPoints(corridorClosures)
         // This loop is synchronous on the main actor — the journal says how
         // long, so a planning stall can be attributed or ruled out.
         let blendStart = Date()
@@ -3373,8 +3378,8 @@ final class AppModel: ObservableObject {
             }
             identifiedSum += rowScore(envIdx)
             // Evidence gate = noisy-OR of a gauge in flood and mapped water near.
-            let gaugeEvid = HazardFeedScores.floodGaugeScore(gauges: corridorGauges, at: c)
-            let waterEvid = HazardFeedScores.waterProximityScore(waterPoints: corridorWater, at: c)
+            let gaugeEvid = HazardFeedScores.floodGaugeScore(prepared: preparedGauges, at: c)
+            let waterEvid = HazardFeedScores.waterProximityScore(prepared: preparedWater, at: c)
             let floodEvidence = 1 - (1 - gaugeEvid) * (1 - waterEvid)
             let floodMult = RiskEquations.floodElevationMultiplier(
                 sampleElevation: near?.1, localMinElevation: localMinElevation(near: i),
@@ -3400,7 +3405,7 @@ final class AppModel: ObservableObject {
                     at: c, alertEvent: s.worstEvent, alertSeverity: s.risk,
                     onDevice: dev, floodMultiplier: floodMult,
                     closureScore: HazardFeedScores.closureScore(
-                        closures: corridorClosures, at: c),
+                        prepared: preparedClosures, at: c),
                     live: live,
                     fieldRow: row),   // resolved above; not a second ZIP scan
                 worstEvent: s.worstEvent, alertID: s.alertID)
@@ -3909,11 +3914,12 @@ final class AppModel: ObservableObject {
         // spaced, so the comparable live number is the plain sample MEAN — the
         // old peak⊕avg blend sat above the weighted baseline by construction
         // and manufactured escalations on quiet routes.
+        let closures = HazardFeedScores.PreparedPoints(tripClosures)
         let sampleRisks = score.samples.map {
             sampleRealizedRisk(at: $0.coordinate, alertEvent: $0.worstEvent,
                                alertSeverity: $0.risk,
                                closureScore: HazardFeedScores.closureScore(
-                                   closures: tripClosures, at: $0.coordinate),
+                                   prepared: closures, at: $0.coordinate),
                                live: HazardFeedScores.live(
                                    at: $0.coordinate, snapshot: tripLive).bandInputContribution)
         }

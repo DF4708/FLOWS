@@ -864,7 +864,8 @@ pub const AAA_WINDOW_CHARACTERS: usize = 600;
 /// Deterministic; panics: none.
 #[must_use]
 pub fn parse_current_avg(html: &str) -> Option<(f64, f64)> {
-    let (_, anchor_end) = st::find(html, "Current Avg.")?;
+    let index = st::ClusterIndex::new(html);
+    let (_, anchor_end) = index.find("Current Avg.")?;
     let mut window_end = anchor_end;
     for (n, cluster) in st::graphemes(&html[anchor_end..]).enumerate() {
         if n == AAA_WINDOW_CHARACTERS {
@@ -875,7 +876,7 @@ pub fn parse_current_avg(html: &str) -> Option<(f64, f64)> {
     let mut prices: Vec<f64> = Vec::with_capacity(4);
     let mut search = anchor_end;
     while prices.len() < 4 {
-        let Some((_, dollar_end)) = st::find_in(html, "$", search, window_end) else {
+        let Some((_, dollar_end)) = index.find_in("$", search, window_end) else {
             break;
         };
         let tail = st::prefix_clusters(&html[dollar_end..], 8);
