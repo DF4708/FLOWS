@@ -36,6 +36,12 @@ import Foundation
 /// persistence and wall-clock helpers (the SeasonalStore/SeasonalRiskModel
 /// split). Everything stays on this device: the store writes to Application
 /// Support only and is never exported, synced, or committed.
+///
+/// The radius statistics, the trip gate, the ranking and eviction orders,
+/// the hour bucket and the feature vector are computed in rust/flows-core
+/// (learning.rs) and called through rust/flows-bridge; the store, its keys
+/// and its persistence stay here. Pinned bit for bit to the Swift this
+/// replaced by rust/flows-bridge/tests/fixtures/swift_learning_oracle.tsv.
 
 // MARK: - Pure core
 
@@ -57,23 +63,15 @@ enum EverydayCategory: String, Codable, CaseIterable {
     /// are frozen: give a NEW case the next unused value, never reuse or
     /// renumber.
     var featureIndex: Int {
-        switch self {
-        case .food: return 0
-        case .fuel: return 1
-        case .stores: return 2
-        case .rest: return 3
-        case .shelter: return 4
-        case .medical: return 5
-        case .hotels: return 6
-        case .gyms: return 7
-        case .parking: return 8
-        case .showers: return 9
-        }
+        // The frozen ordinal is Rust's; a key that is not a category (never
+        // one of these cases) would answer -1.
+        let index = flows_learning_everyday_feature_index(rawValue)
+        return index >= 0 ? Int(index) : 0
     }
 
     /// Fixed divisor for the normalised feature — frozen alongside
     /// `featureIndex` so the encoding is stable as cases are appended.
-    static let featureIndexSpace = 16
+    static let featureIndexSpace = Int(flows_learning_everyday_feature_index_space())
 }
 
 /// One remembered stop inside the everyday circle. `id` is the stable
@@ -120,16 +118,16 @@ struct EverydayStore: Codable, Equatable {
     /// The STARTING radius, not a ceiling: 20 miles (40-mile diameter) from
     /// home, used until enough trips have been seen to learn one. Evidence
     /// moves it either way, within floorMiles…hardCapMiles.
-    static let defaultMiles = 20.0
+    static let defaultMiles = flows_learning_everyday_default_miles()
     /// Sanity rails on the learned quantile — a circle smaller than this is
     /// useless, larger than this stops meaning "everyday".
-    static let floorMiles = 3.0
-    static let hardCapMiles = 150.0
+    static let floorMiles = flows_learning_everyday_floor_miles()
+    static let hardCapMiles = flows_learning_everyday_hard_cap_miles()
     /// Trips before the observed quantile is meaningful enough to replace
     /// the default (in EITHER direction).
-    static let minTripsForRadius = 30
-    static let tripWindow = 200
-    static let maxPlacesPerCategory = 50
+    static let minTripsForRadius = Int(flows_learning_everyday_min_trips_for_radius())
+    static let tripWindow = Int(flows_learning_everyday_trip_window())
+    static let maxPlacesPerCategory = Int(flows_learning_everyday_max_places_per_category())
 
     // MARK: Radius math
 
@@ -146,15 +144,17 @@ struct EverydayStore: Codable, Equatable {
     var tripCount: Int { tripMiles.count }
 
     var meanTripMiles: Double? {
+        // No trips is no mean (and an empty buffer never crosses).
         guard !tripMiles.isEmpty else { return nil }
-        return tripMiles.reduce(0, +) / Double(tripMiles.count)
+        let r = tripMiles.withUnsafeBufferPointer { flows_learning_everyday_mean_trip_miles($0) }
+        return r.is_some == 1 ? r.value : nil
     }
 
     /// Sample standard deviation (n − 1) of the trip distances.
     var tripMilesSD: Double? {
-        guard tripMiles.count >= 2, let mean = meanTripMiles else { return nil }
-        let sqSum = tripMiles.reduce(0) { $0 + ($1 - mean) * ($1 - mean) }
-        return (sqSum / Double(tripMiles.count - 1)).squareRoot()
+        guard tripMiles.count >= 2 else { return nil }
+        let r = tripMiles.withUnsafeBufferPointer { flows_learning_everyday_trip_miles_sd($0) }
+        return r.is_some == 1 ? r.value : nil
     }
 
     /// The everyday radius in miles: the 20-mile default until the sample is
@@ -172,24 +172,20 @@ struct EverydayStore: Codable, Equatable {
     /// bounds are sanity rails, not policy — the cache is really bounded by
     /// `maxPlacesPerCategory`.
     var radiusMiles: Double {
-        guard tripMiles.count >= Self.minTripsForRadius,
-              let q = Self.quantile(tripMiles, 0.85) else { return Self.defaultMiles }
-        return min(max(q, Self.floorMiles), Self.hardCapMiles)
+        // No trips is the default (and an empty buffer never crosses).
+        guard !tripMiles.isEmpty else { return Self.defaultMiles }
+        return tripMiles.withUnsafeBufferPointer { flows_learning_everyday_radius_miles($0) }
     }
 
     /// Inclusive-rank quantile over the trip-length window. Pure, tested.
     static func quantile(_ values: [Double], _ q: Double) -> Double? {
-        let clean = values.filter { $0.isFinite && $0 >= 0 }.sorted()
-        guard !clean.isEmpty else { return nil }
-        let position = min(max(q, 0), 1) * Double(clean.count - 1)
-        let lower = Int(position.rounded(.down))
-        let upper = min(lower + 1, clean.count - 1)
-        let fraction = position - Double(lower)
-        return clean[lower] * (1 - fraction) + clean[upper] * fraction
+        guard !values.isEmpty else { return nil }
+        let r = values.withUnsafeBufferPointer { flows_learning_everyday_quantile($0, q) }
+        return r.is_some == 1 ? r.value : nil
     }
 
     mutating func recordTrip(miles: Double) {
-        guard miles.isFinite, miles >= 0 else { return }
+        guard flows_learning_everyday_accepts_trip(miles) else { return }
         tripMiles.append(miles)
         if tripMiles.count > Self.tripWindow {
             tripMiles.removeFirst(tripMiles.count - Self.tripWindow)
@@ -231,12 +227,15 @@ struct EverydayStore: Codable, Equatable {
                                         street: street, city: city, seen: 1))
             // Bounded store: evict the least-used (then least-seen, then
             // stalest) entry so one category can't grow without limit.
-            if places.count > Self.maxPlacesPerCategory,
-               let evict = places.indices.min(by: {
-                   (places[$0].uses, places[$0].seen, places[$0].lastUsedT)
-                       < (places[$1].uses, places[$1].seen, places[$1].lastUsedT)
-               }) {
-                places.remove(at: evict)
+            if places.count > Self.maxPlacesPerCategory {
+                let uses = places.map { Int64($0.uses) }, seen = places.map { Int64($0.seen) }
+                let last = places.map(\.lastUsedT)
+                let evict = uses.withUnsafeBufferPointer { u in
+                    seen.withUnsafeBufferPointer { s in
+                        last.withUnsafeBufferPointer { l in flows_learning_everyday_evict_index(u, s, l) }
+                    }
+                }
+                if evict >= 0, Int(evict) < places.count { places.remove(at: Int(evict)) }
             }
         }
         categories[category.rawValue] = places
@@ -257,17 +256,31 @@ struct EverydayStore: Codable, Equatable {
     /// Cached entries for a category, most-used first (then most-seen, then
     /// most recent, then name so the order is deterministic).
     func ranked(in category: EverydayCategory) -> [EverydayPlace] {
-        (categories[category.rawValue] ?? []).sorted {
-            ($1.uses, $1.seen, $1.lastUsedT, $0.name)
-                < ($0.uses, $0.seen, $0.lastUsedT, $1.name)
+        let places = categories[category.rawValue] ?? []
+        // Nothing to rank (and an empty buffer never crosses).
+        guard !places.isEmpty else { return [] }
+        let uses = places.map { Int64($0.uses) }, seen = places.map { Int64($0.seen) }
+        let last = places.map(\.lastUsedT)
+        // Names cross in Unicode NFC, joined by U+001F (which no place name
+        // holds; one that did is written as a space), so the byte order Rust
+        // sorts by is the order Swift's `<` gives NFC text.
+        let names = places.map {
+            $0.name.precomposedStringWithCanonicalMapping.replacingOccurrences(of: "\u{1F}", with: " ")
+        }.joined(separator: "\u{1F}")
+        let order = uses.withUnsafeBufferPointer { u in
+            seen.withUnsafeBufferPointer { s in
+                last.withUnsafeBufferPointer { l in flows_learning_everyday_ranked_order(u, s, l, names) }
+            }
         }
+        guard order.len() == places.count else { return places }
+        return order.compactMap { i in Int(exactly: i).flatMap { $0 < places.count ? places[$0] : nil } }
     }
 
     // MARK: Context attribute ids
 
     /// Time-of-day bucket: six 4-hour bins (0 = night 12–4 am … 5 = 8 pm–12).
     static func hourBucket(_ hour: Int) -> Int {
-        (((hour % 24) + 24) % 24) / 4
+        Int(flows_learning_everyday_hour_bucket(Int64(hour)))
     }
 
     /// Unique attribute id for a lookup context: time-of-day bucket,
@@ -327,15 +340,10 @@ enum EverydayFeatures {
                        startLat: Double, startLon: Double,
                        placeLat: Double, placeLon: Double,
                        category: EverydayCategory) -> [Double] {
-        let a = 2 * Double.pi * Double(hourBucket) / 6
-        // Frozen ordinal + fixed divisor: appending a category must never
-        // change what an existing one encodes to.
-        let c = Double(category.featureIndex)
-        return [sin(a), cos(a), weekend ? 1 : 0,
-                startLat / 90, startLon / 180, placeLat / 90, placeLon / 180,
-                c / Double(EverydayCategory.featureIndexSpace)]
+        Array(flows_learning_everyday_features(Int64(hourBucket), weekend, startLat, startLon,
+                                               placeLat, placeLon, Int64(category.featureIndex)))
     }
-    static let count = 8
+    static let count = Int(flows_learning_everyday_feature_count())
 }
 
 // MARK: - Persisted wrapper

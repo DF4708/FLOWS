@@ -28,18 +28,24 @@ import Foundation
 /// Context is (service × radio technology): the same service behaves very
 /// differently on 5G and on EDGE, so LTE samples must not pollute the
 /// weak-signal estimate.
+///
+/// The estimator, its gate and its rails are computed in rust/flows-core
+/// (learning.rs) and called through rust/flows-bridge; the context key and
+/// the on-disk memory stay here. Pinned bit for bit to the Swift this
+/// replaced by rust/flows-bridge/tests/fixtures/swift_learning_oracle.tsv.
 enum BufferLearning {
     /// Weight on the newest sample. High enough to adapt within a drive
     /// (services change their behaviour with app updates and plan tiers),
     /// low enough that one weird outage doesn't rewrite the estimate.
-    static let alpha = 0.35
+    static let alpha = flows_learning_buffer_alpha()
     /// Below this, the documented prior still leads: two samples is an
     /// anecdote, not a measurement.
-    static let minSamplesToTrust = 3
+    static let minSamplesToTrust = Int(flows_learning_buffer_min_samples_to_trust())
     /// Beyond these, a "sample" is telling us about something other than a
     /// buffer: sub-second means the driver hit stop as the signal died;
     /// minutes means the audio was local, or signal returned unnoticed.
-    static let plausibleSeconds: ClosedRange<Double> = 1...180
+    static let plausibleSeconds: ClosedRange<Double> =
+        flows_learning_buffer_plausible_low()...flows_learning_buffer_plausible_high()
 
     /// Storage key for one learned context. Service leads — it is the
     /// dimension that actually differs.
@@ -51,22 +57,20 @@ enum BufferLearning {
     /// mean for an implausible sample (it is discarded, not clamped —
     /// clamping would drag the estimate toward a value never observed).
     static func updated(mean: Double?, sample: Double) -> Double? {
-        guard sample.isFinite, plausibleSeconds.contains(sample) else { return mean }
-        guard let mean else { return sample }
-        return mean * (1 - alpha) + sample * alpha
+        let r = flows_learning_buffer_updated(mean ?? 0, mean != nil, sample)
+        return r.is_some == 1 ? r.value : nil
     }
 
     /// Whether a sample counts toward the trust gate.
     static func isUsable(sample: Double) -> Bool {
-        sample.isFinite && plausibleSeconds.contains(sample)
+        flows_learning_buffer_is_usable(sample)
     }
 
     /// How long to wait: the learned mean once the context is trusted,
     /// the documented prior until then.
     static func waitSeconds(prior: Double, learnedMean: Double?,
                             samples: Int) -> Double {
-        guard let learnedMean, samples >= minSamplesToTrust else { return prior }
-        return learnedMean
+        flows_learning_buffer_wait_seconds(prior, learnedMean ?? 0, learnedMean != nil, Int64(samples))
     }
 }
 

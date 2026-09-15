@@ -511,6 +511,433 @@ extension FlowsHarmonicTable: Vectorizable {
 
 
 
+public func flows_learning_everyday_default_miles() -> Double {
+    __swift_bridge__$flows_learning_everyday_default_miles()
+}
+public func flows_learning_everyday_floor_miles() -> Double {
+    __swift_bridge__$flows_learning_everyday_floor_miles()
+}
+public func flows_learning_everyday_hard_cap_miles() -> Double {
+    __swift_bridge__$flows_learning_everyday_hard_cap_miles()
+}
+public func flows_learning_everyday_min_trips_for_radius() -> Int64 {
+    __swift_bridge__$flows_learning_everyday_min_trips_for_radius()
+}
+public func flows_learning_everyday_trip_window() -> Int64 {
+    __swift_bridge__$flows_learning_everyday_trip_window()
+}
+public func flows_learning_everyday_max_places_per_category() -> Int64 {
+    __swift_bridge__$flows_learning_everyday_max_places_per_category()
+}
+public func flows_learning_everyday_feature_index_space() -> Int64 {
+    __swift_bridge__$flows_learning_everyday_feature_index_space()
+}
+public func flows_learning_everyday_feature_count() -> Int64 {
+    __swift_bridge__$flows_learning_everyday_feature_count()
+}
+public func flows_learning_everyday_quantile(_ values: UnsafeBufferPointer<Double>, _ q: Double) -> FlowsLearningOptional {
+    __swift_bridge__$flows_learning_everyday_quantile(values.toFfiSlice(), q).intoSwiftRepr()
+}
+public func flows_learning_everyday_radius_miles(_ trip_miles: UnsafeBufferPointer<Double>) -> Double {
+    __swift_bridge__$flows_learning_everyday_radius_miles(trip_miles.toFfiSlice())
+}
+public func flows_learning_everyday_mean_trip_miles(_ trip_miles: UnsafeBufferPointer<Double>) -> FlowsLearningOptional {
+    __swift_bridge__$flows_learning_everyday_mean_trip_miles(trip_miles.toFfiSlice()).intoSwiftRepr()
+}
+public func flows_learning_everyday_trip_miles_sd(_ trip_miles: UnsafeBufferPointer<Double>) -> FlowsLearningOptional {
+    __swift_bridge__$flows_learning_everyday_trip_miles_sd(trip_miles.toFfiSlice()).intoSwiftRepr()
+}
+public func flows_learning_everyday_accepts_trip(_ miles: Double) -> Bool {
+    __swift_bridge__$flows_learning_everyday_accepts_trip(miles)
+}
+public func flows_learning_everyday_hour_bucket(_ hour: Int64) -> Int64 {
+    __swift_bridge__$flows_learning_everyday_hour_bucket(hour)
+}
+public func flows_learning_everyday_feature_index<GenericToRustStr: ToRustStr>(_ raw: GenericToRustStr) -> Int32 {
+    return raw.toRustStr({ rawAsRustStr in
+        __swift_bridge__$flows_learning_everyday_feature_index(rawAsRustStr)
+    })
+}
+public func flows_learning_everyday_features(_ hour_bucket: Int64, _ weekend: Bool, _ start_lat: Double, _ start_lon: Double, _ place_lat: Double, _ place_lon: Double, _ feature_index: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_learning_everyday_features(hour_bucket, weekend, start_lat, start_lon, place_lat, place_lon, feature_index))
+}
+public func flows_learning_everyday_ranked_order<GenericToRustStr: ToRustStr>(_ uses: UnsafeBufferPointer<Int64>, _ seen: UnsafeBufferPointer<Int64>, _ last_used: UnsafeBufferPointer<Double>, _ names_joined: GenericToRustStr) -> RustVec<Double> {
+    return names_joined.toRustStr({ names_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_learning_everyday_ranked_order(uses.toFfiSlice(), seen.toFfiSlice(), last_used.toFfiSlice(), names_joinedAsRustStr))
+    })
+}
+public func flows_learning_everyday_evict_index(_ uses: UnsafeBufferPointer<Int64>, _ seen: UnsafeBufferPointer<Int64>, _ last_used: UnsafeBufferPointer<Double>) -> Int32 {
+    __swift_bridge__$flows_learning_everyday_evict_index(uses.toFfiSlice(), seen.toFfiSlice(), last_used.toFfiSlice())
+}
+public func flows_learning_decay_plan(_ last_decay: Double, _ now: Double, _ half_life_seconds: Double) -> FlowsLearningDecay {
+    __swift_bridge__$flows_learning_decay_plan(last_decay, now, half_life_seconds).intoSwiftRepr()
+}
+public func flows_learning_traffic_half_life_seconds() -> Double {
+    __swift_bridge__$flows_learning_traffic_half_life_seconds()
+}
+public func flows_learning_traffic_confident_after() -> Int64 {
+    __swift_bridge__$flows_learning_traffic_confident_after()
+}
+public func flows_learning_traffic_max_factor() -> Double {
+    __swift_bridge__$flows_learning_traffic_max_factor()
+}
+public func flows_learning_traffic_min_factor() -> Double {
+    __swift_bridge__$flows_learning_traffic_min_factor()
+}
+public func flows_learning_traffic_weather_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_learning_traffic_weather_names())
+}
+public func flows_learning_traffic_weather_from_family<GenericToRustStr: ToRustStr>(_ family: GenericToRustStr, _ has_family: Bool) -> UInt8 {
+    return family.toRustStr({ familyAsRustStr in
+        __swift_bridge__$flows_learning_traffic_weather_from_family(familyAsRustStr, has_family)
+    })
+}
+public func flows_learning_road_class_is_highway(_ average_mph: Double) -> Bool {
+    __swift_bridge__$flows_learning_road_class_is_highway(average_mph)
+}
+public func flows_learning_delay_cell_mean(_ weighted_sum: Double, _ weight: Double) -> Double {
+    __swift_bridge__$flows_learning_delay_cell_mean(weighted_sum, weight)
+}
+public func flows_learning_traffic_accepts(_ predicted_seconds: Double, _ actual_seconds: Double) -> Bool {
+    __swift_bridge__$flows_learning_traffic_accepts(predicted_seconds, actual_seconds)
+}
+public func flows_learning_traffic_add(_ weighted_sum: Double, _ weight: Double, _ count: Int64, _ predicted_seconds: Double, _ actual_seconds: Double) -> FlowsLearningCellUpdate {
+    __swift_bridge__$flows_learning_traffic_add(weighted_sum, weight, count, predicted_seconds, actual_seconds).intoSwiftRepr()
+}
+public func flows_learning_traffic_factor(_ is_highway: Bool, _ local: FlowsLearningCell, _ has_local: Bool, _ pooled: FlowsLearningCell, _ has_pooled: Bool) -> Double {
+    __swift_bridge__$flows_learning_traffic_factor(is_highway, local.intoFfiRepr(), has_local, pooled.intoFfiRepr(), has_pooled)
+}
+public func flows_learning_traffic_adjusted_seconds(_ router_seconds: Double, _ is_highway: Bool, _ local: FlowsLearningCell, _ has_local: Bool, _ pooled: FlowsLearningCell, _ has_pooled: Bool) -> Double {
+    __swift_bridge__$flows_learning_traffic_adjusted_seconds(router_seconds, is_highway, local.intoFfiRepr(), has_local, pooled.intoFfiRepr(), has_pooled)
+}
+public func flows_learning_traffic_delay_minutes(_ router_seconds: Double, _ is_highway: Bool, _ local: FlowsLearningCell, _ has_local: Bool, _ pooled: FlowsLearningCell, _ has_pooled: Bool) -> FlowsLearningOptional {
+    __swift_bridge__$flows_learning_traffic_delay_minutes(router_seconds, is_highway, local.intoFfiRepr(), has_local, pooled.intoFfiRepr(), has_pooled).intoSwiftRepr()
+}
+public func flows_learning_traffic_is_confident(_ count: Int64) -> Bool {
+    __swift_bridge__$flows_learning_traffic_is_confident(count)
+}
+public func flows_learning_efficiency_half_life_seconds() -> Double {
+    __swift_bridge__$flows_learning_efficiency_half_life_seconds()
+}
+public func flows_learning_efficiency_confident_miles() -> Double {
+    __swift_bridge__$flows_learning_efficiency_confident_miles()
+}
+public func flows_learning_efficiency_min_ratio() -> Double {
+    __swift_bridge__$flows_learning_efficiency_min_ratio()
+}
+public func flows_learning_efficiency_max_ratio() -> Double {
+    __swift_bridge__$flows_learning_efficiency_max_ratio()
+}
+public func flows_learning_efficiency_cell_mean(_ weighted_sum: Double, _ weight: Double) -> Double {
+    __swift_bridge__$flows_learning_efficiency_cell_mean(weighted_sum, weight)
+}
+public func flows_learning_efficiency_accepts(_ miles_driven: Double, _ units_burned: Double) -> Bool {
+    __swift_bridge__$flows_learning_efficiency_accepts(miles_driven, units_burned)
+}
+public func flows_learning_efficiency_add(_ weighted_sum: Double, _ weight: Double, _ miles: Double, _ miles_driven: Double, _ units_burned: Double) -> FlowsLearningCell {
+    __swift_bridge__$flows_learning_efficiency_add(weighted_sum, weight, miles, miles_driven, units_burned).intoSwiftRepr()
+}
+public func flows_learning_efficiency_economy(_ rated_miles_per_unit: Double, _ is_highway: Bool, _ local: FlowsLearningCell, _ has_local: Bool, _ pooled: FlowsLearningCell, _ has_pooled: Bool) -> Double {
+    __swift_bridge__$flows_learning_efficiency_economy(rated_miles_per_unit, is_highway, local.intoFfiRepr(), has_local, pooled.intoFfiRepr(), has_pooled)
+}
+public func flows_learning_efficiency_is_confident(_ miles: Double) -> Bool {
+    __swift_bridge__$flows_learning_efficiency_is_confident(miles)
+}
+public func flows_learning_buffer_alpha() -> Double {
+    __swift_bridge__$flows_learning_buffer_alpha()
+}
+public func flows_learning_buffer_min_samples_to_trust() -> Int64 {
+    __swift_bridge__$flows_learning_buffer_min_samples_to_trust()
+}
+public func flows_learning_buffer_plausible_low() -> Double {
+    __swift_bridge__$flows_learning_buffer_plausible_low()
+}
+public func flows_learning_buffer_plausible_high() -> Double {
+    __swift_bridge__$flows_learning_buffer_plausible_high()
+}
+public func flows_learning_buffer_is_usable(_ sample: Double) -> Bool {
+    __swift_bridge__$flows_learning_buffer_is_usable(sample)
+}
+public func flows_learning_buffer_updated(_ mean: Double, _ has_mean: Bool, _ sample: Double) -> FlowsLearningOptional {
+    __swift_bridge__$flows_learning_buffer_updated(mean, has_mean, sample).intoSwiftRepr()
+}
+public func flows_learning_buffer_wait_seconds(_ prior: Double, _ learned_mean: Double, _ has_mean: Bool, _ samples: Int64) -> Double {
+    __swift_bridge__$flows_learning_buffer_wait_seconds(prior, learned_mean, has_mean, samples)
+}
+public func flows_learning_refuel_accuracy_floor() -> Double {
+    __swift_bridge__$flows_learning_refuel_accuracy_floor()
+}
+public func flows_learning_refuel_window() -> Int64 {
+    __swift_bridge__$flows_learning_refuel_window()
+}
+public func flows_learning_refuel_retained() -> Int64 {
+    __swift_bridge__$flows_learning_refuel_retained()
+}
+public func flows_learning_stale_gauge_gap_seconds() -> Double {
+    __swift_bridge__$flows_learning_stale_gauge_gap_seconds()
+}
+public func flows_learning_refuel_accuracy(_ errors: UnsafeBufferPointer<Double>) -> Double {
+    __swift_bridge__$flows_learning_refuel_accuracy(errors.toFfiSlice())
+}
+public func flows_learning_refuel_error(_ predicted_fraction: Double, _ reported_fraction: Double) -> Double {
+    __swift_bridge__$flows_learning_refuel_error(predicted_fraction, reported_fraction)
+}
+public func flows_learning_refuel_should_prompt(_ check_ins_enabled: Bool, _ accuracy: Double) -> Bool {
+    __swift_bridge__$flows_learning_refuel_should_prompt(check_ins_enabled, accuracy)
+}
+public func flows_learning_gauge_went_stale(_ last_used: Double, _ has_last_used: Bool, _ now: Double) -> Bool {
+    __swift_bridge__$flows_learning_gauge_went_stale(last_used, has_last_used, now)
+}
+public func flows_learning_eta_min_plausible_ratio() -> Double {
+    __swift_bridge__$flows_learning_eta_min_plausible_ratio()
+}
+public func flows_learning_eta_max_plausible_ratio() -> Double {
+    __swift_bridge__$flows_learning_eta_max_plausible_ratio()
+}
+public func flows_learning_eta_min_samples_to_apply() -> Int64 {
+    __swift_bridge__$flows_learning_eta_min_samples_to_apply()
+}
+public func flows_learning_eta_min_meaningful_deviation() -> Double {
+    __swift_bridge__$flows_learning_eta_min_meaningful_deviation()
+}
+public func flows_learning_eta_clamp_low() -> Double {
+    __swift_bridge__$flows_learning_eta_clamp_low()
+}
+public func flows_learning_eta_clamp_high() -> Double {
+    __swift_bridge__$flows_learning_eta_clamp_high()
+}
+public func flows_learning_eta_multiplier(_ log_ratio: Double, _ samples: Int64) -> Double {
+    __swift_bridge__$flows_learning_eta_multiplier(log_ratio, samples)
+}
+public func flows_learning_eta_record(_ log_ratio: Double, _ samples: Int64, _ predicted_seconds: Double, _ actual_seconds: Double, _ stopped_seconds: Double) -> FlowsLearningEta {
+    __swift_bridge__$flows_learning_eta_record(log_ratio, samples, predicted_seconds, actual_seconds, stopped_seconds).intoSwiftRepr()
+}
+public func flows_learning_destination_recency_half_life_days() -> Double {
+    __swift_bridge__$flows_learning_destination_recency_half_life_days()
+}
+public func flows_learning_destination_context_weight() -> Double {
+    __swift_bridge__$flows_learning_destination_context_weight()
+}
+public func flows_learning_destination_time_weight() -> Double {
+    __swift_bridge__$flows_learning_destination_time_weight()
+}
+public func flows_learning_destination_base_weight() -> Double {
+    __swift_bridge__$flows_learning_destination_base_weight()
+}
+public func flows_learning_destination_reason(_ context_hits: Int64, _ time_hits: Int64, _ total_hits: Int64) -> UInt8 {
+    __swift_bridge__$flows_learning_destination_reason(context_hits, time_hits, total_hits)
+}
+public func flows_learning_destination_rank(_ context_hits: UnsafeBufferPointer<Int64>, _ time_hits: UnsafeBufferPointer<Int64>, _ total_hits: UnsafeBufferPointer<Int64>, _ last_used: UnsafeBufferPointer<Double>, _ now: Double, _ limit: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_learning_destination_rank(context_hits.toFfiSlice(), time_hits.toFfiSlice(), total_hits.toFfiSlice(), last_used.toFfiSlice(), now, limit))
+}
+public func flows_learning_destination_is_confident(_ top_score: Double, _ has_top: Bool, _ minimum_evidence: Int64) -> Bool {
+    __swift_bridge__$flows_learning_destination_is_confident(top_score, has_top, minimum_evidence)
+}
+public struct FlowsLearningOptional {
+    public var is_some: Double
+    public var value: Double
+
+    public init(is_some: Double,value: Double) {
+        self.is_some = is_some
+        self.value = value
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsLearningOptional {
+        { let val = self; return __swift_bridge__$FlowsLearningOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$FlowsLearningOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsLearningOptional {
+        { let val = self; return FlowsLearningOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsLearningOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsLearningOptional> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsLearningOptional>) -> __swift_bridge__$Option$FlowsLearningOptional {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsLearningOptional(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsLearningOptional(is_some: false, val: __swift_bridge__$FlowsLearningOptional())
+        }
+    }
+}
+public struct FlowsLearningCell {
+    public var weighted_sum: Double
+    public var weight: Double
+    public var count: Double
+
+    public init(weighted_sum: Double,weight: Double,count: Double) {
+        self.weighted_sum = weighted_sum
+        self.weight = weight
+        self.count = count
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsLearningCell {
+        { let val = self; return __swift_bridge__$FlowsLearningCell(weighted_sum: val.weighted_sum, weight: val.weight, count: val.count); }()
+    }
+}
+extension __swift_bridge__$FlowsLearningCell {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsLearningCell {
+        { let val = self; return FlowsLearningCell(weighted_sum: val.weighted_sum, weight: val.weight, count: val.count); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsLearningCell {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsLearningCell> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsLearningCell>) -> __swift_bridge__$Option$FlowsLearningCell {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsLearningCell(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsLearningCell(is_some: false, val: __swift_bridge__$FlowsLearningCell())
+        }
+    }
+}
+public struct FlowsLearningCellUpdate {
+    public var has: Double
+    public var weighted_sum: Double
+    public var weight: Double
+    public var count: Double
+
+    public init(has: Double,weighted_sum: Double,weight: Double,count: Double) {
+        self.has = has
+        self.weighted_sum = weighted_sum
+        self.weight = weight
+        self.count = count
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsLearningCellUpdate {
+        { let val = self; return __swift_bridge__$FlowsLearningCellUpdate(has: val.has, weighted_sum: val.weighted_sum, weight: val.weight, count: val.count); }()
+    }
+}
+extension __swift_bridge__$FlowsLearningCellUpdate {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsLearningCellUpdate {
+        { let val = self; return FlowsLearningCellUpdate(has: val.has, weighted_sum: val.weighted_sum, weight: val.weight, count: val.count); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsLearningCellUpdate {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsLearningCellUpdate> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsLearningCellUpdate>) -> __swift_bridge__$Option$FlowsLearningCellUpdate {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsLearningCellUpdate(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsLearningCellUpdate(is_some: false, val: __swift_bridge__$FlowsLearningCellUpdate())
+        }
+    }
+}
+public struct FlowsLearningDecay {
+    public var apply: Double
+    public var factor: Double
+    public var last_decay: Double
+
+    public init(apply: Double,factor: Double,last_decay: Double) {
+        self.apply = apply
+        self.factor = factor
+        self.last_decay = last_decay
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsLearningDecay {
+        { let val = self; return __swift_bridge__$FlowsLearningDecay(apply: val.apply, factor: val.factor, last_decay: val.last_decay); }()
+    }
+}
+extension __swift_bridge__$FlowsLearningDecay {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsLearningDecay {
+        { let val = self; return FlowsLearningDecay(apply: val.apply, factor: val.factor, last_decay: val.last_decay); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsLearningDecay {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsLearningDecay> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsLearningDecay>) -> __swift_bridge__$Option$FlowsLearningDecay {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsLearningDecay(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsLearningDecay(is_some: false, val: __swift_bridge__$FlowsLearningDecay())
+        }
+    }
+}
+public struct FlowsLearningEta {
+    public var has: Double
+    public var log_ratio: Double
+    public var samples: Int64
+
+    public init(has: Double,log_ratio: Double,samples: Int64) {
+        self.has = has
+        self.log_ratio = log_ratio
+        self.samples = samples
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsLearningEta {
+        { let val = self; return __swift_bridge__$FlowsLearningEta(has: val.has, log_ratio: val.log_ratio, samples: val.samples); }()
+    }
+}
+extension __swift_bridge__$FlowsLearningEta {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsLearningEta {
+        { let val = self; return FlowsLearningEta(has: val.has, log_ratio: val.log_ratio, samples: val.samples); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsLearningEta {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsLearningEta> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsLearningEta>) -> __swift_bridge__$Option$FlowsLearningEta {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsLearningEta(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsLearningEta(is_some: false, val: __swift_bridge__$FlowsLearningEta())
+        }
+    }
+}
 
 
 

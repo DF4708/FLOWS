@@ -15,34 +15,37 @@ import Foundation
 /// out); above it the check-ins go quiet — and resume if accuracy slips.
 /// No answer counts as "yes, refueled" and doesn't harm the accuracy stat.
 /// Pure; persisted by VehicleStore; pinned by FLOWSTests.
+/// The error, the rolling accuracy, the prompt rule and the retained window
+/// are computed in rust/flows-core (learning.rs) and called through
+/// rust/flows-bridge, pinned bit for bit to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_learning_oracle.tsv.
 struct RefuelLearning: Codable, Equatable {
     /// |predicted − reported| per answered check-in, most recent last.
     private(set) var errors: [Double] = []
 
-    static let accuracyFloor = 0.8
-    static let window = 10
+    static let accuracyFloor = flows_learning_refuel_accuracy_floor()
+    static let window = Int(flows_learning_refuel_window())
 
     /// Rolling accuracy over the last `window` answers: 1 − mean(|error|).
     /// No data yet → 0 (the system must earn its confidence).
     var accuracy: Double {
+        // No answers is no accuracy (and an empty buffer never crosses).
         guard !errors.isEmpty else { return 0 }
-        let recent = errors.suffix(Self.window)
-        return max(0, 1 - recent.reduce(0, +) / Double(recent.count))
+        return errors.withUnsafeBufferPointer { flows_learning_refuel_accuracy($0) }
     }
 
     /// Record one answered gauge: model predicted `predictedFraction` of a
     /// tank remained; driver reported `reportedFraction`.
     mutating func record(predictedFraction: Double, reportedFraction: Double) {
-        let p = min(max(predictedFraction, 0), 1)
-        let r = min(max(reportedFraction, 0), 1)
-        errors.append(abs(p - r))
-        if errors.count > 50 { errors.removeFirst(errors.count - 50) }
+        errors.append(flows_learning_refuel_error(predictedFraction, reportedFraction))
+        let retained = Int(flows_learning_refuel_retained())
+        if errors.count > retained { errors.removeFirst(errors.count - retained) }
     }
 
     /// Ask the gauge? Only when check-ins are enabled AND accuracy is under
     /// the floor (it re-arms automatically if accuracy decays below 80%).
     func shouldPrompt(checkInsEnabled: Bool) -> Bool {
-        checkInsEnabled && accuracy < Self.accuracyFloor
+        flows_learning_refuel_should_prompt(checkInsEnabled, accuracy)
     }
 }
 
@@ -54,14 +57,15 @@ struct RefuelLearning: Codable, Equatable {
 /// predicting range off a stale number.
 enum StaleGauge {
     /// A week away is the threshold: shorter gaps are ordinary weekday use.
-    static let gap: TimeInterval = 7 * 86_400
+    static let gap: TimeInterval = flows_learning_stale_gauge_gap_seconds()
 
     /// True when the app has been away long enough that the reading can't be
     /// trusted. A first run has nothing to compare against, so it is never
     /// stale — asking a brand-new user whether they just refuelled is
     /// nonsense.
     static func wentStale(lastUsed: Date?, now: Date = Date()) -> Bool {
-        guard let lastUsed else { return false }
-        return now.timeIntervalSince(lastUsed) >= gap
+        flows_learning_gauge_went_stale(
+            lastUsed?.timeIntervalSinceReferenceDate ?? 0, lastUsed != nil,
+            now.timeIntervalSinceReferenceDate)
     }
 }

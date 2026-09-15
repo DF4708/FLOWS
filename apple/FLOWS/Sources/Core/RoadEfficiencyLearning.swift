@@ -23,6 +23,12 @@ import Foundation
 /// place-specific. Highway efficiency pools nationwide for the same reason it
 /// does in TrafficLearning — a long haul at 65 mph behaves alike everywhere,
 /// which is what lets local measurement inform an unfamiliar trip.
+///
+/// The gate, the decay, the distance-weighted fold, the economy ladder and
+/// the confidence bar are computed in rust/flows-core (learning.rs) and
+/// called through rust/flows-bridge; the cell keys, the dictionary and the
+/// model class stay here. Pinned bit for bit to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_learning_oracle.tsv.
 struct RoadEfficiencyStore: Codable, Equatable {
 
     /// Decaying accumulators of measured economy for one road cell.
@@ -34,7 +40,7 @@ struct RoadEfficiencyStore: Codable, Equatable {
         /// Miles actually measured — the confidence bar, undecayed.
         var miles = 0.0
 
-        var mean: Double { weight > 0 ? weightedSum / weight : 0 }
+        var mean: Double { flows_learning_efficiency_cell_mean(weightedSum, weight) }
     }
 
     var cells: [String: Cell] = [:]
@@ -42,13 +48,13 @@ struct RoadEfficiencyStore: Codable, Equatable {
 
     /// Habits and seasons drift; a year-old measurement should not outweigh
     /// last week's.
-    static let halfLifeSeconds: Double = 180 * 24 * 3600
+    static let halfLifeSeconds: Double = flows_learning_efficiency_half_life_seconds()
     /// Measured miles in a cell before it may override the rated figure.
     /// Below this the vehicle's own curve stands.
-    static let confidentMiles = 25.0
+    static let confidentMiles = flows_learning_efficiency_confident_miles()
     /// Never let a bad stretch of measurement claim an absurd economy.
-    static let minRatio = 0.5
-    static let maxRatio = 1.6
+    static let minRatio = flows_learning_efficiency_min_ratio()
+    static let maxRatio = flows_learning_efficiency_max_ratio()
 
     static func key(area: TrafficArea, roadClass: RoadClass) -> String {
         let a = roadClass == .highway ? TrafficArea.pooled : area
@@ -58,32 +64,25 @@ struct RoadEfficiencyStore: Codable, Equatable {
     /// Fold in a measured stretch: miles covered for units burned.
     mutating func record(milesDriven: Double, unitsBurned: Double,
                          area: TrafficArea, roadClass: RoadClass, now: Double) {
-        guard milesDriven > 0.5, unitsBurned > 0.001 else { return }
-        let measured = milesDriven / unitsBurned
-        guard measured.isFinite, measured > 0 else { return }
+        guard flows_learning_efficiency_accepts(milesDriven, unitsBurned) else { return }
         decay(to: now)
         let k = Self.key(area: area, roadClass: roadClass)
-        var cell = cells[k] ?? Cell()
+        let cell = cells[k] ?? Cell()
         // Weight by distance: a 40-mile stretch says more than a 2-mile one.
-        cell.weightedSum += measured * milesDriven
-        cell.weight += milesDriven
-        cell.miles += milesDriven
-        cells[k] = cell
+        let next = flows_learning_efficiency_add(cell.weightedSum, cell.weight, cell.miles, milesDriven, unitsBurned)
+        cells[k] = Cell(weightedSum: next.weighted_sum, weight: next.weight, miles: next.count)
         lastDecay = now
     }
 
     mutating func decay(to now: Double) {
-        guard lastDecay > 0, now > lastDecay else {
-            if lastDecay == 0 { lastDecay = now }
-            return
+        let plan = flows_learning_decay_plan(lastDecay, now, Self.halfLifeSeconds)
+        if plan.apply == 1 {
+            for k in cells.keys {
+                cells[k]?.weightedSum *= plan.factor
+                cells[k]?.weight *= plan.factor
+            }
         }
-        let factor = pow(0.5, (now - lastDecay) / Self.halfLifeSeconds)
-        guard factor < 0.999 else { return }
-        for k in cells.keys {
-            cells[k]?.weightedSum *= factor
-            cells[k]?.weight *= factor
-        }
-        lastDecay = now
+        lastDecay = plan.last_decay
     }
 
     /// The economy to actually plan with: the measured figure for this road
@@ -91,29 +90,28 @@ struct RoadEfficiencyStore: Codable, Equatable {
     /// number. Clamped so one strange stretch can't rewrite the vehicle.
     func economy(ratedMilesPerUnit: Double, area: TrafficArea,
                  roadClass: RoadClass) -> Double {
-        let ladder: [(TrafficArea, RoadClass)] = roadClass == .highway
-            ? [(TrafficArea.pooled, .highway)]
-            : [(area, .local), (TrafficArea.pooled, .highway)]
-        for (a, c) in ladder {
-            let k = Self.key(area: a, roadClass: c)
-            if let cell = cells[k], cell.miles >= Self.confidentMiles, cell.mean > 0 {
-                let ratio = min(max(cell.mean / ratedMilesPerUnit, Self.minRatio),
-                                Self.maxRatio)
-                return ratedMilesPerUnit * ratio
-            }
-        }
-        return ratedMilesPerUnit
+        let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local)])
+        let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway)])
+        return flows_learning_efficiency_economy(ratedMilesPerUnit, roadClass == .highway, local, hasLocal, pooled, hasPooled)
     }
 
     /// True once this road has been measured enough to speak for itself.
     func isConfident(area: TrafficArea, roadClass: RoadClass) -> Bool {
-        (cells[Self.key(area: area, roadClass: roadClass)]?.miles ?? 0)
-            >= Self.confidentMiles
+        flows_learning_efficiency_is_confident(cells[Self.key(area: area, roadClass: roadClass)]?.miles ?? 0)
     }
 }
 
 /// Disk-backed wrapper, and the live accumulator that measures a stretch as
 /// it is driven.
+// MARK: - Crossing a learned cell
+
+/// A cell as the bridge takes it: its fields (miles in the third slot) plus
+/// whether it exists.
+private func crossing(_ cell: RoadEfficiencyStore.Cell?) -> (FlowsLearningCell, Bool) {
+    (FlowsLearningCell(weighted_sum: cell?.weightedSum ?? 0, weight: cell?.weight ?? 0,
+                       count: cell?.miles ?? 0), cell != nil)
+}
+
 @MainActor
 final class RoadEfficiencyModel: ObservableObject {
     @Published private(set) var store = RoadEfficiencyStore()

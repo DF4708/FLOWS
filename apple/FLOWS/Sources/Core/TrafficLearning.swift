@@ -25,6 +25,12 @@ import Foundation
 /// property of the clock) and WEATHER KIND (rain slows a corridor; snow slows
 /// it far more). Buckets are coarse on purpose — a model with thousands of
 /// cells and one trip each would be memorising, not learning.
+///
+/// The buckets' arithmetic, the decay, the fold, the factor ladder and the
+/// confidence bar are computed in rust/flows-core (learning.rs) and called
+/// through rust/flows-bridge; the cell keys, the dictionary and the disk
+/// wrapper stay here. Pinned bit for bit to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_learning_oracle.tsv.
 
 /// The weather families that actually change how fast traffic moves.
 enum TrafficWeather: String, Codable, CaseIterable {
@@ -33,14 +39,9 @@ enum TrafficWeather: String, Codable, CaseIterable {
     /// Map a hazard family name (the risk engine's vocabulary) to the
     /// coarse bucket the delay model learns on.
     static func from(family: String?) -> TrafficWeather {
-        switch family {
-        case "qpf_flood", "precip", "tropical": return .rain
-        case "winter": return .snow
-        case "ice": return .ice
-        case "fog", "haze": return .fog
-        case "wind": return .wind
-        default: return .clear
-        }
+        // The bridge's code is the position in `allCases`.
+        let code = Int(flows_learning_traffic_weather_from_family(family ?? "", family != nil))
+        return code < allCases.count ? allCases[code] : .clear
     }
 }
 
@@ -57,7 +58,7 @@ enum RoadClass: String, Codable, CaseIterable {
     /// A trip is "highway" when it averaged highway speed — the honest
     /// signal available without map-matching every leg.
     static func from(averageMph: Double) -> RoadClass {
-        averageMph >= 45 ? .highway : .local
+        flows_learning_road_class_is_highway(averageMph) ? .highway : .local
     }
 }
 
@@ -90,7 +91,7 @@ struct DelayCell: Codable, Equatable {
     /// Raw trips seen — the confidence bar reads this, undecayed.
     var count = 0
 
-    var mean: Double { weight > 0 ? weightedSum / weight : 1.0 }
+    var mean: Double { flows_learning_delay_cell_mean(weightedSum, weight) }
 }
 
 /// The learned model itself.
@@ -102,14 +103,14 @@ struct TrafficDelayStore: Codable, Equatable {
 
     /// Observations halve in influence after this long — a corridor that was
     /// torn up for construction last spring shouldn't steer this spring.
-    static let halfLifeSeconds: Double = 120 * 24 * 3600
+    static let halfLifeSeconds: Double = flows_learning_traffic_half_life_seconds()
     /// Trips in a cell before it is allowed to move an ETA. Below this the
     /// model still records, but predicts 1.0 (no adjustment) — one bad
     /// Tuesday is an anecdote, not a pattern.
-    static let confidentAfter = 4
+    static let confidentAfter = Int(flows_learning_traffic_confident_after())
     /// Never let the learned factor run away, however lopsided the samples.
-    static let maxFactor = 2.5
-    static let minFactor = 0.7
+    static let maxFactor = flows_learning_traffic_max_factor()
+    static let minFactor = flows_learning_traffic_min_factor()
 
     /// Hour-of-week bucket: keeps weekday rush hours separate from Sunday
     /// morning without exploding into 168 sparse cells — weekday/weekend ×
@@ -133,32 +134,31 @@ struct TrafficDelayStore: Codable, Equatable {
                          area: TrafficArea, roadClass: RoadClass,
                          weekday: Int, hour: Int, weather: TrafficWeather,
                          now: Double) {
-        guard predictedSeconds > 60, actualSeconds > 0 else { return }
+        guard flows_learning_traffic_accepts(predictedSeconds, actualSeconds) else { return }
         decay(to: now)
-        let ratio = min(max(actualSeconds / predictedSeconds, 0.5), 3.0)
         let k = Self.key(area: area, roadClass: roadClass,
                          weekday: weekday, hour: hour, weather: weather)
-        var cell = cells[k] ?? DelayCell()
-        cell.weightedSum += ratio
-        cell.weight += 1
-        cell.count += 1
-        cells[k] = cell
+        let cell = cells[k] ?? DelayCell()
+        // `has` 0: the count is at Int.max (the Swift this replaced crashed);
+        // the observation is dropped.
+        let next = flows_learning_traffic_add(cell.weightedSum, cell.weight, Int64(cell.count),
+                                              predictedSeconds, actualSeconds)
+        if next.has == 1 {
+            cells[k] = DelayCell(weightedSum: next.weighted_sum, weight: next.weight, count: Int(next.count))
+        }
         lastDecay = now
     }
 
     /// Age every cell toward zero influence.
     mutating func decay(to now: Double) {
-        guard lastDecay > 0, now > lastDecay else {
-            if lastDecay == 0 { lastDecay = now }
-            return
+        let plan = flows_learning_decay_plan(lastDecay, now, Self.halfLifeSeconds)
+        if plan.apply == 1 {
+            for k in cells.keys {
+                cells[k]?.weightedSum *= plan.factor
+                cells[k]?.weight *= plan.factor
+            }
         }
-        let factor = pow(0.5, (now - lastDecay) / Self.halfLifeSeconds)
-        guard factor < 0.999 else { return }
-        for k in cells.keys {
-            cells[k]?.weightedSum *= factor
-            cells[k]?.weight *= factor
-        }
-        lastDecay = now
+        lastDecay = plan.last_decay
     }
 
     /// The learned multiplier for a departure: 1.0 means "no reason to think
@@ -169,48 +169,51 @@ struct TrafficDelayStore: Codable, Equatable {
     /// experience onto a long trip), then no adjustment at all.
     func factor(area: TrafficArea, roadClass: RoadClass,
                 weekday: Int, hour: Int, weather: TrafficWeather) -> Double {
-        let ladder: [(TrafficArea, RoadClass)] = roadClass == .highway
-            ? [(TrafficArea.pooled, .highway)]
-            : [(area, .local), (TrafficArea.pooled, .highway)]
-        for (a, c) in ladder {
-            let k = Self.key(area: a, roadClass: c, weekday: weekday,
-                             hour: hour, weather: weather)
-            if let cell = cells[k], cell.count >= Self.confidentAfter {
-                return min(max(cell.mean, Self.minFactor), Self.maxFactor)
-            }
-        }
-        return 1.0
+        let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
+        let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
+        return flows_learning_traffic_factor(roadClass == .highway, local, hasLocal, pooled, hasPooled)
     }
 
     /// The ETA this model expects, and the delay it implies.
     func adjustedSeconds(routerSeconds: Double, area: TrafficArea,
                          roadClass: RoadClass,
                          weekday: Int, hour: Int, weather: TrafficWeather) -> Double {
-        routerSeconds * factor(area: area, roadClass: roadClass,
-                               weekday: weekday, hour: hour, weather: weather)
+        let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
+        let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
+        return flows_learning_traffic_adjusted_seconds(routerSeconds, roadClass == .highway, local, hasLocal, pooled, hasPooled)
     }
 
     /// Extra minutes over the router's estimate — what the driver is shown.
     func predictedDelayMinutes(routerSeconds: Double, area: TrafficArea,
                                roadClass: RoadClass, weekday: Int, hour: Int,
                                weather: TrafficWeather) -> Int {
-        let extra = adjustedSeconds(routerSeconds: routerSeconds, area: area,
-                                    roadClass: roadClass, weekday: weekday,
-                                    hour: hour, weather: weather) - routerSeconds
-        return Int((extra / 60).rounded())
+        let (local, hasLocal) = crossing(cells[Self.key(area: area, roadClass: .local, weekday: weekday, hour: hour, weather: weather)])
+        let (pooled, hasPooled) = crossing(cells[Self.key(area: .pooled, roadClass: .highway, weekday: weekday, hour: hour, weather: weather)])
+        // Absent where the minutes are not a number (the Swift this replaced
+        // crashed): no delay to report.
+        let minutes = flows_learning_traffic_delay_minutes(routerSeconds, roadClass == .highway, local, hasLocal, pooled, hasPooled)
+        return minutes.is_some == 1 ? Int(minutes.value) : 0
     }
 
     /// How many trips back this cell — the UI only speaks up once the model
     /// has earned it.
     func isConfident(area: TrafficArea, roadClass: RoadClass,
                      weekday: Int, hour: Int, weather: TrafficWeather) -> Bool {
-        (cells[Self.key(area: area, roadClass: roadClass, weekday: weekday,
-                        hour: hour, weather: weather)]?.count ?? 0)
-            >= Self.confidentAfter
+        let count = cells[Self.key(area: area, roadClass: roadClass, weekday: weekday,
+                                   hour: hour, weather: weather)]?.count ?? 0
+        return flows_learning_traffic_is_confident(Int64(count))
     }
 }
 
 /// Disk-backed wrapper: same pattern as SeasonalRiskModel.
+// MARK: - Crossing a learned cell
+
+/// A cell as the bridge takes it: its fields plus whether it exists.
+private func crossing(_ cell: DelayCell?) -> (FlowsLearningCell, Bool) {
+    (FlowsLearningCell(weighted_sum: cell?.weightedSum ?? 0, weight: cell?.weight ?? 0,
+                       count: Double(cell?.count ?? 0)), cell != nil)
+}
+
 @MainActor
 final class TrafficDelayModel: ObservableObject {
     @Published private(set) var store = TrafficDelayStore()

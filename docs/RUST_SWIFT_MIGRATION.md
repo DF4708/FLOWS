@@ -1100,12 +1100,31 @@ and says so. A row or family past the harmonic table crashed the Swift's
 score; the facade answers NaN. Both are documented at the facade, neither
 reaches a driver from the app's own callers.
 
+## Wave 1: the learned-model facades switch (2026-09-15)
+
+`flows-bridge::learning` exposes the learned-model core (72 functions), and
+the seven Swift files call it: `EverydayRadius`, `TrafficLearning`,
+`RoadEfficiencyLearning`, `BufferLearning`, `RefuelLearning`,
+`DrivingProfile` and `DestinationPrediction` hold no threshold, weight,
+half-life, fold or ranking rule. The stores stay Swift — the dictionaries,
+the keys, the persistence — and recompose the pure pieces the way the
+oracle does: a decay is a plan the store applies to its own cells; a fold
+answers the updated cell, or "dropped" where the Swift would have crashed
+on a count at `Int.max`; names for the everyday ranking cross in NFC joined
+by U+001F; destinations come back as `[index, score, reason code]` triples
+with the words kept in Swift. Empty lists never cross: each facade answers
+the empty case itself (no trips: the default radius; no places: nothing to
+rank; no answers: accuracy 0), which is the Swift's own answer in each case.
+
+One answer the Swift never gave: a router estimate that is not a number made
+`predictedDelayMinutes` crash; the facade reports no delay.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
 |---|---|---|
 | seasonal | LANDED: core + oracle test (3,163 records, bit-exact); bridge is the reserved stub | switch `SeasonalRiskModel`/`RouteHeadTrainer` to the bridge with their callers |
-| learning | LANDED: core + fixture + oracle test (10,673 records, bit-exact; two name records diverge by design); bridge is the reserved stub | switch the seven Swift classes to the bridge with their callers |
+| learning | LANDED: core + oracle (10,673 records) + bridge (72 functions) + seven facades switched | `EverydayStore.miles` (a haversine) still in Swift, with the geo facade |
 | vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records, bit-exact) + five facades switched (SpeedLaw, SpeedSign, TowingLimits, FilterLimits, PursuitReach) | switch GradeProfile and DriveEfficiency with their callers |
 | climate | LANDED: core + oracle (13,447 records) + bridge (36 functions, one opaque table type) + five facades switched | — |
 | places_text | harness only | port from scratch — the heaviest: it needs Swift's grapheme segmentation, case mapping and canonical equivalence in zero-dependency Rust |

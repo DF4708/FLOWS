@@ -27,6 +27,11 @@ import Foundation
 ///
 /// All inputs are already on the device and encrypted at rest; nothing here
 /// makes a network call.
+///
+/// The weights, the recency, the ranking and the reason are computed in
+/// rust/flows-core (learning.rs) and called through rust/flows-bridge; the
+/// reason's words stay here. Pinned bit for bit to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_learning_oracle.tsv.
 enum DestinationPrediction {
 
     /// One candidate the driver might be heading to.
@@ -66,48 +71,65 @@ enum DestinationPrediction {
 
     /// Half-life on recency, in days. Habits change; a place not visited in
     /// months should fall behind one visited last week even at equal counts.
-    static let recencyHalfLifeDays = 21.0
+    static let recencyHalfLifeDays = flows_learning_destination_recency_half_life_days()
     /// Weight on an exact context match versus the weaker back-off tiers.
     /// Context is the strongest evidence, so it dominates — but never so
     /// completely that a single tap at 8am outranks a place visited fifty
     /// times.
-    static let contextWeight = 3.0
-    static let timeWeight = 1.5
-    static let baseWeight = 1.0
+    static let contextWeight = flows_learning_destination_context_weight()
+    static let timeWeight = flows_learning_destination_time_weight()
+    static let baseWeight = flows_learning_destination_base_weight()
 
     /// Rank candidates for the driver's current moment. Pure — inputs in,
     /// ordering out — so the whole prediction is unit-testable.
     static func rank(
         _ evidence: [Evidence], now: Double, limit: Int = 4
     ) -> [Candidate] {
-        let scored: [(Evidence, Double, String)] = evidence.compactMap { e in
-            let counts = Double(e.contextHits) * contextWeight
-                + Double(e.timeHits) * timeWeight
-                + Double(e.totalHits) * baseWeight
-            guard counts > 0 else { return nil }
-            let ageDays = max(now - e.lastUsed, 0) / 86_400
-            let recency = e.lastUsed > 0 ? pow(0.5, ageDays / recencyHalfLifeDays) : 0.35
-            let score = counts * recency
-            return (e, score, reason(for: e))
-        }
-        guard let best = scored.map(\.1).max(), best > 0 else { return [] }
-        return scored
-            .sorted { $0.1 > $1.1 }
-            .prefix(limit)
-            .map { e, s, why in
-                Candidate(id: e.id, name: e.name, coordinate: e.coordinate,
-                          score: s / best, reason: why)
+        // Nothing to rank (and an empty buffer never crosses).
+        guard !evidence.isEmpty else { return [] }
+        let context = evidence.map { Int64($0.contextHits) }
+        let time = evidence.map { Int64($0.timeHits) }
+        let total = evidence.map { Int64($0.totalHits) }
+        let last = evidence.map(\.lastUsed)
+        // Flat [index, score, reason code] triples, best first.
+        let flat = context.withUnsafeBufferPointer { c in
+            time.withUnsafeBufferPointer { t in
+                total.withUnsafeBufferPointer { tot in
+                    last.withUnsafeBufferPointer { l in
+                        flows_learning_destination_rank(c, t, tot, l, now, Int64(limit))
+                    }
+                }
             }
+        }
+        var out: [Candidate] = []
+        var i = 0
+        while i + 2 < flat.len() {
+            if let index = Int(exactly: flat[i]), index < evidence.count {
+                let e = evidence[index]
+                out.append(Candidate(id: e.id, name: e.name, coordinate: e.coordinate,
+                                     score: flat[i + 1], reason: reasonWords(UInt8(exactly: flat[i + 2]) ?? 4)))
+            }
+            i += 3
+        }
+        return out
     }
 
     /// Why a candidate is being offered — the driver should never see an
     /// unexplained suggestion about their own movements.
     static func reason(for e: Evidence) -> String {
-        if e.contextHits >= 3 { return "You usually go here about now" }
-        if e.contextHits > 0 { return "You've come here at this time" }
-        if e.timeHits >= 3 { return "A regular stop at this hour" }
-        if e.totalHits >= 5 { return "One of your regular places" }
-        return "You've been here recently"
+        reasonWords(flows_learning_destination_reason(Int64(e.contextHits), Int64(e.timeHits), Int64(e.totalHits)))
+    }
+
+    /// The plain words for a reason code (the bridge's: 0 usually now, 1 came
+    /// at this time, 2 regular at this hour, 3 regular place, 4 recently).
+    static func reasonWords(_ code: UInt8) -> String {
+        switch code {
+        case 0: return "You usually go here about now"
+        case 1: return "You've come here at this time"
+        case 2: return "A regular stop at this hour"
+        case 3: return "One of your regular places"
+        default: return "You've been here recently"
+        }
     }
 
     /// Whether a prediction is confident enough to OFFER unprompted (the
@@ -115,7 +137,7 @@ enum DestinationPrediction {
     /// someone is going is worse than silence — it is both useless and a
     /// little unsettling.
     static func isConfident(_ candidates: [Candidate], minimumEvidence: Int) -> Bool {
-        guard let top = candidates.first else { return false }
-        return top.score >= 0.5 && minimumEvidence >= 3
+        let top = candidates.first?.score
+        return flows_learning_destination_is_confident(top ?? 0, top != nil, Int64(minimumEvidence))
     }
 }

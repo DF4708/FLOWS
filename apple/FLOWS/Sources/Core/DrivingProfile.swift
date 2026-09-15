@@ -27,6 +27,12 @@ import Foundation
 ///     ETA shown, every fuel-cost estimate derived from it, and the
 ///     arrival-time reasoning that decides whether a storm will still be
 ///     there when the driver arrives.
+///
+/// The correction's rails, its multiplier and its update are computed in
+/// rust/flows-core (learning.rs) and called through rust/flows-bridge; the
+/// persisted fields, the words and the store stay here. Pinned bit for bit to
+/// the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_learning_oracle.tsv.
 struct DrivingProfile: Codable, Equatable {
     /// Speed/idle EWMAs (the range model's inputs).
     var averageSpeedMph: Double = 55
@@ -43,25 +49,22 @@ struct DrivingProfile: Codable, Equatable {
     /// unplanned stop, a closure, or a trip abandoned mid-route. Recording
     /// them would teach the model that this driver takes 3× as long as the
     /// router says, and every ETA in the app would inflate.
-    static let minPlausibleRatio = 0.6
-    static let maxPlausibleRatio = 1.8
+    static let minPlausibleRatio = flows_learning_eta_min_plausible_ratio()
+    static let maxPlausibleRatio = flows_learning_eta_max_plausible_ratio()
     /// Samples before the correction is trusted enough to move a number the
     /// driver reads.
-    static let minSamplesToApply = 5
+    static let minSamplesToApply = Int(flows_learning_eta_min_samples_to_apply())
     /// Below this the correction is noise; applying it would make ETAs
     /// jitter for no benefit.
-    static let minMeaningfulDeviation = 0.03
+    static let minMeaningfulDeviation = flows_learning_eta_min_meaningful_deviation()
     /// Even a well-established correction stays within this band — the
     /// routing engine's traffic model is still the primary estimate.
-    static let clampLow = 0.75
-    static let clampHigh = 1.4
+    static let clampLow = flows_learning_eta_clamp_low()
+    static let clampHigh = flows_learning_eta_clamp_high()
 
     /// The multiplier to apply to a routing ETA, or 1 when not yet earned.
     var etaMultiplier: Double {
-        guard etaSamples >= Self.minSamplesToApply else { return 1 }
-        let raw = exp(etaLogRatio)
-        guard abs(raw - 1) >= Self.minMeaningfulDeviation else { return 1 }
-        return min(max(raw, Self.clampLow), Self.clampHigh)
+        flows_learning_eta_multiplier(etaLogRatio, Int64(etaSamples))
     }
 
     /// Fold one completed trip into the correction.
@@ -75,15 +78,12 @@ struct DrivingProfile: Codable, Equatable {
         predicted: TimeInterval, actual: TimeInterval,
         stoppedSeconds: TimeInterval = 0, now: Double = Date().timeIntervalSince1970
     ) {
-        let driving = actual - max(stoppedSeconds, 0)
-        guard predicted > 60, driving > 60, predicted.isFinite, driving.isFinite else { return }
-        let ratio = driving / predicted
-        guard ratio >= Self.minPlausibleRatio, ratio <= Self.maxPlausibleRatio else { return }
-        // Early samples move the estimate quickly, later ones refine it —
-        // 1/n up to a floor, so it keeps adapting if the driver changes.
-        let alpha = max(1.0 / Double(etaSamples + 1), 0.08)
-        etaLogRatio = etaLogRatio * (1 - alpha) + log(ratio) * alpha
-        etaSamples += 1
+        // `has` 0: the arrival was rejected (not driving style), the profile
+        // is unchanged.
+        let next = flows_learning_eta_record(etaLogRatio, Int64(etaSamples), predicted, actual, stoppedSeconds)
+        guard next.has == 1 else { return }
+        etaLogRatio = next.log_ratio
+        etaSamples = Int(next.samples)
         updatedAt = now
     }
 
