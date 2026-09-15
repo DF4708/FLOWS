@@ -59,6 +59,7 @@ pub mod geo;
 pub mod learning;
 pub mod places_text;
 pub mod risk;
+pub mod risk_field;
 pub mod seasonal;
 pub mod trip_vehicle;
 pub mod vehicle_policy;

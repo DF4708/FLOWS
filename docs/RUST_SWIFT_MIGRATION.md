@@ -1252,3 +1252,39 @@ facade, with `LaneData.summary` (plain words for the HUD).
 | places_text | LANDED: `swift_text` + core + oracle (23,594 records) + bridge (36 functions) + all five facades switched | `EnforcementCameras.imminent`/`warning` and `LaneData.summary` (UI words) wait for the geo callers |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
 
+## Wave 2, first landing: the risk field as an opaque reader (2026-09-16)
+
+`RiskFieldService` holds the ZIP-level risk field through one opaque Rust
+type. `flows_core::risk_field` reads the FRB1 bundle (every bounds check,
+the FNV-1a-64 hash, the no-trailing-bytes rule — a corrupt shard is refused,
+never repaired), builds the 0.2° grid, answers the nearest centroid within
+the 0.27° cosine-scaled reach with the latitude-widened longitude window,
+selects a viewport's ringed entries worst-first with Swift's own sort so ties
+and NaN scores keep their order, and rescores the national entries against
+the harmonic table for the week. The bridge exposes it as `FlowsRiskField`
+(three constructors, sixteen methods); the rescore takes the harmonic
+table's own handle, the first time one opaque type reads another across the
+bridge.
+
+The oracle is the first to drive a loaded service instance: the harness
+writes each shard where `candidatePaths()` looks, lets a fresh
+`RiskFieldService` load it and records `scoreRow`, `summary` and `zips(in:)`
+— 6,335 records in 9 kinds, three runs byte-identical, every record matched
+on the first run of the test.
+
+The facade keeps the class, its published state, the file reads and the JSON
+fallback (decoded in Swift, handed across as columns), and builds `ZipEntry`
+values from the field on demand. `parseFRB1`, `selectZips`, `buildGrid` and
+`harmonicRescore` were the Swift's test seams; the tests now build a
+`RiskField` and query it. Two places the Swift trapped answer nothing
+instead: a coordinate that is not a number, and an entry whose centroid
+cannot be placed (left out of the grid).
+
+### Wave 2 remaining
+
+| item | state |
+|---|---|
+| the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | next: their harness must link the bridge, since `RiskEquations` was already a facade at the base commit |
+| LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | not started |
+| POIRanking, PlacesStore (FPS1), POIService decisions | not started |
+| the long tail (OfflineCorridors, Amtrak, radio, recents, breadcrumbs, FuelWarning, HybridWalk, AirTravel, transit estimates, Mobility, AdaptiveTuning, SignalQuality, playback, spoken replies, TripShare, VehicleLink, RouteAttributes) | not started |

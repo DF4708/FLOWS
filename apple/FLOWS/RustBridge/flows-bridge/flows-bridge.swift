@@ -1318,6 +1318,170 @@ public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) ->
 }
 
 
+public func flows_risk_field_parse_frb1(_ data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsRiskField> {
+    { let val = __swift_bridge__$flows_risk_field_parse_frb1(data.toFfiSlice()); if val != nil { return FlowsRiskField(ptr: val!) } else { return nil } }()
+}
+public func flows_risk_field_empty<GenericToRustStr: ToRustStr>(_ generated: GenericToRustStr, _ families_joined: GenericToRustStr) -> FlowsRiskField {
+    return families_joined.toRustStr({ families_joinedAsRustStr in
+        return generated.toRustStr({ generatedAsRustStr in
+        FlowsRiskField(ptr: __swift_bridge__$flows_risk_field_empty(generatedAsRustStr, families_joinedAsRustStr))
+    })
+    })
+}
+public func flows_risk_field_from_columns<GenericToRustStr: ToRustStr>(_ generated: GenericToRustStr, _ families_joined: GenericToRustStr, _ zips_joined: GenericToRustStr, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ score_counts: UnsafeBufferPointer<Int64>, _ scores: UnsafeBufferPointer<Double>, _ summaries_joined: GenericToRustStr, _ has_summary: UnsafeBufferPointer<Int64>, _ ring_counts: UnsafeBufferPointer<Int64>, _ has_ring: UnsafeBufferPointer<Int64>, _ ring_points: UnsafeBufferPointer<Double>) -> Optional<FlowsRiskField> {
+    return summaries_joined.toRustStr({ summaries_joinedAsRustStr in
+        return zips_joined.toRustStr({ zips_joinedAsRustStr in
+        return families_joined.toRustStr({ families_joinedAsRustStr in
+        return generated.toRustStr({ generatedAsRustStr in
+        { let val = __swift_bridge__$flows_risk_field_from_columns(generatedAsRustStr, families_joinedAsRustStr, zips_joinedAsRustStr, lats.toFfiSlice(), lons.toFfiSlice(), score_counts.toFfiSlice(), scores.toFfiSlice(), summaries_joinedAsRustStr, has_summary.toFfiSlice(), ring_counts.toFfiSlice(), has_ring.toFfiSlice(), ring_points.toFfiSlice()); if val != nil { return FlowsRiskField(ptr: val!) } else { return nil } }()
+    })
+    })
+    })
+    })
+}
+
+
+
+public class FlowsRiskField: FlowsRiskFieldRefMut {
+    var isOwned: Bool = true
+
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+
+    deinit {
+        if isOwned {
+            __swift_bridge__$FlowsRiskField$_free(ptr)
+        }
+    }
+}
+public class FlowsRiskFieldRefMut: FlowsRiskFieldRef {
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+}
+extension FlowsRiskFieldRefMut {
+    public func harmonic_rescore(_ table: FlowsHarmonicTableRef, _ week: Int64) -> Int64 {
+        __swift_bridge__$FlowsRiskField$harmonic_rescore(ptr, table.ptr, week)
+    }
+}
+public class FlowsRiskFieldRef {
+    var ptr: UnsafeMutableRawPointer
+
+    public init(ptr: UnsafeMutableRawPointer) {
+        self.ptr = ptr
+    }
+}
+extension FlowsRiskFieldRef {
+    public func generated() -> RustString {
+        RustString(ptr: __swift_bridge__$FlowsRiskField$generated(ptr))
+    }
+
+    public func families() -> RustVec<RustString> {
+        RustVec(ptr: __swift_bridge__$FlowsRiskField$families(ptr))
+    }
+
+    public func family_index<GenericToRustStr: ToRustStr>(_ family: GenericToRustStr) -> Int64 {
+        return family.toRustStr({ familyAsRustStr in
+            __swift_bridge__$FlowsRiskField$family_index(ptr, familyAsRustStr)
+        })
+    }
+
+    public func count() -> Int64 {
+        __swift_bridge__$FlowsRiskField$count(ptr)
+    }
+
+    public func zip(_ index: Int64) -> RustString {
+        RustString(ptr: __swift_bridge__$FlowsRiskField$zip(ptr, index))
+    }
+
+    public func latitude(_ index: Int64) -> Double {
+        __swift_bridge__$FlowsRiskField$latitude(ptr, index)
+    }
+
+    public func longitude(_ index: Int64) -> Double {
+        __swift_bridge__$FlowsRiskField$longitude(ptr, index)
+    }
+
+    public func scores(_ index: Int64) -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsRiskField$scores(ptr, index))
+    }
+
+    public func has_summary(_ index: Int64) -> Bool {
+        __swift_bridge__$FlowsRiskField$has_summary(ptr, index)
+    }
+
+    public func summary(_ index: Int64) -> RustString {
+        RustString(ptr: __swift_bridge__$FlowsRiskField$summary(ptr, index))
+    }
+
+    public func has_ring(_ index: Int64) -> Bool {
+        __swift_bridge__$FlowsRiskField$has_ring(ptr, index)
+    }
+
+    public func ring(_ index: Int64) -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsRiskField$ring(ptr, index))
+    }
+
+    public func nearest(_ latitude: Double, _ longitude: Double) -> Int64 {
+        __swift_bridge__$FlowsRiskField$nearest(ptr, latitude, longitude)
+    }
+
+    public func select(_ lat_min: Double, _ lat_max: Double, _ lon_min: Double, _ lon_max: Double, _ family_index: Int64, _ limit: Int64) -> RustVec<Int64> {
+        RustVec(ptr: __swift_bridge__$FlowsRiskField$select(ptr, lat_min, lat_max, lon_min, lon_max, family_index, limit))
+    }
+}
+extension FlowsRiskField: Vectorizable {
+    public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
+        __swift_bridge__$Vec_FlowsRiskField$new()
+    }
+
+    public static func vecOfSelfFree(vecPtr: UnsafeMutableRawPointer) {
+        __swift_bridge__$Vec_FlowsRiskField$drop(vecPtr)
+    }
+
+    public static func vecOfSelfPush(vecPtr: UnsafeMutableRawPointer, value: FlowsRiskField) {
+        __swift_bridge__$Vec_FlowsRiskField$push(vecPtr, {value.isOwned = false; return value.ptr;}())
+    }
+
+    public static func vecOfSelfPop(vecPtr: UnsafeMutableRawPointer) -> Optional<Self> {
+        let pointer = __swift_bridge__$Vec_FlowsRiskField$pop(vecPtr)
+        if pointer == nil {
+            return nil
+        } else {
+            return (FlowsRiskField(ptr: pointer!) as! Self)
+        }
+    }
+
+    public static func vecOfSelfGet(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsRiskFieldRef> {
+        let pointer = __swift_bridge__$Vec_FlowsRiskField$get(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsRiskFieldRef(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsRiskFieldRefMut> {
+        let pointer = __swift_bridge__$Vec_FlowsRiskField$get_mut(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsRiskFieldRefMut(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<FlowsRiskFieldRef> {
+        UnsafePointer<FlowsRiskFieldRef>(OpaquePointer(__swift_bridge__$Vec_FlowsRiskField$as_ptr(vecPtr)))
+    }
+
+    public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
+        __swift_bridge__$Vec_FlowsRiskField$len(vecPtr)
+    }
+}
+
+
+
 public func flows_seasonal_cross_country_km() -> Double {
     __swift_bridge__$flows_seasonal_cross_country_km()
 }

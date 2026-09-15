@@ -28,6 +28,8 @@ import Foundation
 /// Swift this replaced by rust/flows-bridge/tests/fixtures/swift_climate_oracle.tsv.
 struct HarmonicClimatology {
     private let table: FlowsHarmonicTable
+    /// The table's own handle, for the other Rust readers that score against it.
+    var handle: FlowsHarmonicTable { table }
     let families: [String]
     static let scoreMax = flows_climate_score_max()
 

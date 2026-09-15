@@ -1283,7 +1283,9 @@ final class SpatialIndexTests: XCTestCase {
                                      centroid: CLLocationCoordinate2D(latitude: lat, longitude: lon),
                                      scores: [score], summary: nil, ring: ring))
             }
-            let grid = RiskFieldService.buildGrid(entries)
+            guard let field = RiskField(generated: "", families: ["f"], entries: entries) else {
+                return XCTFail("entries refused")
+            }
             // Tight viewports (grid path), a whole-planet box (full-scan fallback),
             // and an off-map box (empty result) — all must match brute force.
             let boxes: [(Double, Double, Double, Double)] = [
@@ -1294,13 +1296,11 @@ final class SpatialIndexTests: XCTestCase {
             ]
             for (latMin, latMax, lonMin, lonMax) in boxes {
                 for limit in [5, 50, 10_000] {
-                    let got = RiskFieldService.selectZips(
-                        entries: entries, grid: grid,
-                        latMin: latMin, latMax: latMax, lonMin: lonMin, lonMax: lonMax,
-                        fi: 0, limit: limit)
+                    let got = field.select(latMin: latMin, latMax: latMax, lonMin: lonMin, lonMax: lonMax,
+                                           family: 0, limit: limit).map { field.entry($0) }
                     let want = oracle(entries, latMin, latMax, lonMin, lonMax, 0, limit)
                     XCTAssertEqual(got.map { $0.zip }, want.map { $0.zip },
-                                   "selectZips must match brute force (same set, same order)")
+                                   "the field's selection must match brute force (same set, same order)")
                 }
             }
         }

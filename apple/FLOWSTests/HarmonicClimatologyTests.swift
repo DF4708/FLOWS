@@ -122,9 +122,10 @@ final class HarmonicClimatologyTests: XCTestCase {
         shard.append(le64(hash))
         shard.append(payload)
 
-        guard let (entries, fams, gen) = RiskFieldService.parseFRB1(shard) else {
+        guard let field = RiskFieldService.parseFRB1(shard) else {
             return XCTFail("valid FRB1 refused")
         }
+        let entries = field.entries, fams = field.families, gen = field.generated
         XCTAssertEqual(gen, generated)
         XCTAssertEqual(fams, ["wind", "fire"])
         XCTAssertEqual(entries.count, 2)
@@ -215,7 +216,7 @@ final class HarmonicRescoreTests: XCTestCase {
                 ring: i % 5 == 0 ? ring : nil)
         }
 
-        // Serial oracle — the loop shape harmonicRescore replaced.
+        // Serial oracle — the loop shape the Rust rescore replaced.
         var expected = base
         var expectedCount = 0
         for e in 0..<expected.count where expected[e].ring == nil {
@@ -230,9 +231,10 @@ final class HarmonicRescoreTests: XCTestCase {
             expectedCount += 1
         }
 
-        var got = base
-        let gotCount = RiskFieldService.harmonicRescore(
-            entries: &got, table: table, trig: trig, famIdx: famIdx)
+        // The field pairs families by name, so the bundle's families are the table's.
+        let field = try XCTUnwrap(RiskField(generated: "", families: ["winter", "heat"], entries: base))
+        let gotCount = field.harmonicRescore(table: table, week: 10)
+        let got = field.entries
 
         XCTAssertEqual(gotCount, expectedCount)
         XCTAssertEqual(got.count, expected.count)

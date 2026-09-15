@@ -517,6 +517,13 @@ pub fn flows_climate_next_change(latitude: f64, longitude: f64, now: f64) -> f64
 /// A parsed FLHH table, held by Swift as a handle.
 pub struct FlowsHarmonicTable(cl::HarmonicTable);
 
+impl FlowsHarmonicTable {
+    /// The table itself, for the other bridge modules that read it.
+    pub(crate) fn inner(&self) -> &cl::HarmonicTable {
+        &self.0
+    }
+}
+
 pub fn flows_climate_score_max() -> f64 {
     cl::SCORE_MAX
 }

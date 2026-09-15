@@ -27,6 +27,8 @@
 //!              equivalence, Foundation search, Double parsing) from the
 //!              runtime's own tables
 //!   places_text — brand, price and tag text on swift_text
+//!   risk_field — the ZIP-level risk field: FRB1 reader, grid lookup,
+//!              viewport selection, harmonic rescore
 //!
 //! flows-core has no FFI of its own and never will: `#[no_mangle]` is
 //! rejected by `forbid(unsafe_code)`. The app reaches these functions through
@@ -66,6 +68,7 @@ pub mod learning;
 pub mod places_text;
 pub mod polyline;
 pub mod risk;
+pub mod risk_field;
 pub mod routing;
 pub mod scoring;
 pub mod seasonal;
