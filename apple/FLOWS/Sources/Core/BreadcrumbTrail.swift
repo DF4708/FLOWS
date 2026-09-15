@@ -24,8 +24,8 @@ final class BreadcrumbTrail: ObservableObject {
     /// The driver toggled the trail onto the map.
     @Published var showTrail = false
 
-    nonisolated static let minStepMeters: CLLocationDistance = 25
-    static let maxPoints = 6_000            // ≈150 km of 25 m steps
+    nonisolated static let minStepMeters: CLLocationDistance = flows_modes_min_step_meters()
+    static let maxPoints = Int(flows_modes_max_points())   // ≈150 km of 25 m steps
     // Persist every ~200 m (8 × 25 m steps), not every ~1 km. This is a
     // retrace-to-safety trail with zero signal — the most likely failure is
     // the phone's battery dying, which no graceful-shutdown hook can catch,
@@ -68,19 +68,20 @@ final class BreadcrumbTrail: ObservableObject {
 
     nonisolated static func shouldRecord(
         _ c: CLLocationCoordinate2D, after last: CLLocationCoordinate2D?) -> Bool {
-        guard c.latitude.isFinite, c.longitude.isFinite,
-              abs(c.latitude) > 0.0001 || abs(c.longitude) > 0.0001 else { return false }
-        guard let last else { return true }
-        return POIRanking.meters(last, c) >= minStepMeters
+        // A finite fix off (0, 0), at least minStepMeters from the last crumb
+        // (rust/flows-core travel_modes.rs).
+        flows_modes_should_record(c.latitude, c.longitude, last?.latitude ?? 0,
+                                  last?.longitude ?? 0, last != nil)
     }
 
     /// The way back: the recorded trail NEWEST-FIRST from the current position
     /// — follow the line to walk out the way you came. Total meters included.
     func wayBack() -> (path: [CLLocationCoordinate2D], meters: CLLocationDistance) {
         let reversed = Array(points.reversed())
-        var meters: CLLocationDistance = 0
-        for i in 1..<max(reversed.count, 1) {
-            meters += POIRanking.meters(reversed[i - 1], reversed[i])
+        guard points.count >= 2 else { return (reversed, 0) }
+        let lats = points.map(\.latitude), lons = points.map(\.longitude)
+        let meters = lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in flows_modes_way_back_meters(la, lo) }
         }
         return (reversed, meters)
     }

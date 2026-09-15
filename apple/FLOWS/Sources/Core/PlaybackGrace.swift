@@ -66,39 +66,36 @@ enum PlaybackGrace {
 
     /// Live streams keep small buffers — a few seconds is normal, and the
     /// floor covers the moment right after tuning when little is loaded.
-    static let radioFloorSeconds: Double = 4
+    static let radioFloorSeconds: Double = flows_modes_grace_caps()[0]
     /// Even a generous stream buffer shouldn't hold the handoff forever.
-    static let radioCapSeconds: Double = 45
+    static let radioCapSeconds: Double = flows_modes_grace_caps()[1]
     /// Apple Music's read-ahead isn't published, so this is a CONSERVATIVE
     /// estimate, not a measurement — and it only bounds the wait, because
     /// the system player tells us when playback actually stops.
-    static let appleMusicCapSeconds: Double = 30
+    static let appleMusicCapSeconds: Double = flows_modes_grace_caps()[2]
     /// Spotify plays on its own device and reports nothing while the link
     /// is down, so this cap is the only signal available there. Waiting
     /// costs nothing while its buffer is still producing sound.
-    static let spotifyCapSeconds: Double = 40
+    static let spotifyCapSeconds: Double = flows_modes_grace_caps()[3]
     /// How long to keep WATCHING another app's audio. Not a buffer
     /// estimate — audio still playing at this ceiling is simply left
     /// alone (a deeper buffer than expected is no reason to talk over
     /// someone's music).
-    static let otherAppWatchSeconds: Double = 90
+    static let otherAppWatchSeconds: Double = flows_modes_grace_caps()[4]
 
     /// - Parameter measuredBuffer: seconds of audio already loaded, when
     ///   the player is ours and can be asked. nil for players that can't.
+    /// The radio's measured buffer is held between its floor and cap; every
+    /// other player waits its cap (rust/flows-core media_policy.rs).
     static func graceSeconds(for source: Source,
                              measuredBuffer: Double? = nil) -> Double {
+        let code: UInt8
         switch source {
-        case .radio:
-            guard let measuredBuffer, measuredBuffer.isFinite else {
-                return radioFloorSeconds
-            }
-            return min(max(measuredBuffer, radioFloorSeconds), radioCapSeconds)
-        case .appleMusicCloud:
-            return appleMusicCapSeconds
-        case .spotify:
-            return spotifyCapSeconds
-        case .otherApp:
-            return otherAppWatchSeconds
+        case .radio: code = 0
+        case .appleMusicCloud: code = 1
+        case .spotify: code = 2
+        case .otherApp: code = 3
         }
+        return flows_modes_grace_seconds(code, measuredBuffer ?? 0, measuredBuffer != nil)
     }
 }

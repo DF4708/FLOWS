@@ -13,41 +13,40 @@ import Foundation
 /// selection, honest door-to-door flight timing, a fare figure disclosed as
 /// carrier-set, and keyless ticket links. Airports come from MKLocalSearch
 /// (`.airport` POI category) in the UI layer; everything decidable without
-/// the network lives here.
+/// the network lives here. The numbers and choices are computed in
+/// rust/flows-core (travel_modes.rs); the step wording and links stay here.
 enum AirTravel {
     /// Below this trip length flying cannot beat the road once airport time
     /// is added (arrive early + security + taxi + bags ≈ 2 h on its own).
-    static let minTripMiles: Double = 100
+    static let minTripMiles: Double = flows_modes_air_constants()[0]
 
     static func worthFlying(tripMiles: Double) -> Bool {
-        tripMiles >= minTripMiles
+        flows_modes_worth_flying(tripMiles)
     }
 
     /// Board and alight airports this close together mean the flight itself
     /// is shorter than the airport overhead — no flight fits the trip.
-    static let minAirportGapMiles: Double = 60
+    static let minAirportGapMiles: Double = flows_modes_air_constants()[1]
 
     // -- Timing ---------------------------------------------------------------
 
     /// Show up this early (security + boarding)…
-    static let boardBufferSeconds: TimeInterval = 90 * 60
+    static let boardBufferSeconds: TimeInterval = flows_modes_air_constants()[2]
     /// …and budget this to get off, collect bags, and exit.
-    static let alightBufferSeconds: TimeInterval = 30 * 60
+    static let alightBufferSeconds: TimeInterval = flows_modes_air_constants()[3]
 
     /// In-air seconds for the airport-to-airport distance: taxi/climb/descent
     /// overhead plus cruise at an effective ground speed. Estimates only —
     /// schedules are the airlines'.
     static func flightSeconds(airportMiles: Double) -> TimeInterval {
-        guard airportMiles > 0 else { return 0 }
-        return 45 * 60 + airportMiles / 460 * 3600
+        flows_modes_flight_seconds(airportMiles)
     }
 
     /// The whole airport-to-curb leg: early arrival + flight + deplane/bags.
     /// This is what the itinerary shows, so a "1 h flight" never hides the
     /// two hours of airport around it.
     static func doorSeconds(airportMiles: Double) -> TimeInterval {
-        boardBufferSeconds + flightSeconds(airportMiles: airportMiles)
-            + alightBufferSeconds
+        flows_modes_door_seconds(airportMiles)
     }
 
     // -- Fare -----------------------------------------------------------------
@@ -56,7 +55,7 @@ enum AirTravel {
     /// published US domestic averages. Always disclosed as an estimate the
     /// airlines control.
     static func fareEstimate(airportMiles: Double) -> Double {
-        max(59, 39 + airportMiles * 0.11)
+        flows_modes_fare_estimate(airportMiles)
     }
 
     // -- Airport selection ----------------------------------------------------
@@ -71,29 +70,20 @@ enum AirTravel {
     /// outranks everything else; then plain "Airport"; then the rest.
     /// Returns nil for rejects.
     static func airportScore(name: String) -> Int? {
-        let lower = name.lowercased()
-        let reject = ["heliport", "helipad", "seaplane", "airstrip", "airpark",
-                      "air park", "air force", "afb", "air base", "naval",
-                      "army", "airfield", "balloonport"]
-        if reject.contains(where: { lower.contains($0) }) { return nil }
-        if lower.contains("international") { return 0 }
-        if lower.contains("airport") { return 1 }
-        return 2
+        let score = flows_modes_airport_score(name)
+        return score < 0 ? nil : Int(score)
     }
 
     /// Best candidate: lowest score first (international > airport > other),
     /// nearest breaks ties; anything past `maxMeters` or rejected by name is
     /// out. Returns the index into `candidates`.
     static func pickIndex(_ candidates: [Candidate], maxMeters: Double) -> Int? {
-        candidates.indices
-            .compactMap { i -> (Int, Int, Double)? in
-                guard candidates[i].meters <= maxMeters,
-                      let score = airportScore(name: candidates[i].name)
-                else { return nil }
-                return (i, score, candidates[i].meters)
-            }
-            .min { $0.1 != $1.1 ? $0.1 < $1.1 : $0.2 < $1.2 }
-            .map { $0.0 }
+        guard !candidates.isEmpty else { return nil }
+        let meters = candidates.map(\.meters)
+        let i = RustTextColumn(candidates.map(\.name)).with { joined, lens, _ in
+            meters.withUnsafeBufferPointer { m in flows_modes_pick_airport(joined, lens, m, maxMeters) }
+        }
+        return i < 0 ? nil : Int(i)
     }
 
     // -- Steps + ticket -------------------------------------------------------

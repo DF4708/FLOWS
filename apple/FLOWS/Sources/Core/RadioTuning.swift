@@ -37,19 +37,24 @@ enum RadioTuning {
     /// How much closer the next transmitter has to be before the tuner
     /// moves: 20%. Below that the two are effectively the same distance and
     /// switching is just flapping.
-    static let switchMargin = 0.8
+    static let switchMargin = flows_modes_switch_margin()
 
     /// The closest transmitter to a position, with its distance. Exact
-    /// listings beat state fallbacks at the same distance.
+    /// listings beat state fallbacks at the same distance
+    /// (rust/flows-core media_policy.rs).
     static func nearest(to position: CLLocationCoordinate2D,
                         in stations: [Station]) -> (station: Station, meters: Double)? {
-        stations
-            .map { (station: $0, meters: POIRanking.meters($0.coordinate, position)) }
-            .min {
-                $0.meters == $1.meters
-                    ? ($0.station.isExact && !$1.station.isExact)
-                    : $0.meters < $1.meters
+        guard !stations.isEmpty else { return nil }
+        let lats = stations.map(\.coordinate.latitude), lons = stations.map(\.coordinate.longitude)
+        let exact = stations.map { UInt8($0.isExact ? 1 : 0) }
+        let hit = lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in
+                exact.withUnsafeBufferPointer { ex in
+                    flows_modes_nearest_station(position.latitude, position.longitude, la, lo, ex)
+                }
             }
+        }
+        return hit.has ? (stations[Int(hit.index)], hit.meters) : nil
     }
 
     /// The station to switch to as the driver moves, or nil to stay put.
@@ -61,11 +66,20 @@ enum RadioTuning {
                          playingCoordinate: CLLocationCoordinate2D?,
                          position: CLLocationCoordinate2D,
                          stations: [Station]) -> String? {
-        guard let playingID,
-              let best = nearest(to: position, in: stations),
-              best.station.id != playingID else { return nil }
-        guard let playingCoordinate else { return best.station.id }
-        let current = POIRanking.meters(playingCoordinate, position)
-        return best.meters < current * switchMargin ? best.station.id : nil
+        guard let playingID, !stations.isEmpty else { return nil }
+        let lats = stations.map(\.coordinate.latitude), lons = stations.map(\.coordinate.longitude)
+        let exact = stations.map { UInt8($0.isExact ? 1 : 0) }
+        let i = RustTextColumn(stations.map(\.id)).with { joined, lens, _ in
+            lats.withUnsafeBufferPointer { la in
+                lons.withUnsafeBufferPointer { lo in
+                    exact.withUnsafeBufferPointer { ex in
+                        flows_modes_retarget(playingID, playingCoordinate?.latitude ?? 0,
+                                             playingCoordinate?.longitude ?? 0, playingCoordinate != nil,
+                                             position.latitude, position.longitude, joined, lens, la, lo, ex)
+                    }
+                }
+            }
+        }
+        return i < 0 ? nil : stations[Int(i)].id
     }
 }

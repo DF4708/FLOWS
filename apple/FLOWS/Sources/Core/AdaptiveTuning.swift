@@ -84,64 +84,24 @@ final class AdaptiveTuning: @unchecked Sendable {
     /// A base TTL, stretched for the current device/thermal/power state.
     func ttl(_ base: TimeInterval) -> TimeInterval { base * settings.ttlMultiplier }
 
-    // MARK: pure mapping (tested)
+    // MARK: pure mapping (tested; rust/flows-core media_policy.rs)
 
     /// Hardware tier from core count + RAM. iPhone 7 (A10): 2 cores / 2 GB →
     /// low. iPhone 11–12 (6 cores / 4 GB) → standard. Pro / M-series → high.
     static func baseTier(cores: Int, memoryGB: Double) -> Tier {
-        if cores <= 2 || memoryGB < 3 { return .low }
-        if cores <= 4 || memoryGB < 4.5 { return .standard }
-        return .high
+        Tier(rawValue: Int(flows_modes_device_tier(Int64(cores), memoryGB))) ?? .high
     }
 
+    /// The tier's base settings backed off for the thermal state (from .fair
+    /// on) and Low Power Mode, with the planning burst bounded by the headroom
+    /// the state allows — a critical device gets no boost at all. Pinned to
+    /// the original by rust/flows-bridge/tests/fixtures/swift_modes_oracle.tsv.
     static func settings(tier: Tier, thermal: ProcessInfo.ThermalState,
                          lowPower: Bool) -> Settings {
-        var maxInFlight: Int
-        var grid: Int
-        var debounce: Double
-        switch tier {
-        case .low:      maxInFlight = 3;  grid = 3; debounce = 1.0
-        case .standard: maxInFlight = 6;  grid = 4; debounce = 0.6
-        case .high:     maxInFlight = 10; grid = 5; debounce = 0.4
-        }
-        var ttlMul = 1.0
-        switch thermal {
-        case .fair:     ttlMul = 1.3
-                        // Begin backing off at .fair, not only at .serious: one
-                        // fewer concurrent request + a slightly longer debounce so
-                        // a warming weak device eases off BEFORE it climbs to
-                        // .serious. Grid density is left alone (more disruptive —
-                        // reserved for .serious).
-                        maxInFlight = max(2, maxInFlight - 1)
-                        debounce = max(debounce, tier == .low ? 1.0 : 0.8)
-        case .serious:  ttlMul = 2.0; maxInFlight = max(2, maxInFlight / 2)
-                        grid = max(3, grid - 1); debounce = max(debounce, 1.0)
-        case .critical: ttlMul = 3.0; maxInFlight = 2
-                        grid = 3; debounce = max(debounce, 1.5)
-        default:        break   // .nominal
-        }
-        if lowPower {
-            ttlMul = max(ttlMul, 2.0)
-            maxInFlight = max(2, min(maxInFlight, tier == .high ? 5 : 3))
-            grid = max(3, min(grid, 4))
-            debounce = max(debounce, 1.0)
-        }
-        // Planning burst = double the background ceiling, bounded by how much
-        // headroom the device state allows: a cool device may briefly run 2×,
-        // a warming one less, and a critical/Low-Power device barely more than
-        // background (critical allows NO boost — the ceiling equals the
-        // background one, so a hot device never spikes for a burst).
-        var burstCap: Int
-        switch thermal {
-        case .fair:     burstCap = 12
-        case .serious:  burstCap = 6
-        case .critical: burstCap = 2
-        default:        burstCap = 16   // .nominal
-        }
-        if lowPower { burstCap = min(burstCap, 8) }
-        let planningMax = max(maxInFlight, min(burstCap, maxInFlight * 2))
-        return Settings(maxInFlight: maxInFlight, planningMaxInFlight: planningMax,
-                        viewportGridSpan: grid,
-                        ttlMultiplier: ttlMul, debounceSeconds: debounce)
+        let s = flows_modes_tuning_settings(UInt8(tier.rawValue), Int64(thermal.rawValue), lowPower)
+        return Settings(maxInFlight: Int(s.max_in_flight),
+                        planningMaxInFlight: Int(s.planning_max_in_flight),
+                        viewportGridSpan: Int(s.viewport_grid_span),
+                        ttlMultiplier: s.ttl_multiplier, debounceSeconds: s.debounce_seconds)
     }
 }

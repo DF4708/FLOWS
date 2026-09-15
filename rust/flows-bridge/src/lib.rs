@@ -59,6 +59,7 @@ pub mod forecast;
 pub mod geo;
 pub mod hazard_feeds;
 pub mod learning;
+pub mod modes;
 pub mod places;
 pub mod places_text;
 pub mod risk;

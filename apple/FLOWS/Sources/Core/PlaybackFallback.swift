@@ -52,13 +52,17 @@ enum PlaybackFallback {
     ///   - hasLocalMusic: downloaded songs exist on the device.
     ///   - lastGenre: what they asked for last ("rock"), for a like-for-like
     ///     radio match; empty/nil when unknown.
+    /// The ladder itself lives in rust/flows-core (media_policy.rs).
     static func onConnectionLost(isPlaying: Bool, needsNetwork: Bool,
                                  hasLocalMusic: Bool,
                                  lastGenre: String?) -> Source {
-        guard isPlaying, needsNetwork else { return .keepPlaying }
-        if hasLocalMusic { return .localLibrary }
-        let genre = (lastGenre ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return genre.isEmpty ? .nothingAvailable : .radio(genre: genre)
+        switch flows_modes_on_connection_lost(isPlaying, needsNetwork, hasLocalMusic,
+                                              lastGenre ?? "", lastGenre != nil) {
+        case 0: return .localLibrary
+        case 1: return .radio(genre: flows_modes_fallback_genre(lastGenre ?? "", lastGenre != nil).text)
+        case 2: return .nothingAvailable
+        default: return .keepPlaying
+        }
     }
 
     /// Come back only when FLOWS moved the playback itself, the
@@ -68,13 +72,13 @@ enum PlaybackFallback {
     /// they made outranks anything FLOWS wants to restore.
     static func shouldRestore(handedOff: Bool, connectionHeld: Bool,
                               driverChoseSince: Bool) -> Bool {
-        handedOff && connectionHeld && !driverChoseSince
+        flows_modes_should_restore(handedOff, connectionHeld, driverChoseSince)
     }
 
     /// How long the connection must hold before switching back — long
     /// enough that a one-bar flicker doesn't trigger it, short enough
     /// that a real recovery feels prompt.
-    static let restoreHoldSeconds: Double = 25
+    static let restoreHoldSeconds: Double = flows_modes_restore_hold_seconds()
 
     static func restoreLine(service: String) -> String {
         "Signal's back — returning to \(service)."

@@ -70,6 +70,7 @@ pub mod forecast;
 pub mod geo;
 pub mod hazard_feeds;
 pub mod learning;
+pub mod media_policy;
 pub mod places;
 pub mod places_text;
 pub mod polyline;
@@ -80,6 +81,7 @@ pub mod scoring;
 pub mod seasonal;
 pub mod swift_text;
 pub mod transit;
+pub mod travel_modes;
 pub mod trip_vehicle;
 pub mod vehicle_policy;
 

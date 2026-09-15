@@ -26,6 +26,10 @@ import CoreTelephony
 /// own stream stalling, and its own buffer draining rather than filling.
 /// A draining buffer is a leading indicator no external API can beat —
 /// it is the actual mechanism by which the music will stop.
+///
+/// The decisions live in rust/flows-core (media_policy.rs) behind
+/// rust/flows-bridge; this enum keeps their Swift names. Pinned to the
+/// original by rust/flows-bridge/tests/fixtures/swift_modes_oracle.tsv.
 enum SignalQuality {
     enum Tier: String, Equatable {
         case strong    // 5G / LTE / Wi-Fi
@@ -39,15 +43,8 @@ enum SignalQuality {
     /// read as unknown.
     static func tier(radioTechnology: String?, onWiFi: Bool,
                      offline: Bool) -> Tier {
-        if offline { return .offline }
-        if onWiFi { return .strong }
-        guard let tech = radioTechnology?.lowercased() else { return .fair }
-        if tech.contains("nr") || tech.contains("lte") { return .strong }
-        if tech.contains("edge") || tech.contains("gprs")
-            || tech.contains("1x") { return .weak }
-        if tech.contains("wcdma") || tech.contains("hs")
-            || tech.contains("cdma") { return .fair }
-        return .fair
+        Tier(rustCode: flows_modes_signal_tier(radioTechnology ?? "", radioTechnology != nil,
+                                               onWiFi, offline))
     }
 
     /// Should FLOWS get the fallback ready NOW, while there's still signal
@@ -60,18 +57,37 @@ enum SignalQuality {
     ///     stream, or
     ///   * our own buffer is draining / the stream has already stuttered —
     ///     the mechanism of failure, actually observed.
+    /// Never when already offline: too late to fetch anything.
     static func shouldPreStage(tier: Tier, bufferDraining: Bool,
                                recentStalls: Int) -> Bool {
-        if tier == .offline { return false }   // too late to fetch anything
-        return tier == .weak || bufferDraining || recentStalls > 0
+        flows_modes_should_pre_stage(tier.rustCode, bufferDraining, Int64(recentStalls))
     }
 
     /// A buffer that shrank meaningfully between two samples is being
     /// consumed faster than it refills — the stream is losing.
     static func isDraining(previous: Double?, current: Double?) -> Bool {
-        guard let previous, let current, previous.isFinite, current.isFinite
-        else { return false }
-        return current < previous - 1.0
+        flows_modes_is_draining(previous ?? 0, previous != nil, current ?? 0, current != nil)
+    }
+}
+
+extension SignalQuality.Tier {
+    /// The tier's declaration position, the code media_policy.rs uses.
+    var rustCode: UInt8 {
+        switch self {
+        case .strong: return 0
+        case .fair: return 1
+        case .weak: return 2
+        case .offline: return 3
+        }
+    }
+
+    init(rustCode code: UInt8) {
+        switch code {
+        case 0: self = .strong
+        case 2: self = .weak
+        case 3: self = .offline
+        default: self = .fair
+        }
     }
 }
 

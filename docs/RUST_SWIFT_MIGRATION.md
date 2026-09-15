@@ -1398,6 +1398,40 @@ an owner question). Left as it is: the map sweep copies each fetched
 snapshot into Rust once per camera settle, a cost proportional to the feeds
 paid once per sweep, not per point.
 
+## Wave 2, long tail, first landing: devices, playback and other ways to travel (2026-09-16)
+
+The decisions in ten small files are Rust. `flows_core::media_policy` holds
+how healthy the data link looks (`SignalQuality`), how hard the device may
+work for its thermal and power state (`AdaptiveTuning`), what plays when the
+signal drops and when to switch back (`PlaybackFallback`), how long to wait
+out a player's buffer (`PlaybackGrace`) and which NOAA transmitter to follow
+(`RadioTuning`). `flows_core::travel_modes` holds the nearest Amtrak
+station, the breadcrumb trail's recording rule and way-back distance, the
+plane option's timing, fare and airport pick, the rush-hour traffic-check
+cadence, the outlined risk areas (clusters and padded hulls), transit fares,
+and the walk-plus-ride offer with its drop-off geometry. Spoken sentences,
+ticket and ride links, the stored trail and the platform reads (radio
+technology, other apps' audio, thermal state) stay in Swift.
+
+The oracle (7,161 records, 34 kinds) is bridge-linked from bea472d and
+matched on the first run. The breadcrumb trail was driven through a real
+`BreadcrumbTrail` instance with its secure store stubbed, so the harness
+never read the user's saved trail or keychain.
+
+### Wave 1, corrected
+
+The wave-1 table says the alert group was done by hand. That covered
+HazardStyle, ShelterPolicy and ImminentAlerts. Three files the plan listed
+under alert text and safety policy were never ported: `EscalationPolicy`,
+`AlertEntityParser` and `ScannerIncidents`; they are the next landing. An
+inventory of the Core files that still make no bridge call also turns up
+files the plan never classified, which need a decision before wave 3:
+`RiskAdvice`, `WMOAlerts`, `InternationalWeather`, `BadgeClustering`,
+`ManeuverSymbol`, `VoiceReply`, `IntentClarifier`, `SiriSummaries`,
+`TouristInfo`, `VehicleTrack`, `CameraZoom`, `GoldenScale`, `TextScale`,
+`ZipBordersAndTransit` and `TruckerRadio`, besides the platform files
+(networking, audio, speech, sensors, stores) that stay.
+
 ### Wave 2 remaining
 
 | item | state |
@@ -1405,4 +1439,5 @@ paid once per sweep, not per point.
 | the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
 | POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
-| the long tail (OfflineCorridors, Amtrak, radio, recents, breadcrumbs, FuelWarning, HybridWalk, AirTravel, transit estimates, Mobility, AdaptiveTuning, SignalQuality, playback, spoken replies, TripShare, VehicleLink, RouteAttributes) | not started |
+| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. Not started: OfflineCorridors, recents, FuelWarning, transit estimates (TransitItinerary), spoken replies (VoiceReply), TripShare, VehicleLink, RouteAttributes, RadioBrowser |
+| wave-1 leftovers | not started: EscalationPolicy, AlertEntityParser, ScannerIncidents |

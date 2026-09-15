@@ -1624,3 +1624,8 @@ without a regression:
   swift_bridge_macro`. The main tree builds only because its plugins were
   linked earlier. Never `cargo clean` it; another checkout can reuse a
   loadable plugin copied with a fresh modification time.
+- **A harness must never read the user's data.** `BreadcrumbTrail`'s
+  initializer reads the saved trail from Application Support through the
+  keychain-sealed store. Compiled as it is, the oracle would have read the
+  owner's real trail on this Mac. The harness stubs the store and drives a
+  real instance, so the recording rule is observed without touching data.

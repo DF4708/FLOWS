@@ -1318,6 +1318,311 @@ extension __swift_bridge__$Option$FlowsLearningEta {
 }
 
 
+public func flows_modes_signal_tier<GenericToRustStr: ToRustStr>(_ radio_technology: GenericToRustStr, _ has_technology: Bool, _ on_wifi: Bool, _ offline: Bool) -> UInt8 {
+    return radio_technology.toRustStr({ radio_technologyAsRustStr in
+        __swift_bridge__$flows_modes_signal_tier(radio_technologyAsRustStr, has_technology, on_wifi, offline)
+    })
+}
+public func flows_modes_should_pre_stage(_ tier: UInt8, _ buffer_draining: Bool, _ recent_stalls: Int64) -> Bool {
+    __swift_bridge__$flows_modes_should_pre_stage(tier, buffer_draining, recent_stalls)
+}
+public func flows_modes_is_draining(_ previous: Double, _ has_previous: Bool, _ current: Double, _ has_current: Bool) -> Bool {
+    __swift_bridge__$flows_modes_is_draining(previous, has_previous, current, has_current)
+}
+public func flows_modes_device_tier(_ cores: Int64, _ memory_gb: Double) -> UInt8 {
+    __swift_bridge__$flows_modes_device_tier(cores, memory_gb)
+}
+public func flows_modes_tuning_settings(_ tier: UInt8, _ thermal: Int64, _ low_power: Bool) -> FlowsModesTuning {
+    __swift_bridge__$flows_modes_tuning_settings(tier, thermal, low_power).intoSwiftRepr()
+}
+public func flows_modes_on_connection_lost<GenericToRustStr: ToRustStr>(_ is_playing: Bool, _ needs_network: Bool, _ has_local_music: Bool, _ last_genre: GenericToRustStr, _ has_genre: Bool) -> UInt8 {
+    return last_genre.toRustStr({ last_genreAsRustStr in
+        __swift_bridge__$flows_modes_on_connection_lost(is_playing, needs_network, has_local_music, last_genreAsRustStr, has_genre)
+    })
+}
+public func flows_modes_fallback_genre<GenericToRustStr: ToRustStr>(_ last_genre: GenericToRustStr, _ has_genre: Bool) -> RustString {
+    return last_genre.toRustStr({ last_genreAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_modes_fallback_genre(last_genreAsRustStr, has_genre))
+    })
+}
+public func flows_modes_should_restore(_ handed_off: Bool, _ connection_held: Bool, _ driver_chose_since: Bool) -> Bool {
+    __swift_bridge__$flows_modes_should_restore(handed_off, connection_held, driver_chose_since)
+}
+public func flows_modes_restore_hold_seconds() -> Double {
+    __swift_bridge__$flows_modes_restore_hold_seconds()
+}
+public func flows_modes_grace_seconds(_ source: UInt8, _ measured_buffer: Double, _ has_buffer: Bool) -> Double {
+    __swift_bridge__$flows_modes_grace_seconds(source, measured_buffer, has_buffer)
+}
+public func flows_modes_grace_caps() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_grace_caps())
+}
+public func flows_modes_nearest_station(_ lat: Double, _ lon: Double, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ exact: UnsafeBufferPointer<UInt8>) -> FlowsModesNearest {
+    __swift_bridge__$flows_modes_nearest_station(lat, lon, lats.toFfiSlice(), lons.toFfiSlice(), exact.toFfiSlice()).intoSwiftRepr()
+}
+public func flows_modes_retarget<GenericToRustStr: ToRustStr>(_ playing_id: GenericToRustStr, _ playing_lat: Double, _ playing_lon: Double, _ has_playing_coordinate: Bool, _ lat: Double, _ lon: Double, _ ids_joined: GenericToRustStr, _ id_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ exact: UnsafeBufferPointer<UInt8>) -> Int64 {
+    return ids_joined.toRustStr({ ids_joinedAsRustStr in
+        return playing_id.toRustStr({ playing_idAsRustStr in
+        __swift_bridge__$flows_modes_retarget(playing_idAsRustStr, playing_lat, playing_lon, has_playing_coordinate, lat, lon, ids_joinedAsRustStr, id_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), exact.toFfiSlice())
+    })
+    })
+}
+public func flows_modes_switch_margin() -> Double {
+    __swift_bridge__$flows_modes_switch_margin()
+}
+public func flows_modes_nearest_within(_ lat: Double, _ lon: Double, _ max_meters: Double, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) -> Int64 {
+    __swift_bridge__$flows_modes_nearest_within(lat, lon, max_meters, lats.toFfiSlice(), lons.toFfiSlice())
+}
+public func flows_modes_should_record(_ lat: Double, _ lon: Double, _ last_lat: Double, _ last_lon: Double, _ has_last: Bool) -> Bool {
+    __swift_bridge__$flows_modes_should_record(lat, lon, last_lat, last_lon, has_last)
+}
+public func flows_modes_way_back_meters(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) -> Double {
+    __swift_bridge__$flows_modes_way_back_meters(lats.toFfiSlice(), lons.toFfiSlice())
+}
+public func flows_modes_min_step_meters() -> Double {
+    __swift_bridge__$flows_modes_min_step_meters()
+}
+public func flows_modes_max_points() -> Int64 {
+    __swift_bridge__$flows_modes_max_points()
+}
+public func flows_modes_worth_flying(_ trip_miles: Double) -> Bool {
+    __swift_bridge__$flows_modes_worth_flying(trip_miles)
+}
+public func flows_modes_flight_seconds(_ airport_miles: Double) -> Double {
+    __swift_bridge__$flows_modes_flight_seconds(airport_miles)
+}
+public func flows_modes_door_seconds(_ airport_miles: Double) -> Double {
+    __swift_bridge__$flows_modes_door_seconds(airport_miles)
+}
+public func flows_modes_fare_estimate(_ airport_miles: Double) -> Double {
+    __swift_bridge__$flows_modes_fare_estimate(airport_miles)
+}
+public func flows_modes_airport_score<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Int64 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_modes_airport_score(nameAsRustStr)
+    })
+}
+public func flows_modes_pick_airport<GenericToRustStr: ToRustStr>(_ names_joined: GenericToRustStr, _ name_lens: UnsafeBufferPointer<Int64>, _ meters: UnsafeBufferPointer<Double>, _ max_meters: Double) -> Int64 {
+    return names_joined.toRustStr({ names_joinedAsRustStr in
+        __swift_bridge__$flows_modes_pick_airport(names_joinedAsRustStr, name_lens.toFfiSlice(), meters.toFfiSlice(), max_meters)
+    })
+}
+public func flows_modes_air_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_air_constants())
+}
+public func flows_modes_is_peak(_ local_minutes: Int64) -> Bool {
+    __swift_bridge__$flows_modes_is_peak(local_minutes)
+}
+public func flows_modes_local_minutes(_ reference_seconds: Double, _ longitude: Double) -> FlowsModesMinutes {
+    __swift_bridge__$flows_modes_local_minutes(reference_seconds, longitude).intoSwiftRepr()
+}
+public func flows_modes_traffic_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_traffic_constants())
+}
+public func flows_modes_risk_clusters(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ adjacency_meters: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_modes_risk_clusters(lats.toFfiSlice(), lons.toFfiSlice(), adjacency_meters))
+}
+public func flows_modes_risk_hull(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ count: Int64, _ pad_meters: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_risk_hull(lats.toFfiSlice(), lons.toFfiSlice(), count, pad_meters))
+}
+public func flows_modes_amtrak_fare(_ miles: Double) -> Double {
+    __swift_bridge__$flows_modes_amtrak_fare(miles)
+}
+public func flows_modes_greyhound_fare(_ miles: Double) -> Double {
+    __swift_bridge__$flows_modes_greyhound_fare(miles)
+}
+public func flows_modes_local_fares() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_local_fares())
+}
+public func flows_modes_ride_cost(_ miles: Double) -> Double {
+    __swift_bridge__$flows_modes_ride_cost(miles)
+}
+public func flows_modes_meets_bar(_ walk_alone_seconds: Double, _ total_seconds: Double, _ cost_usd: Double) -> Bool {
+    __swift_bridge__$flows_modes_meets_bar(walk_alone_seconds, total_seconds, cost_usd)
+}
+public func flows_modes_evaluate_ride(_ walk_alone_seconds: Double, _ drive_seconds: Double, _ trip_miles: Double) -> FlowsModesRideOffer {
+    __swift_bridge__$flows_modes_evaluate_ride(walk_alone_seconds, drive_seconds, trip_miles).intoSwiftRepr()
+}
+public func flows_modes_prefix_coordinates(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ meters: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_prefix_coordinates(lats.toFfiSlice(), lons.toFfiSlice(), meters))
+}
+public func flows_modes_ride_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_ride_constants())
+}
+public struct FlowsModesTuning {
+    public var max_in_flight: Int64
+    public var planning_max_in_flight: Int64
+    public var viewport_grid_span: Int64
+    public var ttl_multiplier: Double
+    public var debounce_seconds: Double
+
+    public init(max_in_flight: Int64,planning_max_in_flight: Int64,viewport_grid_span: Int64,ttl_multiplier: Double,debounce_seconds: Double) {
+        self.max_in_flight = max_in_flight
+        self.planning_max_in_flight = planning_max_in_flight
+        self.viewport_grid_span = viewport_grid_span
+        self.ttl_multiplier = ttl_multiplier
+        self.debounce_seconds = debounce_seconds
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsModesTuning {
+        { let val = self; return __swift_bridge__$FlowsModesTuning(max_in_flight: val.max_in_flight, planning_max_in_flight: val.planning_max_in_flight, viewport_grid_span: val.viewport_grid_span, ttl_multiplier: val.ttl_multiplier, debounce_seconds: val.debounce_seconds); }()
+    }
+}
+extension __swift_bridge__$FlowsModesTuning {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsModesTuning {
+        { let val = self; return FlowsModesTuning(max_in_flight: val.max_in_flight, planning_max_in_flight: val.planning_max_in_flight, viewport_grid_span: val.viewport_grid_span, ttl_multiplier: val.ttl_multiplier, debounce_seconds: val.debounce_seconds); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsModesTuning {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsModesTuning> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsModesTuning>) -> __swift_bridge__$Option$FlowsModesTuning {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsModesTuning(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsModesTuning(is_some: false, val: __swift_bridge__$FlowsModesTuning())
+        }
+    }
+}
+public struct FlowsModesNearest {
+    public var has: Bool
+    public var index: Int64
+    public var meters: Double
+
+    public init(has: Bool,index: Int64,meters: Double) {
+        self.has = has
+        self.index = index
+        self.meters = meters
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsModesNearest {
+        { let val = self; return __swift_bridge__$FlowsModesNearest(has: val.has, index: val.index, meters: val.meters); }()
+    }
+}
+extension __swift_bridge__$FlowsModesNearest {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsModesNearest {
+        { let val = self; return FlowsModesNearest(has: val.has, index: val.index, meters: val.meters); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsModesNearest {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsModesNearest> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsModesNearest>) -> __swift_bridge__$Option$FlowsModesNearest {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsModesNearest(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsModesNearest(is_some: false, val: __swift_bridge__$FlowsModesNearest())
+        }
+    }
+}
+public struct FlowsModesMinutes {
+    public var has: Bool
+    public var minutes: Int64
+    public var interval_seconds: Double
+
+    public init(has: Bool,minutes: Int64,interval_seconds: Double) {
+        self.has = has
+        self.minutes = minutes
+        self.interval_seconds = interval_seconds
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsModesMinutes {
+        { let val = self; return __swift_bridge__$FlowsModesMinutes(has: val.has, minutes: val.minutes, interval_seconds: val.interval_seconds); }()
+    }
+}
+extension __swift_bridge__$FlowsModesMinutes {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsModesMinutes {
+        { let val = self; return FlowsModesMinutes(has: val.has, minutes: val.minutes, interval_seconds: val.interval_seconds); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsModesMinutes {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsModesMinutes> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsModesMinutes>) -> __swift_bridge__$Option$FlowsModesMinutes {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsModesMinutes(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsModesMinutes(is_some: false, val: __swift_bridge__$FlowsModesMinutes())
+        }
+    }
+}
+public struct FlowsModesRideOffer {
+    public var has: Bool
+    public var ride_miles: Double
+    public var ride_seconds: Double
+    public var walk_seconds: Double
+    public var cost_usd: Double
+
+    public init(has: Bool,ride_miles: Double,ride_seconds: Double,walk_seconds: Double,cost_usd: Double) {
+        self.has = has
+        self.ride_miles = ride_miles
+        self.ride_seconds = ride_seconds
+        self.walk_seconds = walk_seconds
+        self.cost_usd = cost_usd
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsModesRideOffer {
+        { let val = self; return __swift_bridge__$FlowsModesRideOffer(has: val.has, ride_miles: val.ride_miles, ride_seconds: val.ride_seconds, walk_seconds: val.walk_seconds, cost_usd: val.cost_usd); }()
+    }
+}
+extension __swift_bridge__$FlowsModesRideOffer {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsModesRideOffer {
+        { let val = self; return FlowsModesRideOffer(has: val.has, ride_miles: val.ride_miles, ride_seconds: val.ride_seconds, walk_seconds: val.walk_seconds, cost_usd: val.cost_usd); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsModesRideOffer {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsModesRideOffer> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsModesRideOffer>) -> __swift_bridge__$Option$FlowsModesRideOffer {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsModesRideOffer(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsModesRideOffer(is_some: false, val: __swift_bridge__$FlowsModesRideOffer())
+        }
+    }
+}
+
+
 public func flows_places_route_path(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) -> FlowsRoutePath {
     FlowsRoutePath(ptr: __swift_bridge__$flows_places_route_path(lats.toFfiSlice(), lons.toFfiSlice()))
 }

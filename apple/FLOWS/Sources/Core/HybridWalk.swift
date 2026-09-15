@@ -19,28 +19,31 @@ import Foundation
 /// Cost model: flat pickup fee + per-mile rate, in line with published
 /// US rideshare averages. Always labelled an estimate — Uber/Lyft price
 /// dynamically and set the real fare.
+///
+/// The cost model, the bar and the drop-off geometry are computed in
+/// rust/flows-core (travel_modes.rs); the hail links stay here.
 enum HybridWalk {
-    static let baseFareUSD = 3.0
-    static let perMileUSD = 1.10
+    static let baseFareUSD = flows_modes_ride_constants()[0]
+    static let perMileUSD = flows_modes_ride_constants()[1]
     /// The walker's wallet cap — a ride estimated over this is never offered.
-    static let costCapUSD = 25.0
+    static let costCapUSD = flows_modes_ride_constants()[2]
     /// The significance bar: the ride must cut total time by at least this
     /// fraction of the walk-alone time…
-    static let minSavedFraction = 0.40
+    static let minSavedFraction = flows_modes_ride_constants()[3]
     /// …and by at least this many seconds, so a 4-minute "40% saving" on a
     /// ten-minute stroll never pitches a fare.
-    static let minSavedSeconds: TimeInterval = 15 * 60
+    static let minSavedSeconds: TimeInterval = flows_modes_ride_constants()[4]
     /// Walks shorter than this never get a ride offer at all.
-    static let minWalkAloneSeconds: TimeInterval = 30 * 60
+    static let minWalkAloneSeconds: TimeInterval = flows_modes_ride_constants()[5]
 
     static func rideCostUSD(miles: Double) -> Double {
-        baseFareUSD + perMileUSD * miles
+        flows_modes_ride_cost(miles)
     }
 
     /// Longest ride the cap can buy — the partial-segment length when the
     /// whole trip would blow the budget.
     static var maxAffordableRideMiles: Double {
-        (costCapUSD - baseFareUSD) / perMileUSD
+        flows_modes_ride_constants()[6]
     }
 
     struct Offer: Equatable {
@@ -59,10 +62,7 @@ enum HybridWalk {
     static func meetsBar(walkAloneSeconds: TimeInterval,
                          totalSeconds: TimeInterval,
                          costUSD: Double) -> Bool {
-        guard costUSD <= costCapUSD, walkAloneSeconds > 0 else { return false }
-        let saved = walkAloneSeconds - totalSeconds
-        return saved >= minSavedSeconds
-            && saved / walkAloneSeconds >= minSavedFraction
+        flows_modes_meets_bar(walkAloneSeconds, totalSeconds, costUSD)
     }
 
     /// Decide the ride segment for a walking trip. Whole-trip ride when the
@@ -74,25 +74,10 @@ enum HybridWalk {
     static func evaluate(walkAloneSeconds: TimeInterval,
                          driveSeconds: TimeInterval,
                          tripMiles: Double) -> Offer? {
-        guard walkAloneSeconds >= minWalkAloneSeconds,
-              driveSeconds > 0, tripMiles > 0 else { return nil }
-        let offer: Offer
-        if rideCostUSD(miles: tripMiles) <= costCapUSD {
-            offer = Offer(rideMiles: tripMiles, rideSeconds: driveSeconds,
-                          walkSeconds: 0,
-                          costUSD: rideCostUSD(miles: tripMiles))
-        } else {
-            let rideMiles = maxAffordableRideMiles
-            let fraction = rideMiles / tripMiles
-            offer = Offer(rideMiles: rideMiles,
-                          rideSeconds: driveSeconds * fraction,
-                          walkSeconds: walkAloneSeconds * (1 - fraction),
-                          costUSD: rideCostUSD(miles: rideMiles))
-        }
-        guard meetsBar(walkAloneSeconds: walkAloneSeconds,
-                       totalSeconds: offer.totalSeconds,
-                       costUSD: offer.costUSD) else { return nil }
-        return offer
+        let o = flows_modes_evaluate_ride(walkAloneSeconds, driveSeconds, tripMiles)
+        guard o.has else { return nil }
+        return Offer(rideMiles: o.ride_miles, rideSeconds: o.ride_seconds,
+                     walkSeconds: o.walk_seconds, costUSD: o.cost_usd)
     }
 
     // -- Drop-off geometry ----------------------------------------------------
@@ -104,26 +89,14 @@ enum HybridWalk {
     /// drop-off point.
     static func prefixCoordinates(_ coords: [CLLocationCoordinate2D],
                                   meters: Double) -> [CLLocationCoordinate2D] {
-        guard coords.count >= 2, meters > 0 else {
-            return coords.isEmpty ? [] : [coords[0]]
+        guard !coords.isEmpty else { return [] }
+        let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
+        let flat = Array(lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in flows_modes_prefix_coordinates(la, lo, meters) }
+        })
+        return stride(from: 0, to: flat.count - 1, by: 2).map {
+            CLLocationCoordinate2D(latitude: flat[$0], longitude: flat[$0 + 1])
         }
-        var out = [coords[0]]
-        var travelled = 0.0
-        for i in 1..<coords.count {
-            let span = POIRanking.meters(coords[i - 1], coords[i])
-            if travelled + span >= meters, span > 0 {
-                let f = (meters - travelled) / span
-                out.append(CLLocationCoordinate2D(
-                    latitude: coords[i - 1].latitude
-                        + (coords[i].latitude - coords[i - 1].latitude) * f,
-                    longitude: coords[i - 1].longitude
-                        + (coords[i].longitude - coords[i - 1].longitude) * f))
-                return out
-            }
-            travelled += span
-            out.append(coords[i])
-        }
-        return out
     }
 
     // -- Keyless deep links ---------------------------------------------------

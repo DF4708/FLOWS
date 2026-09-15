@@ -60,17 +60,20 @@ enum AmtrakStations {
 
     /// Nearest station to a point, or nil when none lies within `maxMeters` —
     /// the same sane-radius rule the search path uses, so a plan far from any
-    /// rail never "boards" a station in the wrong city.
+    /// rail never "boards" a station in the wrong city
+    /// (rust/flows-core travel_modes.rs).
     static func nearest(
         to point: CLLocationCoordinate2D,
         within maxMeters: CLLocationDistance,
         in stations: [AmtrakStation] = all
     ) -> AmtrakStation? {
-        // Decorate-then-min: the comparator form computed each station's
-        // distance twice per comparison (plus once more for the radius gate).
-        stations
-            .map { ($0, POIRanking.meters($0.coordinate, point)) }
-            .min { $0.1 < $1.1 }
-            .flatMap { $0.1 <= maxMeters ? $0.0 : nil }
+        guard !stations.isEmpty else { return nil }
+        let lats = stations.map(\.lat), lons = stations.map(\.lon)
+        let i = lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in
+                flows_modes_nearest_within(point.latitude, point.longitude, maxMeters, la, lo)
+            }
+        }
+        return i < 0 ? nil : stations[Int(i)]
     }
 }
