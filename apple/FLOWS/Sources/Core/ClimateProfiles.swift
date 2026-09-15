@@ -122,13 +122,12 @@ enum ClimateProfiles {
     // by `loadPrecise` (main-actor, infrequent) via whole-snapshot replacement.
     // Empty this build (no on-demand loader yet); add a lock when it ships.
     nonisolated(unsafe) private static var precise: [Int: LatitudeBands.Profile] = [:]
-    private static let cellDeg = 0.1
-    private static func cell(_ lat: Double, _ lon: Double) -> Int {
-        // Offset-encode so the DECODE in loadPrecise is exact for negative
-        // longitudes (plain y*100000+x made x%100000 wrong for all of NA).
-        let x = Int((lon / cellDeg).rounded(.down)) + 50_000
-        let y = Int((lat / cellDeg).rounded(.down)) + 50_000
-        return y &* 100_000 &+ x
+    /// The ~11 km cell holding a coordinate, keyed in Rust
+    /// (`flows_core::climate::precise_cell`); nil for a coordinate that
+    /// cannot be placed, which the original crashed on.
+    private static func cell(_ lat: Double, _ lon: Double) -> Int? {
+        let c = flows_climate_precise_cell(lat, lon)
+        return c.has ? Int(c.key) : nil
     }
 
     /// The temperature/comfort profile for a location: the precise per-ZIP
@@ -136,7 +135,7 @@ enum ClimateProfiles {
     /// type. This is the seam every risk equation reads (via NWSForecastService).
     static func profile(latitude lat: Double, longitude lon: Double,
                         elevationMeters elev: Double? = nil) -> LatitudeBands.Profile {
-        if let p = precise[cell(lat, lon)] { return p }
+        if let key = cell(lat, lon), let p = precise[key] { return p }
         let p = flows_climate_profile(lat, lon, elev ?? 0, elev != nil)
         return p.has == 1 ? LatitudeBands.Profile(bridge: p) : LatitudeBands.anchorProfile
     }
@@ -147,16 +146,14 @@ enum ClimateProfiles {
     static func loadPrecise(_ entries: [(lat: Double, lon: Double, profile: LatitudeBands.Profile)],
                             home: CLLocationCoordinate2D?, maxCells: Int = 20_000) {
         var next = precise
-        for e in entries { next[cell(e.lat, e.lon)] = e.profile }
+        for e in entries { if let key = cell(e.lat, e.lon) { next[key] = e.profile } }
         if next.count > maxCells, let home {
-            let hx = Int((home.longitude / cellDeg).rounded(.down))
-            let hy = Int((home.latitude / cellDeg).rounded(.down))
-            let ring = 25   // ~25 cells ≈ home radius always kept
+            // Keep the home ring (~25 cells each way, decided in Rust); a home
+            // that cannot be placed keeps everything.
             next = next.filter { key, _ in
-                let x = key % 100_000 - 50_000, y = key / 100_000 - 50_000
-                return abs(x - hx) <= ring && abs(y - hy) <= ring
+                flows_climate_precise_cell_near_home(Int64(key), home.latitude, home.longitude)
             }
-            for e in entries { next[cell(e.lat, e.lon)] = e.profile }  // never evict the just-loaded corridor
+            for e in entries { if let key = cell(e.lat, e.lon) { next[key] = e.profile } }  // never evict the just-loaded corridor
         }
         precise = next
     }

@@ -92,6 +92,12 @@ public func flows_climate_wind_beyond_normal(_ wind_mph: Double, _ week_low_f: D
 public func flows_climate_profile(_ latitude: Double, _ longitude: Double, _ elevation_meters: Double, _ has_elevation: Bool) -> FlowsClimateProfile {
     __swift_bridge__$flows_climate_profile(latitude, longitude, elevation_meters, has_elevation).intoSwiftRepr()
 }
+public func flows_climate_precise_cell(_ latitude: Double, _ longitude: Double) -> FlowsClimateCell {
+    __swift_bridge__$flows_climate_precise_cell(latitude, longitude).intoSwiftRepr()
+}
+public func flows_climate_precise_cell_near_home(_ key: Int64, _ home_latitude: Double, _ home_longitude: Double) -> Bool {
+    __swift_bridge__$flows_climate_precise_cell_near_home(key, home_latitude, home_longitude)
+}
 public func flows_climate_civil_twilight_degrees() -> Double {
     __swift_bridge__$flows_climate_civil_twilight_degrees()
 }
@@ -401,6 +407,45 @@ extension __swift_bridge__$Option$FlowsClimateOptional {
         }
     }
 }
+public struct FlowsClimateCell {
+    public var has: Bool
+    public var key: Int64
+
+    public init(has: Bool,key: Int64) {
+        self.has = has
+        self.key = key
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsClimateCell {
+        { let val = self; return __swift_bridge__$FlowsClimateCell(has: val.has, key: val.key); }()
+    }
+}
+extension __swift_bridge__$FlowsClimateCell {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsClimateCell {
+        { let val = self; return FlowsClimateCell(has: val.has, key: val.key); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsClimateCell {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsClimateCell> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsClimateCell>) -> __swift_bridge__$Option$FlowsClimateCell {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsClimateCell(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsClimateCell(is_some: false, val: __swift_bridge__$FlowsClimateCell())
+        }
+    }
+}
 
 public class FlowsHarmonicTable: FlowsHarmonicTableRefMut {
     var isOwned: Bool = true
@@ -546,6 +591,9 @@ public func flows_learning_everyday_mean_trip_miles(_ trip_miles: UnsafeBufferPo
 }
 public func flows_learning_everyday_trip_miles_sd(_ trip_miles: UnsafeBufferPointer<Double>) -> FlowsLearningOptional {
     __swift_bridge__$flows_learning_everyday_trip_miles_sd(trip_miles.toFfiSlice()).intoSwiftRepr()
+}
+public func flows_learning_everyday_miles(_ a_lat: Double, _ a_lon: Double, _ b_lat: Double, _ b_lon: Double) -> Double {
+    __swift_bridge__$flows_learning_everyday_miles(a_lat, a_lon, b_lat, b_lon)
 }
 public func flows_learning_everyday_accepts_trip(_ miles: Double) -> Bool {
     __swift_bridge__$flows_learning_everyday_accepts_trip(miles)
@@ -1830,6 +1878,9 @@ public func flows_vehicle_policy_filter_default_max_grade_percent() -> Double {
 }
 public func flows_vehicle_policy_filter_default_clearance_margin_meters() -> Double {
     __swift_bridge__$flows_vehicle_policy_filter_default_clearance_margin_meters()
+}
+public func flows_vehicle_policy_grade_degrees(_ percent: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_grade_degrees(percent)
 }
 public func flows_vehicle_policy_grade_steep_threshold_percent() -> Double {
     __swift_bridge__$flows_vehicle_policy_grade_steep_threshold_percent()

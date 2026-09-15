@@ -6,7 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
-//! The frozen Swift oracle for the learned models: 10,673 records produced by
+//! The frozen Swift oracle for the learned models: 11,283 records produced by
 //! the ORIGINAL Swift (EverydayRadius, TrafficLearning,
 //! RoadEfficiencyLearning, BufferLearning, RefuelLearning, DrivingProfile,
 //! DestinationPrediction) at commit a007de0, before that math moved to
@@ -259,6 +259,12 @@ fn rust_reproduces_the_original_swift_learned_models_bit_for_bit() {
                 f[2],
             ),
             "sd" => check("sd", line, ohx(lr::everyday_trip_miles_sd(&dl(f[1]))), f[2]),
+            "miles" => check(
+                "miles",
+                line,
+                hx(lr::everyday_miles(d(f[1]), d(f[2]), d(f[3]), d(f[4]))),
+                f[5],
+            ),
             "tripok" => check("tripok", line, bo(lr::everyday_accepts_trip(d(f[1]))), f[2]),
             "twin" => {
                 // recordTrip(miles: Double(i)) for i in 0..<n: every trip is accepted;
@@ -566,7 +572,7 @@ fn rust_reproduces_the_original_swift_learned_models_bit_for_bit() {
         consumed.iter().all(|c| *c == 1),
         "every known divergence must appear exactly once: {consumed:?}"
     );
-    assert_eq!(counts.len(), 37, "record kinds: {counts:?}");
+    assert_eq!(counts.len(), 38, "record kinds: {counts:?}");
     assert!(
         failures.is_empty(),
         "{} of {total} oracle records differ from the original Swift:\n{}",

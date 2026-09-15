@@ -574,6 +574,18 @@ fn rust_reproduces_the_original_swift_climate_code() {
                 prof_out(&cl::climate_profile(d(fl[1]), d(fl[2]), optd(fl[3]))),
                 fl[4],
             ),
+            // The private cell function, observed through the store: two
+            // coordinates hit one cell, or an earlier cell survives a trim.
+            "cpc" => {
+                let a = cl::precise_cell(d(fl[1]), d(fl[2]));
+                let b = cl::precise_cell(d(fl[3]), d(fl[4]));
+                check("cpc", line, bit(a.is_some() && a == b), fl[5]);
+            }
+            "cpt" => {
+                let key = cl::precise_cell(d(fl[3]), d(fl[4])).expect("a placeable cell");
+                let kept = cl::precise_cell_near_home(key, d(fl[1]), d(fl[2])) == Some(true);
+                check("cpt", line, bit(kept), fl[5]);
+            }
             "csn" => check(
                 "csn",
                 line,
@@ -919,6 +931,7 @@ fn rust_reproduces_the_original_swift_climate_code() {
                         .score_week(i(fl[2]), i(fl[3]), i(fl[4]))
                         .is_none(),
                     "arrivalOffsets" => cl::arrival_offsets(i(fl[2]), d(fl[3])).is_none(),
+                    "preciseCell" => cl::precise_cell(d(fl[2]), d(fl[3])).is_none(),
                     other => panic!("unknown trap probe {other}"),
                 };
                 check(
@@ -1165,7 +1178,7 @@ fn rust_reproduces_the_original_swift_climate_code() {
     }
     let total: usize = counts.values().sum();
     assert!(total >= 13_000, "fixture truncated: {total}");
-    assert_eq!(counts.len(), 37, "record kinds: {counts:?}");
+    assert_eq!(counts.len(), 39, "record kinds: {counts:?}");
     eprintln!(
         "climate oracle: {total} records; within tolerance — terms {} (largest {:e}), hour angles {} (largest {:e}), instants {} (largest {:e} s), elevations {} (largest {:e}°); edge flips {edge_flips}; night flips {night_flips}; byte-order divergences on non-ASCII keys {byte_order_divergences}",
         term_slack.within, term_slack.largest, ha_slack.within, ha_slack.largest, instant_slack.within, instant_slack.largest, elevation_slack.within, elevation_slack.largest

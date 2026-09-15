@@ -38,7 +38,9 @@
 //! pass epoch or reference-date seconds, and the weekday and hour they already
 //! computed. No function holds state, so any thread may call any of them.
 
-use crate::fcmp::{smax, smin};
+use crate::fcmp::{smax, smin, swift_int};
+use crate::fmath;
+use std::f64::consts::PI;
 
 // =============================================================================
 // Swift's stable sort
@@ -247,13 +249,6 @@ fn merge_top_runs<T: Copy>(
     }
 }
 
-/// Swift's `Int(x)` for an integral Double: `None` where Swift traps (NaN,
-/// infinities, and values outside `-2^63 ... 2^63 - 1`).
-pub fn swift_int(x: f64) -> Option<i64> {
-    // The stdlib precondition, verbatim: x > -2^63 - 2048 && x < 2^63.
-    (x > -9_223_372_036_854_777_856.0 && x < 9_223_372_036_854_775_808.0).then_some(x as i64)
-}
-
 // =============================================================================
 // Everyday radius (EverydayRadius.swift)
 // =============================================================================
@@ -359,6 +354,31 @@ pub fn everyday_trip_miles_sd(trip_miles: &[f64]) -> Option<f64> {
     Some((squares / (trip_miles.len() - 1) as f64).sqrt())
 }
 
+/// Radius of the everyday-radius sphere, miles.
+pub const EVERYDAY_EARTH_RADIUS_MILES: f64 = 3958.8;
+
+/// `EverydayStore.miles(from:to:)`: great-circle miles between two points in
+/// degrees, by the haversine formula on a sphere of
+/// [`EVERYDAY_EARTH_RADIUS_MILES`].
+///
+/// Written in the Swift's operation order: `s = sin²(Δlat / 2) + cos(lat_a) ·
+/// cos(lat_b) · sin²(Δlon / 2)`, each sine taken once and squared, the
+/// products left to right, and the answer `2 · r · atan2(√s, √(1 − s))`. No
+/// input is validated: NaN and infinities propagate as the Swift's do.
+///
+/// Deterministic (platform libm `sin`, `cos`, `atan2`); panics: none.
+#[must_use]
+pub fn everyday_miles(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64 {
+    const TO_RAD: f64 = PI / 180.0;
+    let d_lat = (b_lat - a_lat) * TO_RAD;
+    let d_lon = (b_lon - a_lon) * TO_RAD;
+    let sin_lat = fmath::sin(d_lat / 2.0);
+    let sin_lon = fmath::sin(d_lon / 2.0);
+    let s = sin_lat * sin_lat
+        + fmath::cos(a_lat * TO_RAD) * fmath::cos(b_lat * TO_RAD) * sin_lon * sin_lon;
+    2.0 * EVERYDAY_EARTH_RADIUS_MILES * s.sqrt().atan2((1.0 - s).sqrt())
+}
+
 /// Whether a completed trip's straight-line miles may enter the window:
 /// finite and not negative (-0.0 is accepted). Panics: none.
 pub fn everyday_accepts_trip(miles: f64) -> bool {
@@ -400,7 +420,7 @@ pub fn everyday_features(
     place_lon: f64,
     feature_index: i64,
 ) -> [f64; 8] {
-    let a = 2.0 * std::f64::consts::PI * hour_bucket as f64 / 6.0;
+    let a = 2.0 * PI * hour_bucket as f64 / 6.0;
     let c = feature_index as f64;
     [
         a.sin(),
@@ -1168,16 +1188,18 @@ mod tests {
     }
 
     #[test]
-    fn swift_int_accepts_exactly_the_range_swift_does() {
-        assert_eq!(swift_int(-9_223_372_036_854_775_808.0), Some(i64::MIN));
-        assert_eq!(swift_int(9_223_372_036_854_775_808.0), None);
-        assert_eq!(
-            swift_int(9_223_372_036_854_774_784.0),
-            Some(9_223_372_036_854_774_784)
+    fn the_haversine_measures_a_tenth_of_a_degree_of_latitude_and_a_zero_trip() {
+        let tenth = everyday_miles(43.0, -89.4, 43.1, -89.4);
+        assert!((tenth - 6.909).abs() < 0.05, "{tenth}");
+        assert_eq!(everyday_miles(43.0, -89.4, 43.0, -89.4), 0.0);
+        // Antipodes: half the circumference, 2 · r · atan2(1, 0) = π · r.
+        let half = everyday_miles(0.0, 0.0, 0.0, 180.0);
+        assert!(
+            (half - PI * EVERYDAY_EARTH_RADIUS_MILES).abs() < 1e-9,
+            "{half}"
         );
-        assert_eq!(swift_int(f64::NAN), None);
-        assert_eq!(swift_int(f64::NEG_INFINITY), None);
-        assert_eq!(swift_int(-2.0), Some(-2));
+        assert!(everyday_miles(f64::NAN, 0.0, 0.0, 0.0).is_nan());
+        assert!(everyday_miles(0.0, f64::INFINITY, 0.0, 0.0).is_nan());
     }
 
     #[test]

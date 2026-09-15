@@ -28,8 +28,8 @@
 
 use crate::contain;
 use ffi::{
-    FlowsClimateNorms, FlowsClimateOptional, FlowsClimateProfile, FlowsClimateSolarTerms,
-    FlowsClimateTwilight, FlowsClimateWeekTrig,
+    FlowsClimateCell, FlowsClimateNorms, FlowsClimateOptional, FlowsClimateProfile,
+    FlowsClimateSolarTerms, FlowsClimateTwilight, FlowsClimateWeekTrig,
 };
 use flows_core::climate as cl;
 
@@ -89,6 +89,12 @@ mod ffi {
         is_some: f64,
         value: f64,
     }
+    // A precise-normals cell key: `key` is meaningful only when `has` is true.
+    #[swift_bridge(swift_repr = "struct")]
+    struct FlowsClimateCell {
+        has: bool,
+        key: i64,
+    }
 
     extern "Rust" {
         fn flows_climate_south_anchor() -> f64;
@@ -142,6 +148,12 @@ mod ffi {
             elevation_meters: f64,
             has_elevation: bool,
         ) -> FlowsClimateProfile;
+        fn flows_climate_precise_cell(latitude: f64, longitude: f64) -> FlowsClimateCell;
+        fn flows_climate_precise_cell_near_home(
+            key: i64,
+            home_latitude: f64,
+            home_longitude: f64,
+        ) -> bool;
 
         fn flows_climate_civil_twilight_degrees() -> f64;
         fn flows_climate_julian_day(now: f64) -> f64;
@@ -415,6 +427,28 @@ pub fn flows_climate_profile(
             longitude,
             elevation(elevation_meters, has_elevation),
         )))
+    })
+}
+
+// ---- the precise per-ZIP cells: a coordinate that cannot be placed has no
+// cell, and a home that cannot be placed keeps every cell (the Swift crashed
+// on both) ----
+
+const NO_CELL: FlowsClimateCell = FlowsClimateCell { has: false, key: 0 };
+
+pub fn flows_climate_precise_cell(latitude: f64, longitude: f64) -> FlowsClimateCell {
+    contain(NO_CELL, || match cl::precise_cell(latitude, longitude) {
+        Some(key) => FlowsClimateCell { has: true, key },
+        None => NO_CELL,
+    })
+}
+pub fn flows_climate_precise_cell_near_home(
+    key: i64,
+    home_latitude: f64,
+    home_longitude: f64,
+) -> bool {
+    contain(true, || {
+        cl::precise_cell_near_home(key, home_latitude, home_longitude).unwrap_or(true)
     })
 }
 

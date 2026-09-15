@@ -19,7 +19,8 @@ struct GradeSegment: Equatable {
     /// Signed percent (positive = climb in travel direction).
     let gradePercent: Double
 
-    var gradeDegrees: Double { atan(gradePercent / 100) * 180 / .pi }
+    /// The grade as an angle for display, computed in Rust.
+    var gradeDegrees: Double { flows_vehicle_policy_grade_degrees(gradePercent) }
 }
 
 /// The table's construction, its steepest rows and the next-steep search are

@@ -20,7 +20,7 @@
 //! | [`pursuit_radius_meters`] | `PursuitReach.radiusMeters` |
 //! | [`estimated_ratings`], [`effective_gcwr_lbs`], [`towing_check`], [`TOWING_ECONOMY_FACTOR`] | `TowingLimits` |
 //! | [`degrees_to_percent`], [`passes_clearances`], [`passes_grade`], [`passes_weight_limits`], [`vehicle_default_max_grade_degrees`] | `FilterLimits` |
-//! | [`grade_segments`], [`steepest`], [`next_steep`] | `GradeProfile` |
+//! | [`grade_segments`], [`steepest`], [`next_steep`], [`grade_degrees`] | `GradeProfile` |
 //! | [`drag_penalty`] … [`verdict`], [`efficient_cruise_mph`] | `DriveEfficiency` |
 //!
 //! # Fidelity
@@ -804,6 +804,25 @@ pub struct GradeSegment {
     pub grade_percent: f64,
 }
 
+impl GradeSegment {
+    /// `GradeSegment.gradeDegrees`: this row's grade as an angle, for display.
+    /// Deterministic; panics: none.
+    #[must_use]
+    pub fn degrees(&self) -> f64 {
+        grade_degrees(self.grade_percent)
+    }
+}
+
+/// `GradeSegment.gradeDegrees` for a grade in percent: `atan(percent / 100) ·
+/// 180 / π`, in that operation order — the inverse of [`degrees_to_percent`].
+/// NaN propagates; a signed zero keeps its sign.
+///
+/// Deterministic (platform libm `atan`); panics: none.
+#[must_use]
+pub fn grade_degrees(percent: f64) -> f64 {
+    (percent / 100.0).atan() * 180.0 / PI
+}
+
 /// The grade table from an elevation profile sampled every `spacing_meters`
 /// from `start_mile`. Segment `i − 1 → i` exists when both samples are
 /// present: it spans `start + (i − 1) · s` to `start + i · s` miles, with
@@ -1288,6 +1307,22 @@ pub fn efficient_cruise_mph(city_mpu: Option<f64>, highway_mpu: Option<f64>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grade_degrees_inverts_the_slider_and_keeps_nan_and_signed_zero() {
+        assert!((grade_degrees(100.0) - 45.0).abs() < 1e-12);
+        assert!((grade_degrees(degrees_to_percent(14.0)) - 14.0).abs() < 1e-12);
+        assert_eq!(grade_degrees(0.0).to_bits(), 0.0f64.to_bits());
+        assert_eq!(grade_degrees(-0.0).to_bits(), (-0.0f64).to_bits());
+        assert!(grade_degrees(f64::NAN).is_nan());
+        assert!((grade_degrees(f64::INFINITY) - 90.0).abs() < 1e-12);
+        let row = GradeSegment {
+            start_mile: 0.0,
+            end_mile: 1.0,
+            grade_percent: 6.0,
+        };
+        assert_eq!(row.degrees(), grade_degrees(6.0));
+    }
 
     fn inputs(speed: f64, accel: f64, grade: f64) -> DriveInputs {
         DriveInputs {

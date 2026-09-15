@@ -491,19 +491,15 @@ pub fn corridor_nearest(
 // Grid keys
 // ---------------------------------------------------------------------------
 
-/// Swift's `Int(x)` for a double: truncation toward zero.
+/// Swift's `Int(x)` for a double: truncation toward zero —
+/// [`crate::fcmp::swift_int`] with this module's error type.
 ///
 /// `Err(SwiftTrap)` for NaN, for infinities, and for values outside
 /// `[-2^63, 2^63)`, where Swift traps.
 ///
 /// Deterministic; panics: none.
 pub fn swift_int(x: f64) -> Result<i64, SwiftTrap> {
-    const TWO_POW_63: f64 = 9_223_372_036_854_775_808.0;
-    if (-TWO_POW_63..TWO_POW_63).contains(&x) {
-        Ok(x as i64)
-    } else {
-        Err(SwiftTrap)
-    }
+    crate::fcmp::swift_int(x).ok_or(SwiftTrap)
 }
 
 /// A grid cell index, `Int((degrees / cell_degrees).rounded(.down))`.

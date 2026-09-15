@@ -1534,6 +1534,12 @@ without a regression:
 - **One opaque Rust type** was enough: the 5.5 MB harmonic table is parsed
   once in Rust and Swift holds a handle; nothing that big should be copied
   across on every launch.
+- **A private function is still an oracle's subject.** `ClimateProfiles.cell`
+  could not be called from the harness, so the harness drove the store that
+  uses it — load a marker at one point, probe at another — and pinned the
+  relation the cell key exists for (which coordinates share a cell, which
+  cells survive a trim). What a private helper computes is only ever visible
+  through its callers; pin it there.
 - **A crash the Swift had is a documented answer in the facade**, never a
   silent zero: a NaN latitude answers the anchor row and says so; a bad row
   answers NaN and says so.

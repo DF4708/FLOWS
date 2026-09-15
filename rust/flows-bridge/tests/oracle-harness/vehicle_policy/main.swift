@@ -428,4 +428,11 @@ for _ in 0..<60 {
   emit("dc", hx(sp), hx(a), hx(g), hx(c), hx(s2), v2)
 }
 
+// MARK: GradeSegment.gradeDegrees (display). Its own generator, so nothing above moves.
+var grng = SM(s: 0x4752414445)   // "GRADE"
+var gpcts: [Double] = S + [6, -6, 7, 12, 25, 33.3, 45, 100, 1000, 1e6, 3, -3, .pi, (6.0).nextUp, (6.0).nextDown]
+for d in [14.0, 6, 45, 89.999] { gpcts.append(FilterLimits.degreesToPercent(d)) }
+for _ in 0..<150 { gpcts.append(grng.below(4) == 0 ? S[grng.below(S.count)] : -40 + grng.unit() * 80) }
+for p in gpcts { emit("gd", hx(p), hx(GradeSegment(startMile: 0, endMile: 1, gradePercent: p).gradeDegrees)) }
+
 FileHandle.standardOutput.write(out.data(using: .utf8)!)

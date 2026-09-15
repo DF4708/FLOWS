@@ -26,6 +26,8 @@ typedef struct __swift_bridge__$FlowsClimateWeekTrig { double cos_t; double sin_
 typedef struct __swift_bridge__$Option$FlowsClimateWeekTrig { bool is_some; __swift_bridge__$FlowsClimateWeekTrig val; } __swift_bridge__$Option$FlowsClimateWeekTrig;
 typedef struct __swift_bridge__$FlowsClimateOptional { double is_some; double value; } __swift_bridge__$FlowsClimateOptional;
 typedef struct __swift_bridge__$Option$FlowsClimateOptional { bool is_some; __swift_bridge__$FlowsClimateOptional val; } __swift_bridge__$Option$FlowsClimateOptional;
+typedef struct __swift_bridge__$FlowsClimateCell { bool has; int64_t key; } __swift_bridge__$FlowsClimateCell;
+typedef struct __swift_bridge__$Option$FlowsClimateCell { bool is_some; __swift_bridge__$FlowsClimateCell val; } __swift_bridge__$Option$FlowsClimateCell;
 typedef struct FlowsHarmonicTable FlowsHarmonicTable;
 void __swift_bridge__$FlowsHarmonicTable$_free(void* self);
 
@@ -56,6 +58,8 @@ struct __swift_bridge__$FlowsClimateNorms __swift_bridge__$flows_climate_seasona
 bool __swift_bridge__$flows_climate_temperature_beyond_normal(double temp_f, double week_low_f, double week_high_f, double wind_mean_mph, double wind_sigma_mph);
 bool __swift_bridge__$flows_climate_wind_beyond_normal(double wind_mph, double week_low_f, double week_high_f, double wind_mean_mph, double wind_sigma_mph);
 struct __swift_bridge__$FlowsClimateProfile __swift_bridge__$flows_climate_profile(double latitude, double longitude, double elevation_meters, bool has_elevation);
+struct __swift_bridge__$FlowsClimateCell __swift_bridge__$flows_climate_precise_cell(double latitude, double longitude);
+bool __swift_bridge__$flows_climate_precise_cell_near_home(int64_t key, double home_latitude, double home_longitude);
 double __swift_bridge__$flows_climate_civil_twilight_degrees(void);
 double __swift_bridge__$flows_climate_julian_day(double now);
 double __swift_bridge__$flows_climate_midnight_jd(double jd);
@@ -107,6 +111,7 @@ struct __swift_bridge__$FlowsLearningOptional __swift_bridge__$flows_learning_ev
 double __swift_bridge__$flows_learning_everyday_radius_miles(struct __private__FfiSlice trip_miles);
 struct __swift_bridge__$FlowsLearningOptional __swift_bridge__$flows_learning_everyday_mean_trip_miles(struct __private__FfiSlice trip_miles);
 struct __swift_bridge__$FlowsLearningOptional __swift_bridge__$flows_learning_everyday_trip_miles_sd(struct __private__FfiSlice trip_miles);
+double __swift_bridge__$flows_learning_everyday_miles(double a_lat, double a_lon, double b_lat, double b_lon);
 bool __swift_bridge__$flows_learning_everyday_accepts_trip(double miles);
 int64_t __swift_bridge__$flows_learning_everyday_hour_bucket(int64_t hour);
 int32_t __swift_bridge__$flows_learning_everyday_feature_index(struct RustStr raw);
@@ -359,6 +364,7 @@ double __swift_bridge__$flows_vehicle_policy_towing_economy_factor(void);
 double __swift_bridge__$flows_vehicle_policy_filter_default_vehicle_height_meters(void);
 double __swift_bridge__$flows_vehicle_policy_filter_default_max_grade_percent(void);
 double __swift_bridge__$flows_vehicle_policy_filter_default_clearance_margin_meters(void);
+double __swift_bridge__$flows_vehicle_policy_grade_degrees(double percent);
 double __swift_bridge__$flows_vehicle_policy_grade_steep_threshold_percent(void);
 double __swift_bridge__$flows_vehicle_policy_grade_lookahead_miles(void);
 double __swift_bridge__$flows_vehicle_policy_drive_idle_speed_mph(void);

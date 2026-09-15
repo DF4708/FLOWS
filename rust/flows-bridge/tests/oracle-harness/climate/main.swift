@@ -92,6 +92,7 @@ if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "trap" {
     print(t.score(zipIndex: Int(a[3])!, familyIndex: Int(a[4])!, week: Int(a[5])!))
   case "arrivalOffsets":
     print(RiskTiming.arrivalOffsets(sampleCount: Int(a[3])!, totalTravelSeconds: dd(a[4])).count)
+  case "preciseCell": print(ClimateProfiles.profile(latitude: dd(a[3]), longitude: dd(a[4])).band)
   default: exit(3)
   }
   exit(0)
@@ -510,5 +511,61 @@ for (zi, fi) in [(2, 0), (0, 2), (-1, 0), (0, -1), (Int.max, 0), (Int.max / 2, 1
 // The Rust port refuses such counts with a documented value instead, so the
 // probe is not run; the finding is recorded here.
 emit("trap", "arrivalOffsets", "3", hx(3600), "-", probe(["arrivalOffsets", "3", hx(3600)]))
+
+// ============================================================ ClimateProfiles.cell
+// The cell function is private; it is observed through loadPrecise and profile: a
+// marker profile is loaded at one point and a probe "hits" when profile() returns it.
+// The map is emptied by a trim around a far home with maxCells 0 — nothing below lies
+// within 25 cells of (89.9, 179.9) on both axes. Its own generator, so nothing above moves.
+var crng = SM(s: 0x43454C4C)   // "CELL"
+let farHome = CLLocationCoordinate2D(latitude: 89.9, longitude: 179.9)
+func clearPrecise() { ClimateProfiles.loadPrecise([], home: farHome, maxCells: 0) }
+func marker(_ k: Int) -> LatitudeBands.Profile {
+  LatitudeBands.Profile(band: k, comfortLowF: Double(k), comfortHighF: 1, recordLowF: 0, recordHighF: 2) }
+func hits(_ lat: Double, _ lon: Double, _ k: Int) -> Bool {
+  let p = ClimateProfiles.profile(latitude: lat, longitude: lon)
+  return p.band == k && p.comfortLowF == Double(k) && p.recordHighF == 2
+}
+// cpc: are two coordinates in one cell?  lat0 lon0 lat1 lon1 → 0/1
+var cpc: [(Double, Double, Double, Double)] = []
+let anchors: [(Double, Double)] = [(40.0, -83.0), (-0.05, -0.05), (0.0, 0.0), (-0.0, -0.0), (0.05, 0.05), (0.1, -0.1), (43.0, -89.4),
+  (71.29, -156.79), (-33.9, 151.2), (89.95, -179.95), (-89.95, 176.0), (25.7617, -80.1918), (47.6062, -122.3321), (40.0, 6000.0)]
+let offsets: [(Double, Double)] = [(0, 0), (0.04, 0), (0, 0.04), (0.1, 0), (0, 0.1), (-0.1, 0), (0, -0.1), (0.05, 0.05), (-0.05, -0.05),
+  (0.099, 0.099), (-0.001, 0), (0, -0.001), (0.1, -10000)]   // the last: (40.0, 6000) and (40.1, -4000) share a key
+for (la, lo) in anchors { for (dla, dlo) in offsets { cpc.append((la, lo, la + dla, lo + dlo)) } }
+for b in [-83.0, -83.1, -82.9, 0.0, 40.0, 40.1, 39.9, -0.1, 0.1] { for v in [b.nextDown, b, b.nextUp] {
+  cpc.append((40.0, -83.0, v, -83.0)); cpc.append((40.0, -83.0, 40.0, v)); cpc.append((v, v, b, b)) } }
+for _ in 0..<300 {
+  let la = 20 + crng.unit() * 55, lo = -170 + crng.unit() * 120
+  let k = crng.below(3), u1 = crng.unit(), u2 = crng.unit()
+  let (dla, dlo) = k == 0 ? ((u1 - 0.5) * 0.3, (u2 - 0.5) * 0.3) : k == 1 ? ((u1 - 0.5) * 0.02, 0.0) : (0.0, (u2 - 0.5) * 0.02)
+  cpc.append((la, lo, la + dla, lo + dlo))
+}
+var mk = 1
+for c in cpc {
+  clearPrecise(); ClimateProfiles.loadPrecise([(c.0, c.1, marker(mk))], home: nil)
+  emit("cpc", hx(c.0), hx(c.1), hx(c.2), hx(c.3), bit(hits(c.2, c.3, mk))); mk += 1
+}
+// cpt: after a trim around home, does an earlier cell survive?  homeLat homeLon lat lon → 0/1
+// (the entries loaded with the trim always survive: that re-add is the store's own step, not recorded)
+let homes: [(Double, Double)] = [(43.07, -89.4), (0.0, 0.0), (-0.05, -0.05), (71.29, -156.79), (40.0, 0.04), (-33.9, 151.2)]
+func axis(_ d: Double) -> Int { Int((d / 0.1).rounded(.down)) }   // input selection only: one point per cell
+for (h, home) in homes.enumerated() {
+  clearPrecise()
+  var pts: [(Double, Double)] = []
+  var seen = Set<[Int]>()
+  func add(_ la: Double, _ lo: Double) { let key = [axis(la), axis(lo)]; if !seen.contains(key) { seen.insert(key); pts.append((la, lo)) } }
+  for dx in [-27, -26, -25, -24, -1, 0, 1, 24, 25, 26, 27] { for dy in [-26, -25, -24, 0, 24, 25, 26] {
+    add(home.0 + Double(dy) * 0.1 + 0.03, home.1 + Double(dx) * 0.1 + 0.03) } }
+  for _ in 0..<60 { let u1 = crng.unit(), u2 = crng.unit(); add(home.0 + (u1 - 0.5) * 8, home.1 + (u2 - 0.5) * 8) }
+  var loaded: [(lat: Double, lon: Double, profile: LatitudeBands.Profile)] = []
+  for (j, p) in pts.enumerated() { loaded.append((p.0, p.1, marker(100_000 * (h + 1) + j))) }
+  ClimateProfiles.loadPrecise(loaded, home: nil)
+  ClimateProfiles.loadPrecise([(home.0 + 5.03, home.1 + 5.03, marker(7))],
+                              home: CLLocationCoordinate2D(latitude: home.0, longitude: home.1), maxCells: 0)
+  for (j, p) in pts.enumerated() { emit("cpt", hx(home.0), hx(home.1), hx(p.0), hx(p.1), bit(hits(p.0, p.1, 100_000 * (h + 1) + j))) }
+}
+for (la, lo) in [(Double.nan, 0.0), (0.0, Double.infinity), (1e300, 0.0), (40.0, -83.0)] {
+  emit("trap", "preciseCell", hx(la), hx(lo), "-", probe(["preciseCell", hx(la), hx(lo)])) }
 
 FileHandle.standardOutput.write(out.data(using: .utf8)!)

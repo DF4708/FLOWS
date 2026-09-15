@@ -100,6 +100,7 @@ mod ffi {
         fn flows_learning_everyday_radius_miles(trip_miles: &[f64]) -> f64;
         fn flows_learning_everyday_mean_trip_miles(trip_miles: &[f64]) -> FlowsLearningOptional;
         fn flows_learning_everyday_trip_miles_sd(trip_miles: &[f64]) -> FlowsLearningOptional;
+        fn flows_learning_everyday_miles(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64;
         fn flows_learning_everyday_accepts_trip(miles: f64) -> bool;
         fn flows_learning_everyday_hour_bucket(hour: i64) -> i64;
         fn flows_learning_everyday_feature_index(raw: &str) -> i32;
@@ -348,6 +349,9 @@ pub fn flows_learning_everyday_mean_trip_miles(trip_miles: &[f64]) -> FlowsLearn
 }
 pub fn flows_learning_everyday_trip_miles_sd(trip_miles: &[f64]) -> FlowsLearningOptional {
     contain(NONE, || optional(lr::everyday_trip_miles_sd(trip_miles)))
+}
+pub fn flows_learning_everyday_miles(a_lat: f64, a_lon: f64, b_lat: f64, b_lon: f64) -> f64 {
+    contain(f64::NAN, || lr::everyday_miles(a_lat, a_lon, b_lat, b_lon))
 }
 pub fn flows_learning_everyday_accepts_trip(miles: f64) -> bool {
     contain(false, || lr::everyday_accepts_trip(miles))

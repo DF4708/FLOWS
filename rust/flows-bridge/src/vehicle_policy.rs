@@ -48,6 +48,7 @@ mod ffi {
         fn flows_vehicle_policy_filter_default_vehicle_height_meters() -> f64;
         fn flows_vehicle_policy_filter_default_max_grade_percent() -> f64;
         fn flows_vehicle_policy_filter_default_clearance_margin_meters() -> f64;
+        fn flows_vehicle_policy_grade_degrees(percent: f64) -> f64;
         fn flows_vehicle_policy_grade_steep_threshold_percent() -> f64;
         fn flows_vehicle_policy_grade_lookahead_miles() -> f64;
         fn flows_vehicle_policy_drive_idle_speed_mph() -> f64;
@@ -366,6 +367,9 @@ pub fn flows_vehicle_policy_filter_default_max_grade_percent() -> f64 {
 }
 pub fn flows_vehicle_policy_filter_default_clearance_margin_meters() -> f64 {
     contain(f64::NAN, || vp::DEFAULT_CLEARANCE_MARGIN_METERS)
+}
+pub fn flows_vehicle_policy_grade_degrees(percent: f64) -> f64 {
+    contain(f64::NAN, || vp::grade_degrees(percent))
 }
 pub fn flows_vehicle_policy_grade_steep_threshold_percent() -> f64 {
     contain(f64::NAN, || vp::STEEP_THRESHOLD_PERCENT)

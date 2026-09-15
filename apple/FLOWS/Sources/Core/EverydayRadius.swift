@@ -131,14 +131,9 @@ struct EverydayStore: Codable, Equatable {
 
     // MARK: Radius math
 
-    /// Great-circle miles between two points (haversine).
+    /// Great-circle miles between two points (haversine), computed in Rust.
     static func miles(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
-        let r = 3958.8, toRad = Double.pi / 180
-        let dLat = (b.latitude - a.latitude) * toRad
-        let dLon = (b.longitude - a.longitude) * toRad
-        let s = sin(dLat / 2) * sin(dLat / 2)
-            + cos(a.latitude * toRad) * cos(b.latitude * toRad) * sin(dLon / 2) * sin(dLon / 2)
-        return 2 * r * atan2(s.squareRoot(), (1 - s).squareRoot())
+        flows_learning_everyday_miles(a.latitude, a.longitude, b.latitude, b.longitude)
     }
 
     var tripCount: Int { tripMiles.count }

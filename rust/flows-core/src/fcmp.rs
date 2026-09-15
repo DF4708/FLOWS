@@ -76,4 +76,23 @@ mod tests {
         assert!(sunit(f64::NAN).is_nan());
         assert_eq!(sunit(-0.0).to_bits(), 0.0f64.to_bits());
     }
+
+    #[test]
+    fn swift_int_accepts_exactly_the_range_swift_does() {
+        assert_eq!(swift_int(-1.5), Some(-1));
+        assert_eq!(swift_int(-2.0), Some(-2));
+        assert_eq!(swift_int(-9_223_372_036_854_775_808.0), Some(i64::MIN));
+        assert_eq!(
+            swift_int(9_223_372_036_854_775_808.0_f64.next_down()),
+            Some(9_223_372_036_854_774_784)
+        );
+        assert_eq!(swift_int(9_223_372_036_854_775_808.0), None);
+        assert_eq!(
+            swift_int((-9_223_372_036_854_775_808.0_f64).next_down()),
+            None
+        );
+        assert_eq!(swift_int(f64::NAN), None);
+        assert_eq!(swift_int(f64::INFINITY), None);
+        assert_eq!(swift_int(f64::NEG_INFINITY), None);
+    }
 }

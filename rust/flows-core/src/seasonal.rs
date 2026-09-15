@@ -44,7 +44,7 @@
 //! Determinism: every function is a pure function of its arguments. Panics:
 //! none.
 
-use crate::fcmp::{smax, smin, sunit};
+use crate::fcmp::{smax, smin, sunit, swift_int};
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
@@ -98,18 +98,7 @@ pub const LAST_WEEK: i64 = 51;
 
 // ---------------------------------------------------------------- Swift ints
 
-/// Swift `Int(x)`: truncation toward zero, or `None` exactly where Swift
-/// traps (NaN, ±∞, or outside `[-2^63, 2^63)`).
-#[must_use]
-pub fn swift_int(x: f64) -> Option<i64> {
-    // -2^63 is exact; no double lies strictly between it and the next one
-    // below, so `>=` here is Swift's `> -9223372036854777856.0`.
-    if (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&x) {
-        Some(x as i64)
-    } else {
-        None
-    }
-}
+// `Int(x)` itself is [`crate::fcmp::swift_int`], shared by every port.
 
 /// Swift `Int(x)` where Swift would trap: saturate like `as` (NaN → 0).
 /// Used only to give a trapping input some non-panicking answer.

@@ -425,11 +425,78 @@ pub fn wind_beyond_normal(wind_mph: f64, norms: &SeasonalNorms) -> bool {
 }
 
 /// The temperature profile every risk equation reads for a location: the
-/// climate type's envelope. (The Swift consulted a per-ZIP precise map first;
-/// it is empty in this build and stays in Swift.)
+/// climate type's envelope. (The Swift consults a per-ZIP precise map first;
+/// the map is the store's and is empty in this build, and its cell keys are
+/// [`precise_cell`].)
 #[must_use]
 pub fn climate_profile(latitude: f64, longitude: f64, elevation_meters: Option<f64>) -> Profile {
     classify(latitude, longitude, elevation_meters).profile()
+}
+
+// ------------------------------------------------ the precise per-ZIP cells
+
+/// Side of a precise-normals cell, degrees (about 11 km).
+pub const PRECISE_CELL_DEGREES: f64 = 0.1;
+/// Offset added to each tenth-degree index so a key decodes exactly for
+/// negative longitudes (plain `y · 100 000 + x` made `x % 100 000` wrong for
+/// all of North America).
+pub const PRECISE_CELL_OFFSET: i64 = 50_000;
+/// Stride between latitude rows of a key.
+pub const PRECISE_CELL_STRIDE: i64 = 100_000;
+/// Cells kept in every direction around home when the precise map is trimmed
+/// (about 25 cells: the home radius).
+pub const PRECISE_HOME_RING: i64 = 25;
+
+/// A coordinate's tenth-degree index, `Int((degrees / 0.1).rounded(.down))`:
+/// `None` where the Swift trapped, a non-finite coordinate or one whose
+/// floored quotient does not fit an `Int`.
+fn precise_axis(degrees: f64) -> Option<i64> {
+    swift_int((degrees / PRECISE_CELL_DEGREES).floor())
+}
+
+/// `ClimateProfiles.cell(lat, lon)`: the key of the cell holding a
+/// coordinate, `(y + 50 000) &* 100 000 &+ (x + 50 000)` over the floored
+/// tenth-degree indices, with Swift's wrapping product and sum. `None` where
+/// the Swift trapped: a non-finite coordinate, an index outside `Int`, or an
+/// offset that overflows.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn precise_cell(latitude: f64, longitude: f64) -> Option<i64> {
+    let x = precise_axis(longitude)?.checked_add(PRECISE_CELL_OFFSET)?;
+    let y = precise_axis(latitude)?.checked_add(PRECISE_CELL_OFFSET)?;
+    Some(y.wrapping_mul(PRECISE_CELL_STRIDE).wrapping_add(x))
+}
+
+/// The tenth-degree indices a key decodes to, `(x, y)` = (longitude,
+/// latitude): `key % 100 000 − 50 000` and `key / 100 000 − 50 000`, with
+/// Swift's truncating `%` and `/`. Neither difference can overflow.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn precise_cell_indices(key: i64) -> (i64, i64) {
+    (
+        key % PRECISE_CELL_STRIDE - PRECISE_CELL_OFFSET,
+        key / PRECISE_CELL_STRIDE - PRECISE_CELL_OFFSET,
+    )
+}
+
+/// Whether a loaded cell survives a trim around home: both of its indices lie
+/// within [`PRECISE_HOME_RING`] of home's, the longitude test first and the
+/// latitude test only when it passes (Swift's `&&`). `None` where the Swift
+/// trapped: a home that cannot be placed, or a difference or magnitude that
+/// overflows.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn precise_cell_near_home(key: i64, home_latitude: f64, home_longitude: f64) -> Option<bool> {
+    let home_x = precise_axis(home_longitude)?;
+    let home_y = precise_axis(home_latitude)?;
+    let (x, y) = precise_cell_indices(key);
+    if x.checked_sub(home_x)?.checked_abs()? > PRECISE_HOME_RING {
+        return Some(false);
+    }
+    Some(y.checked_sub(home_y)?.checked_abs()? <= PRECISE_HOME_RING)
 }
 
 // ============================================================ instants
@@ -860,6 +927,47 @@ pub fn arrival_offsets(sample_count: i64, total_travel_seconds: f64) -> Option<V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn precise_cells_round_trip_their_indices_and_refuse_what_swift_could_not_place() {
+        let key = precise_cell(40.0, -83.0).expect("a finite coordinate has a cell");
+        assert_eq!(precise_cell_indices(key), (-830, 400));
+        assert_eq!(
+            key,
+            (400 + PRECISE_CELL_OFFSET) * PRECISE_CELL_STRIDE + (-830 + PRECISE_CELL_OFFSET)
+        );
+        // Neighbours a tenth of a degree apart are different cells; a signed
+        // zero and a zero share one.
+        assert_ne!(precise_cell(40.0, -83.0), precise_cell(40.1, -83.0));
+        assert_ne!(precise_cell(40.0, -83.0), precise_cell(40.0, -83.1));
+        assert_eq!(precise_cell(-0.0, -0.0), precise_cell(0.0, 0.0));
+        assert_ne!(precise_cell(0.0, -0.05), precise_cell(0.0, 0.05));
+        // Where the Swift trapped.
+        assert_eq!(precise_cell(f64::NAN, 0.0), None);
+        assert_eq!(precise_cell(0.0, f64::INFINITY), None);
+        assert_eq!(precise_cell(1e300, 0.0), None);
+        // A huge but placeable coordinate wraps as the Swift's `&*` did.
+        let y = ((1e17 / PRECISE_CELL_DEGREES).floor() as i64) + PRECISE_CELL_OFFSET;
+        assert_eq!(
+            precise_cell(1e17, 0.0),
+            Some(
+                y.wrapping_mul(PRECISE_CELL_STRIDE)
+                    .wrapping_add(PRECISE_CELL_OFFSET)
+            )
+        );
+    }
+
+    #[test]
+    fn a_cell_survives_a_trim_only_within_the_home_ring() {
+        let key = precise_cell(40.0, -83.0).expect("cell");
+        assert_eq!(precise_cell_near_home(key, 40.05, -83.05), Some(true));
+        assert_eq!(precise_cell_near_home(key, 42.5, -83.0), Some(true));
+        assert_eq!(precise_cell_near_home(key, 42.6, -83.0), Some(false));
+        assert_eq!(precise_cell_near_home(key, 40.0, -85.5), Some(true));
+        assert_eq!(precise_cell_near_home(key, 40.0, -85.6), Some(false));
+        assert_eq!(precise_cell_near_home(key, f64::NAN, -83.0), None);
+        assert_eq!(precise_cell_near_home(key, 40.0, f64::NEG_INFINITY), None);
+    }
 
     #[test]
     fn wisconsin_bands_are_the_r_servers_rows() {

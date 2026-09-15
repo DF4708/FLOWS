@@ -10,7 +10,8 @@ limits, standing), the `CompassReading.points` table, `SpeedSign`
 (`parseMaxspeed`, `judge`), `PursuitReach.radiusMeters`, `TowingLimits`
 (`estimatedRatings`, `Ratings.effectiveGCWR`, `check`), `FilterLimits` (the
 three admission rules, `degreesToPercent`, `vehicleDefaultMaxGradeDegrees`),
-`GradeProfile` (`segments`, `steepest`, `nextSteep`) and `DriveEfficiency`
+`GradeProfile` (`segments`, `steepest`, `nextSteep`, `GradeSegment.gradeDegrees`)
+and `DriveEfficiency`
 (every penalty, headwind, airspeed, drag sensitivity, load factor, score,
 verdict, efficient cruise), plus every policy constant.
 
@@ -37,7 +38,7 @@ Rules the harness follows, so the output is a function of the code alone:
 - never iterate a `Dictionary` or `Set` to choose inputs or order outputs;
 - doubles as IEEE bit patterns in hex, strings as UTF-8 hex;
 - three runs plus one with `SWIFT_DETERMINISTIC_HASHING=1` were byte-identical
-  (14,260 records in 35 kinds; sha1 `010d90f44cb3c134b07d4cfd2e9a4a6ba03b9e42`
+  (14,454 records in 36 kinds; sha1 `b032677f66c8ff63da2e2e94c0047eb9a73f054a`
   for the body).
 
 The `utab` records are the Unicode properties `SpeedSign.parseMaxspeed`
@@ -52,3 +53,7 @@ Two `pr` records carry a NaN in both arguments. IEEE 754 leaves which
 operand's NaN a product returns to the hardware (Apple silicon: the first
 operand's), and the Swift Release build emitted `PursuitReach.radiusMeters`'s
 product with the speed first; the Rust writes it in that order and says why.
+
+The `gd` records (`GradeSegment.gradeDegrees`, the display arctangent) were
+added after the first landing from their own seeded generator at the end of
+the harness, so every earlier record kept its bytes.

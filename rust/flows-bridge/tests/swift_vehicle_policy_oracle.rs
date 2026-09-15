@@ -398,6 +398,12 @@ fn rust_reproduces_the_original_swift_vehicle_policy_bit_for_bit() {
                     fail(line, bits(g), f[2].into())
                 }
             }
+            "gd" => {
+                let g = flows_vehicle_policy_grade_degrees(d(f[1]));
+                if !eqd(g, f[2]) {
+                    fail(line, bits(g), f[2].into())
+                }
+            }
             "pc" => {
                 // The facade answers nil and [] before crossing.
                 let got = if f[3] == "-" {

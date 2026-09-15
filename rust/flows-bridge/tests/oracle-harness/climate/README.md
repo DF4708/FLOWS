@@ -4,8 +4,8 @@
 ORIGINAL Swift (`ClimateProfiles`, `LatitudeBands`, `DaylightClock`,
 `HarmonicClimatology`, `RiskTiming`) with this harness and recording its
 output, before that math moved to `flows_core::climate`.
-`../../swift_climate_oracle.rs` checks the Rust against it: 13,447 records in
-37 kinds.
+`../../swift_climate_oracle.rs` checks the Rust against it: 14,830 records in
+39 kinds.
 
 ## Three record shapes
 
@@ -39,6 +39,7 @@ nanodegree); at this writing five values in 13,447 needed it, the largest by
 | `dref`, `dcmp` | Foundation `Date` arithmetic and comparisons the port relies on | `unix_seconds`, `reference_seconds`; `<`, `>`, `==`, and Comparable's `<=`/`>=` |
 | `djd`, `dmj`, `dst`, `dha`, `dday`, `dtw`, `dnone` | `DaylightClock.julianDay`, `.midnightJD`, `.solarTerms`, `.hourAngleMinutes`, `.twilight`, `.isNight`, `.solarElevation`, `.nextChange` | the same names |
 | `hwt`, `hp`, `hzc`, `hzi`, `hzm`, `hsn`, `hsc`, `hst`, `hbig` | `HarmonicClimatology.WeekTrig`, `init?(data:)`, `zipIndexMap`, `zipIndex`, `score(zip:family:week:)`, `score(zipIndex:familyIndex:week:)`, `score(…trig:)`; the 33,613-ZIP table | `WeekTrig`, `parse_flhh`, `HarmonicTable::{zip_index_map, zip_index, score_named, score_week, score}` |
+| `cpc`, `cpt` | `ClimateProfiles.cell` and the home-ring trim in `loadPrecise`, observed through `loadPrecise` and `profile` because the function is private: a marker profile loaded at one point and probed at another (are two coordinates one cell?), then a trim around a home (does an earlier cell survive?) | `precise_cell`, `precise_cell_near_home` |
 | `rta`, `rto` | `RiskTiming.isActive`, `.arrivalOffsets` | `is_active`, `arrival_offsets` |
 | `trap` | inputs that trap the Swift, each observed in a child process | the `None` returns |
 
@@ -75,4 +76,10 @@ xcrun --sdk macosx swiftc -O -swift-version 5 ClimateProfiles.swift LatitudeBand
 The binary imports `__sincos_stret`, `sin`, `cos`, `tan`, `asin`, `acos` and
 `fmod`. Four runs are byte-identical: three plain runs and one with
 `SWIFT_DETERMINISTIC_HASHING=1` (sha1
-`5d153bd28a80b87e34d715183f74c9ee419daf78` for the body).
+`ad2c18ecbbf8fa0bdec53ec4acdb9b95998ca293` for the body).
+
+The `cpc`, `cpt` and `preciseCell` trap records were added after the first
+landing from their own seeded generator at the end of the harness, so every
+earlier record kept its bytes. The precise map is emptied between cases by a
+trim around a far home with `maxCells` 0; no case lies within 25 cells of it
+on both axes.

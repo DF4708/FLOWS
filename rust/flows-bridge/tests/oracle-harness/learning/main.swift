@@ -471,4 +471,20 @@ for _ in 0..<200 {
   emit("dconf", dl(scores), String(minimum), bo(DestinationPrediction.isConfident(cands, minimumEvidence: minimum)))
 }
 
+// MARK: EverydayStore.miles (the haversine). Its own generator, so nothing above moves.
+var mrng = SM(s: 0x4D494C4553)   // "MILES"
+let coordPool: [Double] = SPECIAL + [43.0, -89.4, 43.1, 0, 90, -90, 180, -180, 89.999, 45.5, -122.3, 1e-9, 360, 720, 1e10]
+func coord(_ lo: Double, _ hi: Double) -> Double { mrng.below(6) == 0 ? mrng.pick(coordPool) : lo + mrng.unit() * (hi - lo) }
+func milesCase(_ aLat: Double, _ aLon: Double, _ bLat: Double, _ bLon: Double) {
+  emit("miles", hx(aLat), hx(aLon), hx(bLat), hx(bLon),
+       hx(EverydayStore.miles(from: CLLocationCoordinate2D(latitude: aLat, longitude: aLon),
+                              to: CLLocationCoordinate2D(latitude: bLat, longitude: bLon))))
+}
+milesCase(43.0, -89.4, 43.1, -89.4); milesCase(43.0, -89.4, 43.0, -89.4); milesCase(0, 0, 0, 180); milesCase(90, 0, -90, 0)
+milesCase(0, 0, 0, 0); milesCase(-0.0, -0.0, 0, 0); milesCase(.nan, 0, 0, 0); milesCase(0, .infinity, 0, 0)
+milesCase(43, -89.4, (43.0).nextUp, -89.4); milesCase(43, -89.4, 43, (-89.4).nextDown)
+for _ in 0..<400 { milesCase(coord(-90, 90), coord(-180, 180), coord(-90, 90), coord(-180, 180)) }
+for _ in 0..<200 { let lat = coord(20, 70), lon = coord(-170, -50)
+  milesCase(lat, lon, lat + (mrng.unit() - 0.5) * 0.02, lon + (mrng.unit() - 0.5) * 0.02) }
+
 FileHandle.standardOutput.write(out.data(using: .utf8)!)

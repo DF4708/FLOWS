@@ -4,7 +4,7 @@
 ORIGINAL Swift learned-model code with this harness and recording its output,
 before that math was replaced by `flows_core::learning`.
 `../../swift_learning_oracle.rs` checks the Rust against it bit for bit:
-10,673 records in 37 kinds.
+11,283 records in 38 kinds.
 
 ## What it pins
 
@@ -12,6 +12,7 @@ before that math was replaced by `flows_core::learning`.
 |---|---|---|
 | `const`, `iconst`, `table`, `fidx` | the store statics, `TrafficWeather.allCases`, `EverydayCategory.featureIndex` | the `learning` constants, `TRAFFIC_WEATHER_NAMES`, `everyday_feature_index` |
 | `q`, `rad`, `mean`, `sd` | `EverydayStore.quantile`, `.radiusMiles`, `.meanTripMiles`, `.tripMilesSD` | `everyday_quantile`, `everyday_radius_miles`, `everyday_mean_trip_miles`, `everyday_trip_miles_sd` |
+| `miles` | `EverydayStore.miles(from:to:)` (the haversine) | `everyday_miles` |
 | `tripok`, `twin` | `EverydayStore.recordTrip` (the gate; the 200-trip window) | `everyday_accepts_trip` (+ the window, recomposed) |
 | `hb`, `fv` | `EverydayStore.hourBucket`, `EverydayFeatures.vector` | `everyday_hour_bucket`, `everyday_features` |
 | `rank`, `evict` | `EverydayStore.ranked`, `remember`'s eviction | `everyday_ranked_order`, `everyday_evict_index` |
@@ -58,7 +59,7 @@ xcrun --sdk macosx swiftc -O -swift-version 5 $(for f in $FILES; do printf '%s.s
 
 Four runs are byte-identical: three plain runs and one with
 `SWIFT_DETERMINISTIC_HASHING=1` (sha1
-`42229e8eba86fd249645731f72445ff53d4a03ac` for the body).
+`31ae746ad6deb34eef51c4f8fce98ffe2f70949d` for the body).
 
 Two facts about the Release compiler that the fixture carries, both
 reproduced in Rust in every build mode:
@@ -69,3 +70,7 @@ reproduced in Rust in every build mode:
   writes `(t / -half_life).exp2()`.
 - The binary imports `__sincos_stret` (the feature vector takes sin and cos
   of one angle); every `fv` record matched regardless.
+
+The `miles` records were added after the first landing, from their own
+seeded generator at the end of the harness, so every earlier record kept its
+bytes; the haversine matched bit for bit without a tolerance.

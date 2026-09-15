@@ -1158,14 +1158,46 @@ their optionals as a value plus a flag. All seven files of the group are
 facades now. `GradeSegment.gradeDegrees` (an arctangent for display) stays,
 with `FilterLimits.degreesToPercent`'s inverse already in Rust.
 
+## Wave 1: the three small leftovers (2026-09-15)
+
+Three pieces of arithmetic the facade landings had left in Swift are in Rust,
+each pinned by new frozen-oracle records. The three harnesses grew a section
+at their end, each with its own seeded generator so no earlier draw moved;
+regenerated from the base commit, four runs byte-identical, every previous
+record unchanged, every new record matched bit for bit:
+
+- `EverydayStore.miles`, the haversine, is `learning::everyday_miles`
+  (610 `miles` records). It is written in the Swift's operation order —
+  each sine taken once and squared, the products left to right,
+  `2 · r · atan2(√s, √(1 − s))` — and needed no tolerance.
+- `GradeSegment.gradeDegrees`, the display arctangent, is
+  `vehicle_policy::grade_degrees` (194 `gd` records), the inverse of
+  `degrees_to_percent`.
+- `ClimateProfiles.cell` and the home-ring trim in `loadPrecise` are
+  `climate::precise_cell`, `precise_cell_indices` and
+  `precise_cell_near_home`, wrapping product and truncating division kept.
+  The Swift function is private, so the harness observes it through the
+  store: a marker profile loaded at one point and probed at another (`cpc`,
+  563 records: are two coordinates one cell?), then a trim around a home
+  (`cpt`, 816 records: does an earlier cell survive?). Four `trap` probes pin
+  that a coordinate the original could not place crashed it; the facade
+  answers no cell for such a coordinate and keeps every cell for such a
+  home. The re-add of the just-loaded corridor after a trim is the store's
+  own step and stays in Swift.
+- The four `swift_int` copies are one, `fcmp::swift_int`; `geo::swift_int`
+  is its `Result` form.
+
+`SeasonalStore.totalTrips`, a sum of the routes' trip counts, stays: it is
+the store's bookkeeping, like `count`.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
 |---|---|---|
-| seasonal | LANDED: core + oracle (3,163 records) + bridge (53 functions) + both facades switched | `SeasonalStore.totalTrips` (a sum) stays in Swift |
-| learning | LANDED: core + oracle (10,673 records) + bridge (72 functions) + seven facades switched | `EverydayStore.miles` (a haversine) still in Swift, with the geo facade |
-| vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records) + all seven facades switched | `GradeSegment.gradeDegrees` (a display arctangent) stays |
-| climate | LANDED: core + oracle (13,447 records) + bridge (36 functions, one opaque table type) + five facades switched | — |
+| seasonal | LANDED: core + oracle (3,163 records) + bridge (53 functions) + both facades switched | `SeasonalStore.totalTrips` (a sum of counts) is the store's bookkeeping and stays |
+| learning | LANDED: core + oracle (11,283 records) + bridge (73 functions) + seven facades switched | — |
+| vehicle_policy | LANDED: core + bridge (49 functions) + oracle (14,454 records) + all seven facades switched | — |
+| climate | LANDED: core + oracle (14,830 records) + bridge (38 functions, one opaque table type) + five facades switched | — |
 | places_text | harness only | port from scratch — the heaviest: it needs Swift's grapheme segmentation, case mapping and canonical equivalence in zero-dependency Rust |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
 
