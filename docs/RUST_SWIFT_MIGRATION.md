@@ -835,3 +835,64 @@ the hazard classifier. Details in that commit.
   including a geo oracle fixture and harness. They are left in place to be
   resumed, not deleted.
 
+## Wave 1, first landing: the geo kernel and the trip/vehicle twins (2026-09-15)
+
+The parallel wave-1 run died with its session before any commit. Its
+worktrees were assessed by hand; two groups were sound enough to land.
+
+**Geo** (`flows-core::geo`, 5,322-record oracle: every record exact except nine bearings, whose largest lateral gap at the target is 0.16 µm, and sixteen cone-edge yes/no answers checked by recomputing the edge distance). The equirectangular
+`meters` behind about 90 call sites, bearings, the ahead cone, point-to-segment
+distance, the longitude wraps, every first-minimum nearest search with its
+tie rule, and the three grid keys. No Swift call site is switched yet: a
+crossing inside ninety call sites, many in loops that move later, would pay
+per call for nothing. The twins wait for their callers.
+
+**Trip and vehicle** (`flows-core::trip_vehicle`, 8,704-record oracle, bit-exact;
+`flows-bridge::trip_vehicle`, 58 functions and three shared structs). Trip
+costs and needs, the crash-detection decisions, the vehicle spec table and
+profile math, EPA class specs. The bridge lands one step ahead of its Swift
+callers — the oracle test is its caller for now — and the facade switch for
+`TripCosts`, `TripNeeds`, `CrashLogic`, `VehicleSpecs`, `VehicleProfile` and
+`EPAVehicleDatabase` is the next step in this group. The nine `!(a > b)`
+tests the port used for NaN parity are written as `a <= b || a.is_nan()`:
+the same predicate, with the NaN case visible.
+
+### Trigonometry is bit-portable only as far as the compiler leaves it alone
+
+The geo oracle failed on 25 of 5,322 records: nine bearings one unit in the
+last place off, and twelve ahead-cone answers that flipped because those
+bearings sat on the cone's edge. Every other intermediate matched. The cause
+was found by experiment, not reasoning: when one function evaluates both
+`sin(x)` and `cos(x)`, the Apple backend may fuse the pair into
+`__sincos_stret`, whose sine differs from the standalone `sin` by one ulp for
+some arguments. Whether it fuses depends on the compiler, the optimisation
+level and the shape of the surrounding code. The Swift *Release* build of
+the app fuses inside its bearing formula — so the oracle, and the shipping
+app, carry the fused sine — while a Swift Debug build does not. The original
+is not consistent with itself across build configurations.
+
+That is not a contract Rust can reproduce, and it should not try. The kernel
+routes every trig call through its own `#[inline(never)]` wrapper so no
+function contains the pair; the Rust value is then the standalone sine in
+every build, identical in debug and release. The oracle pins the honest
+contract in physical terms: a bearing may point away from the app's by at
+most one micrometre of lateral displacement at the target (the sine's one
+ulp is amplified through `atan2` in proportion to how close the two points
+are, so a degree-valued tolerance is wrong at one separation or another),
+and a yes/no answer derived from a bearing — the ahead cone, fuel-station
+reachability — may differ only when the bearing lies within a nanodegree of
+the cone's edge, checked by recomputing that distance rather than by a
+list. Nine bearings and sixteen edge answers fall under those rules; the
+largest observed lateral gap is 0.16 µm. An `extern "C"` sincos would have matched the
+Release app and broken with its Debug build, and is forbidden anyway (§3.15).
+
+### Remaining wave-1 groups
+
+| group | state | next |
+|---|---|---|
+| seasonal | Rust core, 11 tests, 3,163-record fixture; no oracle test | write the oracle test from the harness's record format |
+| learning | Rust core, 17 tests, harness; no fixture | run the harness, write the test |
+| vehicle_policy | core does not compile; Swift facades edited; no fixture | fix or redo |
+| climate, places_text | harness only | port from scratch |
+| alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
+

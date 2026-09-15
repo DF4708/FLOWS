@@ -136,6 +136,354 @@ public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) ->
 
 
 
+public func flows_trip_vehicle_fuel_type_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_fuel_type_names())
+}
+public func flows_trip_vehicle_food_category_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_food_category_names())
+}
+public func flows_trip_vehicle_need_label(_ code: UInt8) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_trip_vehicle_need_label(code))
+}
+public func flows_trip_vehicle_default_miles_per_unit() -> Double {
+    __swift_bridge__$flows_trip_vehicle_default_miles_per_unit()
+}
+public func flows_trip_vehicle_default_fuel_code() -> UInt8 {
+    __swift_bridge__$flows_trip_vehicle_default_fuel_code()
+}
+public func flows_trip_vehicle_grams_co2_per_unit(_ fuel: UInt8) -> Double {
+    __swift_bridge__$flows_trip_vehicle_grams_co2_per_unit(fuel)
+}
+public func flows_trip_vehicle_transit_grams_co2_per_mile(_ rail: Bool, _ long_haul: Bool) -> Double {
+    __swift_bridge__$flows_trip_vehicle_transit_grams_co2_per_mile(rail, long_haul)
+}
+public func flows_trip_vehicle_drive_fuel_cost_usd(_ miles: Double, _ miles_per_unit: Double, _ price_per_unit: Double) -> TripVehicleOptional {
+    __swift_bridge__$flows_trip_vehicle_drive_fuel_cost_usd(miles, miles_per_unit, price_per_unit).intoSwiftRepr()
+}
+public func flows_trip_vehicle_drive_grams_co2_per_mile(_ fuel: UInt8, _ miles_per_unit: Double) -> TripVehicleOptional {
+    __swift_bridge__$flows_trip_vehicle_drive_grams_co2_per_mile(fuel, miles_per_unit).intoSwiftRepr()
+}
+public func flows_trip_vehicle_schedule(_ total_miles: Double, _ intervals: UnsafeBufferPointer<Double>, _ seed: UInt64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_schedule(total_miles, intervals.toFfiSlice(), seed))
+}
+public func flows_trip_vehicle_next_need_index(_ after_mile: Double, _ miles: UnsafeBufferPointer<Double>) -> Int32 {
+    __swift_bridge__$flows_trip_vehicle_next_need_index(after_mile, miles.toFfiSlice())
+}
+public func flows_trip_vehicle_adjusted_remaining_seconds(_ baseline: Double, _ stop_delay_seconds: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_adjusted_remaining_seconds(baseline, stop_delay_seconds)
+}
+public func flows_trip_vehicle_splitmix64_initial_state(_ seed: UInt64) -> UInt64 {
+    __swift_bridge__$flows_trip_vehicle_splitmix64_initial_state(seed)
+}
+public func flows_trip_vehicle_splitmix64_advance(_ state: UInt64) -> UInt64 {
+    __swift_bridge__$flows_trip_vehicle_splitmix64_advance(state)
+}
+public func flows_trip_vehicle_splitmix64_mix(_ state: UInt64) -> UInt64 {
+    __swift_bridge__$flows_trip_vehicle_splitmix64_mix(state)
+}
+public func flows_trip_vehicle_impact_g_force() -> Double {
+    __swift_bridge__$flows_trip_vehicle_impact_g_force()
+}
+public func flows_trip_vehicle_hard_impact_g_force() -> Double {
+    __swift_bridge__$flows_trip_vehicle_hard_impact_g_force()
+}
+public func flows_trip_vehicle_confirm_impact_g_force() -> Double {
+    __swift_bridge__$flows_trip_vehicle_confirm_impact_g_force()
+}
+public func flows_trip_vehicle_min_pre_impact_speed_mps() -> Double {
+    __swift_bridge__$flows_trip_vehicle_min_pre_impact_speed_mps()
+}
+public func flows_trip_vehicle_crash_stop_speed_mps() -> Double {
+    __swift_bridge__$flows_trip_vehicle_crash_stop_speed_mps()
+}
+public func flows_trip_vehicle_min_speed_drop_fraction() -> Double {
+    __swift_bridge__$flows_trip_vehicle_min_speed_drop_fraction()
+}
+public func flows_trip_vehicle_max_meters_from_road() -> Double {
+    __swift_bridge__$flows_trip_vehicle_max_meters_from_road()
+}
+public func flows_trip_vehicle_assist_words() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_assist_words())
+}
+public func flows_trip_vehicle_ok_words() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_ok_words())
+}
+public func flows_trip_vehicle_is_impact_acceleration(_ acceleration_g: Double) -> Bool {
+    __swift_bridge__$flows_trip_vehicle_is_impact_acceleration(acceleration_g)
+}
+public func flows_trip_vehicle_is_impact_window(_ window: UnsafeBufferPointer<Double>) -> Bool {
+    __swift_bridge__$flows_trip_vehicle_is_impact_window(window.toFfiSlice())
+}
+public func flows_trip_vehicle_is_crash(_ window: UnsafeBufferPointer<Double>, _ speed_before_mps: Double, _ speed_after_mps: Double, _ meters_from_road: Double, _ has_meters_from_road: Bool) -> Bool {
+    __swift_bridge__$flows_trip_vehicle_is_crash(window.toFfiSlice(), speed_before_mps, speed_after_mps, meters_from_road, has_meters_from_road)
+}
+public func flows_trip_vehicle_interpret_reply<GenericToRustStr: ToRustStr>(_ transcript: GenericToRustStr) -> Int32 {
+    return transcript.toRustStr({ transcriptAsRustStr in
+        __swift_bridge__$flows_trip_vehicle_interpret_reply(transcriptAsRustStr)
+    })
+}
+public func flows_trip_vehicle_hos_break_due_seconds() -> Double {
+    __swift_bridge__$flows_trip_vehicle_hos_break_due_seconds()
+}
+public func flows_trip_vehicle_hos_warn_before_break_seconds() -> Double {
+    __swift_bridge__$flows_trip_vehicle_hos_warn_before_break_seconds()
+}
+public func flows_trip_vehicle_hos_daily_driving_limit_seconds() -> Double {
+    __swift_bridge__$flows_trip_vehicle_hos_daily_driving_limit_seconds()
+}
+public func flows_trip_vehicle_hos_break_reset_seconds() -> Double {
+    __swift_bridge__$flows_trip_vehicle_hos_break_reset_seconds()
+}
+public func flows_trip_vehicle_hos_status(_ driving_seconds: Double) -> TripVehicleHosStatus {
+    __swift_bridge__$flows_trip_vehicle_hos_status(driving_seconds).intoSwiftRepr()
+}
+public func flows_trip_vehicle_spec_number_slots() -> UInt32 {
+    __swift_bridge__$flows_trip_vehicle_spec_number_slots()
+}
+public func flows_trip_vehicle_spec_makes() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_spec_makes())
+}
+public func flows_trip_vehicle_spec_models() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_spec_models())
+}
+public func flows_trip_vehicle_spec_numbers() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_spec_numbers())
+}
+public func flows_trip_vehicle_distinct_makes() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_trip_vehicle_distinct_makes())
+}
+public func flows_trip_vehicle_spec_rows_for_make<GenericToRustStr: ToRustStr>(_ make: GenericToRustStr) -> RustVec<Double> {
+    return make.toRustStr({ makeAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_trip_vehicle_spec_rows_for_make(makeAsRustStr))
+    })
+}
+public func flows_trip_vehicle_spec_index<GenericToRustStr: ToRustStr>(_ make: GenericToRustStr, _ model: GenericToRustStr) -> Int32 {
+    return model.toRustStr({ modelAsRustStr in
+        return make.toRustStr({ makeAsRustStr in
+        __swift_bridge__$flows_trip_vehicle_spec_index(makeAsRustStr, modelAsRustStr)
+    })
+    })
+}
+public func flows_trip_vehicle_minimum_height_feet() -> Double {
+    __swift_bridge__$flows_trip_vehicle_minimum_height_feet()
+}
+public func flows_trip_vehicle_combined_miles_per_unit(_ city_mpu: Double, _ highway_mpu: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_combined_miles_per_unit(city_mpu, highway_mpu)
+}
+public func flows_trip_vehicle_rated_miles_per_unit(_ city_mpu: Double, _ highway_mpu: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_rated_miles_per_unit(city_mpu, highway_mpu)
+}
+public func flows_trip_vehicle_reserve_miles() -> Double {
+    __swift_bridge__$flows_trip_vehicle_reserve_miles()
+}
+public func flows_trip_vehicle_efficiency_factor(_ average_speed_mph: Double, _ idle_fraction: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_efficiency_factor(average_speed_mph, idle_fraction)
+}
+public func flows_trip_vehicle_rated_range_miles(_ tank_capacity_units: Double, _ rated_miles_per_unit: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_rated_range_miles(tank_capacity_units, rated_miles_per_unit)
+}
+public func flows_trip_vehicle_miles_per_unit_at_speed(_ tank_capacity_units: Double, _ rated_miles_per_unit: Double, _ city_miles_per_unit: Double, _ has_city_miles_per_unit: Bool, _ highway_miles_per_unit: Double, _ has_highway_miles_per_unit: Bool, _ mph: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_miles_per_unit_at_speed(tank_capacity_units, rated_miles_per_unit, city_miles_per_unit, has_city_miles_per_unit, highway_miles_per_unit, has_highway_miles_per_unit, mph)
+}
+public func flows_trip_vehicle_effective_range_miles(_ tank_capacity_units: Double, _ rated_miles_per_unit: Double, _ city_miles_per_unit: Double, _ has_city_miles_per_unit: Bool, _ highway_miles_per_unit: Double, _ has_highway_miles_per_unit: Bool, _ average_speed_mph: Double, _ idle_fraction: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_effective_range_miles(tank_capacity_units, rated_miles_per_unit, city_miles_per_unit, has_city_miles_per_unit, highway_miles_per_unit, has_highway_miles_per_unit, average_speed_mph, idle_fraction)
+}
+public func flows_trip_vehicle_fuel_fraction_after(_ tank_capacity_units: Double, _ rated_miles_per_unit: Double, _ city_miles_per_unit: Double, _ has_city_miles_per_unit: Bool, _ highway_miles_per_unit: Double, _ has_highway_miles_per_unit: Bool, _ miles_since_fill: Double, _ average_speed_mph: Double, _ idle_fraction: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_fuel_fraction_after(tank_capacity_units, rated_miles_per_unit, city_miles_per_unit, has_city_miles_per_unit, highway_miles_per_unit, has_highway_miles_per_unit, miles_since_fill, average_speed_mph, idle_fraction)
+}
+public func flows_trip_vehicle_expected_range_miles(_ tank_capacity_units: Double, _ rated_miles_per_unit: Double, _ city_miles_per_unit: Double, _ has_city_miles_per_unit: Bool, _ highway_miles_per_unit: Double, _ has_highway_miles_per_unit: Bool, _ miles_since_fill: Double, _ average_speed_mph: Double, _ idle_fraction: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_expected_range_miles(tank_capacity_units, rated_miles_per_unit, city_miles_per_unit, has_city_miles_per_unit, highway_miles_per_unit, has_highway_miles_per_unit, miles_since_fill, average_speed_mph, idle_fraction)
+}
+public func flows_trip_vehicle_should_recommend_fuel(_ range_remaining_miles: Double, _ miles_to_next_station: Double, _ reserve_miles: Double) -> Bool {
+    __swift_bridge__$flows_trip_vehicle_should_recommend_fuel(range_remaining_miles, miles_to_next_station, reserve_miles)
+}
+public func flows_trip_vehicle_restore_driving_accepts(_ average_speed_mph: Double, _ idle_fraction: Double) -> Bool {
+    __swift_bridge__$flows_trip_vehicle_restore_driving_accepts(average_speed_mph, idle_fraction)
+}
+public func flows_trip_vehicle_restore_driving_idle(_ idle_fraction: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_restore_driving_idle(idle_fraction)
+}
+public func flows_trip_vehicle_record_fix(_ miles_since_fill: Double, _ average_speed_mph: Double, _ idle_fraction: Double, _ speed_mps: Double, _ delta_meters: Double, _ towing: Bool, _ towing_economy_factor: Double) -> TripVehicleHabits {
+    __swift_bridge__$flows_trip_vehicle_record_fix(miles_since_fill, average_speed_mph, idle_fraction, speed_mps, delta_meters, towing, towing_economy_factor).intoSwiftRepr()
+}
+public func flows_trip_vehicle_store_expected_range_miles(_ tank_capacity_units: Double, _ rated_miles_per_unit: Double, _ city_miles_per_unit: Double, _ has_city_miles_per_unit: Bool, _ highway_miles_per_unit: Double, _ has_highway_miles_per_unit: Bool, _ miles_since_fill: Double, _ average_speed_mph: Double, _ idle_fraction: Double, _ telemetry_fuel_fraction: Double, _ has_telemetry_fuel_fraction: Bool, _ towing: Bool, _ towing_economy_factor: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_store_expected_range_miles(tank_capacity_units, rated_miles_per_unit, city_miles_per_unit, has_city_miles_per_unit, highway_miles_per_unit, has_highway_miles_per_unit, miles_since_fill, average_speed_mph, idle_fraction, telemetry_fuel_fraction, has_telemetry_fuel_fraction, towing, towing_economy_factor)
+}
+public func flows_trip_vehicle_epa_class_physical<GenericToRustStr: ToRustStr>(_ vclass: GenericToRustStr) -> TripVehicleClassPhysical {
+    return vclass.toRustStr({ vclassAsRustStr in
+        __swift_bridge__$flows_trip_vehicle_epa_class_physical(vclassAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_trip_vehicle_epa_validated_tank(_ tank: Double, _ combined_mpu: Double) -> Double {
+    __swift_bridge__$flows_trip_vehicle_epa_validated_tank(tank, combined_mpu)
+}
+public func flows_trip_vehicle_epa_fuel_type_code<GenericToRustStr: ToRustStr>(_ fuel: GenericToRustStr) -> UInt8 {
+    return fuel.toRustStr({ fuelAsRustStr in
+        __swift_bridge__$flows_trip_vehicle_epa_fuel_type_code(fuelAsRustStr)
+    })
+}
+public struct TripVehicleOptional {
+    public var is_some: Double
+    public var value: Double
+
+    public init(is_some: Double,value: Double) {
+        self.is_some = is_some
+        self.value = value
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$TripVehicleOptional {
+        { let val = self; return __swift_bridge__$TripVehicleOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$TripVehicleOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> TripVehicleOptional {
+        { let val = self; return TripVehicleOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$Option$TripVehicleOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<TripVehicleOptional> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<TripVehicleOptional>) -> __swift_bridge__$Option$TripVehicleOptional {
+        if let v = val {
+            return __swift_bridge__$Option$TripVehicleOptional(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$TripVehicleOptional(is_some: false, val: __swift_bridge__$TripVehicleOptional())
+        }
+    }
+}
+public struct TripVehicleHosStatus {
+    public var code: Double
+    public var seconds_until_due: Double
+
+    public init(code: Double,seconds_until_due: Double) {
+        self.code = code
+        self.seconds_until_due = seconds_until_due
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$TripVehicleHosStatus {
+        { let val = self; return __swift_bridge__$TripVehicleHosStatus(code: val.code, seconds_until_due: val.seconds_until_due); }()
+    }
+}
+extension __swift_bridge__$TripVehicleHosStatus {
+    @inline(__always)
+    func intoSwiftRepr() -> TripVehicleHosStatus {
+        { let val = self; return TripVehicleHosStatus(code: val.code, seconds_until_due: val.seconds_until_due); }()
+    }
+}
+extension __swift_bridge__$Option$TripVehicleHosStatus {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<TripVehicleHosStatus> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<TripVehicleHosStatus>) -> __swift_bridge__$Option$TripVehicleHosStatus {
+        if let v = val {
+            return __swift_bridge__$Option$TripVehicleHosStatus(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$TripVehicleHosStatus(is_some: false, val: __swift_bridge__$TripVehicleHosStatus())
+        }
+    }
+}
+public struct TripVehicleHabits {
+    public var miles_since_fill: Double
+    public var average_speed_mph: Double
+    public var idle_fraction: Double
+
+    public init(miles_since_fill: Double,average_speed_mph: Double,idle_fraction: Double) {
+        self.miles_since_fill = miles_since_fill
+        self.average_speed_mph = average_speed_mph
+        self.idle_fraction = idle_fraction
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$TripVehicleHabits {
+        { let val = self; return __swift_bridge__$TripVehicleHabits(miles_since_fill: val.miles_since_fill, average_speed_mph: val.average_speed_mph, idle_fraction: val.idle_fraction); }()
+    }
+}
+extension __swift_bridge__$TripVehicleHabits {
+    @inline(__always)
+    func intoSwiftRepr() -> TripVehicleHabits {
+        { let val = self; return TripVehicleHabits(miles_since_fill: val.miles_since_fill, average_speed_mph: val.average_speed_mph, idle_fraction: val.idle_fraction); }()
+    }
+}
+extension __swift_bridge__$Option$TripVehicleHabits {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<TripVehicleHabits> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<TripVehicleHabits>) -> __swift_bridge__$Option$TripVehicleHabits {
+        if let v = val {
+            return __swift_bridge__$Option$TripVehicleHabits(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$TripVehicleHabits(is_some: false, val: __swift_bridge__$TripVehicleHabits())
+        }
+    }
+}
+public struct TripVehicleClassPhysical {
+    public var tank: Double
+    public var height: Double
+    public var gvwr: Double
+    public var tow_capacity: Double
+
+    public init(tank: Double,height: Double,gvwr: Double,tow_capacity: Double) {
+        self.tank = tank
+        self.height = height
+        self.gvwr = gvwr
+        self.tow_capacity = tow_capacity
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$TripVehicleClassPhysical {
+        { let val = self; return __swift_bridge__$TripVehicleClassPhysical(tank: val.tank, height: val.height, gvwr: val.gvwr, tow_capacity: val.tow_capacity); }()
+    }
+}
+extension __swift_bridge__$TripVehicleClassPhysical {
+    @inline(__always)
+    func intoSwiftRepr() -> TripVehicleClassPhysical {
+        { let val = self; return TripVehicleClassPhysical(tank: val.tank, height: val.height, gvwr: val.gvwr, tow_capacity: val.tow_capacity); }()
+    }
+}
+extension __swift_bridge__$Option$TripVehicleClassPhysical {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<TripVehicleClassPhysical> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<TripVehicleClassPhysical>) -> __swift_bridge__$Option$TripVehicleClassPhysical {
+        if let v = val {
+            return __swift_bridge__$Option$TripVehicleClassPhysical(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$TripVehicleClassPhysical(is_some: false, val: __swift_bridge__$TripVehicleClassPhysical())
+        }
+    }
+}
 
 
 

@@ -1398,3 +1398,37 @@ Combine, a module import that named a module that does not exist. None was
 a new bug; all were true. A zero-warning gate is only as good as the
 compiler it runs on, so re-running it after an update is not optional.
 
+## Two calls the optimiser turns into one
+
+Nine bearings out of 720 came back one bit off the Swift original, and
+twelve yes/no answers flipped with them. The formulas were character for
+character the same. Reasoning about libm implementations went nowhere;
+printing every intermediate from both languages found the step in a minute:
+`sin(lat · rad)`, and only when its `cos` was computed beside it.
+
+**The unit of comparison is the function, not the expression.** A backend
+may fuse a `sin` and a `cos` of the same argument in one function into
+`__sincos_stret`, which rounds differently from `sin` alone. Whether it does
+depends on compiler, optimisation level and the shape of the code around the
+pair. Two identical expressions compile to different library calls; a symbol
+dump (`nm -u`) shows it in one line.
+
+**Know which side you are matching.** The first experiment made it look as
+if Rust fused and Swift did not. A second, with the calls written
+differently, showed the opposite. What settled it was checking the crate's
+own output against the fixture: the fixture carries the fused sine, so the
+Swift Release build fuses. The Swift Debug build does not. The "original" is
+a compiler artifact that differs between the app's own configurations.
+
+**Do not pin a compiler artifact.** The kernel denies the pairing with a
+non-inlined wrapper per call, which makes Rust identical in debug and
+release, and the oracle asks for one ulp on bearings and recomputes the
+cone-edge distance for the twelve flips. Exact bits were the wrong contract;
+a stated tolerance with a stated mechanism is the right one.
+
+**Salvage by evidence.** Six dead worktrees held eight thousand lines of
+unverified agent output. The test for each was the same as for any code:
+does it compile, do its tests pass, does its oracle exist and pass. Two
+groups did; one had a fixture but no test; one a harness but no fixture; one
+did not build. Only the first two landed, and the table of the rest is
+written down so nobody re-derives it.
