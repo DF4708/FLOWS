@@ -20,6 +20,10 @@ The case-insensitive search tables come from the alert-text fixture,
 `u-fold` records (Foundation's per-scalar folding) kept where a `u-ci-fold`
 record says the search itself applies that fold, and the `u-ci-after` ranges
 (scalars that keep a match from ending just before them).
+
+The letter table (`Character.isLetter`, the Alphabetic property) comes from the
+single `u-letter` record of `../../fixtures/swift_tags_and_replies_oracle.tsv`
+(or `LETTER_FIXTURE`): the runtime's letter ranges over every scalar.
 """
 import sys, os
 
@@ -55,8 +59,16 @@ WSNL_FIXTURE = os.environ.get("WSNL_FIXTURE", os.path.join(HERE, "../../fixtures
 
 ALERT_FIXTURE = os.environ.get("ALERT_TEXT_FIXTURE", os.path.join(HERE, "../../fixtures/swift_alert_text_oracle.tsv"))
 
+LETTER_FIXTURE = os.environ.get("LETTER_FIXTURE", os.path.join(HERE, "../../fixtures/swift_tags_and_replies_oracle.tsv"))
+
 word, num, ws, gcb, ccc, lower, upper, nfd, wsnl = [], [], [], [], [], [], [], [], []
 fold, fold_applied, after = [], set(), []
+letter = []
+for line in open(LETTER_FIXTURE, encoding="utf-8"):
+    if line.startswith("u-letter\t"):
+        f = line.rstrip("\n").split("\t")
+        letter = [tuple(int(x, 16) for x in r.split("-")) for r in f[2].split(",")]
+        if len(letter) != int(f[1]): sys.exit("u-letter: range count does not match its record")
 for line in open(ALERT_FIXTURE, encoding="utf-8"):
     f = line.rstrip("\n").split("\t")
     if f[0] == "u-fold": fold.append((int(f[1], 16), [int(x, 16) for x in f[2].split(" ")] if f[2] else []))
@@ -89,7 +101,7 @@ def check_sorted(name, rows):
     keys = [r[0] for r in rows]
     if keys != sorted(keys) or len(set(keys)) != len(keys):
         sys.exit(f"{name} is not sorted and unique")
-for name, rows in [("word", word), ("num", num), ("ws", ws), ("wsnl", wsnl), ("gcb", gcb), ("ccc", ccc), ("lower", lower), ("upper", upper), ("nfd", nfd), ("fold", search_fold), ("ci-after", after)]:
+for name, rows in [("word", word), ("num", num), ("ws", ws), ("wsnl", wsnl), ("gcb", gcb), ("ccc", ccc), ("lower", lower), ("upper", upper), ("nfd", nfd), ("fold", search_fold), ("ci-after", after), ("letter", letter)]:
     check_sorted(name, rows)
     if not rows: sys.exit(f"no {name} records in {FIXTURE}")
 
@@ -116,6 +128,7 @@ def array(name, doc, stride, rows, per_line):
 body = "".join([
     array("WORD_RANGES", ["Scalars whose `Character` answers `isLetter || isNumber`, as inclusive `lo, hi` pairs."], 2, word, 8),
     array("NUMBER_RANGES", ["Scalars whose `Character` answers `isNumber`, as inclusive `lo, hi` pairs."], 2, num, 8),
+    array("LETTER_RANGES", ["Scalars whose `Character` answers `isLetter` (the Alphabetic property), as inclusive", "`lo, hi` pairs (from the tags-and-replies fixture)."], 2, letter, 8),
     array("WHITESPACE_RANGES", ["`CharacterSet.whitespaces`, as inclusive `lo, hi` pairs."], 2, ws, 8),
     array("WHITESPACE_NEWLINE_RANGES", ["`CharacterSet.whitespacesAndNewlines`, as inclusive `lo, hi` pairs (from the", "hazard-feeds fixture)."], 2, wsnl, 8),
     array("GCB_RANGES", ["Grapheme-break classes as `lo, hi, class` triples (the codes of `Gcb`); a", "scalar in no range is `Other`."], 3, gcb, 6),
@@ -142,7 +155,7 @@ header = f"""// ----------------------------------------------------------------
 //! and `swift_places_text_oracle.rs` checks each one against the fixture over
 //! the whole scalar domain.
 //!
-//! Counts: {len(word)} word ranges, {len(num)} number ranges, {len(ws)} whitespace ranges
+//! Counts: {len(word)} word ranges, {len(num)} number ranges, {len(letter)} letter ranges, {len(ws)} whitespace ranges
 //! ({len(wsnl)} with newlines),
 //! {len(gcb)} grapheme-class ranges, {len(ccc)} combining-class ranges, {len(lower)} lowercase
 //! mappings, {len(upper)} uppercase mappings, {len(nfd)} decompositions.

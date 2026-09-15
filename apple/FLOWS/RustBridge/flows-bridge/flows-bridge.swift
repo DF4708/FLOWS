@@ -3342,6 +3342,228 @@ extension __swift_bridge__$Option$FlowsSeasonalHome {
 }
 
 
+public func flows_tags_max_grade_percent(_ elevations: UnsafeBufferPointer<Double>, _ present: UnsafeBufferPointer<UInt8>, _ count: Int64, _ spacing_meters: Double) -> FlowsTagsNumber {
+    __swift_bridge__$flows_tags_max_grade_percent(elevations.toFfiSlice(), present.toFfiSlice(), count, spacing_meters).intoSwiftRepr()
+}
+public func flows_tags_clearance_meters<GenericToRustStr: ToRustStr>(_ tag: GenericToRustStr) -> FlowsTagsNumber {
+    return tag.toRustStr({ tagAsRustStr in
+        __swift_bridge__$flows_tags_clearance_meters(tagAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_tags_weight_limit_lbs<GenericToRustStr: ToRustStr>(_ tag: GenericToRustStr) -> FlowsTagsNumber {
+    return tag.toRustStr({ tagAsRustStr in
+        __swift_bridge__$flows_tags_weight_limit_lbs(tagAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_tags_is_high_risk_flood_zone<GenericToRustStr: ToRustStr>(_ zone: GenericToRustStr) -> Bool {
+    return zone.toRustStr({ zoneAsRustStr in
+        __swift_bridge__$flows_tags_is_high_risk_flood_zone(zoneAsRustStr)
+    })
+}
+public func flows_tags_route_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_tags_route_constants())
+}
+public func flows_tags_parse_tpms<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool, _ data: UnsafeBufferPointer<UInt8>, _ data_count: Int64, _ has_data: Bool) -> RustVec<Double> {
+    return name.toRustStr({ nameAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_tags_parse_tpms(nameAsRustStr, has_name, data.toFfiSlice(), data_count, has_data))
+    })
+}
+public func flows_tags_tpms_position<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_tags_tpms_position(nameAsRustStr))
+    })
+}
+public func flows_tags_displayed_psi(_ psi: Double) -> Double {
+    __swift_bridge__$flows_tags_displayed_psi(psi)
+}
+public func flows_tags_parse_fuel_reply<GenericToRustStr: ToRustStr>(_ line: GenericToRustStr) -> FlowsTagsNumber {
+    return line.toRustStr({ lineAsRustStr in
+        __swift_bridge__$flows_tags_parse_fuel_reply(lineAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_tags_looks_like_obd_adapter<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Bool {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_tags_looks_like_obd_adapter(nameAsRustStr)
+    })
+}
+public func flows_tags_low_pressure_psi() -> Double {
+    __swift_bridge__$flows_tags_low_pressure_psi()
+}
+public func flows_tags_interpret_yes_no<GenericToRustStr: ToRustStr>(_ transcript: GenericToRustStr) -> Int64 {
+    return transcript.toRustStr({ transcriptAsRustStr in
+        __swift_bridge__$flows_tags_interpret_yes_no(transcriptAsRustStr)
+    })
+}
+public func flows_tags_wants_weather_radio<GenericToRustStr: ToRustStr>(_ transcript: GenericToRustStr) -> Bool {
+    return transcript.toRustStr({ transcriptAsRustStr in
+        __swift_bridge__$flows_tags_wants_weather_radio(transcriptAsRustStr)
+    })
+}
+public func flows_tags_choose<GenericToRustStr: ToRustStr>(_ reply: GenericToRustStr, _ options: GenericToRustStr, _ option_lengths: UnsafeBufferPointer<Int64>, _ option_count: Int64) -> FlowsTagsOutcome {
+    return options.toRustStr({ optionsAsRustStr in
+        return reply.toRustStr({ replyAsRustStr in
+        __swift_bridge__$flows_tags_choose(replyAsRustStr, optionsAsRustStr, option_lengths.toFfiSlice(), option_count).intoSwiftRepr()
+    })
+    })
+}
+public func flows_tags_place_reply<GenericToRustStr: ToRustStr>(_ reply: GenericToRustStr, _ places: GenericToRustStr, _ place_lengths: UnsafeBufferPointer<Int64>, _ place_count: Int64, _ cuisines: GenericToRustStr, _ cuisine_lengths: UnsafeBufferPointer<Int64>, _ cuisine_count: Int64) -> FlowsTagsOutcome {
+    return cuisines.toRustStr({ cuisinesAsRustStr in
+        return places.toRustStr({ placesAsRustStr in
+        return reply.toRustStr({ replyAsRustStr in
+        __swift_bridge__$flows_tags_place_reply(replyAsRustStr, placesAsRustStr, place_lengths.toFfiSlice(), place_count, cuisinesAsRustStr, cuisine_lengths.toFfiSlice(), cuisine_count).intoSwiftRepr()
+    })
+    })
+    })
+}
+public func flows_tags_list_text(_ list: UInt16) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_tags_list_text(list))
+}
+public func flows_tags_list_lengths(_ list: UInt16) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_tags_list_lengths(list))
+}
+public func flows_tags_kind_for_tags<GenericToRustStr: ToRustStr>(_ tags: GenericToRustStr) -> Int64 {
+    return tags.toRustStr({ tagsAsRustStr in
+        __swift_bridge__$flows_tags_kind_for_tags(tagsAsRustStr)
+    })
+}
+public func flows_tags_match_order() -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_tags_match_order())
+}
+public func flows_tags_dial_label<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_tags_dial_label(nameAsRustStr))
+    })
+}
+public func flows_tags_ranked_stations(_ lats: UnsafeBufferPointer<Double>, _ has_lat: UnsafeBufferPointer<UInt8>, _ lons: UnsafeBufferPointer<Double>, _ has_lon: UnsafeBufferPointer<UInt8>, _ bitrates: UnsafeBufferPointer<Int64>, _ count: Int64, _ lat: Double, _ lon: Double, _ has_position: Bool) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_tags_ranked_stations(lats.toFfiSlice(), has_lat.toFfiSlice(), lons.toFfiSlice(), has_lon.toFfiSlice(), bitrates.toFfiSlice(), count, lat, lon, has_position))
+}
+public func flows_tags_is_allowed_mirror<GenericToRustStr: ToRustStr>(_ host: GenericToRustStr) -> Bool {
+    return host.toRustStr({ hostAsRustStr in
+        __swift_bridge__$flows_tags_is_allowed_mirror(hostAsRustStr)
+    })
+}
+public func flows_tags_nearby_radius_meters() -> Int64 {
+    __swift_bridge__$flows_tags_nearby_radius_meters()
+}
+public func flows_tags_merged_stations<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ urls: GenericToRustStr, _ url_lengths: UnsafeBufferPointer<Int64>, _ name_hit_count: Int64, _ has_name_hits: Bool, _ tag_hit_count: Int64, _ has_tag_hits: Bool) -> RustVec<Int64> {
+    return urls.toRustStr({ urlsAsRustStr in
+        return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_tags_merged_stations(namesAsRustStr, name_lengths.toFfiSlice(), urlsAsRustStr, url_lengths.toFfiSlice(), name_hit_count, has_name_hits, tag_hit_count, has_tag_hits))
+    })
+    })
+}
+public func flows_tags_kept_station_rows<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ has_name: UnsafeBufferPointer<UInt8>, _ urls: GenericToRustStr, _ url_lengths: UnsafeBufferPointer<Int64>, _ has_url: UnsafeBufferPointer<UInt8>, _ count: Int64) -> RustVec<Int64> {
+    return urls.toRustStr({ urlsAsRustStr in
+        return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_tags_kept_station_rows(namesAsRustStr, name_lengths.toFfiSlice(), has_name.toFfiSlice(), urlsAsRustStr, url_lengths.toFfiSlice(), has_url.toFfiSlice(), count))
+    })
+    })
+}
+public func flows_tags_station_name<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_tags_station_name(nameAsRustStr))
+    })
+}
+public func flows_tags_unique_server_names<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ lengths: UnsafeBufferPointer<Int64>, _ present: UnsafeBufferPointer<UInt8>, _ count: Int64) -> RustVec<Int64> {
+    return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_tags_unique_server_names(namesAsRustStr, lengths.toFfiSlice(), present.toFfiSlice(), count))
+    })
+}
+public func flows_tags_genre_words<GenericToRustStr: ToRustStr>(_ tags: GenericToRustStr) -> RustString {
+    return tags.toRustStr({ tagsAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_tags_genre_words(tagsAsRustStr))
+    })
+}
+public func flows_tags_state_name<GenericToRustStr: ToRustStr>(_ code: GenericToRustStr) -> RustString {
+    return code.toRustStr({ codeAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_tags_state_name(codeAsRustStr))
+    })
+}
+public func flows_tags_ranked_nearest<GenericToRustStr: ToRustStr>(_ lats: UnsafeBufferPointer<Double>, _ has_lat: UnsafeBufferPointer<UInt8>, _ lons: UnsafeBufferPointer<Double>, _ has_lon: UnsafeBufferPointer<UInt8>, _ votes: UnsafeBufferPointer<Int64>, _ urls: GenericToRustStr, _ url_lengths: UnsafeBufferPointer<Int64>, _ count: Int64, _ lat: Double, _ lon: Double) -> RustVec<Int64> {
+    return urls.toRustStr({ urlsAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_tags_ranked_nearest(lats.toFfiSlice(), has_lat.toFfiSlice(), lons.toFfiSlice(), has_lon.toFfiSlice(), votes.toFfiSlice(), urlsAsRustStr, url_lengths.toFfiSlice(), count, lat, lon))
+    })
+}
+public struct FlowsTagsNumber {
+    public var has: Bool
+    public var value: Double
+
+    public init(has: Bool,value: Double) {
+        self.has = has
+        self.value = value
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsTagsNumber {
+        { let val = self; return __swift_bridge__$FlowsTagsNumber(has: val.has, value: val.value); }()
+    }
+}
+extension __swift_bridge__$FlowsTagsNumber {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsTagsNumber {
+        { let val = self; return FlowsTagsNumber(has: val.has, value: val.value); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsTagsNumber {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsTagsNumber> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsTagsNumber>) -> __swift_bridge__$Option$FlowsTagsNumber {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsTagsNumber(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsTagsNumber(is_some: false, val: __swift_bridge__$FlowsTagsNumber())
+        }
+    }
+}
+public struct FlowsTagsOutcome {
+    public var code: UInt8
+    public var index: Int64
+
+    public init(code: UInt8,index: Int64) {
+        self.code = code
+        self.index = index
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsTagsOutcome {
+        { let val = self; return __swift_bridge__$FlowsTagsOutcome(code: val.code, index: val.index); }()
+    }
+}
+extension __swift_bridge__$FlowsTagsOutcome {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsTagsOutcome {
+        { let val = self; return FlowsTagsOutcome(code: val.code, index: val.index); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsTagsOutcome {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsTagsOutcome> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsTagsOutcome>) -> __swift_bridge__$Option$FlowsTagsOutcome {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsTagsOutcome(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsTagsOutcome(is_some: false, val: __swift_bridge__$FlowsTagsOutcome())
+        }
+    }
+}
+
+
 public func flows_trip_vehicle_fuel_type_names() -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_trip_vehicle_fuel_type_names())
 }

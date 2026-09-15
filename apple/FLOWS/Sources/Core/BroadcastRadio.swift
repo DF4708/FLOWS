@@ -71,41 +71,18 @@ enum BroadcastRadio {
         /// Directory tags that mean this kind. Ordered so the most specific
         /// kinds are tested first — "classic rock" must not land in Oldies
         /// and "christian rock" must not land in Rock.
-        var tagWords: [String] {
-            switch self {
-            case .sports: return ["sport", "sports talk"]
-            case .christian: return ["christian", "gospel", "worship",
-                                     "catholic", "religio"]
-            case .latin: return ["spanish", "latin", "regional mexican",
-                                 "reggaeton", "salsa", "ranchera", "tejano",
-                                 "banda", "espanol", "español"]
-            case .classical: return ["classical", "opera", "symphon",
-                                     "baroque", "orchestr"]
-            case .jazz: return ["jazz", "bebop", "swing", "big band", "blues"]
-            case .news: return ["news", "talk", "npr", "public radio",
-                                "current affairs", "information", "politics"]
-            case .country: return ["country", "bluegrass", "americana",
-                                   "honky", "western"]
-            case .oldies: return ["oldies", "classic hits", "50s", "60s",
-                                  "70s", "80s", "nostalgia", "adult hits",
-                                  "doo-wop", "motown"]
-            case .hipHop: return ["hip hop", "hip-hop", "hiphop", "rap",
-                                  "r&b", "rnb", "rhythm", "urban", "soul",
-                                  "funk"]
-            case .rock: return ["rock", "metal", "punk", "grunge",
-                                "alternative", "indie"]
-            case .pop: return ["pop", "top 40", "top40", "hits", "dance",
-                               "electronic", "house", "chart", "contempo"]
-            }
+        var tagWords: [String] { Self.tagTable[Self.allCases.firstIndex(of: self) ?? 0] }
+
+        /// Every kind's tag words, read once from rust/flows-core
+        /// tags_and_replies.rs, in declaration order.
+        private static let tagTable: [[String]] = allCases.indices.map {
+            RustWordList.words(UInt16(100 + $0))
         }
 
         /// The order kinds are tested in — narrow before broad, so a station
         /// tagged "christian rock" is Christian and one tagged "classic
         /// rock" is Rock rather than Oldies.
-        static let matchOrder: [Kind] = [
-            .sports, .christian, .latin, .classical, .jazz, .news,
-            .country, .hipHop, .oldies, .rock, .pop,
-        ]
+        static let matchOrder: [Kind] = Array(flows_tags_match_order()).map { allCases[Int($0)] }
     }
 
     /// One broadcaster's stream.
@@ -135,13 +112,8 @@ enum BroadcastRadio {
     /// Which kind a set of directory tags belongs to, or nil for a station
     /// whose tags say nothing a driver would recognize.
     static func kind(forTags tags: String) -> Kind? {
-        let hay = tags.lowercased()
-        guard !hay.isEmpty else { return nil }
-        for kind in Kind.matchOrder where kind.tagWords.contains(
-            where: { hay.contains($0) }) {
-            return kind
-        }
-        return nil
+        let index = flows_tags_kind_for_tags(tags)
+        return index >= 0 ? Kind.allCases[Int(index)] : nil
     }
 
     /// The dial position hiding in a station's name, normalized.
@@ -150,28 +122,8 @@ enum BroadcastRadio {
     /// numbers from 530 to 1700. Anything else in a name — a year, a
     /// bitrate, a channel number — is not a dial position and is ignored.
     static func dialLabel(from name: String) -> String? {
-        var best: String?
-        var current = ""
-        func consider(_ token: String) {
-            guard !token.isEmpty else { return }
-            if token.contains("."), let v = Double(token),
-               v >= 87.5, v <= 108.0 {
-                best = best ?? String(format: "%.1f FM", v)
-            } else if !token.contains("."), let v = Int(token),
-                      v >= 530, v <= 1_700 {
-                best = best ?? "\(v) AM"
-            }
-        }
-        for ch in name {
-            if ch.isNumber || ch == "." {
-                current.append(ch)
-            } else {
-                consider(current)
-                current = ""
-            }
-        }
-        consider(current)
-        return best
+        let label = flows_tags_dial_label(name).text
+        return label.isEmpty ? nil : label
     }
 
     /// Rank stations for a driver at `position`: located ones nearest first,
@@ -179,21 +131,25 @@ enum BroadcastRadio {
     /// higher-bitrate stream from three states away is not "local radio".
     static func ranked(_ stations: [Station],
                        near position: CLLocationCoordinate2D?) -> [Station] {
-        stations.sorted { a, b in
-            switch (distance(a, position), distance(b, position)) {
-            case let (x?, y?) where x != y: return x < y
-            case (nil, _?): return false
-            case (_?, nil): return true
-            default: return a.bitrate > b.bitrate
+        let placeholder = stations.isEmpty
+        let lats = placeholder ? [0] : stations.map { $0.latitude ?? 0 }
+        let hasLat: [UInt8] = placeholder ? [0] : stations.map { $0.latitude == nil ? 0 : 1 }
+        let lons = placeholder ? [0] : stations.map { $0.longitude ?? 0 }
+        let hasLon: [UInt8] = placeholder ? [0] : stations.map { $0.longitude == nil ? 0 : 1 }
+        let bitrates = placeholder ? [0] : stations.map { Int64($0.bitrate) }
+        let order = lats.withUnsafeBufferPointer { la in
+            hasLat.withUnsafeBufferPointer { hla in
+                lons.withUnsafeBufferPointer { lo in
+                    hasLon.withUnsafeBufferPointer { hlo in
+                        bitrates.withUnsafeBufferPointer { br in
+                            Array(flows_tags_ranked_stations(
+                                la, hla, lo, hlo, br, Int64(stations.count),
+                                position?.latitude ?? 0, position?.longitude ?? 0, position != nil))
+                        }
+                    }
+                }
             }
         }
+        return order.map { stations[Int($0)] }
     }
-
-    private static func distance(_ s: Station,
-                                 _ p: CLLocationCoordinate2D?) -> Double? {
-        guard let p, let la = s.latitude, let lo = s.longitude else { return nil }
-        return POIRanking.meters(CLLocationCoordinate2D(latitude: la,
-                                                        longitude: lo), p)
-    }
-
 }

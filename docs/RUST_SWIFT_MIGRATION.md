@@ -1487,6 +1487,30 @@ and write nothing, so the harness never touched the owner's data. Two
 reachability answers sit within a nanodegree of the cone's edge, the
 fused-sine allowance the geo oracle already makes.
 
+## Wave 2, long tail, third landing: route tags, sensor replies, spoken replies and radio (2026-09-15)
+
+The text rules in five more files are Rust. `flows_core::tags_and_replies`
+holds the OpenStreetMap height and weight tags, FEMA flood zones and route
+grades (`RouteAttributes`), the tire-sensor advertisement and OBD fuel reply
+parsers with the adapter-name check (`VehicleLink`), the spoken yes, no and
+pick replies (`VoiceReply`'s `YesNoWords`, `VoiceCommands` and `VoicePick`),
+the broadcast radio kinds, dial labels and ranking (`BroadcastRadio`, which the
+inventory above missed), and the radio directory's mirror check, merge, row
+and server rules, genre words and state names (`RadioBrowser`). JSON decoding,
+CoreBluetooth and the OBD conversation, the microphone, the network, links,
+kind titles and symbols stay in Swift.
+
+Swift's `Character.isLetter` reads a scalar's Alphabetic property, which the
+text module could not derive from its word and number tables: a Roman numeral
+is both a letter and a number. The harness reads the letter table over every
+scalar, `gen_tables.py` writes it into `swift_text/tables.rs`, and the oracle
+checks it against the runtime.
+
+The oracle (8,462 records, 26 kinds) is bridge-linked from b4b8cd1 and matched
+on the first run, in debug and release. The directory rows were decoded from
+real JSON and their fields recorded as `parseStations` casts them, so the
+rules are pinned apart from the decoding that stays in Swift.
+
 ### Wave 2 remaining
 
 | item | state |
@@ -1494,5 +1518,5 @@ fused-sine allowance the geo oracle already makes.
 | the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
 | POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
-| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). Not started: recents, transit estimates (TransitItinerary), spoken replies (VoiceReply), VehicleLink, RouteAttributes, RadioBrowser |
+| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). THIRD LANDING: RouteAttributes, VehicleLink's parsers, VoiceReply's word rules, BroadcastRadio, RadioBrowser's rules (`flows_core::tags_and_replies`). Not started: recents (RecentDestinations), transit estimates and rentals (TransitItinerary), TruckerRadio's helpers |
 | wave-1 leftovers | LANDED: EscalationPolicy, AlertEntityParser, ScannerIncidents (`flows_core::alert_text`) |

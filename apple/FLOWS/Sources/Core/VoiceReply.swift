@@ -12,6 +12,21 @@ import Foundation
 import Speech
 #endif
 
+/// A word list the Rust core owns (yes and no words, back-words, directory
+/// genres, mirror countries, a radio kind's tags), read once: its texts come
+/// back joined, with each text's UTF-8 length.
+enum RustWordList {
+    static func words(_ list: UInt16) -> [String] {
+        let bytes = Array(flows_tags_list_text(list).text.utf8)
+        var at = 0
+        return Array(flows_tags_list_lengths(list)).map { length in
+            let end = min(at + Int(length), bytes.count)
+            defer { at = end }
+            return String(decoding: bytes[at..<end], as: UTF8.self)
+        }
+    }
+}
+
 /// Plain spoken YES/NO, interpreted — for FLOWS's own prompted questions
 /// ("A faster route is ready — say yes to take it"). Separate from the
 /// crash check-in's vocabulary on purpose: there "okay" means "I'm okay,
@@ -19,24 +34,18 @@ import Speech
 enum YesNoWords {
     /// nil = neither (say nothing / unintelligible — never guessed).
     static func interpret(_ transcript: String) -> Bool? {
-        let lower = transcript.lowercased()
-        let words = Set(lower.split(whereSeparator: { !$0.isLetter && $0 != "'" })
-            .map(String.init))
-        func matches(_ vocab: [String]) -> Bool {
-            vocab.contains { entry in
-                entry.contains(" ") ? lower.contains(entry) : words.contains(entry)
-            }
-        }
         // "No" wins a mixed reply: "yeah, no" and "no thanks" are refusals.
-        if matches(noWords) { return false }
-        if matches(yesWords) { return true }
-        return nil
+        // A phrase matches anywhere, a single word only as a whole word
+        // (rust/flows-core tags_and_replies.rs).
+        switch flows_tags_interpret_yes_no(transcript) {
+        case 1: return true
+        case 0: return false
+        default: return nil
+        }
     }
 
-    static let yesWords = ["yes", "yeah", "yep", "yup", "sure", "okay", "ok",
-                           "go ahead", "take it", "do it", "please", "affirmative"]
-    static let noWords = ["no", "nope", "nah", "cancel", "don't", "negative",
-                          "stay", "keep this route", "not now", "never mind"]
+    static let yesWords = RustWordList.words(0)
+    static let noWords = RustWordList.words(1)
 }
 
 /// Routing words for the in-app mic (no "Hey Siri" needed) — pure so the
@@ -45,8 +54,7 @@ enum VoiceCommands {
     /// "the weather radio", "NOAA", "weather channel" → the NOAA relay
     /// path instead of an AM/FM directory search.
     static func wantsWeatherRadio(_ transcript: String) -> Bool {
-        let lower = transcript.lowercased()
-        return lower.contains("weather") || lower.contains("noaa")
+        flows_tags_wants_weather_radio(transcript)
     }
 }
 
@@ -63,24 +71,20 @@ enum VoicePick {
     }
 
     static func choose(reply: String, options: [String]) -> Outcome {
-        let named = options.enumerated().filter {
-            BrandKnowledge.askedName($0.element, matches: reply)
-        }
         // Longest name wins so "fast food" can't lose to a shorter overlap.
-        if let best = named.max(by: { $0.element.count < $1.element.count }) {
-            return .picked(best.offset)
+        let outcome = RustTextColumn(options).with { joined, lengths, _ in
+            flows_tags_choose(reply, joined, lengths, Int64(options.count))
         }
-        switch YesNoWords.interpret(reply) {
-        case true?: return .picked(0)
-        case false?: return .declined
-        case nil: return .unclear
+        switch (outcome.code, outcome.index) {
+        case (0, let i): return .picked(Int(i))
+        case (3, _): return .declined
+        default: return .unclear
         }
     }
 
     /// Words that mean "back up a step" mid-dialogue ("go back", "start
     /// over", "something different") — checked as whole words/phrases.
-    static let backWords = ["go back", "back", "start over", "different",
-                           "something else", "change it", "other food"]
+    static let backWords = RustWordList.words(2)
 
     /// The place-offer step of the stop dialogue, which can also hear a
     /// CHANGE OF MIND: naming one of the offered places picks it, naming a
@@ -97,32 +101,20 @@ enum VoicePick {
 
     static func placeReply(_ reply: String, places: [String],
                            cuisines: [String]) -> PlaceOutcome {
-        let placeHits = places.enumerated().filter {
-            BrandKnowledge.askedName($0.element, matches: reply)
+        // A named cuisine is the clearest change-of-mind signal — "actually
+        // I want Mexican" needs no back-word (rust/flows-core tags_and_replies.rs).
+        let outcome = RustTextColumn(places).with { placeText, placeLengths, _ in
+            RustTextColumn(cuisines).with { cuisineText, cuisineLengths, _ in
+                flows_tags_place_reply(reply, placeText, placeLengths, Int64(places.count),
+                                       cuisineText, cuisineLengths, Int64(cuisines.count))
+            }
         }
-        if let best = placeHits.max(by: { $0.element.count < $1.element.count }) {
-            return .picked(best.offset)
-        }
-        // A named cuisine is the clearest change-of-mind signal —
-        // "actually I want Mexican" needs no back-word.
-        let cuisineHits = cuisines.enumerated().filter {
-            BrandKnowledge.askedName($0.element, matches: reply)
-        }
-        if let best = cuisineHits.max(by: { $0.element.count < $1.element.count }) {
-            return .switchCuisine(best.offset)
-        }
-        let lower = reply.lowercased()
-        let words = Set(lower.split(whereSeparator: { !$0.isLetter && $0 != "'" })
-            .map(String.init))
-        if backWords.contains(where: { entry in
-            entry.contains(" ") ? lower.contains(entry) : words.contains(entry)
-        }) {
-            return .backToCuisine
-        }
-        switch YesNoWords.interpret(reply) {
-        case true?: return .picked(0)
-        case false?: return .declined
-        case nil: return .unclear
+        switch (outcome.code, outcome.index) {
+        case (0, let i): return .picked(Int(i))
+        case (1, let i): return .switchCuisine(Int(i))
+        case (2, _): return .backToCuisine
+        case (3, _): return .declined
+        default: return .unclear
         }
     }
 }

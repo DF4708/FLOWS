@@ -29,95 +29,52 @@ enum RouteAttributes {
     static func maxGradePercent(
         elevations: [Double?], spacingMeters: Double
     ) -> Double? {
-        guard spacingMeters > 0 else { return nil }
-        var maxGrade = 0.0
-        var sawPair = false
-        for i in 1..<max(elevations.count, 1) {
-            guard let a = elevations[i - 1], let b = elevations[i] else { continue }
-            sawPair = true
-            maxGrade = max(maxGrade, abs(b - a) / spacingMeters * 100)
+        // rust/flows-core tags_and_replies.rs. A placeholder sits behind a
+        // zero count: the bridge never sees an empty buffer.
+        let values = elevations.isEmpty ? [0] : elevations.map { $0 ?? 0 }
+        let present: [UInt8] = elevations.isEmpty ? [0] : elevations.map { $0 == nil ? 0 : 1 }
+        let grade = values.withUnsafeBufferPointer { v in
+            present.withUnsafeBufferPointer { p in
+                flows_tags_max_grade_percent(v, p, Int64(elevations.count), spacingMeters)
+            }
         }
-        return sawPair ? maxGrade : nil
+        return grade.has ? grade.value : nil
     }
 
     /// Parse an OSM `maxheight` tag into meters. Formats seen in the wild:
-    /// "4.1", "4.1 m", "13'6\"", "13 ft". Pure — unit-tested.
+    /// "4.1", "4.1 m", "13'6\"", "13 ft", "3,5 m". Only a TRAILING metric unit
+    /// is stripped, longest first: stripping every "m" once dropped a real
+    /// low bridge, so a tall vehicle could be routed under it
+    /// (rust/flows-core tags_and_replies.rs). Pure — unit-tested.
     static func clearanceMeters(fromOSM tag: String) -> Double? {
-        let t = tag.trimmingCharacters(in: .whitespaces).lowercased()
-        if t.isEmpty || t == "default" || t == "none" || t == "unsigned" { return nil }
-        // feet'inches"
-        if let apos = t.firstIndex(of: "'") {
-            let feet = Double(t[t.startIndex..<apos].trimmingCharacters(in: .whitespaces))
-            let rest = t[t.index(after: apos)...]
-                .replacingOccurrences(of: "\"", with: "")
-                .trimmingCharacters(in: .whitespaces)
-            let inches = rest.isEmpty ? 0 : (Double(rest) ?? 0)
-            guard let feet else { return nil }
-            return (feet * 12 + inches) * 0.0254
-        }
-        if t.hasSuffix("ft") || t.hasSuffix("feet") {
-            let v = t.replacingOccurrences(of: "feet", with: "")
-                .replacingOccurrences(of: "ft", with: "")
-                .trimmingCharacters(in: .whitespaces)
-            return Double(v).map { $0 * 0.3048 }
-        }
-        // Metric: strip only a TRAILING unit (m / meter / metre), longest-first,
-        // and accept a decimal comma ("3,5 m" appears in the global OSM dataset).
-        // The old `replacingOccurrences(of: "m")` stripped every 'm' and couldn't
-        // parse a decimal comma, silently dropping a real low bridge so a tall
-        // vehicle could be routed under it.
-        var v = t
-        for unit in ["metres", "meters", "metre", "meter", "m"] where v.hasSuffix(unit) {
-            v = String(v.dropLast(unit.count))
-            break
-        }
-        v = v.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
-        return Double(v)
+        let meters = flows_tags_clearance_meters(tag)
+        return meters.has ? meters.value : nil
     }
 
     /// 13'6" — the standard US trailer clearance threshold.
-    static let lowClearanceThresholdMeters = 4.115
+    private static let constants = Array(flows_tags_route_constants())
+    static let lowClearanceThresholdMeters = constants[0]
 
     /// Parse an OSM `maxweight` tag into POUNDS. The OSM default unit is
     /// metric tonnes; formats seen in the wild: "7.5", "7.5 t", "3,5",
-    /// "10000 lbs", "5 st" (US short tons), "3500 kg". Pure — unit-tested.
+    /// "10000 lbs", "5 st" (US short tons), "3500 kg". US mappers write "10
+    /// tons" meaning SHORT tons, so a bare ton is 2,000 lb: reading it as
+    /// metric was ~10% too permissive on a safety filter
+    /// (rust/flows-core tags_and_replies.rs). Pure — unit-tested.
     static func weightLimitLbs(fromOSM tag: String) -> Double? {
-        let t = tag.trimmingCharacters(in: .whitespaces).lowercased()
-        if t.isEmpty || t == "default" || t == "none" || t == "unsigned" { return nil }
-        func number(_ s: Substring) -> Double? {
-            Double(s.trimmingCharacters(in: .whitespaces)
-                .replacingOccurrences(of: ",", with: "."))
-        }
-        let lbsPerTonne = 2204.62
-        // Longest suffix first so "5 st" (short tons) never reads as "t".
-        let units: [(suffix: String, lbsPerUnit: Double)] = [
-            ("tonnes", lbsPerTonne), ("tonne", lbsPerTonne),
-            // US mappers write "10 tons" meaning SHORT tons (20,000 lb).
-            // Reading it as metric (22,046 lb) was ~10% too permissive on a
-            // safety filter — bare ton/tons is the conservative 2,000 lb.
-            ("tons", 2000), ("ton", 2000),
-            ("lbs", 1), ("lb", 1),
-            ("kg", 2.20462),
-            ("st", 2000),          // US short ton
-            ("t", lbsPerTonne),
-        ]
-        for unit in units where t.hasSuffix(unit.suffix) {
-            return number(t.dropLast(unit.suffix.count)).map { $0 * unit.lbsPerUnit }
-        }
-        // Bare number → metric tonnes (the OSM default).
-        return number(t[...]).map { $0 * lbsPerTonne }
+        let pounds = flows_tags_weight_limit_lbs(tag)
+        return pounds.has ? pounds.value : nil
     }
 
     /// Posted limits at or above 100,000 lb don't restrict anything FLOWS
     /// models (the US federal interstate max is 80,000 lb) — ignored as
     /// "no practical limit", like clearances above 5.5 m.
-    static let weightLimitCapLbs = 100_000.0
+    static let weightLimitCapLbs = constants[1]
 
     /// FEMA flood zones starting with A or V are the regulatory high-risk
     /// (1%-annual-chance) floodplain.
     static func isHighRiskFloodZone(_ zone: String) -> Bool {
-        let z = zone.trimmingCharacters(in: .whitespaces).uppercased()
-        return z.hasPrefix("A") || z.hasPrefix("V")
+        flows_tags_is_high_risk_flood_zone(zone)
     }
 }
 

@@ -44,7 +44,7 @@ final class VehicleLink: NSObject, ObservableObject {
 
 
     /// Threshold for the low-tire chip (AppModel.lowTireWarning).
-    static let lowPressurePsi = 28.0
+    static let lowPressurePsi = flows_tags_low_pressure_psi()
 
     private var central: CBCentralManager?
     private var obdPeripheral: CBPeripheral?
@@ -63,34 +63,26 @@ final class VehicleLink: NSObject, ObservableObject {
     nonisolated static func parseTPMSAdvertisement(
         name: String?, manufacturerData: Data?
     ) -> (id: String, psi: Double, celsius: Double)? {
-        guard let name, name.uppercased().hasPrefix("TPMS"),
-              let data = manufacturerData, data.count >= 16 else { return nil }
         // Pressure: UInt32 LE at offset 8, units of 1/1000 kPa. Temperature:
-        // SIGNED Int32 LE at offset 12, units of 1/100 °C (these kits report
-        // sub-freezing temps as two's-complement negatives). loadUnaligned
-        // because a Data slice's backing buffer isn't guaranteed 4-byte aligned
-        // — plain `load(as:)` can trap on a misaligned advertisement.
-        let rawP = data.subdata(in: 8..<12).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
-        let rawT = data.subdata(in: 12..<16).withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
-        let kPa = Double(UInt32(littleEndian: rawP)) / 1000
-        let celsius = Double(Int32(littleEndian: rawT)) / 100
-        let psi = kPa * 0.145038
-        // Sanity window: 3–200 psi (parked trailers run low; semis run 100+).
-        guard psi > 3, psi < 200 else { return nil }
-        // Sensor position from the name's digit ("TPMS1_..." = front left
-        // by kit convention).
-        let position = name.dropFirst(4).first.map(String.init) ?? "?"
-        return ("Tire \(position)", psi, celsius)
+        // SIGNED Int32 LE at offset 12, units of 1/100 °C (sub-freezing temps
+        // arrive as two's-complement negatives). A 3–200 psi sanity window
+        // (parked trailers run low; semis run 100+), and the position is the
+        // name's digit ("TPMS1_..." = front left by kit convention) —
+        // rust/flows-core tags_and_replies.rs.
+        let bytes = manufacturerData.map { [UInt8]($0) } ?? []
+        let buffer = bytes.isEmpty ? [UInt8(0)] : bytes
+        let reading = buffer.withUnsafeBufferPointer {
+            Array(flows_tags_parse_tpms(name ?? "", name != nil, $0,
+                                        Int64(bytes.count), manufacturerData != nil))
+        }
+        guard reading.count == 2, let name else { return nil }
+        return ("Tire \(flows_tags_tpms_position(name).text)", reading[0], reading[1])
     }
 
     /// ELM327 "41 2F xx" reply → fuel fraction (SAE: A/255).
     nonisolated static func parseFuelReply(_ line: String) -> Double? {
-        let hex = line.uppercased().replacingOccurrences(of: " ", with: "")
-        guard let range = hex.range(of: "412F"), hex.distance(
-            from: range.upperBound, to: hex.endIndex) >= 2 else { return nil }
-        let byte = hex[range.upperBound..<hex.index(range.upperBound, offsetBy: 2)]
-        guard let a = UInt8(byte, radix: 16) else { return nil }
-        return Double(a) / 255
+        let fuel = flows_tags_parse_fuel_reply(line)
+        return fuel.has ? fuel.value : nil
     }
 
     // MARK: scanning lifecycle
@@ -223,14 +215,12 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         Task { @MainActor in
             // TPMS caps: parse straight from the advertisement.
             if let tpms = Self.parseTPMSAdvertisement(name: name, manufacturerData: mfg) {
-                self.tirePressuresPsi[tpms.id] = (tpms.psi * 10).rounded() / 10
+                self.tirePressuresPsi[tpms.id] = flows_tags_displayed_psi(tpms.psi)
                 return
             }
             // OBD adapters: connect once to the first likely UART device.
-            let lower = (name ?? "").lowercased()
             if self.obdPeripheral == nil,
-               lower.contains("obd") || lower.contains("vlink")
-                || lower.contains("veepeak") || lower.contains("elm") {
+               flows_tags_looks_like_obd_adapter(name ?? "") {
                 self.obdPeripheral = peripheral
                 peripheral.delegate = self
                 central.connect(peripheral)

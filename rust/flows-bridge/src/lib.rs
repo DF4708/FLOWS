@@ -67,6 +67,7 @@ pub mod places_text;
 pub mod risk;
 pub mod risk_field;
 pub mod seasonal;
+pub mod tags_and_replies;
 pub mod trip_vehicle;
 pub mod vehicle_policy;
 

@@ -34,6 +34,8 @@
 //!              severity rules, the CRE fuel scan
 //!   long_trips — the fuel warning, the long-trip share and the saved road
 //!              corridors
+//!   tags_and_replies — route tags, sensor replies, spoken replies and the
+//!              radio directory's rules on swift_text
 //!
 //! flows-core has no FFI of its own and never will: `#[no_mangle]` is
 //! rejected by `forbid(unsafe_code)`. The app reaches these functions through
@@ -84,6 +86,7 @@ pub mod routing;
 pub mod scoring;
 pub mod seasonal;
 pub mod swift_text;
+pub mod tags_and_replies;
 pub mod transit;
 pub mod travel_modes;
 pub mod trip_vehicle;

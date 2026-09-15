@@ -68,7 +68,7 @@ final class RadioBrowser: ObservableObject {
     /// driving. Far enough that the dial doesn't empty out in open country,
     /// near enough that everything on it is plausibly a station you could
     /// have heard on the way.
-    nonisolated static let nearbyRadiusMeters = 400_000
+    nonisolated static let nearbyRadiusMeters = Int(flows_tags_nearby_radius_meters())
 
     /// Stations around the vehicle, nearest first.
     ///
@@ -134,14 +134,31 @@ final class RadioBrowser: ObservableObject {
     nonisolated static func rankedNearest(_ found: [Station],
                                           near position: CLLocationCoordinate2D)
         -> [Station] {
-        let ranked = BroadcastRadio.ranked(found.map {
-            BroadcastRadio.Station(id: $0.id, name: $0.name, url: $0.url,
-                                   tags: $0.genre, latitude: $0.latitude,
-                                   longitude: $0.longitude, bitrate: $0.votes,
-                                   kind: BroadcastRadio.kind(forTags: $0.genre) ?? .pop)
-        }, near: position)
-        let byID = Dictionary(found.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        return ranked.compactMap { byID[$0.id] }
+        // Each ranked station is the FIRST one sharing its stream URL, as the
+        // directory lists a station once per bitrate (rust/flows-core
+        // tags_and_replies.rs).
+        let placeholder = found.isEmpty
+        let lats = placeholder ? [0] : found.map { $0.latitude ?? 0 }
+        let hasLat: [UInt8] = placeholder ? [0] : found.map { $0.latitude == nil ? 0 : 1 }
+        let lons = placeholder ? [0] : found.map { $0.longitude ?? 0 }
+        let hasLon: [UInt8] = placeholder ? [0] : found.map { $0.longitude == nil ? 0 : 1 }
+        let votes = placeholder ? [0] : found.map { Int64($0.votes) }
+        let order = RustTextColumn(found.map(\.url)).with { urls, urlLengths, _ in
+            lats.withUnsafeBufferPointer { la in
+                hasLat.withUnsafeBufferPointer { hla in
+                    lons.withUnsafeBufferPointer { lo in
+                        hasLon.withUnsafeBufferPointer { hlo in
+                            votes.withUnsafeBufferPointer { vo in
+                                Array(flows_tags_ranked_nearest(
+                                    la, hla, lo, hlo, vo, urls, urlLengths, Int64(found.count),
+                                    position.latitude, position.longitude))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return order.map { found[Int($0)] }
     }
 
     /// Free-text search across all US stations. The field promises "name
@@ -222,29 +239,21 @@ final class RadioBrowser: ObservableObject {
     /// China, Iran or North Korea — and rather than blocklist those, only
     /// the known European/North American mirrors are allowed at all. A new
     /// mirror is admitted here on purpose, not by DNS.
-    nonisolated static let allowedMirrorCountries: Set<String> =
-        ["de", "at", "nl", "fi", "fr", "ch", "be", "se", "no", "dk",
-         "pl", "cz", "gb", "uk", "ie", "us", "ca"]
+    nonisolated static let allowedMirrorCountries: Set<String> = Set(RustWordList.words(4))
 
     /// `de1.api.radio-browser.info` → allowed; anything else → not.
     nonisolated static func isAllowedMirror(_ host: String) -> Bool {
-        let h = host.lowercased()
-        guard h.hasSuffix(".api.radio-browser.info") else { return false }
-        let label = h.dropLast(".api.radio-browser.info".count)
-        let country = String(label.prefix { $0.isLetter })
-        return country.count == 2 && allowedMirrorCountries.contains(country)
-            && label.dropFirst(2).allSatisfy(\.isNumber)
+        flows_tags_is_allowed_mirror(host)
     }
 
     nonisolated static func parseServers(_ data: Data) -> [String] {
         guard let rows = try? JSONSerialization.jsonObject(with: data)
                 as? [[String: Any]] else { return [] }
-        var seen = Set<String>()
-        return rows.compactMap { row in
-            guard let name = row["name"] as? String, !name.isEmpty,
-                  seen.insert(name).inserted else { return nil }
-            return name
+        let names = rows.map { $0["name"] as? String }
+        let kept = RustTextColumn(names).with { joined, lengths, present in
+            Array(flows_tags_unique_server_names(joined, lengths, present, Int64(names.count)))
         }
+        return kept.compactMap { names[Int($0)] }
     }
 
     /// Mirror stats payload → is this mirror serving? (`{"status":"OK"}`).
@@ -295,13 +304,17 @@ final class RadioBrowser: ObservableObject {
     /// — one working mode still serves.
     nonisolated static func merged(nameHits: [Station]?,
                                    tagHits: [Station]?) -> [Station]? {
-        if nameHits == nil && tagHits == nil { return nil }
-        var seenURL = Set<String>()
-        var seenName = Set<String>()
-        return ((nameHits ?? []) + (tagHits ?? [])).filter {
-            seenURL.insert($0.url).inserted
-                && seenName.insert($0.name.lowercased()).inserted
+        let combined = (nameHits ?? []) + (tagHits ?? [])
+        let plan = RustTextColumn(combined.map(\.name)).with { names, nameLengths, _ in
+            RustTextColumn(combined.map(\.url)).with { urls, urlLengths, _ in
+                Array(flows_tags_merged_stations(
+                    names, nameLengths, urls, urlLengths,
+                    Int64(nameHits?.count ?? 0), nameHits != nil,
+                    Int64(tagHits?.count ?? 0), tagHits != nil))
+            }
         }
+        guard plan.first == 1 else { return nil }
+        return plan.dropFirst().map { combined[Int($0)] }
     }
 
     /// Station rows → playable list: HTTPS streams only (belt and braces —
@@ -311,18 +324,18 @@ final class RadioBrowser: ObservableObject {
     nonisolated static func parseStations(_ data: Data) -> [Station] {
         guard let rows = try? JSONSerialization.jsonObject(with: data)
                 as? [[String: Any]] else { return [] }
-        var seenURL = Set<String>()
-        var seenName = Set<String>()
-        return rows.compactMap { row in
-            guard let name = (row["name"] as? String)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                  !name.isEmpty,
-                  let url = row["url_resolved"] as? String,
-                  url.hasPrefix("https://"),
-                  seenURL.insert(url).inserted,
-                  seenName.insert(name.lowercased()).inserted else { return nil }
-            return Station(name: name,
-                           url: url,
+        let names = RustTextColumn(rows.map { $0["name"] as? String })
+        let urls = RustTextColumn(rows.map { $0["url_resolved"] as? String })
+        let kept = names.with { nameText, nameLengths, hasName in
+            urls.with { urlText, urlLengths, hasURL in
+                Array(flows_tags_kept_station_rows(nameText, nameLengths, hasName,
+                                                   urlText, urlLengths, hasURL, Int64(rows.count)))
+            }
+        }
+        return kept.map { index in
+            let row = rows[Int(index)]
+            return Station(name: flows_tags_station_name(row["name"] as? String ?? "").text,
+                           url: row["url_resolved"] as? String ?? "",
                            genre: genreWords(fromTags: row["tags"] as? String ?? ""),
                            votes: row["votes"] as? Int ?? 0,
                            latitude: row["geo_lat"] as? Double,
@@ -333,46 +346,19 @@ final class RadioBrowser: ObservableObject {
     /// The directory's comma-run of tags → the first three, as plain row
     /// detail ("country · news · talk").
     nonisolated static func genreWords(fromTags tags: String) -> String {
-        tags.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .prefix(3)
-            .joined(separator: " · ")
+        flows_tags_genre_words(tags).text
     }
 
     /// The directory's common US genre tags — the word-finding helper's
     /// vocabulary when a spoken ask ("play me some old country") matches
     /// no station directly: the on-device model maps the ask onto ONE of
     /// these, and the search retries with that tag.
-    nonisolated static let commonGenres = [
-        "country", "classic country", "bluegrass", "folk",
-        "rock", "classic rock", "metal", "pop", "top 40",
-        "oldies", "80s", "90s", "jazz", "blues", "classical",
-        "hip-hop", "r&b", "soul", "dance", "gospel", "christian",
-        "spanish", "regional mexican", "news", "talk", "sports",
-    ]
+    nonisolated static let commonGenres = RustWordList.words(3)
 
     /// Two-letter state code → the full name the directory indexes by.
     nonisolated static func stateName(_ code: String) -> String? {
-        let names: [String: String] = [
-            "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
-            "CA": "California", "CO": "Colorado", "CT": "Connecticut",
-            "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida",
-            "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
-            "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky",
-            "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
-            "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
-            "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
-            "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
-            "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
-            "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
-            "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
-            "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
-            "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
-            "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
-            "WI": "Wisconsin", "WY": "Wyoming",
-        ]
-        return names[code.uppercased()]
+        let name = flows_tags_state_name(code).text
+        return name.isEmpty ? nil : name
     }
 }
 

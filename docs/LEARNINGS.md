@@ -1669,3 +1669,21 @@ without a regression:
   twinned the fuel warning's bearing and reachability test and the nearest
   saved corridor, pinned by the geo oracle, but no bridge function exported
   them. This landing added the bridge functions instead of new twins.
+
+## Swift's isLetter is not "a word character that is not a number"
+
+- **`Character.isLetter` is the Alphabetic property.** The text module had
+  tables for letter-or-number and for number, and a letter looked like the
+  difference. It is not: U+216B, a Roman numeral, is both. The harness now
+  reads the letter table from the runtime over every scalar, and the table
+  generator writes it beside the others.
+- **An oracle pins the old code, not the owner's intent.** Asked whether the
+  fuel landing had checked the owner's past commentary, the answer was that
+  it had checked the code, its tests and its comments. Reading the owner's
+  messages and the commits that validated later fixes found three older gaps
+  the bit-exact port had faithfully kept: the unreachable-fuel sentence
+  counts stations after a 40-mile reserve but speaks of the remaining miles,
+  the small driving gauge lost the quartile percentages the owner asked for,
+  and route sharing is a prefilled text because iOS lets no app start Find My
+  sharing. Read the owner's commentary for a feature before its facades, and
+  report the gaps; the newest commentary and validations win.

@@ -18,7 +18,7 @@
 //!   Indic-conjunct rule), so `count`, `prefix`, `split` and `filter` see
 //!   clusters — [`graphemes`], [`cluster_count`], [`prefix_clusters`].
 //! - `Character.isLetter` and `isNumber` read the cluster's first scalar —
-//!   [`is_word_start`], [`is_number_start`].
+//!   [`is_word_start`], [`is_number_start`], [`is_letter_start`].
 //! - `lowercased()` and `uppercased()` map scalar by scalar with the full
 //!   one-to-many mappings and no context: a final sigma stays σ, İ becomes
 //!   i̇, ß becomes SS — [`lowercased`], [`uppercased`].
@@ -43,9 +43,10 @@ pub use number::{swift_double, swift_double_substring};
 
 use tables::{
     CCC_RANGES, CCC_RANGES_STRIDE, CI_AFTER_BLOCKER_RANGES, CI_AFTER_BLOCKER_RANGES_STRIDE,
-    FOLD_MAP, FOLD_MAP_STRIDE, GCB_RANGES, GCB_RANGES_STRIDE, LOWER_MAP, LOWER_MAP_STRIDE, NFD_MAP,
-    NFD_MAP_STRIDE, NUMBER_RANGES, NUMBER_RANGES_STRIDE, UPPER_MAP, UPPER_MAP_STRIDE,
-    WHITESPACE_RANGES, WHITESPACE_RANGES_STRIDE, WORD_RANGES, WORD_RANGES_STRIDE,
+    FOLD_MAP, FOLD_MAP_STRIDE, GCB_RANGES, GCB_RANGES_STRIDE, LETTER_RANGES, LETTER_RANGES_STRIDE,
+    LOWER_MAP, LOWER_MAP_STRIDE, NFD_MAP, NFD_MAP_STRIDE, NUMBER_RANGES, NUMBER_RANGES_STRIDE,
+    UPPER_MAP, UPPER_MAP_STRIDE, WHITESPACE_RANGES, WHITESPACE_RANGES_STRIDE, WORD_RANGES,
+    WORD_RANGES_STRIDE,
 };
 
 // ------------------------------------------------------------ table lookups
@@ -111,6 +112,21 @@ pub fn is_word_scalar(c: char) -> bool {
 #[must_use]
 pub fn is_number_scalar(c: char) -> bool {
     range_entry(NUMBER_RANGES, NUMBER_RANGES_STRIDE, c as u32).is_some()
+}
+
+/// `Character.isLetter` of the cluster that starts with `c`: the scalar's
+/// Alphabetic property, as the runtime answers it (U+216B, a Roman numeral, is a
+/// letter and a number).
+#[must_use]
+pub fn is_letter_scalar(c: char) -> bool {
+    range_entry(LETTER_RANGES, LETTER_RANGES_STRIDE, c as u32).is_some()
+}
+
+/// `Character.isLetter` for a cluster: its first scalar decides; an empty
+/// cluster answers false.
+#[must_use]
+pub fn is_letter_start(cluster: &str) -> bool {
+    cluster.chars().next().is_some_and(is_letter_scalar)
 }
 
 /// `CharacterSet.whitespaces.contains(c)`.
