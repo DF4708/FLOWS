@@ -1023,6 +1023,45 @@ with a comment saying why, and matches in both build modes. A NaN's sign
 and payload never reach a driver; the oracle compares bits, so the port
 states exactly what it does.
 
+## Wave 1, fifth landing: climate and astronomy (2026-09-15)
+
+`flows-core::climate` was written by hand from the five Swift files — the
+dead worktree left only a harness — and carries the latitude bands, the
+twelve climate types with their seasonal norms and gates, the NOAA
+solar-position terms, twilight, night, the sun's height and the next change,
+the FLHH harmonic-climatology reader with its week trig and scores, and risk
+timing. Instants are Foundation's own double (seconds since the reference
+date), so a Swift facade passes `timeIntervalSinceReferenceDate` through.
+The trigonometry goes through a new shared module, `fmath`, one libm call per
+function, which the geo kernel now uses too (its oracle still passes both
+ways); `Int(Double)` lives once in `fcmp` for new code, the three earlier
+copies to be folded in.
+
+The harness is the dead run's, corrected: its probe of
+`arrivalOffsets(sampleCount: Int.max)` did not trap the Swift — Swift began
+allocating the array and the process grew until the owner's machine ran out
+of memory (the "memory leak" reported mid-session was this harness, not the
+app). The probe is gone, the finding is recorded, and the port refuses counts
+above 2^20. The three random sweeps over the daylight functions were digests
+of 20,000 values each; a digest cannot tolerate the one-ulp sine the Release
+compiler's `sincos` fusion produces, so they are written out sample by sample
+(2,000 each) and compared to a stated physical tolerance. Everything else —
+including the 212,550-value day digest, the 52 weekly angles and the
+1.9-million-score big table — matched bit for bit; five values in 13,447
+needed the tolerance, the largest by 6e-14, and every dawn, dusk and
+next-change instant is exact.
+
+Two facts about Foundation, learned from the fixture: `String(bytes:encoding:)`
+drops one leading byte-order mark (mirrored); `Date`'s `<=` and `>=` are
+Comparable's `!(rhs < lhs)`, so they hold for a NaN (mirrored where the code
+compares instants). And one divergence by design: Swift's `String` equality is
+canonical equivalence, the port's is bytes; on the harness's two odd-UTF-8
+tables exactly 287 records differ, every one on a non-ASCII key or query, and
+the test pins that count. The FLHH writer emits ASCII only.
+
+The bridge module stays the reserved stub; the five Swift files switch with
+their callers.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
@@ -1030,6 +1069,7 @@ states exactly what it does.
 | seasonal | LANDED: core + oracle test (3,163 records, bit-exact); bridge is the reserved stub | switch `SeasonalRiskModel`/`RouteHeadTrainer` to the bridge with their callers |
 | learning | LANDED: core + fixture + oracle test (10,673 records, bit-exact; two name records diverge by design); bridge is the reserved stub | switch the seven Swift classes to the bridge with their callers |
 | vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records, bit-exact) + five facades switched (SpeedLaw, SpeedSign, TowingLimits, FilterLimits, PursuitReach) | switch GradeProfile and DriveEfficiency with their callers |
-| climate, places_text | harness only | port from scratch |
+| climate | LANDED: core written from the Swift + oracle (13,447 records; trig to a stated tolerance, every instant exact); bridge is the reserved stub | switch the five Swift files to the bridge with their callers |
+| places_text | harness only | port from scratch — the heaviest: it needs Swift's grapheme segmentation, case mapping and canonical equivalence in zero-dependency Rust |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
 

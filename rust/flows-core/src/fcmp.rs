@@ -6,7 +6,8 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
-//! Floating-point `min`/`max` with the edge semantics of the shipping app.
+//! Floating-point `min`/`max` and `Int(Double)` with the edge semantics of
+//! the shipping app.
 //!
 //! The app's risk equations were written in Swift, whose generic `min(x, y)`
 //! is `y < x ? y : x` and `max(x, y)` is `y >= x ? y : x`. Rust's `f64::min`
@@ -46,6 +47,15 @@ pub fn smax(x: f64, y: f64) -> f64 {
 #[must_use]
 pub fn sunit(x: f64) -> f64 {
     smin(smax(x, 0.0), 1.0)
+}
+
+/// Swift's `Int(x)` for a `Double`: `None` where Swift traps — NaN, the
+/// infinities, and values outside `-2^63 - 2048 < x < 2^63` (the stdlib's
+/// precondition, verbatim); otherwise `x` truncated toward zero.
+#[inline]
+#[must_use]
+pub fn swift_int(x: f64) -> Option<i64> {
+    (x > -9_223_372_036_854_777_856.0 && x < 9_223_372_036_854_775_808.0).then_some(x as i64)
 }
 
 #[cfg(test)]

@@ -54,35 +54,14 @@ use crate::fcmp::{smax, smin};
 use std::collections::BTreeMap;
 use std::f64::consts::PI;
 
-/// `sin` as its own call, never fused with a neighbouring `cos`.
-///
-/// When one function evaluates both `sin(x)` and `cos(x)`, an optimising
-/// backend may fuse the pair into the C library's `__sincos_stret`, whose
-/// sine differs from the standalone `sin` by one unit in the last place for
-/// some arguments. Whether the fusion happens depends on the compiler, the
-/// optimisation level and the shape of the code around the calls: the app's
-/// Swift Release build fuses inside its bearing formula, its Debug build
-/// does not, and an unwrapped Rust build did one or the other depending on
-/// how the two calls were written. Measured on one input: fused sine
-/// `3fe3bb4b91330e6a`, standalone `3fe3bb4b91330e6b`.
-///
-/// Routing every trig call through its own non-inlined function denies the
-/// backend the pair, so this kernel computes the standalone value in every
-/// build. It therefore agrees with the shipping app to one ulp on bearings
-/// rather than bit for bit — a compiler artifact on the Swift side is not a
-/// contract Rust can reproduce — and the oracle pins exactly that: bearings
-/// within one ulp, and an ahead-cone answer allowed to differ only when the
-/// bearing lies within that tolerance of the cone's edge.
-#[inline(never)]
-fn lm_sin(x: f64) -> f64 {
-    x.sin()
-}
-
-/// `cos` as its own call — see [`lm_sin`].
-#[inline(never)]
-fn lm_cos(x: f64) -> f64 {
-    x.cos()
-}
+/// `sin` and `cos` as their own libm calls, never a fused pair: see
+/// [`crate::fmath`] for why the shipping app's bearings can differ from these
+/// by one unit in the last place, and the geo oracle for the tolerance that
+/// pins it (bearings within one micrometre of lateral displacement at the
+/// target; an ahead-cone answer allowed to differ only within a nanodegree of
+/// the cone's edge). Measured on one input: fused sine `3fe3bb4b91330e6a`,
+/// standalone `3fe3bb4b91330e6b`.
+use crate::fmath::{cos as lm_cos, sin as lm_sin};
 
 /// Meters per degree of latitude, and of longitude at the equator, in every
 /// equirectangular formula ported here (`111_320.0` in the Swift).

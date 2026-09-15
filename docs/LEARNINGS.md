@@ -1481,3 +1481,26 @@ sides of a product or sum, check the operand order before anything else,
 write the order that matches, and comment it. The sign never reaches a
 driver, but the oracle's bits are the contract, and a silent mismatch there
 hides the real ones.
+
+## A trap probe that does not trap can take the machine down
+
+The climate oracle harness asked the original Swift whether
+`RiskTiming.arrivalOffsets(sampleCount: Int.max)` traps. It does not: Swift
+starts building the array and macOS lets the process grow until memory is
+gone. Four harness runs meant four such processes; the owner saw RAM climb
+"like a memory leak" while the app itself sat steady at 188 MB. Rules:
+
+- A probe for a trap must be bounded in time and memory before it runs
+  unattended: wrap it in a time limit, and never probe an allocation-sized
+  argument (`Int.max` counts, `Int.max` lengths) — reason about it and
+  record the finding instead.
+- When the user reports runaway memory during a session with background
+  work, check the background work first (`ps -r`), then the app.
+- A port should refuse what the original merely failed to survive: the
+  Rust returns `None` above 2^20 samples.
+
+Also from this harness: a digest (FNV over thousands of values) is the wrong
+pin for anything that passes through trigonometry — one fused-sine ulp
+breaks it with no clue where. Digest what is exact by construction; write
+trig-bearing sweeps out sample by sample and compare to a physical
+tolerance.

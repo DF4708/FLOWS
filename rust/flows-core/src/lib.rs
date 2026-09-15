@@ -56,6 +56,7 @@ pub mod climate;
 pub mod distance;
 pub mod families;
 pub mod fcmp;
+pub(crate) mod fmath;
 pub mod geo;
 pub mod learning;
 pub mod places_text;
