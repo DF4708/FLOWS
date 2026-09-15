@@ -1432,3 +1432,12 @@ does it compile, do its tests pass, does its oracle exist and pass. Two
 groups did; one had a fixture but no test; one a harness but no fixture; one
 did not build. Only the first two landed, and the table of the rest is
 written down so nobody re-derives it.
+
+**Postscript, the seasonal oracle (same day).** That harness binary imports
+`__sincos_stret` too — the route feature vector takes the sine and cosine of
+one angle — and all 3,163 records still matched the Rust bit for bit, in
+debug and in release. The fused sine differs from the standalone one only
+for some arguments, and 2πk/52 for the fixture's k are not among them. So a
+passing oracle does not prove the pair was left unfused, and an oracle that
+fails by one ulp in a sine should be suspected of it first. Run every
+trig-bearing oracle in both build modes either way.

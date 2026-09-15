@@ -886,11 +886,54 @@ list. Nine bearings and sixteen edge answers fall under those rules; the
 largest observed lateral gap is 0.16 µm. An `extern "C"` sincos would have matched the
 Release app and broken with its Debug build, and is forbidden anyway (§3.15).
 
+## Wave 1, second landing: the seasonal model (2026-09-15)
+
+`flows-core::seasonal` (1,247 lines, 11 unit tests) now carries every number
+and every decision of `SeasonalRiskModel` and `RouteHeadTrainer`: the
+decaying week accumulator and its frequency gate; the seasonal prior and the
+calibration RMSE; the route, hub, edge and origin keys; the origin update
+with both eviction orders; the learned and the legacy home; the frozen
+eight-feature route vector; the MLP forward pass; the anchored fine-tune and
+its mean squared error; the head choice, the tune gates and the ranking
+blend. State and persistence — the sealed Codable stores, the Calendar —
+stay in Swift, as the plan of record says.
+
+The dead worktree left the core and a 3,163-record fixture but no oracle
+test. The test (`swift_seasonal_oracle.rs`, 29 record kinds) was written by
+hand from the harness's record layouts and passes bit for bit in debug and
+release. Twenty-one kinds call one Rust function each. The other eight
+exercise Swift *store methods* — `record`, `recordOrigin`, `recordEdges`,
+`learnedHome`, `trainingRows`, the two evictions — which Rust exposes as
+pure pieces; the test recomposes them the way the Swift did, over the
+snapshot each record carries. The harness chose inputs whose answers do not
+depend on Dictionary order (no weight ties at a cut, distinct per-cell
+totals), so the sorted order the test folds in is as good as Swift's, and
+the cases where the original's answer *would* depend on order are left out
+of the fixture and named in the harness as findings.
+
+The harness was rebuilt from the base commit to check the recipe: four runs
+(three plain, one `SWIFT_DETERMINISTIC_HASHING=1`) are byte-identical to the
+fixture body. Its binary imports `__sincos_stret` — the route feature vector
+takes sin and cos of one angle — and every record still matched: the fused
+sine differs from the standalone only for some arguments, and the fixture's
+angles are not among them. `route_features` is left as written; the oracle
+in both build modes is what pins it, not a wrapper.
+
+Where Swift trapped (integer overflow, `Int(Double)` out of range, a
+negative epoch count, a hidden row shorter than the input) the Rust returns
+a documented value — saturation or `None`. Those inputs crashed the app, so
+the fixture, being the app's output, cannot contain them. Five `!(a > b)`
+guards were rewritten as `a <= b || a.is_nan()` for the same reason as in
+trip_vehicle, and one as `partial_cmp`.
+
+The bridge module stays the reserved stub. The two Swift classes switch to
+it when their group's callers move, as geo's do.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
 |---|---|---|
-| seasonal | Rust core, 11 tests, 3,163-record fixture; no oracle test | write the oracle test from the harness's record format |
+| seasonal | LANDED: core + oracle test (3,163 records, bit-exact); bridge is the reserved stub | switch `SeasonalRiskModel`/`RouteHeadTrainer` to the bridge with their callers |
 | learning | Rust core, 17 tests, harness; no fixture | run the harness, write the test |
 | vehicle_policy | core does not compile; Swift facades edited; no fixture | fix or redo |
 | climate, places_text | harness only | port from scratch |
