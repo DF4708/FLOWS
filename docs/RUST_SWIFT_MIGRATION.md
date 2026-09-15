@@ -1280,11 +1280,28 @@ values from the field on demand. `parseFRB1`, `selectZips`, `buildGrid` and
 instead: a coordinate that is not a number, and an entry whose centroid
 cannot be placed (left out of the grid).
 
+## Wave 2, second landing: the forecast predictors, and the bridge-linked harness (2026-09-16)
+
+`ForecastConditions.forecastScore` and `.predictorFamilies` — the point
+forecast scored against the location's climate profile, the secondary side
+of the realized-risk model — are `flows_core::forecast`, behind two bridge
+functions and a names getter. The composition is short; the landing's
+weight is in its oracle. At the base commit `RiskEquations` was already a
+facade over the Rust equations, so the original could not be compiled
+alone: the harness now links `libflows_bridge.a` and compiles the generated
+bindings beside the base-commit sources (the original `ClimateProfiles` and
+`LatitudeBands`, the `RiskEquations` and `FlowsCore` facades,
+`InternationalWeather` and `SpeedLaw` for the names `NWSForecastService`
+uses) with stubs for the network, cache, alert and diagnostics types the
+oracle never touches. That recipe (`oracle-harness/forecast/README.md`)
+serves every remaining group whose original already called the bridge —
+most of wave 2.
+
 ### Wave 2 remaining
 
 | item | state |
 |---|---|
-| the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | next: their harness must link the bridge, since `RiskEquations` was already a facade at the base commit |
+| the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | not started |
 | POIRanking, PlacesStore (FPS1), POIService decisions | not started |
 | the long tail (OfflineCorridors, Amtrak, radio, recents, breadcrumbs, FuelWarning, HybridWalk, AirTravel, transit estimates, Mobility, AdaptiveTuning, SignalQuality, playback, spoken replies, TripShare, VehicleLink, RouteAttributes) | not started |

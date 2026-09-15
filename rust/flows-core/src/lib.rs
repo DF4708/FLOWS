@@ -29,6 +29,7 @@
 //!   places_text — brand, price and tag text on swift_text
 //!   risk_field — the ZIP-level risk field: FRB1 reader, grid lookup,
 //!              viewport selection, harmonic rescore
+//!   forecast — the forecast predictors over climate + scoring
 //!
 //! flows-core has no FFI of its own and never will: `#[no_mangle]` is
 //! rejected by `forbid(unsafe_code)`. The app reaches these functions through
@@ -63,6 +64,7 @@ pub mod distance;
 pub mod families;
 pub mod fcmp;
 pub(crate) mod fmath;
+pub mod forecast;
 pub mod geo;
 pub mod learning;
 pub mod places_text;

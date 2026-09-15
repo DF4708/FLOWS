@@ -33,21 +33,14 @@ struct ForecastConditions: Sendable {
     /// per WI band, extended continent-wide (LatitudeBands): what counts as
     /// anomalous heat in a Manitoba band is unremarkable in a Sonora band.
     /// Elevation can shift the effective band by at most ±1 (contiguous rule).
+    /// Computed in rust/flows-core (forecast.rs) through rust/flows-bridge;
+    /// each missing value crosses as a value plus a flag. Pinned to the
+    /// original by rust/flows-bridge/tests/fixtures/swift_forecast_oracle.tsv.
     func forecastScore(latitude: Double, longitude: Double, elevationMeters: Double?) -> Double {
-        let band = ClimateProfiles.profile(
-            latitude: latitude, longitude: longitude, elevationMeters: elevationMeters)
-        let t = temperatureF.map {
-            RiskEquations.temperatureRisk(
-                tempF: $0, comfortLowF: band.comfortLowF, comfortHighF: band.comfortHighF,
-                recordLowF: band.recordLowF, recordHighF: band.recordHighF)
-        } ?? 0
-        let w = windMph.map {
-            RiskEquations.piecewiseScore($0, low: band.windLow, medium: band.windMedium, high: band.windHigh)
-        } ?? 0
-        let p = popPercent.map {
-            RiskEquations.piecewiseScore($0, low: band.popLow, medium: band.popMedium, high: band.popHigh)
-        } ?? 0
-        return RiskEquations.forecastComposite(temp: t, wind: w, pop: p)
+        flows_forecast_score(
+            temperatureF ?? 0, temperatureF != nil, windMph ?? 0, windMph != nil,
+            popPercent ?? 0, popPercent != nil,
+            latitude, longitude, elevationMeters ?? 0, elevationMeters != nil)
     }
 
     /// Forecast → PREDICTOR family scores (the secondary side of the realized
@@ -57,24 +50,21 @@ struct ForecastConditions: Sendable {
     /// so both decompose a forecast into the same predictor families before
     /// `RiskEquations.realizedRisk` combines them. Contains NO realized
     /// primaries — those come from live gauges/perimeters/outlooks/alerts.
+    /// The scores come back in the bridge's family order and are keyed here.
     func predictorFamilies(latitude: Double, longitude: Double, elevationMeters: Double?) -> [String: Double] {
-        let band = ClimateProfiles.profile(
-            latitude: latitude, longitude: longitude, elevationMeters: elevationMeters)
-        let t = temperatureF.map {
-            RiskEquations.temperatureRisk(
-                tempF: $0, comfortLowF: band.comfortLowF, comfortHighF: band.comfortHighF,
-                recordLowF: band.recordLowF, recordHighF: band.recordHighF)
-        } ?? 0
-        let w = windMph.map(RiskEquations.windRisk(mph:)) ?? 0
-        let p = popPercent.map(RiskEquations.popRisk(pct:)) ?? 0
-        let temp = temperatureF ?? 70
-        var out: [String: Double] = ["wind": w, "precip": p]
-        out["heat"] = temp > band.comfortHighF ? t : 0
-        out["cold"] = temp < band.comfortLowF ? t : 0
-        out["winter"] = temp <= 34 ? min(1, 0.2 * w + 0.8 * p) : 0
-        out["convective"] = temp > 60 ? min(1, 0.6 * p + 0.4 * w) : p * 0.3
+        let scores = flows_forecast_predictor_families(
+            temperatureF ?? 0, temperatureF != nil, windMph ?? 0, windMph != nil,
+            popPercent ?? 0, popPercent != nil,
+            latitude, longitude, elevationMeters ?? 0, elevationMeters != nil)
+        var out: [String: Double] = [:]
+        for (i, name) in ForecastConditions.predictorFamilyNames.enumerated() where i < scores.len() {
+            out[name] = scores[i]
+        }
         return out
     }
+
+    /// The predictor families, in the bridge's order.
+    static let predictorFamilyNames: [String] = flows_forecast_predictor_family_names().map { $0.text }
 
 }
 

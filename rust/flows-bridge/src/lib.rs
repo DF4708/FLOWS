@@ -55,6 +55,7 @@
 
 pub mod alerts;
 pub mod climate;
+pub mod forecast;
 pub mod geo;
 pub mod learning;
 pub mod places_text;

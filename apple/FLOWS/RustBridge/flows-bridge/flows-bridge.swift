@@ -554,6 +554,17 @@ extension FlowsHarmonicTable: Vectorizable {
 
 
 
+public func flows_forecast_predictor_family_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_forecast_predictor_family_names())
+}
+public func flows_forecast_score(_ temperature_f: Double, _ has_temperature: Bool, _ wind_mph: Double, _ has_wind: Bool, _ pop_percent: Double, _ has_pop: Bool, _ latitude: Double, _ longitude: Double, _ elevation_meters: Double, _ has_elevation: Bool) -> Double {
+    __swift_bridge__$flows_forecast_score(temperature_f, has_temperature, wind_mph, has_wind, pop_percent, has_pop, latitude, longitude, elevation_meters, has_elevation)
+}
+public func flows_forecast_predictor_families(_ temperature_f: Double, _ has_temperature: Bool, _ wind_mph: Double, _ has_wind: Bool, _ pop_percent: Double, _ has_pop: Bool, _ latitude: Double, _ longitude: Double, _ elevation_meters: Double, _ has_elevation: Bool) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_forecast_predictor_families(temperature_f, has_temperature, wind_mph, has_wind, pop_percent, has_pop, latitude, longitude, elevation_meters, has_elevation))
+}
+
+
 
 
 public func flows_learning_everyday_default_miles() -> Double {
