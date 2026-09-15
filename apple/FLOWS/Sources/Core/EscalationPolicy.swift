@@ -11,7 +11,10 @@ import Foundation
 /// The decision behind "conditions are worsening — reroute?".
 ///
 /// Pure, so the deferred baseline, the two triggers and the dismissal rules
-/// are pinned by FLOWSTests. They used to live inline in the corridor sink
+/// are pinned by FLOWSTests. The decision is computed in rust/flows-core
+/// (alert_text.rs), pinned to the original by
+/// rust/flows-bridge/tests/fixtures/swift_alert_text_oracle.tsv; the dismissal
+/// bookkeeping stays here. They used to live inline in the corridor sink
 /// of AppModel, where they were changed twice in one month — the acute cut
 /// and the identity-aware dismissal — with no test able to see either.
 enum EscalationPolicy {
@@ -27,7 +30,7 @@ enum EscalationPolicy {
         /// alone cannot tell two Extreme alerts apart: both score 0.95.
         var dismissedAlertIDs: Set<String> = []
 
-        static let deferred = -1.0
+        static let deferred = flows_alert_text_escalation_constants()[2]
         static func fresh(baseline: Double?) -> State {
             State(baseline: baseline ?? deferred)
         }
@@ -66,29 +69,27 @@ enum EscalationPolicy {
     }
 
     /// How far the mean must rise above the accepted baseline.
-    static let sustainedRise = 0.12
+    static let sustainedRise = flows_alert_text_escalation_constants()[0]
     /// How much worse a new prompt must be than the last one dismissed.
-    static let dismissMargin = 0.05
+    static let dismissMargin = flows_alert_text_escalation_constants()[1]
 
     /// Evaluate one reading. Returns the state to keep and the prompt to
     /// raise, if any. Acute wins over sustained when both hold: the prompt
     /// then carries the peak, which is the number the driver needs.
     static func evaluate(_ r: Reading, state: State) -> (state: State, trigger: Trigger?) {
-        var s = state
-        if s.baseline < 0 {
-            if r.complete { s.baseline = r.mean }
-            return (s, nil)
+        // The dismissed ids cross as a text column; set order does not matter.
+        let dismissed = Array(state.dismissedAlertIDs)
+        let step = RustTextColumn(dismissed).with { joined, lens, _ in
+            flows_alert_text_evaluate_escalation(
+                r.complete, r.mean, r.peak, r.peakAlertID ?? "", r.peakAlertID != nil,
+                state.baseline, state.dismissedRisk, joined, lens, Int64(dismissed.count))
         }
-        guard r.complete else { return (s, nil) }
-        let unseen = r.peakAlertID.map { !s.dismissedAlertIDs.contains($0) } ?? false
-        let acute = FlowsCore.riskBand(score: r.peak) == .red
-            && (r.peak > s.dismissedRisk + dismissMargin || unseen)
-        if acute { return (s, .acute(peak: r.peak, alertID: r.peakAlertID)) }
-        let sustained = r.mean >= FlowsCore.riskYellowMin
-            && r.mean > s.baseline + sustainedRise
-            && r.mean > s.dismissedRisk + dismissMargin
-        if sustained { return (s, .sustained(mean: r.mean)) }
-        return (s, nil)
+        var s = state
+        s.baseline = step.baseline
+        guard step.has_trigger else { return (s, nil) }
+        return (s, step.trigger_kind == 1
+            ? .acute(peak: step.risk, alertID: r.peakAlertID)
+            : .sustained(mean: step.risk))
     }
 
     /// The driver pressed Continue on `trigger`.

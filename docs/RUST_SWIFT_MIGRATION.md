@@ -1423,7 +1423,7 @@ never read the user's saved trail or keychain.
 The wave-1 table says the alert group was done by hand. That covered
 HazardStyle, ShelterPolicy and ImminentAlerts. Three files the plan listed
 under alert text and safety policy were never ported: `EscalationPolicy`,
-`AlertEntityParser` and `ScannerIncidents`; they are the next landing. An
+`AlertEntityParser` and `ScannerIncidents`; they landed next (below). An
 inventory of the Core files that still make no bridge call also turns up
 files the plan never classified, which need a decision before wave 3:
 `RiskAdvice`, `WMOAlerts`, `InternationalWeather`, `BadgeClustering`,
@@ -1431,6 +1431,33 @@ files the plan never classified, which need a decision before wave 3:
 `TouristInfo`, `VehicleTrack`, `CameraZoom`, `GoldenScale`, `TextScale`,
 `ZipBordersAndTransit` and `TruckerRadio`, besides the platform files
 (networking, audio, speech, sensors, stores) that stay.
+
+## Wave 1 leftovers: alert text and dispatch audio (2026-09-15)
+
+The three wave-1 files that were never ported are Rust.
+`flows_core::alert_text` holds the reroute prompt's decision
+(`EscalationPolicy`), the vehicle and person descriptions pulled from
+red-alert text (`AlertEntityParser`), and the dispatch parser with its
+map-pin rules (`ScannerIncidents`). Titles, symbols, colour names and the
+dismissal bookkeeping stay in Swift.
+
+The brand badge searches alert text with Foundation's
+`localizedCaseInsensitiveContains`, which the Rust text module did not have.
+The oracle read its rules out of the runtime instead of guessing, and they
+are not the cluster-aligned search the other text rules follow. For the ASCII
+brand names the parser searches, both texts are decomposed and folded scalar
+by scalar with the folds the search itself applies (1,206 of Foundation's
+1,576 per-scalar folds; the Greek iota-subscript family is among those it
+skips). A match must begin and end on a scalar's fold, never inside the "ss"
+of ß, and must not be followed by one of 384 ranges of blocker scalars,
+mostly combining marks, checked before folding. A zero-width joiner after
+"FORD" does not block the match; a combining accent after "Toyota" does. The
+fold and blocker tables are generated from the fixture and checked over every
+scalar. `swift_text` also gained `split(separator:)` on clusters and
+`Int(String)` parsing.
+
+The oracle (26,164 records, 25 kinds) is bridge-linked from bea472d; the
+three files are identical at 49492c9.
 
 ### Wave 2 remaining
 
@@ -1440,4 +1467,4 @@ files the plan never classified, which need a decision before wave 3:
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
 | POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
 | the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. Not started: OfflineCorridors, recents, FuelWarning, transit estimates (TransitItinerary), spoken replies (VoiceReply), TripShare, VehicleLink, RouteAttributes, RadioBrowser |
-| wave-1 leftovers | not started: EscalationPolicy, AlertEntityParser, ScannerIncidents |
+| wave-1 leftovers | LANDED: EscalationPolicy, AlertEntityParser, ScannerIncidents (`flows_core::alert_text`) |

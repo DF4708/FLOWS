@@ -14,6 +14,12 @@ The `u-wsnl` records (`CharacterSet.whitespacesAndNewlines`) live in the
 hazard-feeds fixture, `../../fixtures/swift_hazard_feeds_oracle.tsv`, whose
 harness reads them from the runtime the same way; this script reads that
 fixture too (or a file named by `WSNL_FIXTURE`).
+
+The case-insensitive search tables come from the alert-text fixture,
+`../../fixtures/swift_alert_text_oracle.tsv` (or `ALERT_TEXT_FIXTURE`): the
+`u-fold` records (Foundation's per-scalar folding) kept where a `u-ci-fold`
+record says the search itself applies that fold, and the `u-ci-after` ranges
+(scalars that keep a match from ending just before them).
 """
 import sys, os
 
@@ -47,7 +53,16 @@ PATTERNS = {
 
 WSNL_FIXTURE = os.environ.get("WSNL_FIXTURE", os.path.join(HERE, "../../fixtures/swift_hazard_feeds_oracle.tsv"))
 
+ALERT_FIXTURE = os.environ.get("ALERT_TEXT_FIXTURE", os.path.join(HERE, "../../fixtures/swift_alert_text_oracle.tsv"))
+
 word, num, ws, gcb, ccc, lower, upper, nfd, wsnl = [], [], [], [], [], [], [], [], []
+fold, fold_applied, after = [], set(), []
+for line in open(ALERT_FIXTURE, encoding="utf-8"):
+    f = line.rstrip("\n").split("\t")
+    if f[0] == "u-fold": fold.append((int(f[1], 16), [int(x, 16) for x in f[2].split(" ")] if f[2] else []))
+    elif f[0] == "u-ci-fold" and f[2] == "1": fold_applied.add(int(f[1], 16))
+    elif f[0] == "u-ci-after": after.append((int(f[1], 16), int(f[2], 16)))
+search_fold = [(scalar, mapping) for scalar, mapping in fold if scalar in fold_applied]
 for line in open(WSNL_FIXTURE, encoding="utf-8"):
     if line.startswith("u-wsnl\t"):
         f = line.rstrip("\n").split("\t")
@@ -74,7 +89,7 @@ def check_sorted(name, rows):
     keys = [r[0] for r in rows]
     if keys != sorted(keys) or len(set(keys)) != len(keys):
         sys.exit(f"{name} is not sorted and unique")
-for name, rows in [("word", word), ("num", num), ("ws", ws), ("wsnl", wsnl), ("gcb", gcb), ("ccc", ccc), ("lower", lower), ("upper", upper), ("nfd", nfd)]:
+for name, rows in [("word", word), ("num", num), ("ws", ws), ("wsnl", wsnl), ("gcb", gcb), ("ccc", ccc), ("lower", lower), ("upper", upper), ("nfd", nfd), ("fold", search_fold), ("ci-after", after)]:
     check_sorted(name, rows)
     if not rows: sys.exit(f"no {name} records in {FIXTURE}")
 
@@ -84,6 +99,8 @@ def padded(rows, width, name):
         if len(mapping) > width - 1: sys.exit(f"{name}: mapping of {scalar:x} longer than {width - 1}")
         out.append([scalar] + mapping + [0] * (width - 1 - len(mapping)))
     return out
+
+FOLD_WIDTH = 1 + max(len(mapping) for _, mapping in search_fold)
 
 def array(name, doc, stride, rows, per_line):
     flat = [x for r in rows for x in r]
@@ -106,6 +123,8 @@ body = "".join([
     array("LOWER_MAP", ["`Unicode.Scalar.Properties.lowercaseMapping` where it is not the scalar itself:", "`scalar, first, second` with 0 for an absent second."], 3, padded(lower, 3, "lower"), 6),
     array("UPPER_MAP", ["`Unicode.Scalar.Properties.uppercaseMapping` where it is not the scalar itself:", "`scalar, first, second, third` with 0 for absent places."], 4, padded(upper, 4, "upper"), 4),
     array("NFD_MAP", ["Full canonical decompositions outside the Hangul syllables, which decompose", "arithmetically: `scalar, d0, d1, d2, d3` with 0 for absent places."], 5, padded(nfd, 5, "nfd"), 5),
+    array("FOLD_MAP", ["The folds Foundation's case-insensitive search applies (en_US), where a scalar", "does not fold to itself: `scalar, f0, f1, f2` with 0 for absent places (from the", "alert-text fixture)."], FOLD_WIDTH, padded(search_fold, FOLD_WIDTH, "fold"), FOLD_WIDTH),
+    array("CI_AFTER_BLOCKER_RANGES", ["Scalars that keep a case-insensitive match from ending just before them, as", "inclusive `lo, hi` pairs (from the alert-text fixture)."], 2, after, 8),
 ])
 header = f"""// -----------------------------------------------------------------------------
 // Copyright (c) 2026 David B. Foster. All rights reserved.

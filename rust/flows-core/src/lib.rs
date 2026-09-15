@@ -59,6 +59,7 @@
 //! crate's Cargo.toml.)
 #![forbid(unsafe_code)]
 
+pub mod alert_text;
 pub mod alerts;
 pub mod ch;
 pub mod climate;

@@ -1,3 +1,203 @@
+public func flows_alert_text_evaluate_escalation<GenericToRustStr: ToRustStr>(_ complete: Bool, _ mean: Double, _ peak: Double, _ peak_alert_id: GenericToRustStr, _ has_peak_alert_id: Bool, _ baseline: Double, _ dismissed_risk: Double, _ dismissed_joined: GenericToRustStr, _ dismissed_lens: UnsafeBufferPointer<Int64>, _ dismissed_count: Int64) -> FlowsAlertEscalation {
+    return dismissed_joined.toRustStr({ dismissed_joinedAsRustStr in
+        return peak_alert_id.toRustStr({ peak_alert_idAsRustStr in
+        __swift_bridge__$flows_alert_text_evaluate_escalation(complete, mean, peak, peak_alert_idAsRustStr, has_peak_alert_id, baseline, dismissed_risk, dismissed_joinedAsRustStr, dismissed_lens.toFfiSlice(), dismissed_count).intoSwiftRepr()
+    })
+    })
+}
+public func flows_alert_text_escalation_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_escalation_constants())
+}
+public func flows_alert_text_color_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_color_names())
+}
+public func flows_alert_text_brands() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_brands())
+}
+public func flows_alert_text_describes_an_entity<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> Bool {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alert_text_describes_an_entity(eventAsRustStr)
+    })
+}
+public func flows_alert_text_vehicle<GenericToRustStr: ToRustStr>(_ text: GenericToRustStr) -> FlowsAlertVehicle {
+    return text.toRustStr({ textAsRustStr in
+        __swift_bridge__$flows_alert_text_vehicle(textAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_alert_text_person<GenericToRustStr: ToRustStr>(_ text: GenericToRustStr) -> FlowsAlertPerson {
+    return text.toRustStr({ textAsRustStr in
+        __swift_bridge__$flows_alert_text_person(textAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_alert_text_phrases(_ kind: UInt8) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_phrases(kind))
+}
+public func flows_alert_text_match_order() -> RustVec<UInt8> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_match_order())
+}
+public func flows_alert_text_road_words() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_road_words())
+}
+public func flows_alert_text_call_kind<GenericToRustStr: ToRustStr>(_ transcript: GenericToRustStr) -> Int64 {
+    return transcript.toRustStr({ transcriptAsRustStr in
+        __swift_bridge__$flows_alert_text_call_kind(transcriptAsRustStr)
+    })
+}
+public func flows_alert_text_place_phrase<GenericToRustStr: ToRustStr>(_ transcript: GenericToRustStr) -> RustString {
+    return transcript.toRustStr({ transcriptAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_alert_text_place_phrase(transcriptAsRustStr))
+    })
+}
+public func flows_alert_text_lifetime_seconds(_ kind: UInt8) -> Double {
+    __swift_bridge__$flows_alert_text_lifetime_seconds(kind)
+}
+public func flows_alert_text_is_expired(_ kind: UInt8, _ heard_at: Double, _ now: Double) -> Bool {
+    __swift_bridge__$flows_alert_text_is_expired(kind, heard_at, now)
+}
+public func flows_alert_text_pin_constants() -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_pin_constants())
+}
+public func flows_alert_text_visible(_ kinds: UnsafeBufferPointer<UInt8>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ heard_at: UnsafeBufferPointer<Double>, _ has_position: Bool, _ lat: Double, _ lon: Double, _ corridor_lats: UnsafeBufferPointer<Double>, _ corridor_lons: UnsafeBufferPointer<Double>, _ corridor_count: Int64, _ now: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_visible(kinds.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), heard_at.toFfiSlice(), has_position, lat, lon, corridor_lats.toFfiSlice(), corridor_lons.toFfiSlice(), corridor_count, now))
+}
+public func flows_alert_text_merged_keep(_ kinds: UnsafeBufferPointer<UInt8>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ new_kind: UInt8, _ new_lat: Double, _ new_lon: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_alert_text_merged_keep(kinds.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), new_kind, new_lat, new_lon))
+}
+public struct FlowsAlertVehicle {
+    public var has: Bool
+    public var kind: UInt8
+    public var has_color: Bool
+    public var color_index: Int64
+    public var has_brand: Bool
+    public var brand_index: Int64
+
+    public init(has: Bool,kind: UInt8,has_color: Bool,color_index: Int64,has_brand: Bool,brand_index: Int64) {
+        self.has = has
+        self.kind = kind
+        self.has_color = has_color
+        self.color_index = color_index
+        self.has_brand = has_brand
+        self.brand_index = brand_index
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsAlertVehicle {
+        { let val = self; return __swift_bridge__$FlowsAlertVehicle(has: val.has, kind: val.kind, has_color: val.has_color, color_index: val.color_index, has_brand: val.has_brand, brand_index: val.brand_index); }()
+    }
+}
+extension __swift_bridge__$FlowsAlertVehicle {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsAlertVehicle {
+        { let val = self; return FlowsAlertVehicle(has: val.has, kind: val.kind, has_color: val.has_color, color_index: val.color_index, has_brand: val.has_brand, brand_index: val.brand_index); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsAlertVehicle {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsAlertVehicle> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsAlertVehicle>) -> __swift_bridge__$Option$FlowsAlertVehicle {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsAlertVehicle(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsAlertVehicle(is_some: false, val: __swift_bridge__$FlowsAlertVehicle())
+        }
+    }
+}
+public struct FlowsAlertPerson {
+    public var has: Bool
+    public var is_child: Bool
+    public var has_color: Bool
+    public var color_index: Int64
+
+    public init(has: Bool,is_child: Bool,has_color: Bool,color_index: Int64) {
+        self.has = has
+        self.is_child = is_child
+        self.has_color = has_color
+        self.color_index = color_index
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsAlertPerson {
+        { let val = self; return __swift_bridge__$FlowsAlertPerson(has: val.has, is_child: val.is_child, has_color: val.has_color, color_index: val.color_index); }()
+    }
+}
+extension __swift_bridge__$FlowsAlertPerson {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsAlertPerson {
+        { let val = self; return FlowsAlertPerson(has: val.has, is_child: val.is_child, has_color: val.has_color, color_index: val.color_index); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsAlertPerson {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsAlertPerson> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsAlertPerson>) -> __swift_bridge__$Option$FlowsAlertPerson {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsAlertPerson(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsAlertPerson(is_some: false, val: __swift_bridge__$FlowsAlertPerson())
+        }
+    }
+}
+public struct FlowsAlertEscalation {
+    public var baseline: Double
+    public var has_trigger: Bool
+    public var trigger_kind: UInt8
+    public var risk: Double
+
+    public init(baseline: Double,has_trigger: Bool,trigger_kind: UInt8,risk: Double) {
+        self.baseline = baseline
+        self.has_trigger = has_trigger
+        self.trigger_kind = trigger_kind
+        self.risk = risk
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsAlertEscalation {
+        { let val = self; return __swift_bridge__$FlowsAlertEscalation(baseline: val.baseline, has_trigger: val.has_trigger, trigger_kind: val.trigger_kind, risk: val.risk); }()
+    }
+}
+extension __swift_bridge__$FlowsAlertEscalation {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsAlertEscalation {
+        { let val = self; return FlowsAlertEscalation(baseline: val.baseline, has_trigger: val.has_trigger, trigger_kind: val.trigger_kind, risk: val.risk); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsAlertEscalation {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsAlertEscalation> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsAlertEscalation>) -> __swift_bridge__$Option$FlowsAlertEscalation {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsAlertEscalation(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsAlertEscalation(is_some: false, val: __swift_bridge__$FlowsAlertEscalation())
+        }
+    }
+}
+
+
 public func flows_alerts_display_kind_names() -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_alerts_display_kind_names())
 }

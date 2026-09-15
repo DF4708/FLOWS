@@ -12,7 +12,9 @@ import Foundation
 /// Blue / Silver alerts, civil emergencies) so the app can render a generic
 /// colored silhouette + brand badge instead of storing an image of every
 /// vehicle: "red Toyota truck" → truck silhouette filled red, TOYOTA badge.
-/// Pure string parsing — pinned by FLOWSTests.
+/// Pure string parsing, computed in rust/flows-core (alert_text.rs) on Swift's
+/// own text rules, pinned by FLOWSTests and by
+/// rust/flows-bridge/tests/fixtures/swift_alert_text_oracle.tsv.
 enum AlertEntityParser {
 
     struct VehicleEntity: Equatable {
@@ -49,35 +51,10 @@ enum AlertEntityParser {
     }
 
     /// Recognized color vocabulary (order matters: multi-word first).
-    static let colorNames = [
-        "dark blue", "light blue", "dark green", "light green", "dark gray",
-        "light gray", "red", "blue", "green", "black", "white", "silver",
-        "gray", "grey", "yellow", "orange", "purple", "brown", "tan", "gold",
-        "maroon", "beige", "pink",
-    ]
+    static let colorNames: [String] = flows_alert_text_color_names().map { $0.text }
 
-    static let brands = [
-        "Toyota", "Ford", "Chevrolet", "Chevy", "Honda", "Nissan", "Dodge",
-        "Ram", "GMC", "Jeep", "Hyundai", "Kia", "Subaru", "Mazda", "Tesla",
-        "Volkswagen", "BMW", "Mercedes", "Audi", "Lexus", "Buick",
-        "Cadillac", "Chrysler", "Volvo", "Acura", "Infiniti", "Lincoln",
-        "Mitsubishi", "Pontiac", "Saturn", "Freightliner", "Peterbilt",
-        "Kenworth",
-    ]
+    static let brands: [String] = flows_alert_text_brands().map { $0.text }
 
-    private static let vehicleWords: [(String, VehicleKind)] = [
-        ("pickup truck", .truck), ("pickup", .truck), ("truck", .truck),
-        ("suv", .suv), ("sport utility", .suv),
-        ("minivan", .van), ("van", .van),
-        ("sedan", .sedan), ("coupe", .sedan), ("hatchback", .sedan),
-        ("motorcycle", .motorcycle),
-        ("bus", .bus),
-        ("car", .sedan),   // last: generic
-    ]
-
-    /// First vehicle mentioned in the text, with the color/brand that appear
-    /// NEAR it (same ~10-word window, so a red shirt elsewhere in the alert
-    /// doesn't repaint the car).
     /// Alerts that actually DESCRIBE a suspect vehicle or person: the
     /// AMBER family and law-enforcement emergencies.
     ///
@@ -86,62 +63,26 @@ enum AlertEntityParser {
     /// BUS on the banner, and a flood warning drew a CAR. Nothing in a
     /// weather alert is a suspect vehicle, so the parser is not run on one.
     static func describesAnEntity(event: String) -> Bool {
-        let lower = event.lowercased()
-        return ["amber", "child abduction", "blue alert", "silver alert",
-                "endangered", "missing", "law enforcement", "civil emergency"]
-            .contains { lower.contains($0) }
+        flows_alert_text_describes_an_entity(event)
     }
 
+    /// First vehicle mentioned in the text, with the color/brand that appear
+    /// NEAR it (same ~60-character window, so a red shirt elsewhere in the
+    /// alert doesn't repaint the car).
     static func vehicle(in text: String) -> VehicleEntity? {
-        let lower = text.lowercased()
-        guard let (word, kind) = vehicleWords.first(where: { lower.contains($0.0) }),
-              let range = lower.range(of: word) else { return nil }
-        let window = contextWindow(lower, around: range)
-        let color = colorNames.first { window.contains($0) }
-        let brand = brands.first { window.localizedCaseInsensitiveContains($0) }
-            .map { $0 == "Chevy" ? "Chevrolet" : $0 }
-        return VehicleEntity(colorName: color, kind: kind, brand: brand)
+        let v = flows_alert_text_vehicle(text)
+        guard v.has, Int(v.kind) < VehicleKind.allCases.count else { return nil }
+        return VehicleEntity(colorName: v.has_color ? colorNames[Int(v.color_index)] : nil,
+                             kind: VehicleKind.allCases[Int(v.kind)],
+                             brand: v.has_brand ? brands[Int(v.brand_index)] : nil)
     }
 
     /// First person mentioned (child words win over adult words when both
     /// appear — an AMBER alert's subject is the child).
     static func person(in text: String) -> PersonEntity? {
-        let lower = text.lowercased()
-        let childWords = ["child", "boy", "girl", "infant", "toddler",
-                          "juvenile", "-year-old", "year old"]
-        let adultWords = ["man", "woman", "male", "female", "adult", "suspect"]
-        let isChild = childWords.first { lower.contains($0) } != nil
-        let isAdult = adultWords.first { lower.contains($0) } != nil
-        guard isChild || isAdult else { return nil }
-        // Clothing color: nearest color to a wearing/clothing word, else the
-        // first color that is NOT the vehicle's window.
-        var color: String?
-        for clothing in ["wearing", "shirt", "jacket", "hoodie", "dress",
-                         "pants", "clothing", "hair"] {
-            if let r = lower.range(of: clothing) {
-                let window = contextWindow(lower, around: r)
-                if let c = colorNames.first(where: { window.contains($0) }) {
-                    color = c
-                    break
-                }
-            }
-        }
-        return PersonEntity(isChild: isChild && !lowerHasOnlyAdultSubject(lower),
-                            colorName: color)
-    }
-
-    private static func lowerHasOnlyAdultSubject(_ lower: String) -> Bool {
-        false   // child words present → child silhouette (AMBER convention)
-    }
-
-    /// ~60 characters either side of a match — the "same breath" window.
-    private static func contextWindow(
-        _ text: String, around range: Range<String.Index>
-    ) -> String {
-        let start = text.index(range.lowerBound, offsetBy: -60,
-                               limitedBy: text.startIndex) ?? text.startIndex
-        let end = text.index(range.upperBound, offsetBy: 60,
-                             limitedBy: text.endIndex) ?? text.endIndex
-        return String(text[start..<end])
+        let p = flows_alert_text_person(text)
+        guard p.has else { return nil }
+        return PersonEntity(isChild: p.is_child,
+                            colorName: p.has_color ? colorNames[Int(p.color_index)] : nil)
     }
 }

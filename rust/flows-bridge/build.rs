@@ -16,6 +16,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const BRIDGES: &[&str] = &[
+    "src/alert_text.rs",
     "src/alerts.rs",
     "src/climate.rs",
     "src/forecast.rs",

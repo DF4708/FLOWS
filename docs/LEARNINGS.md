@@ -1629,3 +1629,21 @@ without a regression:
   keychain-sealed store. Compiled as it is, the oracle would have read the
   owner's real trail on this Mac. The harness stubs the store and drives a
   real instance, so the recording rule is observed without touching data.
+
+## Foundation's case-insensitive search, read out of the runtime
+
+- **It is not cluster-aligned.** It matched "FORD" followed by a zero-width
+  joiner, rejected "Toyota" followed by a combining accent, rejected "LGẞS"
+  for "LGS" and "fﬀt" for "ft", and ignored the per-scalar fold of the iota
+  subscript. The model that matched every record: decompose, fold each scalar
+  with the folds the search applies, match only on fold boundaries, reject
+  when the next raw scalar is a blocker. A grapheme-cluster model matched
+  3,995 of 4,000 random pairs and was still wrong.
+- **A probe can create the answer it tests.** `"a" + X + "b"` contains
+  `"ab"` was true only for X in {A, a, B, b}: the probe for skipped scalars
+  found its own letters. Probe with a needle the inserted scalar cannot
+  complete.
+- **Draft outside the tree while a gate runs.** The leftovers were built and
+  checked against every record in a scratch copy of flows-core, which has no
+  dependencies and so no compiler plugins to relink, while the previous
+  landing's gate held the tree.

@@ -24,8 +24,9 @@ import Foundation
 /// codes; speech recognition on it is imperfect; and a wrong red "medical"
 /// pin on a driver's map is worse than no pin at all. So nothing is plotted
 /// on a guess. An incident needs a recognizable KIND and a location the app
-/// can actually resolve, or it is dropped. Everything here is pure and
-/// pinned by FLOWSTests.
+/// can actually resolve, or it is dropped. Everything here is pure, computed
+/// in rust/flows-core (alert_text.rs) and pinned by FLOWSTests and by
+/// rust/flows-bridge/tests/fixtures/swift_alert_text_oracle.tsv.
 enum ScannerIncidents {
 
     /// What kind of call it is. Colours match the map legend's language:
@@ -72,74 +73,34 @@ enum ScannerIncidents {
 
         /// Phrases that mean this kind of call. Ordered most specific first
         /// inside each list; the matcher tries kinds in `matchOrder`.
-        var phrases: [String] {
-            switch self {
-            case .traffic:
-                // The plain words first: the list had every formal phrase
-                // and not one of "crash", "wreck" or "accident" on its own,
-                // so the most ordinary dispatch there is — "two vehicle
-                // crash on Highway 51" — was not a call at all.
-                return ["crash", "wreck", "accident", "rollover", "pileup",
-                        "pile up", "jackknifed", "overturned",
-                        "motor vehicle accident", "mva", "vehicle accident",
-                        "traffic collision", "ten fifty", "10-50",
-                        "car accident", "collision", "vehicle rollover",
-                        "hit and run", "vehicle versus"]
-            case .fire:
-                return ["structure fire", "working fire", "brush fire",
-                        "vehicle fire", "smoke showing", "fire alarm",
-                        "engine responding", "ladder responding",
-                        "fully involved", "grass fire"]
-            case .medical:
-                return ["cardiac arrest", "difficulty breathing", "medical call",
-                        "unresponsive", "chest pain", "overdose", "seizure",
-                        "ems responding", "medic", "ambulance", "injury",
-                        "unconscious"]
-            case .rescue:
-                return ["water rescue", "swift water", "extrication", "entrapment", "pin in", "pinned in",
-                        "trapped", "rescue squad", "entrapment",
-                        "person in the water"]
-            case .hazard:
-                return ["hazmat", "gas leak", "power line down", "wires down",
-                        "tree down", "spill", "roadway blocked",
-                        "road closed", "downed pole"]
-            case .police:
-                return ["shots fired", "in pursuit", "pursuit", "traffic stop",
-                        "suspicious vehicle", "burglary", "robbery",
-                        "domestic", "disturbance", "warrant", "signal 10",
-                        "officer", "units responding", "be on the lookout",
-                        "bolo", "subject"]
-            }
+        var phrases: [String] { flows_alert_text_phrases(rustCode).map { $0.text } }
+
+        /// The kind's position in `allCases`, the code alert_text.rs uses.
+        var rustCode: UInt8 { UInt8(Kind.allCases.firstIndex(of: self) ?? 0) }
+
+        init?(rustCode code: UInt8) {
+            guard Int(code) < Kind.allCases.count else { return nil }
+            self = Kind.allCases[Int(code)]
         }
     }
 
     /// Kinds tried in order — the specific before the general. A call that
     /// says "motor vehicle accident with injury" is a crash, not a medical;
     /// one that says "officer" AND "structure fire" is the fire.
-    static let matchOrder: [Kind] = [.traffic, .fire, .rescue, .hazard,
-                                     .medical, .police]
+    static let matchOrder: [Kind] = flows_alert_text_match_order().compactMap { Kind(rustCode: $0) }
 
     /// What kind of call this transcript describes, or nil when nothing in
     /// it is recognizable. Silence beats a guess.
     static func kind(inTranscript text: String) -> Kind? {
-        let hay = " " + text.lowercased() + " "
-        for kind in matchOrder where kind.phrases.contains(where: {
-            hay.contains(" " + $0) || hay.contains($0 + " ")
-        }) {
-            return kind
-        }
-        return nil
+        let code = flows_alert_text_call_kind(text)
+        return code < 0 ? nil : Kind(rustCode: UInt8(code))
     }
 
     // MARK: pulling a place out of the words
 
     /// Road-type words a dispatcher actually says. Used to find the tail of
     /// an address or a cross-street pair.
-    static let roadWords = ["street", "st", "avenue", "ave", "road", "rd",
-                            "drive", "dr", "boulevard", "blvd", "lane", "ln",
-                            "highway", "hwy", "parkway", "pkwy", "court", "ct",
-                            "place", "pl", "way", "trail", "terrace", "circle",
-                            "route", "interstate", "freeway", "turnpike"]
+    static let roadWords: [String] = flows_alert_text_road_words().map { $0.text }
 
     /// A place mentioned in a transcript, as text to be geocoded.
     ///
@@ -149,40 +110,8 @@ enum ScannerIncidents {
     /// is not a location this app can put a pin on, so it returns nil and
     /// the incident is dropped.
     static func placePhrase(inTranscript text: String) -> String? {
-        // Dispatch transcripts arrive with sentence punctuation attached to
-        // words ("Main Street." / "Highway 51,"), and "street." is not a
-        // road word. Strip it all to spaces first.
-        var cleaned = text.lowercased()
-        for p in [",", ".", ";", ":", "!", "?"] {
-            cleaned = cleaned.replacingOccurrences(of: p, with: " ")
-        }
-        let words = cleaned.split(separator: " ").map(String.init)
-        guard words.count >= 2 else { return nil }
-
-        // Cross streets: "<name> road and <name> road", "<name> and <name>".
-        for (i, w) in words.enumerated() where w == "and" || w == "at" {
-            guard i >= 2, i + 2 < words.count else { continue }
-            let left = Array(words[max(0, i - 3)..<i])
-            let right = Array(words[(i + 1)...min(words.count - 1, i + 3)])
-            guard left.contains(where: roadWords.contains),
-                  right.contains(where: roadWords.contains) else { continue }
-            return (left + ["and"] + right).joined(separator: " ")
-        }
-
-        // Street address: a number followed within a few words by a road word.
-        for (i, w) in words.enumerated() {
-            guard let n = Int(w), n > 0, n < 100_000 else { continue }
-            // A number as the LAST word — every partial transcript that
-            // stops on "…Highway 51" — made this range run backwards, and
-            // a backwards range is a fatal error, not nil. That took the
-            // whole app down on the first live partial that ended in a
-            // route number.
-            guard i + 1 < words.count else { continue }
-            let tail = words[(i + 1)...min(words.count - 1, i + 4)]
-            guard let end = tail.firstIndex(where: roadWords.contains) else { continue }
-            return words[i...end].joined(separator: " ")
-        }
-        return nil
+        let phrase = flows_alert_text_place_phrase(text).text
+        return phrase.isEmpty ? nil : phrase
     }
 
     // MARK: what gets drawn, and for how long
@@ -205,23 +134,18 @@ enum ScannerIncidents {
     /// a stale pin is a lie about where the police are. Fires and hazards
     /// last longer because the road stays affected longer.
     static func lifetime(for kind: Kind) -> TimeInterval {
-        switch kind {
-        case .police: return 12 * 60
-        case .medical: return 20 * 60
-        case .traffic: return 35 * 60
-        case .rescue: return 35 * 60
-        case .fire: return 45 * 60
-        case .hazard: return 60 * 60
-        }
+        flows_alert_text_lifetime_seconds(kind.rustCode)
     }
 
     static func isExpired(_ incident: Incident, now: Date = Date()) -> Bool {
-        now.timeIntervalSince(incident.heardAt) >= lifetime(for: incident.kind)
+        flows_alert_text_is_expired(incident.kind.rustCode,
+                                    incident.heardAt.timeIntervalSinceReferenceDate,
+                                    now.timeIntervalSinceReferenceDate)
     }
 
     /// How far from the driver an incident is worth drawing. Beyond this it
     /// is somebody else's town.
-    static let relevantMeters: Double = 25_000
+    static let relevantMeters: Double = flows_alert_text_pin_constants()[0]
 
     /// Keep only what is still live and still near the driver or the route
     /// corridor. `corridor` is a coarse sample of the route.
@@ -229,16 +153,30 @@ enum ScannerIncidents {
                         near position: CLLocationCoordinate2D?,
                         corridor: [CLLocationCoordinate2D] = [],
                         now: Date = Date()) -> [Incident] {
-        incidents.filter { incident in
-            guard !isExpired(incident, now: now) else { return false }
-            if let position,
-               POIRanking.meters(incident.coordinate, position) <= relevantMeters {
-                return true
-            }
-            return corridor.contains {
-                POIRanking.meters(incident.coordinate, $0) <= relevantMeters
+        guard !incidents.isEmpty else { return [] }
+        let kinds = incidents.map { $0.kind.rustCode }
+        let lats = incidents.map(\.coordinate.latitude), lons = incidents.map(\.coordinate.longitude)
+        let heard = incidents.map { $0.heardAt.timeIntervalSinceReferenceDate }
+        // An empty corridor crosses as one placeholder point its count ignores.
+        let cLats = corridor.isEmpty ? [0] : corridor.map(\.latitude)
+        let cLons = corridor.isEmpty ? [0] : corridor.map(\.longitude)
+        let kept = kinds.withUnsafeBufferPointer { k in
+            lats.withUnsafeBufferPointer { la in
+                lons.withUnsafeBufferPointer { lo in
+                    heard.withUnsafeBufferPointer { h in
+                        cLats.withUnsafeBufferPointer { cla in
+                            cLons.withUnsafeBufferPointer { clo in
+                                flows_alert_text_visible(k, la, lo, h, position != nil,
+                                                         position?.latitude ?? 0, position?.longitude ?? 0,
+                                                         cla, clo, Int64(corridor.count),
+                                                         now.timeIntervalSinceReferenceDate)
+                            }
+                        }
+                    }
+                }
             }
         }
+        return kept.map { incidents[Int($0)] }
     }
 
     /// Fold a new incident into a list, replacing an earlier report of the
@@ -246,13 +184,21 @@ enum ScannerIncidents {
     ///
     /// Dispatch repeats itself constantly — the same call is read out to
     /// several units — so without this a single crash becomes a cluster.
-    static let duplicateMeters: Double = 250
+    static let duplicateMeters: Double = flows_alert_text_pin_constants()[1]
 
     static func merged(_ existing: [Incident], adding new: Incident) -> [Incident] {
-        var out = existing.filter { prior in
-            !(prior.kind == new.kind
-              && POIRanking.meters(prior.coordinate, new.coordinate) <= duplicateMeters)
+        guard !existing.isEmpty else { return [new] }
+        let kinds = existing.map { $0.kind.rustCode }
+        let lats = existing.map(\.coordinate.latitude), lons = existing.map(\.coordinate.longitude)
+        let kept = kinds.withUnsafeBufferPointer { k in
+            lats.withUnsafeBufferPointer { la in
+                lons.withUnsafeBufferPointer { lo in
+                    flows_alert_text_merged_keep(k, la, lo, new.kind.rustCode,
+                                                 new.coordinate.latitude, new.coordinate.longitude)
+                }
+            }
         }
+        var out = kept.map { existing[Int($0)] }
         out.append(new)
         return out
     }

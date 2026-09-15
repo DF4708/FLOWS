@@ -42,8 +42,9 @@ pub(crate) mod tables;
 pub use number::{swift_double, swift_double_substring};
 
 use tables::{
-    CCC_RANGES, CCC_RANGES_STRIDE, GCB_RANGES, GCB_RANGES_STRIDE, LOWER_MAP, LOWER_MAP_STRIDE,
-    NFD_MAP, NFD_MAP_STRIDE, NUMBER_RANGES, NUMBER_RANGES_STRIDE, UPPER_MAP, UPPER_MAP_STRIDE,
+    CCC_RANGES, CCC_RANGES_STRIDE, CI_AFTER_BLOCKER_RANGES, CI_AFTER_BLOCKER_RANGES_STRIDE,
+    FOLD_MAP, FOLD_MAP_STRIDE, GCB_RANGES, GCB_RANGES_STRIDE, LOWER_MAP, LOWER_MAP_STRIDE, NFD_MAP,
+    NFD_MAP_STRIDE, NUMBER_RANGES, NUMBER_RANGES_STRIDE, UPPER_MAP, UPPER_MAP_STRIDE,
     WHITESPACE_RANGES, WHITESPACE_RANGES_STRIDE, WORD_RANGES, WORD_RANGES_STRIDE,
 };
 
@@ -420,6 +421,13 @@ impl Bounds {
         }
     }
 
+    fn len(&self) -> usize {
+        match self {
+            Bounds::Narrow(v) => v.len(),
+            Bounds::Wide(v) => v.len(),
+        }
+    }
+
     fn get(&self, k: usize) -> usize {
         match self {
             Bounds::Narrow(v) => v[k] as usize,
@@ -728,6 +736,166 @@ pub fn is_whitespace_or_newline(c: char) -> bool {
 #[must_use]
 pub fn trim_whitespace_newlines(text: &str) -> &str {
     text.trim_matches(is_whitespace_or_newline)
+}
+
+// ------------------------------------------------------ case-insensitive search
+
+/// Foundation's case folding of one scalar (`folding(options:
+/// .caseInsensitive)` in the en_US locale, as the runtime answered it); a
+/// scalar absent from the table folds to itself.
+pub fn fold_scalar(c: char, out: &mut Vec<char>) {
+    match map_entry(FOLD_MAP, FOLD_MAP_STRIDE, c as u32) {
+        Some(row) => out.extend(
+            row[1..]
+                .iter()
+                .filter(|&&v| v != 0)
+                .filter_map(|&v| char::from_u32(v)),
+        ),
+        None => out.push(c),
+    }
+}
+
+/// A text's canonical caseless form: decomposed, folded scalar by scalar,
+/// then decomposed and canonically ordered again.
+#[must_use]
+pub fn caseless(text: &str) -> Vec<char> {
+    let mut folded = Vec::with_capacity(text.len());
+    for c in nfd(text) {
+        fold_scalar(c, &mut folded);
+    }
+    let folded: String = folded.into_iter().collect();
+    nfd(&folded)
+}
+
+/// Whether a case-insensitive match may not end just before this scalar.
+#[must_use]
+pub fn blocks_match_end(c: char) -> bool {
+    range_entry(
+        CI_AFTER_BLOCKER_RANGES,
+        CI_AFTER_BLOCKER_RANGES_STRIDE,
+        c as u32,
+    )
+    .is_some()
+}
+
+/// Foundation's `localizedCaseInsensitiveContains` (en_US) for needles of
+/// ASCII characters, the brand names the alert badge searches for. Both texts
+/// are decomposed; each scalar is folded as the search folds it (ß to "ss",
+/// ligatures to their letters). A match is a run of folded units equal to
+/// the needle's that begins where a scalar's fold begins and ends where one
+/// ends — never inside "ss" from ß — and whose next scalar, before folding,
+/// does not block a match's end (combining marks, mostly; a joiner does
+/// not). It need not start on a cluster boundary. An empty needle is never
+/// contained. Needles outside ASCII follow further rules this port does not
+/// carry.
+#[must_use]
+pub fn contains_case_insensitive(hay: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let mut target = Vec::new();
+    for c in nfd(needle) {
+        fold_scalar(c, &mut target);
+    }
+    if target.is_empty() {
+        return false;
+    }
+    let scalars = nfd(hay);
+    // (unit, source scalar, first unit of its fold, last unit of its fold)
+    let mut units: Vec<(char, usize, bool, bool)> = Vec::with_capacity(scalars.len());
+    let mut fold = Vec::new();
+    for (i, &c) in scalars.iter().enumerate() {
+        fold.clear();
+        fold_scalar(c, &mut fold);
+        let n = fold.len();
+        units.extend(
+            fold.iter()
+                .enumerate()
+                .map(|(k, &u)| (u, i, k == 0, k + 1 == n)),
+        );
+    }
+    if target.len() > units.len() {
+        return false;
+    }
+    (0..=units.len() - target.len()).any(|s| {
+        let e = s + target.len();
+        units[s].2
+            && units[e - 1].3
+            && units[s..e].iter().map(|u| u.0).eq(target.iter().copied())
+            && scalars
+                .get(units[e - 1].1 + 1)
+                .is_none_or(|&c| !blocks_match_end(c))
+    })
+}
+
+// ------------------------------------------------------ splitting and numbers
+
+/// Swift's `split(separator: " ")` on a `String`: the pieces between
+/// clusters that are a lone space, empty pieces dropped. A space carrying a
+/// combining mark is a cluster of its own, not a separator; no-break spaces
+/// and tabs do not separate.
+#[must_use]
+pub fn split_spaces(text: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut pos = 0;
+    for cluster in graphemes(text) {
+        if cluster == " " {
+            if pos > start {
+                out.push(&text[start..pos]);
+            }
+            start = pos + 1;
+        }
+        pos += cluster.len();
+    }
+    if pos > start {
+        out.push(&text[start..pos]);
+    }
+    out
+}
+
+/// Swift's `Int(_ text: String)`: an optional `+` or `-`, then ASCII digits
+/// only, in `Int` range; `None` for anything else, spaces included.
+#[must_use]
+pub fn parse_swift_int(text: &str) -> Option<i64> {
+    let bytes = text.as_bytes();
+    let (negative, digits) = match bytes.first()? {
+        b'+' => (false, &bytes[1..]),
+        b'-' => (true, &bytes[1..]),
+        _ => (false, bytes),
+    };
+    if digits.is_empty() {
+        return None;
+    }
+    let mut value: i64 = 0;
+    for &b in digits {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        let digit = i64::from(b - b'0');
+        value = value.checked_mul(10)?;
+        value = if negative {
+            value.checked_sub(digit)?
+        } else {
+            value.checked_add(digit)?
+        };
+    }
+    Some(value)
+}
+
+/// `text[text.index(lo, offsetBy: -before, limitedBy: start) ?? start ..<
+/// text.index(hi, offsetBy: after, limitedBy: end) ?? end]`: the clusters
+/// around a cluster-aligned range, clamped at the ends. A range that is not
+/// cluster-aligned answers the range itself.
+#[must_use]
+pub fn cluster_window(text: &str, lo: usize, hi: usize, before: usize, after: usize) -> &str {
+    let bounds = Bounds::of(text);
+    let (Some(a), Some(b)) = (bounds.position(lo), bounds.position(hi)) else {
+        return text.get(lo..hi).unwrap_or("");
+    };
+    let start = bounds.get(a.saturating_sub(before));
+    let end = bounds.get(b.saturating_add(after).min(bounds.len() - 1));
+    &text[start..end]
 }
 
 #[cfg(test)]
