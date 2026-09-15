@@ -850,10 +850,10 @@ per call for nothing. The twins wait for their callers.
 **Trip and vehicle** (`flows-core::trip_vehicle`, 8,704-record oracle, bit-exact;
 `flows-bridge::trip_vehicle`, 58 functions and three shared structs). Trip
 costs and needs, the crash-detection decisions, the vehicle spec table and
-profile math, EPA class specs. The bridge lands one step ahead of its Swift
-callers — the oracle test is its caller for now — and the facade switch for
-`TripCosts`, `TripNeeds`, `CrashLogic`, `VehicleSpecs`, `VehicleProfile` and
-`EPAVehicleDatabase` is the next step in this group. The nine `!(a > b)`
+profile math, EPA class specs. The bridge landed one step ahead of its Swift
+callers; the facade switch for `TripCosts`, `TripNeeds`, `CrashLogic`,
+`VehicleSpecs`, `VehicleProfile` and `EPAVehicleDatabase` followed the same
+day (see "the trip and vehicle facades switch" below). The nine `!(a > b)`
 tests the port used for NaN parity are written as `a <= b || a.is_nan()`:
 the same predicate, with the NaN case visible.
 
@@ -1061,6 +1061,24 @@ the test pins that count. The FLHH writer emits ASCII only.
 
 The bridge module stays the reserved stub; the five Swift files switch with
 their callers.
+
+## Wave 1: the trip and vehicle facades switch (2026-09-15)
+
+The trip/vehicle bridge landed a step ahead of its callers; the six Swift
+files now call it. `TripCosts`, `TripNeeds`, `CrashLogic` with `HOSRules`,
+`VehicleSpecs`, `VehicleProfile` with `VehicleStore`, and `EPAClassSpecs`
+hold no threshold, factor, table row or formula: the curated vehicle table
+(three parallel lists, ten numbers a row) is read from Rust once at first
+use, the crash and hours-of-service decisions cross with their windows, the
+range model crosses a nil city/highway split as a value plus a flag, and the
+schedule comes back as `[mile, code, …]` pairs decoded by the one place Swift
+spells the bridge's fuel and need codes (an extension in `TripCosts.swift`,
+which `TowingLimits` now uses too). What stays is presentation and state:
+`Need.symbol`, the emergency message and its formatter, the check-in
+cadence, `displayName`, the persisted profile and the store's `UserDefaults`.
+Two guards keep swift-bridge's rule that an empty buffer never crosses: an
+empty impact window is no impact, and an empty schedule has no next stop —
+both the Swift's own answers.
 
 ### Remaining wave-1 groups
 

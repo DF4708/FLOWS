@@ -12,11 +12,14 @@ import Foundation
 /// mileage cadences (fuel per powertrain, food, rest), scheduled up front for
 /// the whole trip and surfaced one at a time while driving.
 ///
-/// Pure functions — the canonical scenario (Mexico → Canada hybrid van:
-/// diesel every 350 mi, electric charge every 500 mi, food every 100 mi with
-/// a random cuisine, rest every 200 mi) is pinned by FLOWSTests.
+/// The schedule, the next-stop search and the ETA adjustment are computed in
+/// rust/flows-core (trip_vehicle.rs) and called through rust/flows-bridge,
+/// pinned bit for bit — seeded food draws included — to the Swift this
+/// replaced by rust/flows-bridge/tests/fixtures/swift_trip_vehicle_oracle.tsv.
+/// The canonical scenario (Mexico → Canada hybrid van: diesel every 350 mi,
+/// electric charge every 500 mi, food every 100 mi with a random cuisine, rest
+/// every 200 mi) is pinned by FLOWSTests.
 enum TripNeeds {
-
     /// One recurring need with its mileage cadence.
     enum Need: Equatable, Hashable {
         case fuel(FuelType)
@@ -25,13 +28,29 @@ enum TripNeeds {
         // (The Need → POIService.Kind mapping lives in POIService.swift so
         // this file stays UI-framework-free for the headless test target.)
 
-        var label: String {
+        /// The bridge's need code: a fuel code, 10 + food category, 20 for rest.
+        var rustCode: UInt8 {
             switch self {
-            case .fuel(let type): return type.rawValue
-            case .food(let category): return "Food · \(category.rawValue)"
-            case .rest: return "Rest"
+            case .fuel(let type): return type.rustCode
+            case .food(let category): return 10 + category.rustCode
+            case .rest: return 20
             }
         }
+
+        init?(rustCode code: UInt8) {
+            if code == 20 {
+                self = .rest
+            } else if code >= 10 {
+                guard let category = FoodCategory(rustCode: code - 10) else { return nil }
+                self = .food(category)
+            } else {
+                guard let type = FuelType(rustCode: code) else { return nil }
+                self = .fuel(type)
+            }
+        }
+
+        /// The stop's label, as the schedule orders it.
+        var label: String { flows_trip_vehicle_need_label(rustCode).toString() }
 
         var symbol: String {
             switch self {
@@ -65,53 +84,50 @@ enum TripNeeds {
     /// from a SEEDED generator so the "random category" requirement stays
     /// deterministic under test (and per planned trip).
     static func schedule(totalMiles: Double, intervals: Intervals, seed: UInt64 = 0) -> [Event] {
-        guard totalMiles > 0 else { return [] }
+        // Cadences cross in the bridge's order — gas, diesel, electric, food,
+        // rest — with NaN for a nil cadence (Swift skipped nil and NaN alike).
+        let cadences: [Double] = [
+            intervals.gasMiles ?? .nan, intervals.dieselMiles ?? .nan, intervals.electricMiles ?? .nan,
+            intervals.foodMiles ?? .nan, intervals.restMiles ?? .nan,
+        ]
+        // [mile, code, mile, code, …]
+        let flat = cadences.withUnsafeBufferPointer { flows_trip_vehicle_schedule(totalMiles, $0, seed) }
         var events: [Event] = []
-        func unroll(every interval: Double?, _ need: (Int) -> Need) {
-            guard let interval, interval > 0 else { return }
-            var mile = interval
-            var n = 0
-            while mile < totalMiles {
-                events.append(Event(mile: mile, need: need(n)))
-                mile += interval
-                n += 1
+        events.reserveCapacity(flat.len() / 2)
+        var i = 0
+        while i + 1 < flat.len() {
+            if let code = UInt8(exactly: flat[i + 1]), let need = Need(rustCode: code) {
+                events.append(Event(mile: flat[i], need: need))
             }
+            i += 2
         }
-        unroll(every: intervals.gasMiles) { _ in .fuel(.gas) }
-        unroll(every: intervals.dieselMiles) { _ in .fuel(.diesel) }
-        unroll(every: intervals.electricMiles) { _ in .fuel(.electric) }
-        var rng = SplitMix64(seed: seed)
-        unroll(every: intervals.foodMiles) { _ in
-            .food(FoodCategory.allCases[Int(rng.next() % UInt64(FoodCategory.allCases.count))])
-        }
-        unroll(every: intervals.restMiles) { _ in .rest }
-        return events.sorted {
-            $0.mile != $1.mile ? $0.mile < $1.mile : $0.need.label < $1.need.label
-        }
+        return events
     }
 
     /// The next scheduled stop strictly ahead of the given odometer mile.
     static func next(after mile: Double, in schedule: [Event]) -> Event? {
-        schedule.first { $0.mile > mile }
+        // Nothing scheduled: nothing to find (and an empty buffer never crosses).
+        guard !schedule.isEmpty else { return nil }
+        let miles = schedule.map(\.mile)
+        let position = miles.withUnsafeBufferPointer { flows_trip_vehicle_next_need_index(mile, $0) }
+        guard position >= 0, Int(position) < schedule.count else { return nil }
+        return schedule[Int(position)]
     }
 
     /// ETA with unplanned stopped time folded in — e.g. sheltering from a
     /// storm for an hour pushes arrival out by that hour.
     static func adjustedRemainingSeconds(baseline: Double, stopDelaySeconds: Double) -> Double {
-        baseline + max(stopDelaySeconds, 0)
+        flows_trip_vehicle_adjusted_remaining_seconds(baseline, stopDelaySeconds)
     }
 
-    /// Deterministic 64-bit generator (SplitMix64) — no Foundation RNG so the
-    /// food-category draw replays identically for a given trip seed.
+    /// Deterministic 64-bit generator (SplitMix64) — the food-category draw
+    /// replays identically for a given trip seed. The steps are Rust's.
     struct SplitMix64 {
         private var state: UInt64
-        init(seed: UInt64) { state = seed &+ 0x9E37_79B9_7F4A_7C15 }
+        init(seed: UInt64) { state = flows_trip_vehicle_splitmix64_initial_state(seed) }
         mutating func next() -> UInt64 {
-            state = state &+ 0x9E37_79B9_7F4A_7C15
-            var z = state
-            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-            return z ^ (z >> 31)
+            state = flows_trip_vehicle_splitmix64_advance(state)
+            return flows_trip_vehicle_splitmix64_mix(state)
         }
     }
 }

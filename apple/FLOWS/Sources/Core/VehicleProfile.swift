@@ -14,6 +14,12 @@ import Foundation
 /// idling fraction): sustained speed above ~55 mph costs ~1.2%/mph to
 /// aerodynamic drag, and idling burns fuel with zero miles. Pure math,
 /// pinned by FLOWSTests.
+///
+/// The range and economy math lives in rust/flows-core (trip_vehicle.rs) and
+/// is called through rust/flows-bridge — a nil city/highway split crosses as
+/// a value plus a `has` flag — pinned bit for bit to the Swift this replaced
+/// by rust/flows-bridge/tests/fixtures/swift_trip_vehicle_oracle.tsv. The
+/// persisted fields, `displayName` and the store stay here.
 struct VehicleProfile: Codable, Equatable {
     var make: String
     var model: String
@@ -46,15 +52,15 @@ struct VehicleProfile: Codable, Equatable {
     }
 
     /// Full-tank range at rated economy, before habit adjustments.
-    var ratedRangeMiles: Double { tankCapacityUnits * ratedMilesPerUnit }
+    var ratedRangeMiles: Double {
+        flows_trip_vehicle_rated_range_miles(tankCapacityUnits, ratedMilesPerUnit)
+    }
 
     /// Habit multiplier on economy: 1.0 at or below 55 mph with no idling;
     /// −1.2% per mph above 55 (drag), and idling time is pure loss (an hour
     /// stopped with the engine running moves nothing). Clamped to [0.5, 1].
     static func efficiencyFactor(averageSpeedMph: Double, idleFraction: Double) -> Double {
-        let speedPenalty = max(averageSpeedMph - 55, 0) * 0.012
-        let idlePenalty = min(max(idleFraction, 0), 1) * 0.5
-        return min(max(1 - speedPenalty - idlePenalty, 0.5), 1)
+        flows_trip_vehicle_efficiency_factor(averageSpeedMph, idleFraction)
     }
 
     /// Speed-aware economy when the spec table supplied a city/highway
@@ -62,19 +68,10 @@ struct VehicleProfile: Codable, Equatable {
     /// 30–55, highway at 55–65, then the −1.2%/mph drag penalty past 65.
     /// Falls back to the flat rated number for hand-entered vehicles.
     func milesPerUnit(atSpeedMph mph: Double) -> Double {
-        guard let city = cityMilesPerUnit, let highway = highwayMilesPerUnit else {
-            return ratedMilesPerUnit
-        }
-        switch mph {
-        case ..<30:
-            return city
-        case ..<55:
-            return city + (highway - city) * (mph - 30) / 25
-        case ..<65:
-            return highway
-        default:
-            return max(highway * (1 - (mph - 65) * 0.012), highway * 0.6)
-        }
+        flows_trip_vehicle_miles_per_unit_at_speed(
+            tankCapacityUnits, ratedMilesPerUnit,
+            cityMilesPerUnit ?? 0, cityMilesPerUnit != nil,
+            highwayMilesPerUnit ?? 0, highwayMilesPerUnit != nil, mph)
     }
 
     /// The tank's effective range at the given habits: the city/highway
@@ -82,40 +79,43 @@ struct VehicleProfile: Codable, Equatable {
     /// factor then only charges what the split doesn't (idling; drag past
     /// 55 for flat-rated vehicles).
     func effectiveRangeMiles(averageSpeedMph: Double, idleFraction: Double) -> Double {
-        if cityMilesPerUnit != nil {
-            let idleFactor = min(max(1 - min(max(idleFraction, 0), 1) * 0.5, 0.5), 1)
-            return tankCapacityUnits * milesPerUnit(atSpeedMph: averageSpeedMph) * idleFactor
-        }
-        return ratedRangeMiles
-            * Self.efficiencyFactor(averageSpeedMph: averageSpeedMph, idleFraction: idleFraction)
+        flows_trip_vehicle_effective_range_miles(
+            tankCapacityUnits, ratedMilesPerUnit,
+            cityMilesPerUnit ?? 0, cityMilesPerUnit != nil,
+            highwayMilesPerUnit ?? 0, highwayMilesPerUnit != nil,
+            averageSpeedMph, idleFraction)
     }
 
     /// Fraction of a tank left after `milesSinceFill` at the given habits.
     func fuelFractionAfter(
         milesSinceFill: Double, averageSpeedMph: Double, idleFraction: Double
     ) -> Double {
-        let range = effectiveRangeMiles(averageSpeedMph: averageSpeedMph,
-                                        idleFraction: idleFraction)
-        guard range > 0 else { return 0 }
-        return min(max(1 - milesSinceFill / range, 0), 1)
+        flows_trip_vehicle_fuel_fraction_after(
+            tankCapacityUnits, ratedMilesPerUnit,
+            cityMilesPerUnit ?? 0, cityMilesPerUnit != nil,
+            highwayMilesPerUnit ?? 0, highwayMilesPerUnit != nil,
+            milesSinceFill, averageSpeedMph, idleFraction)
     }
 
     /// Miles of driving left in the tank at the given habits.
     func expectedRangeMiles(
         milesSinceFill: Double, averageSpeedMph: Double, idleFraction: Double
     ) -> Double {
-        max(effectiveRangeMiles(averageSpeedMph: averageSpeedMph,
-                                idleFraction: idleFraction) - milesSinceFill, 0)
+        flows_trip_vehicle_expected_range_miles(
+            tankCapacityUnits, ratedMilesPerUnit,
+            cityMilesPerUnit ?? 0, cityMilesPerUnit != nil,
+            highwayMilesPerUnit ?? 0, highwayMilesPerUnit != nil,
+            milesSinceFill, averageSpeedMph, idleFraction)
     }
 
     /// Keep a safety reserve: recommend fueling when remaining range minus
     /// the reserve no longer comfortably covers the next opportunity.
-    static let reserveMiles: Double = 40
+    static let reserveMiles: Double = flows_trip_vehicle_reserve_miles()
 
     static func shouldRecommendFuel(
         rangeRemainingMiles: Double, milesToNextStation: Double, reserveMiles: Double = reserveMiles
     ) -> Bool {
-        rangeRemainingMiles - reserveMiles <= milesToNextStation
+        flows_trip_vehicle_should_recommend_fuel(rangeRemainingMiles, milesToNextStation, reserveMiles)
     }
 }
 
@@ -151,10 +151,9 @@ final class VehicleStore: ObservableObject {
 
     /// Resume the learned speed/idle shape (called once at startup).
     func restoreDriving(averageSpeedMph: Double, idleFraction: Double) {
-        guard averageSpeedMph.isFinite, averageSpeedMph > 0,
-              idleFraction.isFinite else { return }
+        guard flows_trip_vehicle_restore_driving_accepts(averageSpeedMph, idleFraction) else { return }
         self.averageSpeedMph = averageSpeedMph
-        self.idleFraction = min(max(idleFraction, 0), 1)
+        self.idleFraction = flows_trip_vehicle_restore_driving_idle(idleFraction)
     }
 
     /// TOWING: separate consumption pattern — the multiplier applies at
@@ -222,23 +221,15 @@ final class VehicleStore: ObservableObject {
     /// Feed one GPS fix: accumulate tank consumption and update habit averages.
     func recordFix(speedMps: Double, deltaMeters: Double) {
         // `milesSinceFill` tracks tank ENERGY consumed, in normal-mile
-        // equivalents — a mile driven while towing burns 1/towingEconomyFactor
-        // (≈1.33) normal-miles of range, so it must be charged at the economy
-        // in force WHEN it was driven. The old code added raw miles and applied
-        // the towing factor to the whole remaining range, which re-discounted
-        // already-consumed miles and OVER-estimated remaining range while towing.
-        let miles = max(deltaMeters, 0) / 1609.344
-        milesSinceFill += towingActive ? miles / TowingLimits.towingEconomyFactor : miles
-        let mph = max(speedMps, 0) * 2.236936
-        // Time constant = 1/alpha samples: 0.0003 at 1 Hz ≈ 55 min — the
-        // documented "last hour". The old 0.02 was a ~50 SECOND window, so a
-        // single stoplight drove idleFraction to ~0.9 and halved the
-        // predicted range while parked.
-        let alpha = 0.0003
-        if mph > 1 {
-            averageSpeedMph = averageSpeedMph * (1 - alpha) + mph * alpha
-        }
-        idleFraction = idleFraction * (1 - alpha) + (mph <= 1 ? 1 : 0) * alpha
+        // equivalents: a mile driven while towing is charged at the towing
+        // economy WHEN it was driven. The habit averages decay over ~55 min
+        // (alpha 0.0003 at 1 Hz). All of it is computed in Rust.
+        let habits = flows_trip_vehicle_record_fix(
+            milesSinceFill, averageSpeedMph, idleFraction,
+            speedMps, deltaMeters, towingActive, TowingLimits.towingEconomyFactor)
+        milesSinceFill = habits.miles_since_fill
+        averageSpeedMph = habits.average_speed_mph
+        idleFraction = habits.idle_fraction
     }
 
     /// The driver filled the tank (arriving at a gas stop, or told us so).
@@ -248,17 +239,16 @@ final class VehicleStore: ObservableObject {
 
     var expectedRangeMiles: Double? {
         guard let profile else { return nil }
-        // Real telemetry (OEM API / OBD reader) wins over the odometer model.
-        if let fraction = telemetry().fuelFraction {
-            let full = profile.effectiveRangeMiles(
-                averageSpeedMph: averageSpeedMph, idleFraction: idleFraction)
-            return full * min(max(fraction, 0), 1)
-                * (towingActive ? TowingLimits.towingEconomyFactor : 1)
-        }
-        return profile.expectedRangeMiles(
-            milesSinceFill: milesSinceFill,
-            averageSpeedMph: averageSpeedMph, idleFraction: idleFraction)
-            * (towingActive ? TowingLimits.towingEconomyFactor : 1)
+        // Real telemetry (OEM API / OBD reader) wins over the odometer model;
+        // the towing multiplier applies at read time either way.
+        let fraction = telemetry().fuelFraction
+        return flows_trip_vehicle_store_expected_range_miles(
+            profile.tankCapacityUnits, profile.ratedMilesPerUnit,
+            profile.cityMilesPerUnit ?? 0, profile.cityMilesPerUnit != nil,
+            profile.highwayMilesPerUnit ?? 0, profile.highwayMilesPerUnit != nil,
+            milesSinceFill, averageSpeedMph, idleFraction,
+            fraction ?? 0, fraction != nil,
+            towingActive, TowingLimits.towingEconomyFactor)
     }
 
     private func persistProfile() {

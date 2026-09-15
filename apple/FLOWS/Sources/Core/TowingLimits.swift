@@ -50,14 +50,8 @@ enum TowingLimits {
     /// but not weights). Best-effort industry-typical numbers per size class —
     /// always labeled "estimated" in the UI, never presented as published.
     static func estimatedRatings(heightFeet: Double, fuelType: FuelType) -> Ratings {
-        let fuelCode: UInt8
-        switch fuelType {
-        case .gas: fuelCode = 0
-        case .diesel: fuelCode = 1
-        case .electric: fuelCode = 2
-        }
         // [gvwr, tow, gcwr, estimated], NaN for an absent rating.
-        let slots = flows_vehicle_policy_towing_estimated_ratings(heightFeet, fuelCode)
+        let slots = flows_vehicle_policy_towing_estimated_ratings(heightFeet, fuelType.rustCode)
         guard slots.len() == 4 else {
             return Ratings(gvwrLbs: nil, towCapacityLbs: nil, gcwrLbs: nil, estimated: true)
         }
