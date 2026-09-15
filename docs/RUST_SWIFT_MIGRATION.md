@@ -1119,11 +1119,39 @@ rank; no answers: accuracy 0), which is the Swift's own answer in each case.
 One answer the Swift never gave: a router estimate that is not a number made
 `predictedDelayMinutes` crash; the facade reports no delay.
 
+## Wave 1: the seasonal model's facades switch (2026-09-15)
+
+`flows-bridge::seasonal` exposes the seasonal core (53 functions), and
+`SeasonalRiskModel.swift` with `RouteHeadTrainer.swift` call it. The store
+keeps its dictionaries, its persistence and its calendar, and recomposes the
+pure pieces the way the oracle does: a week cell decays and folds through
+the bridge; the prior takes its three week cells with presence flags; both
+evictions take the store's own iteration order and answer positions; the
+learned home takes seven numbers an entry; training rows take eleven a cell
+and come back eight a row. The learned head crosses flat — hidden count,
+biases, output weights, row widths, rows — with the input in front of it
+for a prediction, so a head with no hidden units and an empty input still
+cross as one non-empty buffer; the fine-tune answers the tuned head the same
+way with the sample count in front, or nothing. Training rows cross as
+sixteen numbers each, a value and a presence flag per column, because a
+present NaN and an absent column mean different things to the Swift they
+replace. The frozen 8-feature vector, the week of year, the head choice,
+the tune gates and the ranking blend are bridge calls; the private
+haversine is gone with them.
+
+One answer the Swift never gave: a coordinate that is not a number crashed
+the route and edge keys; the facades answer cell 0.
+
+With this, every wave-1 core that has landed is in use by the app: risk,
+alerts, vehicle policy (five of seven files), trip and vehicle, climate,
+the learned models and the seasonal model. Geo waits for its compute
+callers by design.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
 |---|---|---|
-| seasonal | LANDED: core + oracle test (3,163 records, bit-exact); bridge is the reserved stub | switch `SeasonalRiskModel`/`RouteHeadTrainer` to the bridge with their callers |
+| seasonal | LANDED: core + oracle (3,163 records) + bridge (53 functions) + both facades switched | `SeasonalStore.totalTrips` (a sum) stays in Swift |
 | learning | LANDED: core + oracle (10,673 records) + bridge (72 functions) + seven facades switched | `EverydayStore.miles` (a haversine) still in Swift, with the geo facade |
 | vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records, bit-exact) + five facades switched (SpeedLaw, SpeedSign, TowingLimits, FilterLimits, PursuitReach) | switch GradeProfile and DriveEfficiency with their callers |
 | climate | LANDED: core + oracle (13,447 records) + bridge (36 functions, one opaque table type) + five facades switched | — |

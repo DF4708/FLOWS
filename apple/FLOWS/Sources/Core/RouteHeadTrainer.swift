@@ -31,7 +31,21 @@ import Foundation
 /// weights themselves, instead of a comment describing an intent the code
 /// did not implement — and it retires the old `rows`-count head selection,
 /// which could never pick a device head against a 1,164,376-row baseline.
+///
+/// The gradient descent itself is computed in rust/flows-core (seasonal.rs)
+/// and called through rust/flows-bridge; heads cross flat and rows as
+/// sixteen numbers each (a value and a presence flag per column). Pinned bit
+/// for bit to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_seasonal_oracle.tsv.
 enum RouteHeadTrainer {
+    /// The bridge's row form: each of the eight columns as its value and a
+    /// presence flag, because a present NaN and an absent column mean
+    /// different things.
+    private static let columns = ["oLat", "oLon", "dLat", "dLon", "week", "target", "weight", "crossCountry"]
+    private static func flatRows(_ rows: [[String: Double]]) -> [Double] {
+        rows.flatMap { r in columns.flatMap { [r[$0] ?? 0, r[$0] == nil ? 0 : 1] } }
+    }
+
 
     /// Fine-tune `base` on the driver's rows. Pure and deterministic — same
     /// inputs, same weights out — so it is unit-testable without a device.
@@ -46,84 +60,24 @@ enum RouteHeadTrainer {
     static func fineTune(
         base: LearnedHead,
         rows: [[String: Double]],
-        epochs: Int = 60,
-        learningRate: Double = 0.01,
-        anchor: Double = 0.02
+        epochs: Int = Int(flows_seasonal_tune_epochs()),
+        learningRate: Double = flows_seasonal_tune_learning_rate(),
+        anchor: Double = flows_seasonal_tune_anchor()
     ) -> LearnedHead? {
-        let width = base.inputWidth
-        guard width == RouteFeatures.count, base.b1.count == base.w1.count,
-              base.w2.count == base.w1.count, !rows.isEmpty else { return nil }
-
-        // Materialize (x, y, weight) once — parsing dictionaries inside the
-        // epoch loop would dominate the arithmetic.
-        var samples: [(x: [Double], y: Double, w: Double)] = []
-        samples.reserveCapacity(rows.count)
-        for r in rows {
-            guard let target = r["target"], target.isFinite else { continue }
-            let x = RouteFeatures.vector(
-                oLat: r["oLat"] ?? 0, oLon: r["oLon"] ?? 0,
-                dLat: r["dLat"] ?? 0, dLon: r["dLon"] ?? 0,
-                week: Int(r["week"] ?? 0), crossCountry: (r["crossCountry"] ?? 0) > 0.5)
-            guard x.count == width else { continue }
-            samples.append((x, min(max(target, 0), 1), max(r["weight"] ?? 1, 0)))
+        // No rows is no tune (and an empty buffer never crosses).
+        guard !rows.isEmpty else { return nil }
+        let head = base.bridgeFlat, flat = flatRows(rows)
+        // The tuned head comes back flat with the sample count in front;
+        // empty for "no tune" (a stale width, no finite target, a result
+        // that is not finite).
+        let out = head.withUnsafeBufferPointer { h in
+            flat.withUnsafeBufferPointer { r in flows_seasonal_fine_tune(h, r, Int64(epochs), learningRate, anchor) }
         }
-        guard !samples.isEmpty else { return nil }
-
-        let baseW1 = base.w1, baseB1 = base.b1, baseW2 = base.w2, baseB2 = base.b2
-        var w1 = baseW1, b1 = baseB1, w2 = baseW2, b2 = baseB2
-        let hidden = w1.count
-
-        for _ in 0..<epochs {
-            // Full-batch gradients: the row count is small and full batch is
-            // deterministic (no shuffle seed to carry).
-            var gw1 = [[Double]](repeating: [Double](repeating: 0, count: width), count: hidden)
-            var gb1 = [Double](repeating: 0, count: hidden)
-            var gw2 = [Double](repeating: 0, count: hidden)
-            var gb2 = 0.0
-            var totalWeight = 0.0
-
-            for s in samples {
-                // Forward: ReLU hidden, sigmoid output (the Rust contract).
-                var h = [Double](repeating: 0, count: hidden)
-                var preOut = b2
-                for j in 0..<hidden {
-                    var acc = b1[j]
-                    let row = w1[j]
-                    for k in 0..<width { acc += row[k] * s.x[k] }
-                    h[j] = max(acc, 0)
-                    preOut += w2[j] * h[j]
-                }
-                let out = 1 / (1 + exp(-preOut))
-                // dMSE/dPreOut for sigmoid + squared error.
-                let dOut = (out - s.y) * out * (1 - out) * s.w
-                totalWeight += s.w
-                gb2 += dOut
-                for j in 0..<hidden {
-                    gw2[j] += dOut * h[j]
-                    guard h[j] > 0 else { continue }   // ReLU gate
-                    let dHidden = dOut * w2[j]
-                    gb1[j] += dHidden
-                    for k in 0..<width { gw1[j][k] += dHidden * s.x[k] }
-                }
-            }
-
-            let scale = learningRate / max(totalWeight, 1)
-            b2 -= scale * gb2 + anchor * (b2 - baseB2)
-            for j in 0..<hidden {
-                w2[j] -= scale * gw2[j] + anchor * (w2[j] - baseW2[j])
-                b1[j] -= scale * gb1[j] + anchor * (b1[j] - baseB1[j])
-                for k in 0..<width {
-                    w1[j][k] -= scale * gw1[j][k] + anchor * (w1[j][k] - baseW1[j][k])
-                }
-            }
-        }
-
-        // A numerically broken fine-tune must never replace a good baseline.
-        guard w1.allSatisfy({ $0.allSatisfy(\.isFinite) }), b1.allSatisfy(\.isFinite),
-              w2.allSatisfy(\.isFinite), b2.isFinite else { return nil }
-
-        var tuned = LearnedHead(w1: w1, b1: b1, w2: w2, b2: b2, version: base.version)
-        tuned.rows = (base.rows ?? 0) + samples.count
+        let values = Array(out)
+        guard let samples = values.first.flatMap({ Int(exactly: $0) }),
+              let w = LearnedHead.weights(fromBridgeFlat: values.dropFirst()) else { return nil }
+        var tuned = LearnedHead(w1: w.w1, b1: w.b1, w2: w.w2, b2: w.b2, version: base.version)
+        tuned.rows = Int(flows_seasonal_tuned_rows(Int64(base.rows ?? 0), base.rows != nil, Int64(samples)))
         tuned.tunedOnDevice = true
         return tuned
     }
@@ -132,18 +86,9 @@ enum RouteHeadTrainer {
     /// that made things worse on the driver's own data (a guard against a
     /// pathological batch), and reportable in the health log.
     static func meanSquaredError(_ head: LearnedHead, rows: [[String: Double]]) -> Double? {
-        var total = 0.0
-        var n = 0.0
-        for r in rows {
-            guard let target = r["target"], target.isFinite else { continue }
-            let x = RouteFeatures.vector(
-                oLat: r["oLat"] ?? 0, oLon: r["oLon"] ?? 0,
-                dLat: r["dLat"] ?? 0, dLon: r["dLon"] ?? 0,
-                week: Int(r["week"] ?? 0), crossCountry: (r["crossCountry"] ?? 0) > 0.5)
-            let d = head.predict(x) - min(max(target, 0), 1)
-            total += d * d
-            n += 1
-        }
-        return n > 0 ? total / n : nil
+        guard !rows.isEmpty else { return nil }
+        let h = head.bridgeFlat, flat = flatRows(rows)
+        let r = h.withUnsafeBufferPointer { hp in flat.withUnsafeBufferPointer { rp in flows_seasonal_mean_squared_error(hp, rp) } }
+        return r.is_some == 1 ? r.value : nil
     }
 }

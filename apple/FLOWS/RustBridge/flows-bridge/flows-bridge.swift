@@ -1030,6 +1030,419 @@ public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) ->
 }
 
 
+public func flows_seasonal_cross_country_km() -> Double {
+    __swift_bridge__$flows_seasonal_cross_country_km()
+}
+public func flows_seasonal_local_trip_threshold() -> Int64 {
+    __swift_bridge__$flows_seasonal_local_trip_threshold()
+}
+public func flows_seasonal_cross_country_trip_threshold() -> Int64 {
+    __swift_bridge__$flows_seasonal_cross_country_trip_threshold()
+}
+public func flows_seasonal_min_week_samples_for_confidence() -> Double {
+    __swift_bridge__$flows_seasonal_min_week_samples_for_confidence()
+}
+public func flows_seasonal_decay_half_life_weeks() -> Double {
+    __swift_bridge__$flows_seasonal_decay_half_life_weeks()
+}
+public func flows_seasonal_home_min_trips() -> Int64 {
+    __swift_bridge__$flows_seasonal_home_min_trips()
+}
+public func flows_seasonal_max_edges() -> Int64 {
+    __swift_bridge__$flows_seasonal_max_edges()
+}
+public func flows_seasonal_max_origins() -> Int64 {
+    __swift_bridge__$flows_seasonal_max_origins()
+}
+public func flows_seasonal_origin_half_life_days() -> Double {
+    __swift_bridge__$flows_seasonal_origin_half_life_days()
+}
+public func flows_seasonal_relocation_margin() -> Double {
+    __swift_bridge__$flows_seasonal_relocation_margin()
+}
+public func flows_seasonal_relocation_min_days() -> Double {
+    __swift_bridge__$flows_seasonal_relocation_min_days()
+}
+public func flows_seasonal_route_feature_count() -> Int64 {
+    __swift_bridge__$flows_seasonal_route_feature_count()
+}
+public func flows_seasonal_tune_epochs() -> Int64 {
+    __swift_bridge__$flows_seasonal_tune_epochs()
+}
+public func flows_seasonal_tune_learning_rate() -> Double {
+    __swift_bridge__$flows_seasonal_tune_learning_rate()
+}
+public func flows_seasonal_tune_anchor() -> Double {
+    __swift_bridge__$flows_seasonal_tune_anchor()
+}
+public func flows_seasonal_tune_min_trips() -> Int64 {
+    __swift_bridge__$flows_seasonal_tune_min_trips()
+}
+public func flows_seasonal_tune_min_interval_seconds() -> Double {
+    __swift_bridge__$flows_seasonal_tune_min_interval_seconds()
+}
+public func flows_seasonal_tune_min_new_trips() -> Int64 {
+    __swift_bridge__$flows_seasonal_tune_min_new_trips()
+}
+public func flows_seasonal_week_stat_decayed(_ stat: FlowsSeasonalWeekStat, _ t: Double, _ half_life_weeks: Double) -> FlowsSeasonalWeekStat {
+    __swift_bridge__$flows_seasonal_week_stat_decayed(stat.intoFfiRepr(), t, half_life_weeks).intoSwiftRepr()
+}
+public func flows_seasonal_week_stat_added(_ stat: FlowsSeasonalWeekStat, _ observed: Double, _ predicted: Double, _ t: Double, _ half_life_weeks: Double) -> FlowsSeasonalWeekStat {
+    __swift_bridge__$flows_seasonal_week_stat_added(stat.intoFfiRepr(), observed, predicted, t, half_life_weeks).intoSwiftRepr()
+}
+public func flows_seasonal_mean_observed(_ w_sum: Double, _ w_observed: Double) -> Double {
+    __swift_bridge__$flows_seasonal_mean_observed(w_sum, w_observed)
+}
+public func flows_seasonal_is_modeled(_ trip_count: Int64, _ cross_country: Bool) -> Bool {
+    __swift_bridge__$flows_seasonal_is_modeled(trip_count, cross_country)
+}
+public func flows_seasonal_is_cross_country(_ distance_km: Double) -> Bool {
+    __swift_bridge__$flows_seasonal_is_cross_country(distance_km)
+}
+public func flows_seasonal_next_count(_ count: Int64) -> Int64 {
+    __swift_bridge__$flows_seasonal_next_count(count)
+}
+public func flows_seasonal_prior_week_keys(_ week: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_seasonal_prior_week_keys(week))
+}
+public func flows_seasonal_prior(_ trip_count: Int64, _ cross_country: Bool, _ week: Int64, _ cells: UnsafeBufferPointer<Double>, _ present: UnsafeBufferPointer<Double>, _ now: Double) -> FlowsSeasonalPrior {
+    __swift_bridge__$flows_seasonal_prior(trip_count, cross_country, week, cells.toFfiSlice(), present.toFfiSlice(), now).intoSwiftRepr()
+}
+public func flows_seasonal_accuracy(_ trip_count: Int64, _ stats: UnsafeBufferPointer<Double>, _ now: Double) -> FlowsSeasonalOptional {
+    __swift_bridge__$flows_seasonal_accuracy(trip_count, stats.toFfiSlice(), now).intoSwiftRepr()
+}
+public func flows_seasonal_mean_in_order(_ values: UnsafeBufferPointer<Double>) -> FlowsSeasonalOptional {
+    __swift_bridge__$flows_seasonal_mean_in_order(values.toFfiSlice()).intoSwiftRepr()
+}
+public func flows_seasonal_training_rows(_ cells: UnsafeBufferPointer<Double>, _ now: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_seasonal_training_rows(cells.toFfiSlice(), now))
+}
+public func flows_seasonal_route_cell(_ degrees: Double) -> FlowsSeasonalOptional {
+    __swift_bridge__$flows_seasonal_route_cell(degrees).intoSwiftRepr()
+}
+public func flows_seasonal_route_cell_degrees(_ cell: Int64) -> Double {
+    __swift_bridge__$flows_seasonal_route_cell_degrees(cell)
+}
+public func flows_seasonal_path_edge_keys(_ hubs: UnsafeBufferPointer<Double>) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_seasonal_path_edge_keys(hubs.toFfiSlice()))
+}
+public func flows_seasonal_origin_key(_ lat: Int64, _ lon: Int64) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_seasonal_origin_key(lat, lon))
+}
+public func flows_seasonal_parse_origin_key<GenericToRustStr: ToRustStr>(_ key: GenericToRustStr) -> FlowsSeasonalCell {
+    return key.toRustStr({ keyAsRustStr in
+        __swift_bridge__$flows_seasonal_parse_origin_key(keyAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_seasonal_origin_decayed(_ weighted: Double, _ last_seen: Double, _ now: Double) -> Double {
+    __swift_bridge__$flows_seasonal_origin_decayed(weighted, last_seen, now)
+}
+public func flows_seasonal_origin_after_trip(_ prior: FlowsSeasonalOriginStat, _ t: Double) -> FlowsSeasonalOriginStat {
+    __swift_bridge__$flows_seasonal_origin_after_trip(prior.intoFfiRepr(), t).intoSwiftRepr()
+}
+public func flows_seasonal_origins_over_cap(_ count: Int64) -> Bool {
+    __swift_bridge__$flows_seasonal_origins_over_cap(count)
+}
+public func flows_seasonal_origin_evictions(_ stats: UnsafeBufferPointer<Double>, _ now: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_seasonal_origin_evictions(stats.toFfiSlice(), now))
+}
+public func flows_seasonal_edge_freshness(_ last_ts: UnsafeBufferPointer<Double>) -> Double {
+    __swift_bridge__$flows_seasonal_edge_freshness(last_ts.toFfiSlice())
+}
+public func flows_seasonal_edges_over_cap(_ count: Int64) -> Bool {
+    __swift_bridge__$flows_seasonal_edges_over_cap(count)
+}
+public func flows_seasonal_edge_evictions(_ freshness: UnsafeBufferPointer<Double>) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_seasonal_edge_evictions(freshness.toFfiSlice()))
+}
+public func flows_seasonal_learned_home(_ entries: UnsafeBufferPointer<Double>, _ now: Double, _ current_lat: Int64, _ current_lon: Int64, _ has_current: Bool) -> FlowsSeasonalHome {
+    __swift_bridge__$flows_seasonal_learned_home(entries.toFfiSlice(), now, current_lat, current_lon, has_current).intoSwiftRepr()
+}
+public func flows_seasonal_legacy_home(_ routes: UnsafeBufferPointer<Double>) -> FlowsSeasonalHome {
+    __swift_bridge__$flows_seasonal_legacy_home(routes.toFfiSlice()).intoSwiftRepr()
+}
+public func flows_seasonal_route_features(_ o_lat: Double, _ o_lon: Double, _ d_lat: Double, _ d_lon: Double, _ week: Int64, _ cross_country: Bool) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_seasonal_route_features(o_lat, o_lon, d_lat, d_lon, week, cross_country))
+}
+public func flows_seasonal_head_predict(_ buffer: UnsafeBufferPointer<Double>) -> Double {
+    __swift_bridge__$flows_seasonal_head_predict(buffer.toFfiSlice())
+}
+public func flows_seasonal_fine_tune(_ head: UnsafeBufferPointer<Double>, _ rows: UnsafeBufferPointer<Double>, _ epochs: Int64, _ learning_rate: Double, _ anchor: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_seasonal_fine_tune(head.toFfiSlice(), rows.toFfiSlice(), epochs, learning_rate, anchor))
+}
+public func flows_seasonal_mean_squared_error(_ head: UnsafeBufferPointer<Double>, _ rows: UnsafeBufferPointer<Double>) -> FlowsSeasonalOptional {
+    __swift_bridge__$flows_seasonal_mean_squared_error(head.toFfiSlice(), rows.toFfiSlice()).intoSwiftRepr()
+}
+public func flows_seasonal_tuned_rows(_ base_rows: Int64, _ has_base_rows: Bool, _ samples: Int64) -> Int64 {
+    __swift_bridge__$flows_seasonal_tuned_rows(base_rows, has_base_rows, samples)
+}
+public func flows_seasonal_choose_head(_ has_local: Bool, _ local_rows: Int64, _ has_local_rows: Bool, _ local_tuned: Bool, _ has_local_tuned: Bool, _ has_bundled: Bool, _ bundled_rows: Int64, _ has_bundled_rows: Bool) -> UInt8 {
+    __swift_bridge__$flows_seasonal_choose_head(has_local, local_rows, has_local_rows, local_tuned, has_local_tuned, has_bundled, bundled_rows, has_bundled_rows)
+}
+public func flows_seasonal_tune_due(_ total_trips: Int64, _ seconds_since_last_tune: Double, _ has_last_tune: Bool, _ tuned_at_trip_count: Int64) -> Bool {
+    __swift_bridge__$flows_seasonal_tune_due(total_trips, seconds_since_last_tune, has_last_tune, tuned_at_trip_count)
+}
+public func flows_seasonal_accept_tune(_ tuned_mse: Double, _ base_mse: Double) -> Bool {
+    __swift_bridge__$flows_seasonal_accept_tune(tuned_mse, base_mse)
+}
+public func flows_seasonal_blend_prior(_ modeled: Double, _ observed_risk: Double, _ confidence: Double) -> Double {
+    __swift_bridge__$flows_seasonal_blend_prior(modeled, observed_risk, confidence)
+}
+public func flows_seasonal_week_of_year(_ ordinal_day: Int64, _ has_ordinal_day: Bool) -> Int64 {
+    __swift_bridge__$flows_seasonal_week_of_year(ordinal_day, has_ordinal_day)
+}
+public struct FlowsSeasonalOptional {
+    public var is_some: Double
+    public var value: Double
+
+    public init(is_some: Double,value: Double) {
+        self.is_some = is_some
+        self.value = value
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsSeasonalOptional {
+        { let val = self; return __swift_bridge__$FlowsSeasonalOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$FlowsSeasonalOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsSeasonalOptional {
+        { let val = self; return FlowsSeasonalOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsSeasonalOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsSeasonalOptional> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsSeasonalOptional>) -> __swift_bridge__$Option$FlowsSeasonalOptional {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsSeasonalOptional(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsSeasonalOptional(is_some: false, val: __swift_bridge__$FlowsSeasonalOptional())
+        }
+    }
+}
+public struct FlowsSeasonalWeekStat {
+    public var w_sum: Double
+    public var w_observed: Double
+    public var w_sq_err: Double
+    public var last_t: Double
+    public var count: Int64
+
+    public init(w_sum: Double,w_observed: Double,w_sq_err: Double,last_t: Double,count: Int64) {
+        self.w_sum = w_sum
+        self.w_observed = w_observed
+        self.w_sq_err = w_sq_err
+        self.last_t = last_t
+        self.count = count
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsSeasonalWeekStat {
+        { let val = self; return __swift_bridge__$FlowsSeasonalWeekStat(w_sum: val.w_sum, w_observed: val.w_observed, w_sq_err: val.w_sq_err, last_t: val.last_t, count: val.count); }()
+    }
+}
+extension __swift_bridge__$FlowsSeasonalWeekStat {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsSeasonalWeekStat {
+        { let val = self; return FlowsSeasonalWeekStat(w_sum: val.w_sum, w_observed: val.w_observed, w_sq_err: val.w_sq_err, last_t: val.last_t, count: val.count); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsSeasonalWeekStat {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsSeasonalWeekStat> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsSeasonalWeekStat>) -> __swift_bridge__$Option$FlowsSeasonalWeekStat {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsSeasonalWeekStat(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsSeasonalWeekStat(is_some: false, val: __swift_bridge__$FlowsSeasonalWeekStat())
+        }
+    }
+}
+public struct FlowsSeasonalPrior {
+    public var has: Double
+    public var risk: Double
+    public var confidence: Double
+
+    public init(has: Double,risk: Double,confidence: Double) {
+        self.has = has
+        self.risk = risk
+        self.confidence = confidence
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsSeasonalPrior {
+        { let val = self; return __swift_bridge__$FlowsSeasonalPrior(has: val.has, risk: val.risk, confidence: val.confidence); }()
+    }
+}
+extension __swift_bridge__$FlowsSeasonalPrior {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsSeasonalPrior {
+        { let val = self; return FlowsSeasonalPrior(has: val.has, risk: val.risk, confidence: val.confidence); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsSeasonalPrior {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsSeasonalPrior> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsSeasonalPrior>) -> __swift_bridge__$Option$FlowsSeasonalPrior {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsSeasonalPrior(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsSeasonalPrior(is_some: false, val: __swift_bridge__$FlowsSeasonalPrior())
+        }
+    }
+}
+public struct FlowsSeasonalOriginStat {
+    public var weighted: Double
+    public var last_seen: Double
+    public var first_seen: Double
+    public var trips: Int64
+
+    public init(weighted: Double,last_seen: Double,first_seen: Double,trips: Int64) {
+        self.weighted = weighted
+        self.last_seen = last_seen
+        self.first_seen = first_seen
+        self.trips = trips
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsSeasonalOriginStat {
+        { let val = self; return __swift_bridge__$FlowsSeasonalOriginStat(weighted: val.weighted, last_seen: val.last_seen, first_seen: val.first_seen, trips: val.trips); }()
+    }
+}
+extension __swift_bridge__$FlowsSeasonalOriginStat {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsSeasonalOriginStat {
+        { let val = self; return FlowsSeasonalOriginStat(weighted: val.weighted, last_seen: val.last_seen, first_seen: val.first_seen, trips: val.trips); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsSeasonalOriginStat {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsSeasonalOriginStat> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsSeasonalOriginStat>) -> __swift_bridge__$Option$FlowsSeasonalOriginStat {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsSeasonalOriginStat(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsSeasonalOriginStat(is_some: false, val: __swift_bridge__$FlowsSeasonalOriginStat())
+        }
+    }
+}
+public struct FlowsSeasonalCell {
+    public var has: Double
+    public var lat: Int64
+    public var lon: Int64
+
+    public init(has: Double,lat: Int64,lon: Int64) {
+        self.has = has
+        self.lat = lat
+        self.lon = lon
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsSeasonalCell {
+        { let val = self; return __swift_bridge__$FlowsSeasonalCell(has: val.has, lat: val.lat, lon: val.lon); }()
+    }
+}
+extension __swift_bridge__$FlowsSeasonalCell {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsSeasonalCell {
+        { let val = self; return FlowsSeasonalCell(has: val.has, lat: val.lat, lon: val.lon); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsSeasonalCell {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsSeasonalCell> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsSeasonalCell>) -> __swift_bridge__$Option$FlowsSeasonalCell {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsSeasonalCell(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsSeasonalCell(is_some: false, val: __swift_bridge__$FlowsSeasonalCell())
+        }
+    }
+}
+public struct FlowsSeasonalHome {
+    public var has: Double
+    public var lat: Double
+    public var lon: Double
+    public var trips: Int64
+
+    public init(has: Double,lat: Double,lon: Double,trips: Int64) {
+        self.has = has
+        self.lat = lat
+        self.lon = lon
+        self.trips = trips
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsSeasonalHome {
+        { let val = self; return __swift_bridge__$FlowsSeasonalHome(has: val.has, lat: val.lat, lon: val.lon, trips: val.trips); }()
+    }
+}
+extension __swift_bridge__$FlowsSeasonalHome {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsSeasonalHome {
+        { let val = self; return FlowsSeasonalHome(has: val.has, lat: val.lat, lon: val.lon, trips: val.trips); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsSeasonalHome {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsSeasonalHome> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsSeasonalHome>) -> __swift_bridge__$Option$FlowsSeasonalHome {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsSeasonalHome(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsSeasonalHome(is_some: false, val: __swift_bridge__$FlowsSeasonalHome())
+        }
+    }
+}
 
 
 public func flows_trip_vehicle_fuel_type_names() -> RustVec<RustString> {
