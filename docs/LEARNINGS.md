@@ -1504,3 +1504,41 @@ pin for anything that passes through trigonometry — one fused-sine ulp
 breaks it with no clue where. Digest what is exact by construction; write
 trig-bearing sweeps out sample by sample and compare to a physical
 tolerance.
+
+## Switching a Swift file to the bridge: the rules that held
+
+Twenty-seven Swift files became facades over `flows-bridge` on 2026-09-15
+(vehicle policy, trip and vehicle, climate, the learned models, the seasonal
+model), each landing verified by the whole gate. What made them go through
+without a regression:
+
+- **The empty case never crosses.** swift-bridge hands an empty Swift
+  array's nil base to `slice::from_raw_parts`; every facade answers the
+  empty case itself first — no trips is the default radius, no places is
+  nothing to rank, no rows is no tune — and each is the Swift's own answer.
+- **Optionals are a value plus a `has_` flag**, never NaN, because a present
+  NaN is meaningful to most of this code; an optional *answer* is a struct
+  with `is_some`, for the same reason.
+- **Codes for an enumeration are spelled once per group** (`FuelType.rustCode`
+  in `TripCosts.swift`, `ClimateType.rustCode`, the need code in
+  `TripNeeds.Need`), and the bridge's order is the Swift `allCases` order.
+- **Stores recompose pure pieces in their own iteration order.** A decay is
+  a plan the store applies to its own cells; an eviction takes the store's
+  order and answers positions; the Rust never sees a dictionary. The oracle
+  did the same recomposition first, so the facade is a transcription of a
+  passing test.
+- **Nested data crosses flat with its shape in front** — a head as
+  `[hidden, b2, b1…, w2…, widths…, rows…]`, segments as triples, rows as
+  value/flag pairs — and the decoder rejects a buffer that does not describe
+  the shape instead of guessing.
+- **One opaque Rust type** was enough: the 5.5 MB harmonic table is parsed
+  once in Rust and Swift holds a handle; nothing that big should be copied
+  across on every launch.
+- **A crash the Swift had is a documented answer in the facade**, never a
+  silent zero: a NaN latitude answers the anchor row and says so; a bad row
+  answers NaN and says so.
+- **Draft in a dead worktree, land after the gate.** The gate ends in
+  `git add -A`; anything written into the main tree while it runs would be
+  swept into the wrong commit. Each facade set was drafted and typechecked
+  in the wave-1 worktree that already had its bridge, then copied in after
+  the previous landing committed.

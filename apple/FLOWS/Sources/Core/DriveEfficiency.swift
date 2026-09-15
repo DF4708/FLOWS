@@ -17,7 +17,16 @@ import Foundation
 /// penalty that curve encodes, and the road's inclination from the route's
 /// grade profile. Climbing a 6% grade at 70 mph is not the same act as
 /// holding 70 on the flat, and the icon should not pretend otherwise.
+///
+/// Every penalty, the headwind, the airspeed, the drag sensitivity, the load
+/// factor, the score and the verdict are computed in rust/flows-core
+/// (vehicle_policy.rs) and called through rust/flows-bridge; optionals cross
+/// as a value plus a flag. Pinned bit for bit to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_vehicle_policy_oracle.tsv.
 enum DriveEfficiency {
+    /// Where a vehicle's economy peaks when its spec does not say: the classic 55.
+    static let defaultEfficientCruiseMph = flows_vehicle_policy_drive_default_efficient_cruise_mph()
+
     /// What the leading icon says.
     enum Verdict: Equatable {
         /// Green leaf — smooth, in the vehicle's sweet spot.
@@ -32,31 +41,26 @@ enum DriveEfficiency {
     /// a vehicle's efficient cruise grows fast. Expressed against the
     /// vehicle's own rated economy so a semi and a hatchback are judged on
     /// their own terms.
-    static func dragPenalty(speedMph: Double, efficientCruiseMph: Double = 55) -> Double {
-        guard speedMph > efficientCruiseMph else { return 0 }
-        let over = (speedMph - efficientCruiseMph) / efficientCruiseMph
-        // Scaled so the curve lands where real economy does: ~65 barely
-        // registers, 75 is noticeably thirstier, and 95 — where a car burns
-        // roughly a third more than at its cruise — reads plainly wasteful.
-        return over * over * 2.0
+    static func dragPenalty(speedMph: Double, efficientCruiseMph: Double = defaultEfficientCruiseMph) -> Double {
+        flows_vehicle_policy_drive_drag_penalty(speedMph, efficientCruiseMph)
     }
 
     /// Climbing costs fuel; a gentle descent gives some back (engine braking
     /// caps the credit — coasting downhill is not free range).
     static func gradePenalty(gradePercent: Double) -> Double {
-        gradePercent >= 0 ? gradePercent / 6.0 : max(gradePercent / 12.0, -0.4)
+        flows_vehicle_policy_drive_grade_penalty(gradePercent)
     }
 
     /// Hard acceleration is the single biggest thing a driver controls.
     /// Coasting (negative) earns a small credit.
     static func throttlePenalty(accelMphPerSec: Double) -> Double {
-        accelMphPerSec > 0 ? accelMphPerSec / 2.5 : max(accelMphPerSec / 8.0, -0.3)
+        flows_vehicle_policy_drive_throttle_penalty(accelMphPerSec)
     }
 
     /// Idling burns fuel and moves nothing — always the worst score, but
     /// only once the vehicle has genuinely stopped (a red light shouldn't
     /// paint the icon red the instant the wheels stop turning).
-    static let idleSpeedMph = 2.0
+    static let idleSpeedMph = flows_vehicle_policy_drive_idle_speed_mph()
 
     // MARK: the real inputs
     //
@@ -83,7 +87,7 @@ enum DriveEfficiency {
         /// the same strength don't score alike.
         var headingDegrees: Double? = nil
         /// Where the vehicle's economy peaks before drag takes over.
-        var efficientCruiseMph: Double = 55
+        var efficientCruiseMph: Double = DriveEfficiency.defaultEfficientCruiseMph
         /// City and highway economy, when the vehicle's spec supplies them —
         /// their SPREAD says how drag-sensitive this vehicle is (a brick-shaped
         /// van loses far more at speed than a sedan).
@@ -107,20 +111,17 @@ enum DriveEfficiency {
     /// bearing is not evidence of anything.
     static func headwindMph(windMph: Double, windFromDegrees: Double?,
                             headingDegrees: Double?) -> Double {
-        guard windMph > 0, let from = windFromDegrees, let heading = headingDegrees,
-              heading >= 0 else { return 0 }
-        // Wind FROM 90° blowing at a vehicle heading 90° is a pure headwind.
-        let delta = (from - heading) * .pi / 180
-        return windMph * cos(delta)
+        flows_vehicle_policy_drive_headwind_mph(
+            windMph, windFromDegrees ?? 0, windFromDegrees != nil, headingDegrees ?? 0, headingDegrees != nil)
     }
 
     /// The air the vehicle is actually pushing: its own speed plus whatever
     /// the wind adds or removes. This is the number drag should key off —
     /// 60 mph into a 20 mph headwind is aerodynamically 80.
     static func airspeedMph(_ i: Inputs) -> Double {
-        max(i.speedMph + headwindMph(windMph: i.windMph,
-                                     windFromDegrees: i.windFromDegrees,
-                                     headingDegrees: i.headingDegrees), 0)
+        flows_vehicle_policy_drive_airspeed_mph(
+            i.speedMph, i.windMph, i.windFromDegrees ?? 0, i.windFromDegrees != nil,
+            i.headingDegrees ?? 0, i.headingDegrees != nil)
     }
 
     /// How drag-sensitive this vehicle is, from the gap between its city and
@@ -128,56 +129,49 @@ enum DriveEfficiency {
     /// the standard penalty; a van or box truck that gains little is paying
     /// more to push air, so its drag penalty is scaled up.
     static func dragSensitivity(cityMPU: Double?, highwayMPU: Double?) -> Double {
-        guard let city = cityMPU, let highway = highwayMPU, city > 0 else { return 1 }
-        let gain = highway / city
-        // 1.35 is a typical sedan's city→highway gain. Vehicles that gain
-        // less are dragging more.
-        return min(max(1.35 / max(gain, 0.6), 0.7), 1.8)
+        flows_vehicle_policy_drive_drag_sensitivity(cityMPU ?? 0, cityMPU != nil, highwayMPU ?? 0, highwayMPU != nil)
     }
 
     /// Mass penalty: everything the vehicle is hauling beyond itself, plus
     /// the weight of the fuel still in the tank. It costs on acceleration
     /// and on climbs, and nothing at a steady cruise on the flat.
     static func loadFactor(_ i: Inputs) -> Double {
-        var ratio = 1.0
-        if let loaded = i.loadedWeightLbs, let base = i.vehicleWeightLbs, base > 0 {
-            ratio = min(max(loaded / base, 1), 2.5)
-        }
-        // A full tank is real mass — roughly 6 lb a gallon — but a small
-        // effect next to a trailer, so it is scaled accordingly.
-        if let fuel = i.fuelFraction { ratio += 0.04 * min(max(fuel, 0), 1) }
-        if i.towing { ratio += 0.35 }
-        return ratio
+        flows_vehicle_policy_drive_load_factor(
+            i.loadedWeightLbs ?? 0, i.loadedWeightLbs != nil,
+            i.vehicleWeightLbs ?? 0, i.vehicleWeightLbs != nil,
+            i.towing, i.fuelFraction ?? 0, i.fuelFraction != nil)
     }
 
     /// The blended score: 0 is ideal, higher is worse.
     static func score(_ i: Inputs) -> Double {
-        let load = loadFactor(i)
-        // Throttle and climbing both move MASS, so both scale with load.
-        let throttle = throttlePenalty(accelMphPerSec: i.accelMphPerSec) * load
-        let grade = gradePenalty(gradePercent: i.gradePercent) * load
-        // Drag fights AIR, not mass — it scales with the vehicle's shape.
-        let drag = dragPenalty(speedMph: airspeedMph(i),
-                               efficientCruiseMph: i.efficientCruiseMph)
-            * dragSensitivity(cityMPU: i.cityMPU, highwayMPU: i.highwayMPU)
-        return throttle + drag + grade
+        flows_vehicle_policy_drive_score(
+            i.speedMph, i.accelMphPerSec, i.gradePercent, i.windMph,
+            i.windFromDegrees ?? 0, i.windFromDegrees != nil, i.headingDegrees ?? 0, i.headingDegrees != nil,
+            i.efficientCruiseMph, i.cityMPU ?? 0, i.cityMPU != nil, i.highwayMPU ?? 0, i.highwayMPU != nil,
+            i.loadedWeightLbs ?? 0, i.loadedWeightLbs != nil, i.vehicleWeightLbs ?? 0, i.vehicleWeightLbs != nil,
+            i.towing, i.fuelFraction ?? 0, i.fuelFraction != nil)
     }
 
     /// Score → icon.
     static func verdict(_ i: Inputs) -> Verdict {
-        // Stopped with the engine on: nothing is moving, everything is burning.
-        if i.speedMph < idleSpeedMph, i.accelMphPerSec <= 0.1 { return .wasteful }
-        let s = score(i)
-        if s <= 0.25 { return .efficient }
-        if s <= 0.75 { return .fair }
-        return .wasteful
+        // 0 efficient, 1 fair, 2 wasteful.
+        switch flows_vehicle_policy_drive_verdict_code(
+            i.speedMph, i.accelMphPerSec, i.gradePercent, i.windMph,
+            i.windFromDegrees ?? 0, i.windFromDegrees != nil, i.headingDegrees ?? 0, i.headingDegrees != nil,
+            i.efficientCruiseMph, i.cityMPU ?? 0, i.cityMPU != nil, i.highwayMPU ?? 0, i.highwayMPU != nil,
+            i.loadedWeightLbs ?? 0, i.loadedWeightLbs != nil, i.vehicleWeightLbs ?? 0, i.vehicleWeightLbs != nil,
+            i.towing, i.fuelFraction ?? 0, i.fuelFraction != nil) {
+        case 0: return .efficient
+        case 1: return .fair
+        default: return .wasteful
+        }
     }
 
     /// Convenience for callers with only the basics — the rest take their
     /// documented averages.
     static func score(speedMph: Double, accelMphPerSec: Double,
                       gradePercent: Double,
-                      efficientCruiseMph: Double = 55) -> Double {
+                      efficientCruiseMph: Double = defaultEfficientCruiseMph) -> Double {
         score(Inputs(speedMph: speedMph, accelMphPerSec: accelMphPerSec,
                      gradePercent: gradePercent,
                      efficientCruiseMph: efficientCruiseMph))
@@ -185,7 +179,7 @@ enum DriveEfficiency {
 
     static func verdict(speedMph: Double, accelMphPerSec: Double,
                         gradePercent: Double,
-                        efficientCruiseMph: Double = 55) -> Verdict {
+                        efficientCruiseMph: Double = defaultEfficientCruiseMph) -> Verdict {
         verdict(Inputs(speedMph: speedMph, accelMphPerSec: accelMphPerSec,
                        gradePercent: gradePercent,
                        efficientCruiseMph: efficientCruiseMph))
@@ -194,7 +188,6 @@ enum DriveEfficiency {
     /// The efficient-cruise speed for a vehicle: where its own economy curve
     /// peaks before drag takes over. Falls back to the classic 55.
     static func efficientCruiseMph(city: Double?, highway: Double?) -> Double {
-        guard let city, let highway, highway > city else { return 55 }
-        return 55
+        flows_vehicle_policy_drive_efficient_cruise_mph(city ?? 0, city != nil, highway ?? 0, highway != nil)
     }
 }

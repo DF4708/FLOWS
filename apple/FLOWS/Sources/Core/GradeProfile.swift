@@ -22,7 +22,28 @@ struct GradeSegment: Equatable {
     var gradeDegrees: Double { atan(gradePercent / 100) * 180 / .pi }
 }
 
+/// The table's construction, its steepest rows and the next-steep search are
+/// computed in rust/flows-core (vehicle_policy.rs) and called through
+/// rust/flows-bridge — segments cross as flat (start, end, grade) triples;
+/// a missing elevation crosses as a value plus a presence byte. Pinned bit
+/// for bit to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_vehicle_policy_oracle.tsv.
 enum GradeProfile {
+    /// Flat triples to segments.
+    private static func segments(fromFlat flat: RustVec<Double>) -> [GradeSegment] {
+        var out: [GradeSegment] = []
+        var i = 0
+        while i + 2 < flat.len() {
+            out.append(GradeSegment(startMile: flat[i], endMile: flat[i + 1], gradePercent: flat[i + 2]))
+            i += 3
+        }
+        return out
+    }
+
+    private static func flat(_ segments: [GradeSegment]) -> [Double] {
+        segments.flatMap { [$0.startMile, $0.endMile, $0.gradePercent] }
+    }
+
 
     /// Segment table from an elevation profile: elevations[i] at
     /// startMile + i·spacing. Missing samples (nil — a failed EPQS call)
@@ -30,22 +51,24 @@ enum GradeProfile {
     static func segments(
         elevations: [Double?], spacingMeters: Double, startMile: Double = 0
     ) -> [GradeSegment] {
-        guard spacingMeters > 0, elevations.count > 1 else { return [] }
-        let mileSpacing = spacingMeters / 1609.344
-        var out: [GradeSegment] = []
-        for i in 1..<elevations.count {
-            guard let a = elevations[i - 1], let b = elevations[i] else { continue }
-            out.append(GradeSegment(
-                startMile: startMile + Double(i - 1) * mileSpacing,
-                endMile: startMile + Double(i) * mileSpacing,
-                gradePercent: (b - a) / spacingMeters * 100))
+        // Fewer than two samples is no table (the Swift's own answer, and an
+        // empty buffer never crosses).
+        guard elevations.count > 1 else { return [] }
+        let values = elevations.map { $0 ?? 0 }
+        let present: [UInt8] = elevations.map { $0 == nil ? 0 : 1 }
+        let flat = values.withUnsafeBufferPointer { v in
+            present.withUnsafeBufferPointer { p in
+                flows_vehicle_policy_grade_segments(v, p, spacingMeters, startMile)
+            }
         }
-        return out
+        return segments(fromFlat: flat)
     }
 
     /// Steepest segments by |grade|, worst first — the route card's table.
     static func steepest(_ segments: [GradeSegment], top: Int = 3) -> [GradeSegment] {
-        Array(segments.sorted { abs($0.gradePercent) > abs($1.gradePercent) }.prefix(top))
+        guard !segments.isEmpty else { return [] }
+        let triples = flat(segments)
+        return Self.segments(fromFlat: triples.withUnsafeBufferPointer { flows_vehicle_policy_grade_steepest($0, Int64(top)) })
     }
 
     /// The next steep CLIMB ahead of `mile` within `lookaheadMiles` — the
@@ -53,18 +76,15 @@ enum GradeProfile {
     /// magnitude decides; the sign is reported).
     static func nextSteep(
         after mile: Double, in segments: [GradeSegment],
-        thresholdPercent: Double = 6, lookaheadMiles: Double = 8
+        thresholdPercent: Double = flows_vehicle_policy_grade_steep_threshold_percent(),
+        lookaheadMiles: Double = flows_vehicle_policy_grade_lookahead_miles()
     ) -> GradeSegment? {
-        segments
-            .filter { $0.endMile > mile && $0.startMile < mile + lookaheadMiles
-                && abs($0.gradePercent) >= thresholdPercent }
-            // Earliest ahead; on a tie (an overlapping coarse+fine segment at the
-            // same start) prefer the STEEPER, so the chip reports the real grade,
-            // not a distance-averaged coarse one — and the pick is deterministic.
-            .min { a, b in
-                a.startMile != b.startMile
-                    ? a.startMile < b.startMile
-                    : abs(a.gradePercent) > abs(b.gradePercent)
-            }
+        guard !segments.isEmpty else { return nil }
+        let triples = flat(segments)
+        let i = triples.withUnsafeBufferPointer {
+            flows_vehicle_policy_grade_next_steep_index(mile, $0, thresholdPercent, lookaheadMiles)
+        }
+        guard i >= 0, Int(i) < segments.count else { return nil }
+        return segments[Int(i)]
     }
 }

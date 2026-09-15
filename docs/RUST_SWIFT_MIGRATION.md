@@ -1147,13 +1147,24 @@ alerts, vehicle policy (five of seven files), trip and vehicle, climate,
 the learned models and the seasonal model. Geo waits for its compute
 callers by design.
 
+## Wave 1: the last two vehicle-policy facades switch (2026-09-15)
+
+`GradeProfile` and `DriveEfficiency` now call `flows-bridge::vehicle_policy`,
+which had carried their math since the fourth landing. Grade segments cross
+as flat (start, end, grade) triples and a missing elevation as a value plus a
+presence byte; every drive-efficiency penalty, the headwind, the airspeed,
+the drag sensitivity, the load factor, the score and the verdict cross with
+their optionals as a value plus a flag. All seven files of the group are
+facades now. `GradeSegment.gradeDegrees` (an arctangent for display) stays,
+with `FilterLimits.degreesToPercent`'s inverse already in Rust.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
 |---|---|---|
 | seasonal | LANDED: core + oracle (3,163 records) + bridge (53 functions) + both facades switched | `SeasonalStore.totalTrips` (a sum) stays in Swift |
 | learning | LANDED: core + oracle (10,673 records) + bridge (72 functions) + seven facades switched | `EverydayStore.miles` (a haversine) still in Swift, with the geo facade |
-| vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records, bit-exact) + five facades switched (SpeedLaw, SpeedSign, TowingLimits, FilterLimits, PursuitReach) | switch GradeProfile and DriveEfficiency with their callers |
+| vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records) + all seven facades switched | `GradeSegment.gradeDegrees` (a display arctangent) stays |
 | climate | LANDED: core + oracle (13,447 records) + bridge (36 functions, one opaque table type) + five facades switched | — |
 | places_text | harness only | port from scratch — the heaviest: it needs Swift's grapheme segmentation, case mapping and canonical equivalence in zero-dependency Rust |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
