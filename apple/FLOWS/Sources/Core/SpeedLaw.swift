@@ -30,17 +30,23 @@ import Foundation
 ///
 /// So the red line is drawn at the excess-speed threshold, not at a
 /// nonexistent federal number, and `federalNote` says so in plain words.
+///
+/// The legal lines, the limit estimate and the standing are computed in
+/// rust/flows-core (vehicle_policy.rs) and called through rust/flows-bridge;
+/// the thresholds are read from Rust, so Swift holds no copy of them. The bar
+/// scale below is layout and stays here. Pinned bit for bit to the Swift this
+/// replaced by rust/flows-bridge/tests/fixtures/swift_vehicle_policy_oracle.tsv.
 enum SpeedLaw {
     /// A few mph of slack before the yellow line: speedometers read high,
     /// and enforcement practice allows for it.
-    static let stateToleranceMph = 5.0
+    static let stateToleranceMph = flows_vehicle_policy_state_tolerance_mph()
     /// Gross excess over the posted limit — where a citation becomes a
     /// reckless/excessive-speed charge, and where a federal-enclave stop
     /// stops being routine. Most states put reckless at 15–25 over.
-    static let excessOverLimitMph = 20.0
+    static let excessOverLimitMph = flows_vehicle_policy_excess_over_limit_mph()
     /// …and an absolute floor for the same idea on slow roads: 20 over a
     /// 25 mph street is 45, which is already excessive by any measure.
-    static let excessAbsoluteMph = 85.0
+    static let excessAbsoluteMph = flows_vehicle_policy_excess_absolute_mph()
 
     /// What the limit most likely IS on a road OSM hasn't tagged.
     ///
@@ -56,13 +62,7 @@ enum SpeedLaw {
     /// This is an ESTIMATE and the HUD says so (`~` before the number). It
     /// is never used when a real posted limit is known.
     static func estimatedLimitMph(speedMph: Double) -> Double {
-        switch speedMph {
-        case ..<30: return 25
-        case ..<42: return 35
-        case ..<52: return 45
-        case ..<62: return 55
-        default: return 65
-        }
+        flows_vehicle_policy_estimated_limit_mph(speedMph)
     }
 
     /// The limit the bar should draw its lines from: the posted one when the
@@ -70,23 +70,27 @@ enum SpeedLaw {
     /// they never blink out mid-drive.
     static func effectiveLimitMph(postedLimitMph: Double?,
                                   speedMph: Double) -> Double {
-        if let postedLimitMph, postedLimitMph > 0 { return postedLimitMph }
-        return estimatedLimitMph(speedMph: speedMph)
+        flows_vehicle_policy_effective_limit_mph(
+            postedLimitMph ?? 0, postedLimitMph != nil, speedMph)
     }
 
     /// The speed at which the bar turns yellow: over the posted limit
     /// (plus tolerance) is a state violation.
     static func stateThresholdMph(postedLimitMph: Double?) -> Double? {
-        guard let postedLimitMph, postedLimitMph > 0 else { return nil }
-        return postedLimitMph + stateToleranceMph
+        // NaN crosses back for "nothing posted"; a real threshold never is NaN.
+        let mph = flows_vehicle_policy_state_threshold_mph(
+            postedLimitMph ?? 0, postedLimitMph != nil)
+        return mph.isNaN ? nil : mph
     }
 
     /// The speed at which the bar turns red: gross excess, where the offense
     /// escalates beyond an ordinary citation (and is charged federally on
     /// federal land).
     static func federalThresholdMph(postedLimitMph: Double?) -> Double? {
-        guard let postedLimitMph, postedLimitMph > 0 else { return nil }
-        return min(postedLimitMph + excessOverLimitMph, excessAbsoluteMph)
+        // NaN crosses back for "nothing posted"; a real threshold never is NaN.
+        let mph = flows_vehicle_policy_federal_threshold_mph(
+            postedLimitMph ?? 0, postedLimitMph != nil)
+        return mph.isNaN ? nil : mph
     }
 
     /// What the driver is doing right now, legally speaking.
@@ -99,13 +103,12 @@ enum SpeedLaw {
     }
 
     static func standing(speedMph: Double, postedLimitMph: Double?) -> Standing {
-        guard let fed = federalThresholdMph(postedLimitMph: postedLimitMph),
-              let state = stateThresholdMph(postedLimitMph: postedLimitMph) else {
-            return .legal   // nothing posted → nothing to violate
+        switch flows_vehicle_policy_standing_code(
+            speedMph, postedLimitMph ?? 0, postedLimitMph != nil) {
+        case 2: return .federalViolation
+        case 1: return .stateViolation
+        default: return .legal   // nothing posted → nothing to violate
         }
-        if speedMph >= fed { return .federalViolation }
-        if speedMph >= state { return .stateViolation }
-        return .legal
     }
 
     /// The top of the speed bar: the vehicle's own maximum where known,
@@ -162,8 +165,9 @@ enum SpeedLaw {
 /// The compass reading under the banner needle: degrees and the 16-point
 /// cardinal name a driver actually says out loud.
 enum CompassReading {
-    static let points = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-                         "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
+    /// The 16 points clockwise from north, read from rust/flows-core once;
+    /// NWSForecastService indexes it to turn a wind word into degrees.
+    static let points: [String] = flows_vehicle_policy_compass_points().map { $0.as_str().toString() }
 
     /// Normalize any heading (including the -1 CoreLocation reports when it
     /// has no course) into 0..<360.

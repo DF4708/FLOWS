@@ -15,6 +15,11 @@ import Foundation
 /// Posted limits come from OpenStreetMap's `maxspeed` tag, which is
 /// community-maintained and sometimes absent or stale — so the sign only
 /// shows a number when one was actually found, and never invents one.
+///
+/// The parse and the judgment are computed in rust/flows-core
+/// (vehicle_policy.rs) and called through rust/flows-bridge, pinned bit for
+/// bit to the Swift this replaced — grapheme-cluster string semantics
+/// included — by rust/flows-bridge/tests/fixtures/swift_vehicle_policy_oracle.tsv.
 enum SpeedSign {
 
     /// Parse an OSM `maxspeed` value to mph. Handles "55 mph", bare km/h
@@ -22,17 +27,9 @@ enum SpeedSign {
     /// Returns nil for anything it can't read, so the sign stays blank
     /// rather than guessing.
     static func parseMaxspeed(_ raw: String) -> Double? {
-        let lower = raw.lowercased().trimmingCharacters(in: .whitespaces)
-        guard !lower.isEmpty else { return nil }
-        // Derestricted autobahn: a real answer, but not a number to post.
-        if lower == "none" || lower == "signals" || lower == "variable" { return nil }
-        if lower == "walk" { return 5 }
-        let digits = lower.prefix { $0.isNumber || $0 == "." }
-        guard let value = Double(digits), value > 0 else { return nil }
-        if lower.contains("mph") { return value }
-        if lower.contains("knots") { return value * 1.15078 }
-        // OSM's bare number is km/h by specification.
-        return value / 1.609344
+        // NaN crosses back for "no number posted"; a parsed limit never is NaN.
+        let mph = flows_vehicle_policy_parse_maxspeed_mph(raw)
+        return mph.isNaN ? nil : mph
     }
 
     /// Speeding judgment for the readout's color. A few mph over is normal
@@ -41,16 +38,16 @@ enum SpeedSign {
 
     /// Tolerance before "over" reads as speeding (mph) — matches the slack
     /// in a typical speedometer and in enforcement practice.
-    static let tolerance = 5.0
+    static let tolerance = flows_vehicle_policy_speed_sign_tolerance_mph()
     /// Beyond this much over, the readout goes red.
-    static let overBy = 10.0
+    static let overBy = flows_vehicle_policy_speed_sign_over_by_mph()
 
     static func judge(speedMph: Double, limitMph: Double?) -> Judgment {
-        guard let limitMph, limitMph > 0 else { return .under }
-        let excess = speedMph - limitMph
-        if excess >= overBy { return .over }
-        if excess >= tolerance { return .slightlyOver }
-        return .under
+        switch flows_vehicle_policy_judge_code(speedMph, limitMph ?? 0, limitMph != nil) {
+        case 2: return .over
+        case 1: return .slightlyOver
+        default: return .under
+        }
     }
 
     /// Whether the pair belongs on screen at all. It's a DRIVING instrument:

@@ -486,5 +486,153 @@ extension __swift_bridge__$Option$TripVehicleClassPhysical {
 }
 
 
+public func flows_vehicle_policy_state_tolerance_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_state_tolerance_mph()
+}
+public func flows_vehicle_policy_excess_over_limit_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_excess_over_limit_mph()
+}
+public func flows_vehicle_policy_excess_absolute_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_excess_absolute_mph()
+}
+public func flows_vehicle_policy_speed_sign_tolerance_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_speed_sign_tolerance_mph()
+}
+public func flows_vehicle_policy_speed_sign_over_by_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_speed_sign_over_by_mph()
+}
+public func flows_vehicle_policy_pursuit_default_speed_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_pursuit_default_speed_mph()
+}
+public func flows_vehicle_policy_pursuit_minimum_radius_meters() -> Double {
+    __swift_bridge__$flows_vehicle_policy_pursuit_minimum_radius_meters()
+}
+public func flows_vehicle_policy_pursuit_maximum_elapsed_seconds() -> Double {
+    __swift_bridge__$flows_vehicle_policy_pursuit_maximum_elapsed_seconds()
+}
+public func flows_vehicle_policy_towing_economy_factor() -> Double {
+    __swift_bridge__$flows_vehicle_policy_towing_economy_factor()
+}
+public func flows_vehicle_policy_filter_default_vehicle_height_meters() -> Double {
+    __swift_bridge__$flows_vehicle_policy_filter_default_vehicle_height_meters()
+}
+public func flows_vehicle_policy_filter_default_max_grade_percent() -> Double {
+    __swift_bridge__$flows_vehicle_policy_filter_default_max_grade_percent()
+}
+public func flows_vehicle_policy_filter_default_clearance_margin_meters() -> Double {
+    __swift_bridge__$flows_vehicle_policy_filter_default_clearance_margin_meters()
+}
+public func flows_vehicle_policy_grade_steep_threshold_percent() -> Double {
+    __swift_bridge__$flows_vehicle_policy_grade_steep_threshold_percent()
+}
+public func flows_vehicle_policy_grade_lookahead_miles() -> Double {
+    __swift_bridge__$flows_vehicle_policy_grade_lookahead_miles()
+}
+public func flows_vehicle_policy_drive_idle_speed_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_idle_speed_mph()
+}
+public func flows_vehicle_policy_drive_default_efficient_cruise_mph() -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_default_efficient_cruise_mph()
+}
+public func flows_vehicle_policy_compass_points() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_vehicle_policy_compass_points())
+}
+public func flows_vehicle_policy_estimated_limit_mph(_ speed_mph: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_estimated_limit_mph(speed_mph)
+}
+public func flows_vehicle_policy_effective_limit_mph(_ posted_limit_mph: Double, _ has_posted_limit_mph: Bool, _ speed_mph: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_effective_limit_mph(posted_limit_mph, has_posted_limit_mph, speed_mph)
+}
+public func flows_vehicle_policy_state_threshold_mph(_ posted_limit_mph: Double, _ has_posted_limit_mph: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_state_threshold_mph(posted_limit_mph, has_posted_limit_mph)
+}
+public func flows_vehicle_policy_federal_threshold_mph(_ posted_limit_mph: Double, _ has_posted_limit_mph: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_federal_threshold_mph(posted_limit_mph, has_posted_limit_mph)
+}
+public func flows_vehicle_policy_standing_code(_ speed_mph: Double, _ posted_limit_mph: Double, _ has_posted_limit_mph: Bool) -> UInt8 {
+    __swift_bridge__$flows_vehicle_policy_standing_code(speed_mph, posted_limit_mph, has_posted_limit_mph)
+}
+public func flows_vehicle_policy_compass_point_index<GenericToRustStr: ToRustStr>(_ word: GenericToRustStr) -> Int32 {
+    return word.toRustStr({ wordAsRustStr in
+        __swift_bridge__$flows_vehicle_policy_compass_point_index(wordAsRustStr)
+    })
+}
+public func flows_vehicle_policy_parse_maxspeed_mph<GenericToRustStr: ToRustStr>(_ raw: GenericToRustStr) -> Double {
+    return raw.toRustStr({ rawAsRustStr in
+        __swift_bridge__$flows_vehicle_policy_parse_maxspeed_mph(rawAsRustStr)
+    })
+}
+public func flows_vehicle_policy_judge_code(_ speed_mph: Double, _ limit_mph: Double, _ has_limit_mph: Bool) -> UInt8 {
+    __swift_bridge__$flows_vehicle_policy_judge_code(speed_mph, limit_mph, has_limit_mph)
+}
+public func flows_vehicle_policy_pursuit_radius_meters(_ elapsed_seconds: Double, _ speed_mph: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_pursuit_radius_meters(elapsed_seconds, speed_mph)
+}
+public func flows_vehicle_policy_towing_estimated_ratings(_ height_feet: Double, _ fuel_code: UInt8) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_vehicle_policy_towing_estimated_ratings(height_feet, fuel_code))
+}
+public func flows_vehicle_policy_towing_has_effective_gcwr(_ has_gvwr_lbs: Bool, _ has_tow_capacity_lbs: Bool, _ has_gcwr_lbs: Bool) -> Bool {
+    __swift_bridge__$flows_vehicle_policy_towing_has_effective_gcwr(has_gvwr_lbs, has_tow_capacity_lbs, has_gcwr_lbs)
+}
+public func flows_vehicle_policy_towing_effective_gcwr_lbs(_ gvwr_lbs: Double, _ has_gvwr_lbs: Bool, _ tow_capacity_lbs: Double, _ has_tow_capacity_lbs: Bool, _ gcwr_lbs: Double, _ has_gcwr_lbs: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_towing_effective_gcwr_lbs(gvwr_lbs, has_gvwr_lbs, tow_capacity_lbs, has_tow_capacity_lbs, gcwr_lbs, has_gcwr_lbs)
+}
+public func flows_vehicle_policy_towing_check(_ vehicle_weight_lbs: Double, _ towed_weight_lbs: Double, _ gvwr_lbs: Double, _ has_gvwr_lbs: Bool, _ tow_capacity_lbs: Double, _ has_tow_capacity_lbs: Bool, _ gcwr_lbs: Double, _ has_gcwr_lbs: Bool) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_vehicle_policy_towing_check(vehicle_weight_lbs, towed_weight_lbs, gvwr_lbs, has_gvwr_lbs, tow_capacity_lbs, has_tow_capacity_lbs, gcwr_lbs, has_gcwr_lbs))
+}
+public func flows_vehicle_policy_degrees_to_percent(_ degrees: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_degrees_to_percent(degrees)
+}
+public func flows_vehicle_policy_passes_clearances(_ vehicle_height_meters: Double, _ clearance_margin_meters: Double, _ clearances_meters: UnsafeBufferPointer<Double>) -> Bool {
+    __swift_bridge__$flows_vehicle_policy_passes_clearances(vehicle_height_meters, clearance_margin_meters, clearances_meters.toFfiSlice())
+}
+public func flows_vehicle_policy_passes_grade(_ max_grade_percent: Double, _ route_max_grade_percent: Double, _ has_route_max_grade_percent: Bool) -> Bool {
+    __swift_bridge__$flows_vehicle_policy_passes_grade(max_grade_percent, route_max_grade_percent, has_route_max_grade_percent)
+}
+public func flows_vehicle_policy_passes_weight_limits(_ rig_weight_lbs: Double, _ has_rig_weight_lbs: Bool, _ limits_lbs: UnsafeBufferPointer<Double>) -> Bool {
+    __swift_bridge__$flows_vehicle_policy_passes_weight_limits(rig_weight_lbs, has_rig_weight_lbs, limits_lbs.toFfiSlice())
+}
+public func flows_vehicle_policy_default_max_grade_degrees(_ published_max_grade_percent: Double, _ has_published_max_grade_percent: Bool, _ gvwr_lbs: Double, _ has_gvwr_lbs: Bool, _ tow_capacity_lbs: Double, _ has_tow_capacity_lbs: Bool, _ height_feet: Double, _ towing: Bool, _ trailer_weight_lbs: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_default_max_grade_degrees(published_max_grade_percent, has_published_max_grade_percent, gvwr_lbs, has_gvwr_lbs, tow_capacity_lbs, has_tow_capacity_lbs, height_feet, towing, trailer_weight_lbs)
+}
+public func flows_vehicle_policy_grade_segments(_ elevations: UnsafeBufferPointer<Double>, _ present: UnsafeBufferPointer<UInt8>, _ spacing_meters: Double, _ start_mile: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_vehicle_policy_grade_segments(elevations.toFfiSlice(), present.toFfiSlice(), spacing_meters, start_mile))
+}
+public func flows_vehicle_policy_grade_steepest(_ segments: UnsafeBufferPointer<Double>, _ top: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_vehicle_policy_grade_steepest(segments.toFfiSlice(), top))
+}
+public func flows_vehicle_policy_grade_next_steep_index(_ mile: Double, _ segments: UnsafeBufferPointer<Double>, _ threshold_percent: Double, _ lookahead_miles: Double) -> Int64 {
+    __swift_bridge__$flows_vehicle_policy_grade_next_steep_index(mile, segments.toFfiSlice(), threshold_percent, lookahead_miles)
+}
+public func flows_vehicle_policy_drive_drag_penalty(_ speed_mph: Double, _ efficient_cruise_mph: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_drag_penalty(speed_mph, efficient_cruise_mph)
+}
+public func flows_vehicle_policy_drive_grade_penalty(_ grade_percent: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_grade_penalty(grade_percent)
+}
+public func flows_vehicle_policy_drive_throttle_penalty(_ accel_mph_per_sec: Double) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_throttle_penalty(accel_mph_per_sec)
+}
+public func flows_vehicle_policy_drive_headwind_mph(_ wind_mph: Double, _ wind_from_degrees: Double, _ has_wind_from_degrees: Bool, _ heading_degrees: Double, _ has_heading_degrees: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_headwind_mph(wind_mph, wind_from_degrees, has_wind_from_degrees, heading_degrees, has_heading_degrees)
+}
+public func flows_vehicle_policy_drive_airspeed_mph(_ speed_mph: Double, _ wind_mph: Double, _ wind_from_degrees: Double, _ has_wind_from_degrees: Bool, _ heading_degrees: Double, _ has_heading_degrees: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_airspeed_mph(speed_mph, wind_mph, wind_from_degrees, has_wind_from_degrees, heading_degrees, has_heading_degrees)
+}
+public func flows_vehicle_policy_drive_drag_sensitivity(_ city_mpu: Double, _ has_city_mpu: Bool, _ highway_mpu: Double, _ has_highway_mpu: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_drag_sensitivity(city_mpu, has_city_mpu, highway_mpu, has_highway_mpu)
+}
+public func flows_vehicle_policy_drive_load_factor(_ loaded_weight_lbs: Double, _ has_loaded_weight_lbs: Bool, _ vehicle_weight_lbs: Double, _ has_vehicle_weight_lbs: Bool, _ towing: Bool, _ fuel_fraction: Double, _ has_fuel_fraction: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_load_factor(loaded_weight_lbs, has_loaded_weight_lbs, vehicle_weight_lbs, has_vehicle_weight_lbs, towing, fuel_fraction, has_fuel_fraction)
+}
+public func flows_vehicle_policy_drive_score(_ speed_mph: Double, _ accel_mph_per_sec: Double, _ grade_percent: Double, _ wind_mph: Double, _ wind_from_degrees: Double, _ has_wind_from_degrees: Bool, _ heading_degrees: Double, _ has_heading_degrees: Bool, _ efficient_cruise_mph: Double, _ city_mpu: Double, _ has_city_mpu: Bool, _ highway_mpu: Double, _ has_highway_mpu: Bool, _ loaded_weight_lbs: Double, _ has_loaded_weight_lbs: Bool, _ vehicle_weight_lbs: Double, _ has_vehicle_weight_lbs: Bool, _ towing: Bool, _ fuel_fraction: Double, _ has_fuel_fraction: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_score(speed_mph, accel_mph_per_sec, grade_percent, wind_mph, wind_from_degrees, has_wind_from_degrees, heading_degrees, has_heading_degrees, efficient_cruise_mph, city_mpu, has_city_mpu, highway_mpu, has_highway_mpu, loaded_weight_lbs, has_loaded_weight_lbs, vehicle_weight_lbs, has_vehicle_weight_lbs, towing, fuel_fraction, has_fuel_fraction)
+}
+public func flows_vehicle_policy_drive_verdict_code(_ speed_mph: Double, _ accel_mph_per_sec: Double, _ grade_percent: Double, _ wind_mph: Double, _ wind_from_degrees: Double, _ has_wind_from_degrees: Bool, _ heading_degrees: Double, _ has_heading_degrees: Bool, _ efficient_cruise_mph: Double, _ city_mpu: Double, _ has_city_mpu: Bool, _ highway_mpu: Double, _ has_highway_mpu: Bool, _ loaded_weight_lbs: Double, _ has_loaded_weight_lbs: Bool, _ vehicle_weight_lbs: Double, _ has_vehicle_weight_lbs: Bool, _ towing: Bool, _ fuel_fraction: Double, _ has_fuel_fraction: Bool) -> UInt8 {
+    __swift_bridge__$flows_vehicle_policy_drive_verdict_code(speed_mph, accel_mph_per_sec, grade_percent, wind_mph, wind_from_degrees, has_wind_from_degrees, heading_degrees, has_heading_degrees, efficient_cruise_mph, city_mpu, has_city_mpu, highway_mpu, has_highway_mpu, loaded_weight_lbs, has_loaded_weight_lbs, vehicle_weight_lbs, has_vehicle_weight_lbs, towing, fuel_fraction, has_fuel_fraction)
+}
+public func flows_vehicle_policy_drive_efficient_cruise_mph(_ city_mpu: Double, _ has_city_mpu: Bool, _ highway_mpu: Double, _ has_highway_mpu: Bool) -> Double {
+    __swift_bridge__$flows_vehicle_policy_drive_efficient_cruise_mph(city_mpu, has_city_mpu, highway_mpu, has_highway_mpu)
+}
 
 

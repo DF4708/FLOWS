@@ -982,13 +982,54 @@ the two records and fails if they stop diverging.
 The bridge module stays the reserved stub; the seven Swift classes switch
 to it together with their callers.
 
+## Wave 1, fourth landing: vehicle policy (2026-09-15)
+
+`flows-core::vehicle_policy` (1,455 lines, 20 unit tests) carries the speed
+bar's legal lines and limit estimate (`SpeedLaw`), the compass table, the
+posted-limit parser and judgment (`SpeedSign`), the pursuit reach circle,
+the towing class estimates and violation check (`TowingLimits`), the route
+filter's three admission rules and the grade slider's default
+(`FilterLimits`), the grade table (`GradeProfile`) and every penalty and
+verdict of `DriveEfficiency`. `flows-bridge::vehicle_policy` exposes 48
+functions. Five Swift files are facades now — `SpeedLaw`, `SpeedSign`,
+`TowingLimits`, `FilterLimits`, `PursuitReach` hold no copy of a threshold,
+table or rule; the two constants the UI reads come from Rust. `GradeProfile`
+and `DriveEfficiency` keep their Swift until their callers move; the bridge
+is ready for them.
+
+The dead worktree left the core four constants short of compiling, plus a
+bridge, a test, a harness and the facade edits, but no fixture. The four
+constants are Unicode tables — the scalars for which Swift's
+`Character.isNumber` holds, those that join a preceding ASCII character or a
+following one into a single grapheme cluster, and Foundation's
+`whitespaces` — which the parser needs because `SpeedSign.parseMaxspeed`
+reads the tag through Swift's `String`, that is, by grapheme cluster and not
+by scalar. The harness reads those properties from the Swift runtime over
+every scalar and writes them as ranges; the Rust tables were generated from
+that output, never typed, and the test checks each table over the whole
+scalar domain before it parses a single tag. The harness was rebuilt from
+the base commit and run four times, byte-identical: 14,260 records in 35
+kinds. The oracle passes bit for bit in debug and in release.
+
+### Which NaN comes out of a product is the compiler's choice
+
+Two records failed at first, both `PursuitReach.radiusMeters` with a NaN in
+both arguments (one negative, one carrying a payload). IEEE 754 does not say
+which operand's NaN a product returns; Apple silicon returns the first
+operand's. The Swift Release build had emitted the multiplication with the
+speed first and the elapsed time second — the reverse of the source — so the
+speed's canonical NaN came out. The Rust writes the product in that order,
+with a comment saying why, and matches in both build modes. A NaN's sign
+and payload never reach a driver; the oracle compares bits, so the port
+states exactly what it does.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
 |---|---|---|
 | seasonal | LANDED: core + oracle test (3,163 records, bit-exact); bridge is the reserved stub | switch `SeasonalRiskModel`/`RouteHeadTrainer` to the bridge with their callers |
 | learning | LANDED: core + fixture + oracle test (10,673 records, bit-exact; two name records diverge by design); bridge is the reserved stub | switch the seven Swift classes to the bridge with their callers |
-| vehicle_policy | core does not compile; Swift facades edited; no fixture | fix or redo |
+| vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records, bit-exact) + five facades switched (SpeedLaw, SpeedSign, TowingLimits, FilterLimits, PursuitReach) | switch GradeProfile and DriveEfficiency with their callers |
 | climate, places_text | harness only | port from scratch |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
 

@@ -12,37 +12,51 @@ import Foundation
 /// clearance, grade, and bridge-weight admission rules live here so the
 /// canonical scenario (10 ft van that cannot pass a 12 ft post; 14° grade
 /// ceiling towing heavy) is pinned by FLOWSTests.
+///
+/// The rules and the slider default are computed in rust/flows-core
+/// (vehicle_policy.rs) and called through rust/flows-bridge; the defaults are
+/// read from Rust. Swift still owns the `flows.maxGradeDegrees` preference the
+/// app model writes when the driver moves the slider. Pinned bit for bit to
+/// the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_vehicle_policy_oracle.tsv.
 struct FilterLimits {
-    var vehicleHeightMeters: Double = 4.115   // 13'6"
+    var vehicleHeightMeters: Double = FilterLimits.defaultVehicleHeightMeters   // 13'6"
     /// Grade limit as PERCENT (what USGS elevation profiles measure). The UI
     /// slider works in DEGREES — a driver towing heavy thinks "14°", which is
     /// tan(14°) ≈ 24.9% — and converts via `degreesToPercent`.
-    var maxGradePercent: Double = 6.0
+    var maxGradePercent: Double = FilterLimits.defaultMaxGradePercent
     /// A posted bridge limit must exceed the vehicle height by this margin —
     /// a 10 ft vehicle cannot take a bridge posted 12 ft or smaller (2 ft
     /// of breathing room for load shift and repaving).
-    var clearanceMarginMeters: Double = 0.6096   // 2 ft
+    var clearanceMarginMeters: Double = FilterLimits.defaultClearanceMarginMeters   // 2 ft
     /// The rig's total weight (vehicle + what it tows, pounds) for the
     /// bridge-weight check; nil = no weights entered → never excludes.
     var rigWeightLbs: Double? = nil
 
+    static let defaultVehicleHeightMeters = flows_vehicle_policy_filter_default_vehicle_height_meters()
+    static let defaultMaxGradePercent = flows_vehicle_policy_filter_default_max_grade_percent()
+    static let defaultClearanceMarginMeters = flows_vehicle_policy_filter_default_clearance_margin_meters()
+
     static func degreesToPercent(_ degrees: Double) -> Double {
-        tan(degrees * .pi / 180) * 100
+        flows_vehicle_policy_degrees_to_percent(degrees)
     }
 
     /// True when every posted clearance is passable for this vehicle.
     /// "Or smaller" is inclusive: a 10 ft vehicle fails a 12 ft post.
     /// nil (no data yet) never excludes a route.
     func passesClearances(_ clearancesMeters: [Double]?) -> Bool {
-        guard let clearancesMeters else { return true }
-        let minimumPassable = vehicleHeightMeters + clearanceMarginMeters
-        return !clearancesMeters.contains { $0 <= minimumPassable + 1e-9 }
+        // No data and no postings both pass; nothing to send across.
+        guard let clearancesMeters, !clearancesMeters.isEmpty else { return true }
+        return clearancesMeters.withUnsafeBufferPointer {
+            flows_vehicle_policy_passes_clearances(vehicleHeightMeters, clearanceMarginMeters, $0)
+        }
     }
 
     /// True when the route's steepest measured grade stays under the limit.
     /// nil (no data yet) never excludes a route.
     func passesGrade(_ routeMaxGradePercent: Double?) -> Bool {
-        (routeMaxGradePercent ?? 0) < maxGradePercent
+        flows_vehicle_policy_passes_grade(
+            maxGradePercent, routeMaxGradePercent ?? 0, routeMaxGradePercent != nil)
     }
 
     /// True when every posted weight limit can take the rig's total weight.
@@ -50,8 +64,11 @@ struct FilterLimits {
     /// the limit is allowed, one pound over is not. nil data (no fetch yet)
     /// or no entered weight never excludes a route.
     func passesWeightLimits(_ limitsLbs: [Double]?) -> Bool {
-        guard let limitsLbs, let rig = rigWeightLbs, rig > 0 else { return true }
-        return !limitsLbs.contains { $0 < rig - 1e-9 }
+        // No data and no postings both pass; nothing to send across.
+        guard let limitsLbs, !limitsLbs.isEmpty else { return true }
+        return limitsLbs.withUnsafeBufferPointer {
+            flows_vehicle_policy_passes_weight_limits(rigWeightLbs ?? 0, rigWeightLbs != nil, $0)
+        }
     }
 
     /// The grade slider's DEFAULT, derived from the vehicle — informally,
@@ -86,38 +103,10 @@ struct FilterLimits {
         towing: Bool,
         trailerWeightLbs: Double
     ) -> Double {
-        var percent: Double
-        if let published = publishedMaxGradePercent {
-            percent = published
-        } else if let gvwr = gvwrLbs {
-            switch gvwr {
-            case ..<6_000: percent = 18
-            case ..<10_000: percent = 15
-            case ..<14_000: percent = 12
-            case ..<26_000: percent = 9
-            default: percent = 6
-            }
-        } else {
-            switch heightFeet {
-            case ..<5.5: percent = 18
-            case ..<7.0: percent = 15
-            case ..<9.5: percent = 12
-            default: percent = 9
-            }
-        }
-        if towing || trailerWeightLbs > 0 {
-            percent = min(percent, 10)
-            let heavyTrailer: Bool
-            if let cap = towCapacityLbs, cap > 0 {
-                heavyTrailer = trailerWeightLbs >= cap * 0.6
-                if trailerWeightLbs >= cap { percent = min(percent, 6) }
-            } else {
-                heavyTrailer = trailerWeightLbs >= 5_000
-            }
-            if heavyTrailer { percent = min(percent, 8) }
-        }
-        let degrees = atan(percent / 100) * 180 / .pi
-        let clamped = min(max(degrees, 2), 15)
-        return (clamped * 2).rounded() / 2
+        flows_vehicle_policy_default_max_grade_degrees(
+            publishedMaxGradePercent ?? 0, publishedMaxGradePercent != nil,
+            gvwrLbs ?? 0, gvwrLbs != nil,
+            towCapacityLbs ?? 0, towCapacityLbs != nil,
+            heightFeet, towing, trailerWeightLbs)
     }
 }

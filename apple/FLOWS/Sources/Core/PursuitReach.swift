@@ -13,18 +13,21 @@ import Foundation
 /// around the incident allow? The circle grows as time passes. Pure math —
 /// the nearby speed limit comes from OSM (RouteAttributeFetcher) with a
 /// blended default when none is posted nearby.
+///
+/// Computed in rust/flows-core (vehicle_policy.rs) and called through
+/// rust/flows-bridge; the constants are read from Rust. Pinned bit for bit to
+/// the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_vehicle_policy_oracle.tsv.
 enum PursuitReach {
 
     /// Blended urban/highway escape speed when no posted limits are found.
-    static let defaultSpeedMph = 45.0
+    static let defaultSpeedMph = flows_vehicle_policy_pursuit_default_speed_mph()
     /// Even "just happened" draws a visible circle (the subject moved).
-    static let minimumRadiusMeters = 800.0
+    static let minimumRadiusMeters = flows_vehicle_policy_pursuit_minimum_radius_meters()
     /// Cap: past ~3 h the circle covers whole regions and stops informing.
-    static let maximumElapsedSeconds: TimeInterval = 3 * 3600
+    static let maximumElapsedSeconds: TimeInterval = flows_vehicle_policy_pursuit_maximum_elapsed_seconds()
 
     static func radiusMeters(elapsedSeconds: TimeInterval, speedMph: Double) -> Double {
-        let elapsed = min(max(elapsedSeconds, 0), maximumElapsedSeconds)
-        let mps = max(speedMph, 5) * 0.44704
-        return max(elapsed * mps, minimumRadiusMeters)
+        flows_vehicle_policy_pursuit_radius_meters(elapsedSeconds, speedMph)
     }
 }

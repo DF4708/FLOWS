@@ -1469,3 +1469,15 @@ canonically equivalent strings in different encodings — false in both
 directions for "öz" against "o\u{308}", and "가 " before the jamo spelling
 of "가". A port that orders NFC bytes is Swift's own order once both sides
 are NFC; the two records are named in the oracle as divergences by design.
+
+## Which NaN a product returns is the compiler's operand order
+
+Two vehicle-policy oracle records differed only in a NaN's sign or payload,
+each with a NaN in both factors. IEEE 754 leaves the choice to the hardware;
+Apple silicon returns the first operand's NaN, quieted. The Swift Release
+build had commuted the product relative to its source, so the other
+operand's NaN came out. When an oracle mismatch is a NaN with a NaN on both
+sides of a product or sum, check the operand order before anything else,
+write the order that matches, and comment it. The sign never reaches a
+driver, but the oracle's bits are the contract, and a silent mismatch there
+hides the real ones.
