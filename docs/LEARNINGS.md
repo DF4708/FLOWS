@@ -1364,3 +1364,37 @@ different evidence, giving different answers about the same road. That is
 not a fix to make in an audit; it is the owner's decision, written up with
 the mechanism.
 
+## Three answers, three changes, one oracle
+
+The owner answered the audit's three open questions in one message. Each
+answer became code the same day, and the discipline was the same for all
+three: freeze what the code says now, change it on purpose, and make the
+difference a named, self-checking allow-list rather than a silent diff.
+
+**Sharing code is how two subsystems stop disagreeing.** The map and the
+route used different evidence because they had different code paths. The
+fix was not to teach the route about fire; it was to make one function that
+scores a point against the live feeds and have both call it. The map's
+numbers did not move, by test, and the route got them for free.
+
+**Clip before you scan.** The map scores 49 points; a route has hundreds.
+The hotspot file is continent-wide and uncapped. Same function, wildly
+different cost, until the snapshot was clipped once to the route's box with
+a margin wider than any scorer's radius. Complexity is a property of the
+call site as much as the function.
+
+**A keyword list is a policy, and three of them are three policies.** The
+Red Flag Warning was a predictor to the band, a fire icon to the display,
+and a shelter-now emergency to the imminent-alert rule — three files,
+written at three times, each right in its own terms. A 185-event oracle over
+all three found it in one diff. The unified classifier keeps every current
+answer except the ones the owner's rule contradicts, and the test that pins
+it fails if an allow-listed change ever stops being a change.
+
+**The toolchain moves under you.** Xcode 27 arrived mid-session and its
+compiler flagged code that had been clean for months: weak captures that
+were implicitly strong, a Combine type in a file that never imported
+Combine, a module import that named a module that does not exist. None was
+a new bug; all were true. A zero-warning gate is only as good as the
+compiler it runs on, so re-running it after an update is not optional.
+

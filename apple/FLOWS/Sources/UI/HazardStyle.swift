@@ -64,57 +64,40 @@ enum HazardStyle {
 
     /// Classify an NWS event name ("Tornado Warning", "Winter Storm Watch"…).
     static func kind(forEvent event: String) -> HazardKind {
-        let e = event.lowercased()
-        if e.contains("tornado") { return tornado }
-        if e.contains("hurricane") || e.contains("tropical") { return hurricane }
-        // Specific products BEFORE the generic words that would swallow
-        // them: a Storm Surge Warning is a tropical-system flood, not a
-        // thunderstorm; a Dust Storm Warning is airborne dust, not a storm;
-        // an Extreme Wind Warning is hurricane-force wind, not a breeze.
-        if e.contains("surge") { return hurricane }
-        // A dust STORM (or blowing dust) warning is the realized whiteout;
-        // a plain dust advisory is an air-quality condition.
-        if e.contains("dust storm") || e.contains("blowing dust") { return dust }
-        if e.contains("dust") { return air }
-        if e.contains("extreme wind") { return hurricane }
-        if e.contains("flood") { return flood }
-        if e.contains("blizzard") || e.contains("snow") || e.contains("winter") { return snow }
-        if e.contains("ice") || e.contains("freezing") || e.contains("frost") { return ice }
-        if e.contains("thunder") || e.contains("severe") || e.contains("storm") { return storm }
-        // A Special Weather Statement is NWS's short-fused sub-severe
-        // convective product — name it a storm, not a mystery triangle.
-        if e.contains("special weather") { return storm }
-        if e.contains("heat") { return heat }
-        if e.contains("chill") || e.contains("cold") { return cold }
-        if e.contains("wind") { return wind }
-        if e.contains("fire") || e.contains("red flag") { return fire }
-        if e.contains("fog") { return fog }
-        if e.contains("smoke") || e.contains("air quality") { return air }   // "dust" matched above
-        if e.contains("volcan") || e.contains("ashfall") || e.contains("ash advisory") { return volcanic }
-        if e.contains("avalanche") { return avalanche }
-        if e.contains("tsunami") { return tsunami }
-        return generic
+        // One classifier (rust/flows-core alerts.rs) names the icon; this
+        // table only turns the name into a HazardKind.
+        kind(named: AlertTables.name(at: Int(flows_alerts_display_kind(event))))
     }
 
     /// Classify a FLOWS field family key.
     static func kind(forFamily family: String) -> HazardKind {
-        switch family {
-        case "winter": return snow
-        case "qpf_flood", "flood": return flood
-        case "convective", "storm": return storm
-        case "precip": return rain
-        case "fire": return fire
-        case "heat": return heat
-        case "cold": return cold
-        case "wind": return wind
-        case "air": return air
-        case "radiation": return radiation
-        case "seismic": return seismic
-        case "tropical": return hurricane
-        case "volcanic": return volcanic
-        case "avalanche": return avalanche
-        case "tsunami": return tsunami
-        case "closure": return closure
+        kind(named: AlertTables.name(at: Int(flows_alerts_display_kind_for_family(family))))
+    }
+
+    /// The HazardKind for a display name the classifier returns. Every name
+    /// in `flows_alerts_display_kind_names` must map here; a test checks.
+    static func kind(named name: String) -> HazardKind {
+        switch name {
+        case "Tornado": return tornado
+        case "Storm": return storm
+        case "Flood": return flood
+        case "Snow": return snow
+        case "Ice": return ice
+        case "Heat": return heat
+        case "Cold": return cold
+        case "Wind": return wind
+        case "Fire": return fire
+        case "Tropical": return hurricane
+        case "Fog": return fog
+        case "Dust storm": return dust
+        case "Air/Smoke": return air
+        case "Volcanic": return volcanic
+        case "Avalanche": return avalanche
+        case "Tsunami": return tsunami
+        case "Rain chance": return rain
+        case "Road closed": return closure
+        case "Radiation/UV": return radiation
+        case "Seismic": return seismic
         default: return generic
         }
     }
@@ -188,5 +171,15 @@ struct ScannerIncidentPin: View {
         .onAppear { glow = true }
         .help("\(incident.kind.title) — heard on the local feed near \(incident.placeText)")
         .accessibilityLabel("\(incident.kind.title) reported near \(incident.placeText)")
+    }
+}
+
+/// Names read from the Rust classifier once.
+enum AlertTables {
+    static let displayKindNames: [String] = flows_alerts_display_kind_names().map { $0.as_str().toString() }
+    /// The name at a classifier index, or the generic hazard for anything out
+    /// of range (which includes the bridge's containment fallback).
+    static func name(at index: Int) -> String {
+        displayKindNames.indices.contains(index) ? displayKindNames[index] : "Hazard"
     }
 }

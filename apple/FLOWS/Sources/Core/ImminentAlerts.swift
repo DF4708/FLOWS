@@ -46,58 +46,35 @@ enum ImminentAlerts {
         case monitor
     }
 
-    /// Life-safety event vocabulary (NWS + ECCC event names, matched
-    /// case-insensitively). "Warning" phrasing means the hazard is ACTIVE.
-    private static let redEventKeywords: [String] = [
-        "tornado warning", "hurricane warning", "typhoon warning",
-        "extreme wind warning", "fire warning", "red flag warning",
-        "flash flood emergency", "tsunami warning", "radiological",
-        "nuclear", "hazardous materials", "shelter in place",
-        "civil danger", "evacuation",
-        // Emergency broadcasts (they ride the same CAP feeds): AMBER and
-        // kin, law-enforcement emergencies, civil emergencies.
-        "child abduction", "amber alert", "blue alert", "silver alert",
-        "law enforcement warning", "civil emergency",
-    ]
-
-    /// Alerts that describe a PERSON or VEHICLE to look out for, rather
-    /// than a hazard to take cover from.
-    static let lookoutKeywords: [String] = [
-        "child abduction", "amber alert", "blue alert", "silver alert",
-        "endangered", "missing person", "law enforcement warning",
-    ]
-
     /// Is this a life-safety event by name — the vocabulary above?
     static func isLifeSafetyEvent(_ event: String) -> Bool {
-        let lower = event.lowercased()
-        return redEventKeywords.contains { lower.contains($0) }
+        flows_alerts_is_life_safety(event)
     }
 
     /// Is this a look-out-for alert (a person or vehicle), not a hazard?
     static func isLookoutEvent(_ event: String) -> Bool {
-        let lower = event.lowercased()
-        return lookoutKeywords.contains { lower.contains($0) }
+        flows_alerts_is_lookout(event)
     }
 
     /// Classify one alert the vehicle is about to enter.
     static func classify(
         event: String, severityScore: Double, expires: Date?, now: Date = Date()
     ) -> Action {
-        let lower = event.lowercased()
-        // Checked before the life-safety sweep: these ARE red events, but
-        // the response is to watch the road, not to get indoors.
-        if lookoutKeywords.contains(where: { lower.contains($0) }) { return .lookout }
-        if redEventKeywords.contains(where: { lower.contains($0) })
-            || FlowsCore.riskBand(score: severityScore) == .red {
-            return .shelter
+        let secs = expires.map { $0.timeIntervalSince(now) }
+        switch flows_alerts_action(event, severityScore, secs != nil, secs ?? 0) {
+        case 1: return .restArea
+        case 2: return .shelter
+        case 3: return .lookout
+        default: return .monitor   // 0, and the containment fallback
         }
-        if severityScore >= upperYellowMin,
-           let expires,
-           expires > now,
-           expires.timeIntervalSince(now) <= transientHorizonSeconds {
-            return .restArea
-        }
-        return .monitor
+    }
+
+    /// How this alert ranks against every other one the driver could be
+    /// shown — the owner's rule that the most immediate risk to life takes
+    /// precedence. 3 life-safety, 2 realized primary or Red severity,
+    /// 1 predictor, 0 lookout or unclassified. See rust/flows-core alerts.rs.
+    static func threatRank(event: String, severityScore: Double) -> Int {
+        Int(flows_alerts_threat_rank(event, severityScore))
     }
 
     /// Seconds until the vehicle reaches a point `distanceMeters` ahead at
@@ -118,6 +95,9 @@ enum ImminentAlerts {
         let alertID: String
         let distanceMeters: Double
         let severityScore: Double
+        /// `threatRank(event:severityScore:)` of the alert; callers that have
+        /// no event (tests of the distance rule) get the predictor rank.
+        var threatRank: Int = 1
     }
 
     /// The alert the driver should be warned about NOW: the worst-severity
@@ -128,9 +108,12 @@ enum ImminentAlerts {
         candidates
             .filter { isImminent(distanceMeters: $0.distanceMeters, speedMps: speedMps) }
             .sorted {
-                $0.severityScore != $1.severityScore
-                    ? $0.severityScore > $1.severityScore
-                    : $0.distanceMeters < $1.distanceMeters
+                // Most immediate risk to life first; then CAP severity; then
+                // whichever is reached first. A lookout can only win an
+                // otherwise empty field.
+                if $0.threatRank != $1.threatRank { return $0.threatRank > $1.threatRank }
+                if $0.severityScore != $1.severityScore { return $0.severityScore > $1.severityScore }
+                return $0.distanceMeters < $1.distanceMeters
             }
             .first
     }

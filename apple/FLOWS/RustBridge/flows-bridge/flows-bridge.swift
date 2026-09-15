@@ -1,3 +1,41 @@
+public func flows_alerts_display_kind_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_alerts_display_kind_names())
+}
+public func flows_alerts_display_kind<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> Int32 {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_display_kind(eventAsRustStr)
+    })
+}
+public func flows_alerts_display_kind_for_family<GenericToRustStr: ToRustStr>(_ family: GenericToRustStr) -> Int32 {
+    return family.toRustStr({ familyAsRustStr in
+        __swift_bridge__$flows_alerts_display_kind_for_family(familyAsRustStr)
+    })
+}
+public func flows_alerts_shelter_kind<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ severity_score: Double) -> Int32 {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_shelter_kind(eventAsRustStr, severity_score)
+    })
+}
+public func flows_alerts_is_life_safety<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> Bool {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_is_life_safety(eventAsRustStr)
+    })
+}
+public func flows_alerts_is_lookout<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> Bool {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_is_lookout(eventAsRustStr)
+    })
+}
+public func flows_alerts_action<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ severity_score: Double, _ has_expiry: Bool, _ seconds_until_expiry: Double) -> Int32 {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_action(eventAsRustStr, severity_score, has_expiry, seconds_until_expiry)
+    })
+}
+public func flows_alerts_threat_rank<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ severity_score: Double) -> Int32 {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_threat_rank(eventAsRustStr, severity_score)
+    })
+}
 
 
 

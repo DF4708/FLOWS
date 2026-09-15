@@ -84,59 +84,20 @@ enum ShelterPolicy {
         }
     }
 
-    /// Hazards whose danger is to DRIVING rather than to a building. Getting
-    /// off the road is the whole remedy.
-    private static let drivingHazards = [
-        "dense fog", "freezing fog", "hydroplan", "heavy rain", "downpour",
-        "blowing dust", "dust storm", "blowing snow", "whiteout",
-        "lake effect", "black ice", "ice storm", "winter weather",
-    ]
-
-    /// Hazards where an ordinary building is not enough.
-    private static let structuralHazards = [
-        "tornado", "hurricane", "typhoon", "tropical storm", "extreme wind",
-        "derecho", "tsunami",
-    ]
-
-    /// Hazards that mean leave the area entirely.
-    private static let evacuationHazards = [
-        "evacuation", "wildfire", "fire warning", "radiological", "nuclear",
-        "hazardous materials", "flash flood emergency", "dam failure",
-    ]
-
     /// The shelter a given alert calls for.
     ///
     /// Severity matters as much as the name: a severe thunderstorm WARNING
     /// with 70 mph gusts is a different problem from a thunderstorm watch,
     /// and the score carries that.
     static func kind(forEvent event: String, severityScore: Double) -> Kind {
-        let lower = event.lowercased()
-        if evacuationHazards.contains(where: { lower.contains($0) }) {
-            return .officialShelter
+        // The tables live in rust/flows-core alerts.rs, beside the display
+        // and imminent-alert rules for the same event names.
+        switch flows_alerts_shelter_kind(event, severityScore) {
+        case 0: return .inVehicle
+        case 1: return .anyBuilding
+        case 3: return .officialShelter
+        default: return .sturdyBuilding   // 2, and the containment fallback
         }
-        if structuralHazards.contains(where: { lower.contains($0) }) {
-            // A watch is "be ready", a warning is "it is happening".
-            return lower.contains("watch") && severityScore < 0.8
-                ? .sturdyBuilding : .officialShelter
-        }
-        if drivingHazards.contains(where: { lower.contains($0) }) {
-            return .inVehicle
-        }
-        // Thunderstorms: indoors is the standard advice, and a solid
-        // building only once the wind is the story.
-        if lower.contains("thunderstorm") || lower.contains("severe weather") {
-            return severityScore >= 0.8 ? .sturdyBuilding : .anyBuilding
-        }
-        if lower.contains("flood") {
-            // Flooding is survived by not driving into it. Higher ground
-            // matters, but the first move is off the road.
-            return severityScore >= 0.8 ? .sturdyBuilding : .inVehicle
-        }
-        if lower.contains("hail") || lower.contains("lightning") {
-            return .anyBuilding
-        }
-        // Anything unrecognized but scored high enough to warn about.
-        return severityScore >= 0.8 ? .sturdyBuilding : .anyBuilding
     }
 
     /// How long to stay put: as long as the hazard is actually there.

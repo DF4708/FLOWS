@@ -801,35 +801,29 @@ the hazard classifier. Details in that commit.
   where the Swift reader is lossy; the writer never emits any, so no file
   can tell them apart.
 
-### Recorded for the owner: contradictions and gaps that change an answer
+### Decided by the owner on 2026-09-15, and done
 
-1. **The route scorer never sees the live-feed primaries.** The map sweep
-   fetches fire perimeters and hotspots, earthquakes, tsunami events,
-   elevated volcanoes, avalanche zones, tropical storms and the SPC outlook,
-   and bands each grid point with them. Route scoring (`scored`,
-   `sampleRealizedRisk`) fetches only flood gauges, road closures and water
-   proximity. A route through an active wildfire perimeter or a fresh
-   epicentre with no NWS alert is not Red on the route while the map beside
-   it is Red and labelled FIRE. Tsunami, ashfall and hurricane usually reach
-   the route through their NWS warnings; fire perimeters and earthquakes
-   have no such proxy. Recommendation: feed the same primaries into the
-   corridor score, which is a change to route answers and belongs to a
-   decision, then to wave 3 where route scoring becomes one Rust call.
-2. **A Dust Storm Warning is drawn as air quality but banded as a realized
-   storm.** `HazardStyle.kind(forEvent:)` returns `air` for "dust";
-   `alert_family` returns `storm`, a Red-capable primary. The icon says
-   haze; the band says zero visibility. One of them is wrong for a driver.
-3. **Alert event names are classified three ways** — display kind, band
-   family, shelter kind — with three tables. Some differences are
-   deliberate (Red Flag is a fire icon but a heat predictor). None of the
-   three files says so. If they are meant to differ, the code should say
-   where and why; if not, one table.
-4. **Safest and fastest are computed in two places each** (the route cards
-   and the storm reroute; the cards and the choice log) by the same rule.
-   Not wrong today; a rule change would have to be made twice.
-5. **`PlannedRoute` is not `Sendable`** and crosses task boundaries in the
-   app model. Swift 5 allows it; Swift 6 will not. It holds an `MKRoute`,
-   immutable after creation, so it is safe in practice. A migration item.
+1. **Routes see the live-feed primaries.** `LiveHazardScoring.swift` fetches
+   one clipped snapshot per area and scores it with the exact expressions
+   the map sweep used; the sweep now calls the same function, and the route
+   folds the result into the same two-tier band input. A route through a
+   wildfire is Red with no NWS alert, as the map beside it always was.
+2. **A dust storm is both hazards.** Its own kind, drawn for Dust Storm and
+   Blowing Dust Warnings; the band keeps it a realized storm; the advice
+   covers the road you cannot see and the air you should not breathe.
+3. **One classifier, and life first.** `flows-core::alerts` holds the display
+   table, the shelter tables, the life-safety and lookout lists, the action
+   rule and a threat rank; the three Swift files call it. Pinned to what the
+   Swift tables said by a 185-event oracle, with three deliberate changes
+   allow-listed: a Red Flag Warning (fire weather, a predictor) no longer
+   commands "shelter now"; a Tornado Emergency is life-safety; and the
+   combining-mark byte/grapheme edge is named. Imminent alerts are chosen by
+   rank, then CAP severity, then distance, and a showing warning is replaced
+   only by a higher-ranked one, so a flood advisory cannot displace a
+   tornado and a lookout displaces nothing.
+4. Safest and fastest are still computed in two places each by the same
+   rule. Not wrong; a rule change would have to be made twice.
+5. `PlannedRoute` is not `Sendable`; Swift 6 migration item.
 
 ### Not defects, noted
 

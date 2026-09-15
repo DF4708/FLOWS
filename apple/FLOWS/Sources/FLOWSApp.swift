@@ -1424,6 +1424,9 @@ final class AppModel: ObservableObject {
         let sourceURL: URL?
         let action: ImminentAlerts.Action
         let etaSeconds: Double
+        /// `ImminentAlerts.threatRank` at creation, so a graver warning is
+        /// never displaced by a lesser one while both are live.
+        var threatRank: Int = 1
         /// Parsed from the official description: "red Toyota truck" → a red
         /// truck silhouette + TOYOTA badge; person descriptions → colored
         /// adult/child silhouette (AMBER/Blue/Silver alert cards).
@@ -4048,7 +4051,9 @@ final class AppModel: ObservableObject {
             guard !dismissedImminentIDs.contains(id),
                   let alert = score.alertsByID[id] else { return nil }
             return ImminentAlerts.Candidate(
-                alertID: id, distanceMeters: dist, severityScore: alert.severityScore)
+                alertID: id, distanceMeters: dist, severityScore: alert.severityScore,
+                threatRank: ImminentAlerts.threatRank(
+                    event: alert.event, severityScore: alert.severityScore))
         }
         guard let hit = ImminentAlerts.firstImminent(candidates, speedMps: speed),
               let alert = score.alertsByID[hit.alertID] else {
@@ -4093,6 +4098,7 @@ final class AppModel: ObservableObject {
             onset: alert.onset,
             expires: alert.expires,
             severityScore: alert.severityScore)
+        warning.threatRank = hit.threatRank
         if let cached = reachSpeeds[alert.id] {
             warning.reachSpeedMph = cached
         } else if action == .shelter, let incident {
@@ -4111,9 +4117,14 @@ final class AppModel: ObservableObject {
         }
         // A displayed RED alert holds the banner until pressed — a lower
         // alert never replaces it silently.
-        if imminentWarning?.action == .shelter || imminentWarning?.action == .lookout,
-           imminentWarning?.alertID != warning.alertID,
-           action != .shelter { return }
+        // No spam, and life first: while a warning is showing, a different
+        // alert replaces it only if it ranks HIGHER (a tornado displaces a
+        // flood advisory; a flood advisory never displaces a tornado, and a
+        // lookout displaces nothing). The same alert refreshes freely; the
+        // voice and haptics fire only when the alert ID changes.
+        if let current = imminentWarning, current.alertID != warning.alertID,
+           warning.threatRank <= current.threatRank,
+           !dismissedImminentIDs.contains(current.alertID) { return }
         if imminentWarning != warning { imminentWarning = warning }
         // Red alert → the shelter list for THIS hazard opens itself, once.
         if action == .shelter, !shelteredImminentIDs.contains(alert.id) {
