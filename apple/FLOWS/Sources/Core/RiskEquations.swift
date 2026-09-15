@@ -148,7 +148,8 @@ enum RiskEquations {
                           onDevice: [String: Double],
                           alertEvent: String?, alertSeverity: Double,
                           floodMultiplier: Double = 1,
-                          closureScore: Double = 0) -> [String: Double] {
+                          closureScore: Double = 0,
+                          live: [String: Double] = [:]) -> [String: Double] {
         func predictor(_ fam: String, _ deviceKey: String) -> Double {
             max(field(fam), onDevice[deviceKey] ?? 0)
         }
@@ -167,6 +168,15 @@ enum RiskEquations {
             // still capped as a secondary, never Red alone.
             "precip": min(1, predictor("qpf_flood", "precip") * floodMultiplier),
         ]
+        // Live-feed evidence — fire perimeters and hotspots, earthquakes,
+        // volcanoes, tropical storms, tsunami events (realized primaries) and
+        // the avalanche rating, space weather and the SPC outlook
+        // (predictors) — scored per point by HazardFeedScores.live. Merged by
+        // max per family, so the dictionary's order cannot reach a product,
+        // and a route sees exactly what the map sweep sees.
+        for (fam, v) in live where v > 0 {
+            out[fam] = max(out[fam] ?? 0, v)
+        }
         if let ev = alertEvent, let fam = alertFamily(ev) {
             out[fam] = max(out[fam] ?? 0, alertSeverity)
         } else if let ev = alertEvent, ImminentAlerts.isLifeSafetyEvent(ev),

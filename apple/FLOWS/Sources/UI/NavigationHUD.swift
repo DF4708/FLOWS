@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import Combine
 import MapKit
 import SwiftUI
 

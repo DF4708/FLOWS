@@ -313,6 +313,7 @@ targets:
       - path: FLOWS/Sources/Core/RefuelLearning.swift
       - path: FLOWS/Sources/Core/PursuitReach.swift
       - path: FLOWS/Sources/Core/LiveHazardFeeds.swift
+      - path: FLOWS/Sources/Core/LiveHazardScoring.swift
       - path: FLOWS/Sources/Core/RatingsAndCost.swift
       - path: FLOWS/Sources/Core/BrandKnowledge.swift
       - path: FLOWS/Sources/Core/SecureStore.swift

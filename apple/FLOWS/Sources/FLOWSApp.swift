@@ -2562,6 +2562,12 @@ final class AppModel: ObservableObject {
     /// not a road the state had physically closed, so a plan-time Red
     /// primary went invisible the moment the driver pressed GO.
     private var tripClosures: [(lat: Double, lon: Double)] = []
+    /// The live hazard feeds for the trip's corridor, clipped, taken at plan
+    /// time and refreshed while driving (the fetcher caches by TTL, so a
+    /// refresh is cheap). The live watch scores every sample against it.
+    private var tripLive = LiveHazardSnapshot.empty
+    private var tripLiveFetched = Date.distantPast
+    private var tripLiveBox: (minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)?
     /// The reverse-geocode + work-zone lookup a corridor update spawns.
     /// Untracked, it outlived the trip and wrote a stale work-zone count
     /// over the reset on the planning screen.
@@ -3174,6 +3180,7 @@ final class AppModel: ObservableObject {
         at c: CLLocationCoordinate2D, alertEvent: String?, alertSeverity: Double,
         onDevice: [String: Double] = [:], floodMultiplier: Double = 1,
         closureScore: Double = 0,
+        live: [String: Double] = [:],
         fieldRow: [Double]? = nil
     ) -> Double {
         // ONE nearest-ZIP resolution for all families at this coordinate —
@@ -3189,7 +3196,7 @@ final class AppModel: ObservableObject {
         return RiskEquations.realizedRisk(RiskEquations.bandInput(
             field: field, onDevice: onDevice,
             alertEvent: alertEvent, alertSeverity: alertSeverity,
-            floodMultiplier: floodMultiplier, closureScore: closureScore))
+            floodMultiplier: floodMultiplier, closureScore: closureScore, live: live))
     }
 
     /// ON-DEVICE R equations, CONUS-wide: NWS gridpoint forecasts at every
@@ -3283,6 +3290,9 @@ final class AppModel: ObservableObject {
         // lakes piece that was missing). FEMA A/V zones remain the route filter.
         async let gaugesF = LiveHazardFeedFetcher.shared.floodGauges(
             minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
+        // The same live feeds the map sweep scores with, clipped to the route.
+        async let liveF = LiveHazardFeedFetcher.shared.liveSnapshot(
+            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
 
         let score = await scoreF
         let onDevice = await onDeviceF
@@ -3319,6 +3329,10 @@ final class AppModel: ObservableObject {
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
         let corridorClosures = await closuresF
         tripClosures = corridorClosures   // the live watch reads these
+        let corridorLive = await liveF
+        tripLive = corridorLive
+        tripLiveFetched = Date()
+        tripLiveBox = bbox
         let corridorGauges = await gaugesF
         let corridorWater = await waterF
 
@@ -3372,6 +3386,11 @@ final class AppModel: ObservableObject {
             // SAME logic as the map: field + forecast are PREDICTORS (never
             // proof); the only realized primary the route has today is an
             // in-progress-danger ALERT (classified by RiskEquations.alertFamily).
+            // Live feeds: a fire perimeter or a fresh epicentre on the route
+            // is a realized primary here exactly as it is on the map, and its
+            // peak reaches the route card so the card can name it.
+            let live = HazardFeedScores.live(at: c, snapshot: corridorLive).bandInputContribution
+            for (fam, v) in live where v > (peaks[fam] ?? 0) { peaks[fam] = v }
             return RiskSample(
                 coordinate: c,
                 risk: sampleRealizedRisk(
@@ -3379,6 +3398,7 @@ final class AppModel: ObservableObject {
                     onDevice: dev, floodMultiplier: floodMult,
                     closureScore: HazardFeedScores.closureScore(
                         closures: corridorClosures, at: c),
+                    live: live,
                     fieldRow: row),   // resolved above; not a second ZIP scan
                 worstEvent: s.worstEvent, alertID: s.alertID)
         }
@@ -3775,6 +3795,8 @@ final class AppModel: ObservableObject {
         learnTripDuration()   // teach the delay model what this drive cost
         tripGeneration += 1
         tripClosures = []
+        tripLive = .empty
+        tripLiveBox = nil
         corridorContextTask?.cancel()
         windLookupTask?.cancel()
         lastWindLookup = .distantPast
@@ -3858,7 +3880,26 @@ final class AppModel: ObservableObject {
     /// Corridor re-scores arrive every ~4 min while driving. If risk jumps
     /// meaningfully past yellow relative to what the driver accepted at
     /// selection, surface a flashing prompt — never reroute silently.
+    /// Re-take the trip's live snapshot every 15 minutes while driving, off
+    /// the update path: fires spread and quakes happen mid-trip. The fetcher's
+    /// own TTLs make this a network call only when a feed has actually aged.
+    private func refreshTripLiveIfStale() {
+        guard let box = tripLiveBox,
+              Date().timeIntervalSince(tripLiveFetched) > 900 else { return }
+        tripLiveFetched = Date()   // claim the slot; a failed fetch retries next time
+        let gen = tripGeneration
+        Task { [weak self] in
+            let snap = await LiveHazardFeedFetcher.shared.liveSnapshot(
+                minLat: box.minLat, minLon: box.minLon, maxLat: box.maxLat, maxLon: box.maxLon)
+            await MainActor.run {
+                guard let self, self.tripGeneration == gen else { return }
+                self.tripLive = snap
+            }
+        }
+    }
+
     private func handleCorridorUpdate(_ score: WeatherAlertService.CorridorScore) {
+        refreshTripLiveIfStale()
         guard mode == .navigating else { return }
         // LIKE-FOR-LIKE with the baseline the driver accepted: the route band
         // is DISTANCE-WEIGHTED, and the watch window's samples are uniformly
@@ -3869,7 +3910,9 @@ final class AppModel: ObservableObject {
             sampleRealizedRisk(at: $0.coordinate, alertEvent: $0.worstEvent,
                                alertSeverity: $0.risk,
                                closureScore: HazardFeedScores.closureScore(
-                                   closures: tripClosures, at: $0.coordinate))
+                                   closures: tripClosures, at: $0.coordinate),
+                               live: HazardFeedScores.live(
+                                   at: $0.coordinate, snapshot: tripLive).bandInputContribution)
         }
         let peakR = sampleRisks.max() ?? 0
         // The DRIVEN route's samples, segments and alert shapes used to be

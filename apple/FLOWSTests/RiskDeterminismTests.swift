@@ -7,7 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import XCTest
-@testable import FLOWS
+// The test target compiles the app sources directly; there is no FLOWS module to import.
 
 /// The risk combine must give the SAME BITS on every launch, through the
 /// bridge, as Rust gives directly.

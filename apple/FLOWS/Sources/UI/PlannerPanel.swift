@@ -104,16 +104,21 @@ struct PlannerPanel: View {
                             break
                         }
                     }
-                    .onAppear {
-                        destSearch.recentsProvider = { [weak model] fragment in
+                    // The stored providers must not retain the model, so the
+                    // weak capture is taken ONCE here and every provider reads
+                    // that binding — a `[weak model]` on each inner closure
+                    // while this outer closure captured `model` strongly is
+                    // what the compiler flags (ImplicitStrongCapture).
+                    .onAppear { [weak model] in
+                        destSearch.recentsProvider = { fragment in
                             model?.recents.matching(fragment) ?? []
                         }
-                        sourceSearch.recentsProvider = { [weak model] fragment in
+                        sourceSearch.recentsProvider = { fragment in
                             model?.recents.matching(fragment) ?? []
                         }
                         // Contextual predictions on the destination field only —
                         // the START is where the driver already is.
-                        destSearch.predictionProvider = { [weak model] in
+                        destSearch.predictionProvider = {
                             guard let model else { return [] }
                             return EverydayPlaces.shared.predictions(
                                 from: model.effectivePosition ?? model.location.coordinate,

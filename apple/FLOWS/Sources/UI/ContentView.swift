@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import Combine
 import MapKit
 import SwiftUI
 
@@ -718,6 +719,12 @@ struct ContentView: View {
             let tsunamis = await tsunamiTask
             let spcZones = await spcTask
             let closures = await closureTask
+            // One snapshot, scored per point by HazardFeedScores.live — the
+            // same function the route scorer uses, so map and route agree.
+            let liveSnapshot = LiveHazardSnapshot(
+                hotspots: hotspots, perimeters: perimeters, quakes: quakes, space: space,
+                volcanoes: volcanoes, avalancheZones: avalancheZones, storms: storms,
+                tsunamis: tsunamis, spcZones: spcZones)
             var found: [ViewportHazard] = []
             // N×N grid (5×5 on capable devices, 4×4 / 3×3 on weaker, hot, or
             // Low-Power ones) — fewer sample points is fewer requests AND less
@@ -766,48 +773,23 @@ struct ContentView: View {
                             else { return nil }
                             let score = c.forecastScore(latitude: lat, longitude: lon, elevationMeters: nil)
                             var families = Self.familyScores(c, latitude: lat, longitude: lon)
-                            // Live safety feeds: fire / air / UV / seismic.
-                            // Fire = worse of satellite hotspots and being
-                            // inside/near a mapped active perimeter.
-                            families["fire"] = max(
-                                HazardFeedScores.fireScore(hotspots: hotspots, at: pt),
-                                HazardFeedScores.firePerimeterScore(
-                                    perimeters: perimeters, at: pt))
-                            families["seismic"] = HazardFeedScores.seismicScore(
-                                quakes: quakes, at: pt)
-                            // Flood: the DISPLAY family (map filter) is the worse
-                            // of precip probability and a live river gauge; the
-                            // BAND uses only `floodRealized` (gauge over the
-                            // road), keeping rain PROBABILITY out of the realized
-                            // primary.
+                            let live = HazardFeedScores.live(at: pt, snapshot: liveSnapshot)
+                            families["fire"] = live.fire
+                            families["seismic"] = live.seismic
                             let floodRealized = HazardFeedScores.floodGaugeScore(
                                 gauges: floodGauges, at: pt)
                             families["qpf_flood"] = max(families["qpf_flood"] ?? 0, floodRealized)
                             let (aqi, uv) = await LiveHazardFeedFetcher.shared.airAndUV(at: pt)
                             if let aqi { families["air"] = HazardFeedScores.airScore(usAQI: aqi) }
-                            // Radiation = worse of UV and NOAA space weather
-                            // (solar radiation storm / geomagnetic by latitude).
-                            let spaceRad = HazardFeedScores.radiationSpaceWeatherScore(
-                                sScale: space.s, gScale: space.g, latitude: lat)
+                            // Space weather from the snapshot; UV is per point.
                             let uvRad = uv.map { HazardFeedScores.uvScore(index: $0) } ?? 0
-                            let radiation = max(spaceRad, uvRad)
+                            let radiation = max(live.spaceRadiation, uvRad)
                             if radiation > 0 { families["radiation"] = radiation }
-                            // Acute live-feed families (only register when real).
-                            let volcanic = HazardFeedScores.volcanicScore(
-                                volcanoes: volcanoes, at: pt)
-                            if volcanic > 0 { families["volcanic"] = volcanic }
-                            let avalanche = HazardFeedScores.avalancheScore(
-                                zones: avalancheZones, at: pt)
-                            if avalanche > 0 { families["avalanche"] = avalanche }
-                            let tropical = HazardFeedScores.tropicalScore(
-                                storms: storms, at: pt)
-                            if tropical > 0 { families["tropical"] = tropical }
-                            let tsunami = HazardFeedScores.tsunamiScore(
-                                events: tsunamis, at: pt)
-                            if tsunami > 0 { families["tsunami"] = tsunami }
-                            // Convective = worse of the forecast signal and the
-                            // official SPC severe-weather outlook at this point.
-                            let spc = HazardFeedScores.outlookScore(zones: spcZones, at: pt)
+                            if live.volcanic > 0 { families["volcanic"] = live.volcanic }
+                            if live.avalanche > 0 { families["avalanche"] = live.avalanche }
+                            if live.tropical > 0 { families["tropical"] = live.tropical }
+                            if live.tsunami > 0 { families["tsunami"] = live.tsunami }
+                            let spc = live.convective
                             if spc > 0 {
                                 families["convective"] = max(families["convective"] ?? 0, spc)
                             }

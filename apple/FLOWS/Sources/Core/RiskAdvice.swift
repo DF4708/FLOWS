@@ -119,6 +119,22 @@ enum RiskAdvice {
                         + "never drive through smoke you can't see through "
                         + "(Ready.gov wildfire)."]
             }
+        case "dust storm":
+            // Both hazards at once: the road you cannot see and the air you
+            // should not breathe (NWS "Pull Aside, Stay Alive"; EPA AQI).
+            switch band {
+            case .green:
+                return ["Blowing dust ahead: slow down, headlights on, windows up "
+                        + "and cabin air on recirculate."]
+            case .yellow:
+                return ["Visibility is dropping: pull fully off the road, stop, "
+                        + "lights OFF, foot off the brake so no one follows your "
+                        + "lights.", "Windows up, recirculate; N95 if you must step out."]
+            default:
+                return ["Zero visibility: pull off the road NOW, stop, all lights "
+                        + "off, foot off the brake, seat belt on, wait it out.",
+                        "Keep the cabin sealed and recirculating."]
+            }
         case "air/smoke":
             switch band {
             case .green:

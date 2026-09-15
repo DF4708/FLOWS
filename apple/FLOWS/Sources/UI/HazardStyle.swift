@@ -43,6 +43,12 @@ enum HazardStyle {
     static let fire = HazardKind(name: "Fire", symbol: "flame.fill", color: Color(red: 0.85, green: 0.35, blue: 0.1))
     static let hurricane = HazardKind(name: "Tropical", symbol: "hurricane", color: Color(red: 0.6, green: 0.1, blue: 0.4))
     static let fog = HazardKind(name: "Fog", symbol: "cloud.fog.fill", color: .gray)
+    /// A dust storm is two hazards at once — zero visibility on the road AND
+    /// air you should not breathe — so it gets its own kind instead of the
+    /// air-quality icon it used to borrow. The band treats a Dust Storm
+    /// Warning as a realized storm (Red-capable); the advice covers both.
+    static let dust = HazardKind(name: "Dust storm", symbol: "sun.dust.fill",
+                                 color: Color(red: 0.72, green: 0.52, blue: 0.2))
     static let air = HazardKind(name: "Air/Smoke", symbol: "aqi.medium", color: .brown)
     static let radiation = HazardKind(name: "Radiation/UV", symbol: "sun.max.trianglebadge.exclamationmark", color: .yellow)
     static let seismic = HazardKind(name: "Seismic", symbol: "waveform.path.ecg", color: Color(red: 0.5, green: 0.35, blue: 0.2))
@@ -53,7 +59,7 @@ enum HazardStyle {
     static let closure = HazardKind(name: "Road closed", symbol: "road.lanes.curved.right", color: Color(red: 0.8, green: 0.15, blue: 0.15))
 
     static let legendKinds: [HazardKind] = [
-        tornado, storm, flood, snow, ice, wind, heat, cold, fire, fog, air, radiation,
+        tornado, storm, flood, snow, ice, wind, heat, cold, fire, fog, dust, air, radiation,
     ]
 
     /// Classify an NWS event name ("Tornado Warning", "Winter Storm Watch"…).
@@ -66,6 +72,9 @@ enum HazardStyle {
         // thunderstorm; a Dust Storm Warning is airborne dust, not a storm;
         // an Extreme Wind Warning is hurricane-force wind, not a breeze.
         if e.contains("surge") { return hurricane }
+        // A dust STORM (or blowing dust) warning is the realized whiteout;
+        // a plain dust advisory is an air-quality condition.
+        if e.contains("dust storm") || e.contains("blowing dust") { return dust }
         if e.contains("dust") { return air }
         if e.contains("extreme wind") { return hurricane }
         if e.contains("flood") { return flood }
@@ -91,8 +100,9 @@ enum HazardStyle {
     static func kind(forFamily family: String) -> HazardKind {
         switch family {
         case "winter": return snow
-        case "qpf_flood": return flood
-        case "convective": return storm
+        case "qpf_flood", "flood": return flood
+        case "convective", "storm": return storm
+        case "precip": return rain
         case "fire": return fire
         case "heat": return heat
         case "cold": return cold
