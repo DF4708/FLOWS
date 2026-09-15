@@ -929,12 +929,65 @@ trip_vehicle, and one as `partial_cmp`.
 The bridge module stays the reserved stub. The two Swift classes switch to
 it when their group's callers move, as geo's do.
 
+## Wave 1, third landing: the learned models (2026-09-15)
+
+`flows-core::learning` (1,371 lines, 17 unit tests) carries the everyday
+radius, the traffic-delay and road-efficiency models, buffer and refuel
+learning, the personal ETA correction and destination prediction: every
+update, gate, eviction and prediction of `EverydayRadius`,
+`TrafficLearning`, `RoadEfficiencyLearning`, `BufferLearning`,
+`RefuelLearning`, `DrivingProfile` and `DestinationPrediction`. State stays
+in Swift. It also carries Swift's own sort, step for step, because two of the
+rankings sort with comparators that a NaN makes inconsistent, and only the
+same sequence of comparisons reproduces the order the app produced.
+
+The dead worktree left the core and a harness but no fixture. The harness
+was compiled from the base commit (it needs the two seasonal sources, since
+`EverydayPlaces` names `SeasonalRiskModel.shared`, and the same two stubs)
+and run four times, byte-identical: 10,673 records in 37 kinds. The oracle
+test, written by hand from the record layouts, passes bit for bit in debug
+and in release, with two records named as divergences (below).
+
+### The optimiser is part of the original, again: `pow(0.5, x)`
+
+The first run failed nine decay records, all at the harness's decay
+threshold (a factor of 0.999 decides whether a store decays at all), and
+only in the debug build. Measured over 26,006 arguments: Swift's Release
+build and Rust's release build both compile `pow(0.5, x)` as `exp2(-x)` —
+LLVM rewrites any power-of-two base — and agree with each other everywhere;
+Swift's Debug build, Rust's debug build, and `pow` with a base the compiler
+cannot see all call libm `pow`, which differs from `exp2` by one ulp on
+0.4 % of arguments. The harness had bisected to the threshold, so it sat on
+one. The fixture, and the shipping app, carry the `exp2` value.
+
+Both learned-model modules now write the decay as `(t / -half_life).exp2()`.
+The sign sits on the divisor, not the quotient: a negated NaN carries a
+flipped sign bit, which the optimiser folds into the constant and a debug
+build does not, and five further records — all NaN scores — showed exactly
+that. Every build now agrees with the app. The seasonal module had the same
+`0.5.powf` expression and passed both ways only because none of its 3,163
+records landed on a disagreeing argument; it is rewritten the same way and
+still passes.
+
+### Two records where the port differs by design
+
+Swift's `String <` is not a consistent order for canonically equivalent
+names in different encodings: for "öz" and "o\u{308}" it answers false in
+both directions, and it places "가 " before the jamo spelling of "가" though
+the precomposed prefix is shorter. The harness put those cases in on
+purpose. The port orders NFC bytes (the Swift facade normalises names
+first), which is Swift's own order once both names are NFC. The test names
+the two records and fails if they stop diverging.
+
+The bridge module stays the reserved stub; the seven Swift classes switch
+to it together with their callers.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
 |---|---|---|
 | seasonal | LANDED: core + oracle test (3,163 records, bit-exact); bridge is the reserved stub | switch `SeasonalRiskModel`/`RouteHeadTrainer` to the bridge with their callers |
-| learning | Rust core, 17 tests, harness; no fixture | run the harness, write the test |
+| learning | LANDED: core + fixture + oracle test (10,673 records, bit-exact; two name records diverge by design); bridge is the reserved stub | switch the seven Swift classes to the bridge with their callers |
 | vehicle_policy | core does not compile; Swift facades edited; no fixture | fix or redo |
 | climate, places_text | harness only | port from scratch |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |

@@ -28,6 +28,13 @@
 //! the values; sorts are stable; no float sum uses `Iterator::sum`, whose
 //! identity is `-0.0` where Swift's `reduce(0, +)` starts from `+0.0`; no
 //! `mul_add`, because Swift does not contract.
+//! - half-life decay is written `(t / -half_life).exp2()`, never
+//!   `0.5.powf(t / half_life)`: the app's Release build compiles `pow(0.5, x)`
+//!   to `exp2(-x)` (LLVM rewrites a power-of-two base), and so does an
+//!   optimised Rust build, but a debug build calls libm `pow`, which differs
+//!   by one ulp for about 0.4 % of arguments. The sign sits on the divisor,
+//!   not on the quotient, so a NaN age keeps its sign in every build as it
+//!   does in the app. The fixtures, being Release output, hold these values.
 //!
 //! Where Swift TRAPS (integer overflow, `Int(Double)` out of range, a
 //! negative range bound, an index past a ragged row), the functions return a
@@ -169,7 +176,8 @@ impl WeekStat {
             return self;
         }
         let weeks = (t - self.last_t) / SECONDS_PER_WEEK;
-        let f = 0.5_f64.powf(weeks / half_life_weeks);
+        // Swift's Release build compiles pow(0.5, x) as exp2(x / -1); written out with the sign on the divisor so every build agrees (module doc).
+        let f = (weeks / -half_life_weeks).exp2();
         WeekStat {
             w_sum: self.w_sum * f,
             w_observed: self.w_observed * f,
@@ -514,7 +522,8 @@ pub struct OriginStat {
 #[must_use]
 pub fn origin_decayed(weighted: f64, last_seen: f64, now: f64) -> f64 {
     let days = smax(now - last_seen, 0.0) / SECONDS_PER_DAY;
-    weighted * 0.5_f64.powf(days / ORIGIN_HALF_LIFE_DAYS)
+    // Swift's Release build compiles pow(0.5, x) as exp2(x / -1); written out with the sign on the divisor so every build agrees (module doc).
+    weighted * (days / -ORIGIN_HALF_LIFE_DAYS).exp2()
 }
 
 /// An origin cell after a trip at `t`: decay (only if `last_seen > 0`), add 1,
@@ -525,7 +534,8 @@ pub fn origin_after_trip(prior: OriginStat, t: f64) -> OriginStat {
     let mut s = prior;
     if s.last_seen > 0.0 {
         let days = smax(t - s.last_seen, 0.0) / SECONDS_PER_DAY;
-        s.weighted *= 0.5_f64.powf(days / ORIGIN_HALF_LIFE_DAYS);
+        // Swift's Release build compiles pow(0.5, x) as exp2(x / -1); written out with the sign on the divisor so every build agrees (module doc).
+        s.weighted *= (days / -ORIGIN_HALF_LIFE_DAYS).exp2();
     }
     s.weighted += 1.0;
     s.trips = s.trips.saturating_add(1);

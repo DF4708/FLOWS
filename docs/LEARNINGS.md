@@ -1441,3 +1441,31 @@ for some arguments, and 2πk/52 for the fixture's k are not among them. So a
 passing oracle does not prove the pair was left unfused, and an oracle that
 fails by one ulp in a sine should be suspected of it first. Run every
 trig-bearing oracle in both build modes either way.
+
+## `pow(0.5, x)` is `exp2(-x)` in Release, and a NaN has a sign
+
+The learned-model oracle failed nine decay records in Rust's debug build and
+none in release. Measured over 26,006 arguments: Swift's Release build and
+Rust's release build both compile `pow(0.5, x)` as `exp2(-x)` (LLVM
+rewrites any power-of-two base) and agree everywhere; both debug builds,
+and `pow` with a base the compiler cannot see, call libm `pow`, which is
+one ulp off `exp2` on 0.4 % of arguments. The app ships Release, and the
+harness had bisected onto a decay threshold, so the fixture held the `exp2`
+value and the debug test did not. Rules that follow:
+
+- In ported code never write `0.5.powf(x)`; write `(t / -half_life).exp2()`
+  and say why. Put the sign on the divisor, not the quotient: `-(NaN)` flips
+  the NaN's sign bit, the optimiser folds that negation into the constant,
+  a debug build does not, and the two then print different NaNs.
+- Run every oracle that touches libm (trig, `pow`, `exp`, `log`) in both
+  build modes. A debug/release disagreement is a defect in the port, not in
+  the fixture, and it is cheap to find before landing.
+- A fixture made by a Release harness is the app's arithmetic, including
+  what the optimiser did to it (see also "Two calls the optimiser turns into
+  one"). Reproduce the optimiser's expression, not the source's.
+
+Also found on the way: Swift's `String <` is not a consistent order for
+canonically equivalent strings in different encodings — false in both
+directions for "öz" against "o\u{308}", and "가 " before the jamo spelling
+of "가". A port that orders NFC bytes is Swift's own order once both sides
+are NFC; the two records are named in the oracle as divergences by design.
