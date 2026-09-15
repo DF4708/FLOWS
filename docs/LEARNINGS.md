@@ -1582,3 +1582,20 @@ without a regression:
   swept into the wrong commit. Each facade set was drafted and typechecked
   in the wave-1 worktree that already had its bridge, then copied in after
   the previous landing committed.
+- **Lend the mapped bytes, own only the index.** A shard the Swift
+  memory-mapped must not become a Rust `Vec`: 60 MB of clean, file-backed
+  pages would turn into dirty memory the system cannot evict. The Rust type
+  keeps the offset tables and borrows the buffer on every call, and checks
+  its length, so a different buffer answers nothing instead of garbage.
+- **Harness records go to a file, not standard output.** MapKit prints its
+  own complaints about out-of-range coordinates to stdout; they landed as
+  bogus records in the first places fixture.
+- **Cross text lists by length, not by separator.** A U+001F join is fine
+  for codes the app spells; a place name from the network can hold any
+  character. A joined string plus UTF-8 lengths splits back exactly, and
+  swift-bridge's `String` crossing (`utf8CString`, length minus the
+  terminator) keeps embedded NULs.
+- **A comment is not the behaviour.** The shower brand pick's comment says
+  "Vista Travel" no longer reads as TA; the code still matches it through
+  "ta travel". The oracle and the port follow the code; the discrepancy
+  goes to the owner as a finding.

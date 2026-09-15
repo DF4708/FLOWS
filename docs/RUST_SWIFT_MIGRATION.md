@@ -761,6 +761,12 @@ Dependencies decide it. Nothing moves before what it calls.
   reader and the Swift reader on four points: 32-byte files, grid-key
   ordering, invalid UTF-8 (reject versus lossy), and eager versus lazy
   decode. The Rust reader also lacks the record-count allocation bound.
+  (Since the fourth wave-2 landing the app reads shards with
+  `flows_core::places::PlacesIndex`, a faithful port of the Swift reader;
+  the `flows-train` reader still differs on those four points.)
+- The shower brand pick's comment says anchored matches stopped "Vista
+  Travel" reading as TA, but `"ta travel"` still matches inside it. The
+  port keeps the answer the code gave.
 - **Environment:** the Apple Development identity that signed the last Mac
   install is no longer in the keychain. Signed Mac builds and the reinstall
   wait on restoring it.
@@ -1321,11 +1327,38 @@ actors and the JSON shape reading stay in Swift; `stateBBoxes` stays too,
 because `roadClosures` still reads it for its state pick (its Rust twin
 `STATE_BOXES` serves the containment test).
 
+## Wave 2, fourth landing: stops along the route (2026-09-16)
+
+Everything the stop buttons decide is Rust: `flows_core::places` holds the
+route's nearest-vertex grid and cumulative meters, every kind's ranking
+(food soonest reachable, fuel by fill plus detour cost, hotels by value,
+parking by cost tier, stores by rating then brand), the name tables, the
+FPS1 offline-places reader and its nearby query, the store's cross-shard
+merge, and the stop search's rules: each kind's detour cap, search box,
+shard groups and fallbacks, the search centres, the result dedup, the habit
+pins and the everyday-first merge, the route thinning and the shower brand
+pick. The route crosses once per leg as an opaque `FlowsRoutePath`. A shard
+is an opaque `FlowsPlacesIndex` that holds only the offset tables: the
+shard's bytes stay in the memory-mapped `Data` and are lent to each query,
+so a 60 MB state shard stays clean file-backed pages instead of becoming a
+copy.
+
+The oracle (11,204 records, 27 kinds) is bridge-linked from 0f8894b and
+matched on the first run, including 108 queries against the tool-built
+Wisconsin shard. `POIService`'s private `rank`, `merged`, `rowKey` and
+`corridorAhead` were observed through an access-only `sed`; the pieces
+inline in `search`, which runs MapKit searches, are unit-tested helpers.
+Text lists cross as one joined string plus each text's UTF-8 length, so a
+place name holding any character splits back exactly. What stays in Swift:
+the MapKit requests, the ratings and price providers, the published state,
+the single-kind row decorations, and `POIRanking.meters` with its ~85
+callers (wave 3).
+
 ### Wave 2 remaining
 
 | item | state |
 |---|---|
 | the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
-| POIRanking, PlacesStore (FPS1), POIService decisions | not started |
+| POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
 | the long tail (OfflineCorridors, Amtrak, radio, recents, breadcrumbs, FuelWarning, HybridWalk, AirTravel, transit estimates, Mobility, AdaptiveTuning, SignalQuality, playback, spoken replies, TripShare, VehicleLink, RouteAttributes) | not started |

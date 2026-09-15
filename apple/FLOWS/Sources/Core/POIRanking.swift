@@ -21,106 +21,46 @@ import Foundation
 ///   * fuel is ranked by TOTAL COST: fill cost at the station's price plus
 ///     the driver's detour time valued in dollars — significantly cheaper
 ///     fuel therefore earns a longer justified detour, exactly as asked.
+///
+/// The ranking itself — the route's nearest-vertex grid, the metrics, the
+/// corridor filter, every kind's ordering and the name tables — lives in
+/// rust/flows-core (places.rs) behind rust/flows-bridge; this enum keeps the
+/// generic candidate type its callers rank and the short-range distance
+/// primitive. Pinned to the original by
+/// rust/flows-bridge/tests/fixtures/swift_places_oracle.tsv.
 enum POIRanking {
 
-    /// The active route's geometry, flattened once per leg.
-    struct RoutePath {
+    /// The active route's geometry, flattened once per leg. The meters along
+    /// it and the nearest-vertex search (a 0.1° grid scanned ring by ring,
+    /// then a full scan past sixteen rings) are the Rust route behind
+    /// `handle`; this struct keeps the vertices and their cumulative meters
+    /// for its readers. Nothing mutates the handle after init, which is what
+    /// makes the value safe to hand to the ranking task off the main actor.
+    struct RoutePath: @unchecked Sendable {
         let coords: [CLLocationCoordinate2D]
         let cumulative: [CLLocationDistance]   // meters from origin to coords[i]
-
-        // Uniform lat/lon grid over the route vertices so `nearest` is ~O(1)
-        // instead of O(V): a POI search projects every POI onto the route, and a
-        // linear scan of ≤1500 vertices per POI was the search's dominant cost.
-        private struct Cell: Hashable { let x: Int; let y: Int }
-        private static let cellDeg = 0.1        // ~11 km lat; still small vs routes
-        private let grid: [Cell: [Int]]
-
-        private static func cell(_ c: CLLocationCoordinate2D) -> Cell {
-            Cell(x: Int((c.longitude / cellDeg).rounded(.down)),
-                 y: Int((c.latitude / cellDeg).rounded(.down)))
-        }
+        let handle: FlowsRoutePath
 
         init(coords: [CLLocationCoordinate2D]) {
             self.coords = coords
-            var running: CLLocationDistance = 0
-            var cum: [CLLocationDistance] = []
-            cum.reserveCapacity(coords.count)
-            var prev: CLLocationCoordinate2D?
-            var g: [Cell: [Int]] = [:]
-            for (i, c) in coords.enumerated() {
-                if let p = prev { running += POIRanking.meters(p, c) }
-                cum.append(running)
-                g[Self.cell(c), default: []].append(i)
-                prev = c
+            guard !coords.isEmpty else {
+                handle = flows_places_route_path_empty()
+                cumulative = []
+                return
             }
-            self.cumulative = cum
-            self.grid = g
+            let lats = coords.map(\.latitude), lons = coords.map(\.longitude)
+            handle = lats.withUnsafeBufferPointer { la in
+                lons.withUnsafeBufferPointer { lo in flows_places_route_path(la, lo) }
+            }
+            cumulative = Array(handle.cumulative())
         }
 
         /// Nearest route vertex to a coordinate → (index, off-route meters).
-        /// Expanding-ring grid search: scan the query's cell, then each
-        /// surrounding ring, stopping once no unscanned ring could hold a closer
-        /// point. Identical result to the full O(V) scan — same min distance and,
-        /// on an exact tie, the same lowest index — but ~O(1) on the dense route.
+        /// Identical to a full scan — same minimum distance and, on an exact
+        /// tie, the same lowest index — but about O(1) on a dense route.
         func nearest(to coord: CLLocationCoordinate2D) -> (index: Int, offRoute: CLLocationDistance)? {
-            guard !coords.isEmpty else { return nil }
-            let c0 = Self.cell(coord)
-            // Conservative min meters spanned by one cell (longitude is the
-            // narrower axis; clamp cos so a high-latitude bound stays valid).
-            let cellMinMeters = Self.cellDeg * 111_320
-                * max(cos(coord.latitude * .pi / 180), 0.1)
-            var bestIdx = -1
-            var bestD = CLLocationDistance.greatestFiniteMagnitude
-            // Lowest index wins on an exact tie — matches the old strict-less scan.
-            func consider(_ cx: Int, _ cy: Int) {
-                guard let idxs = grid[Cell(x: cx, y: cy)] else { return }
-                for i in idxs {
-                    let d = POIRanking.meters(coords[i], coord)
-                    if d < bestD || (d == bestD && (bestIdx < 0 || i < bestIdx)) {
-                        bestD = d
-                        bestIdx = i
-                    }
-                }
-            }
-            // Scan expanding rings, visiting only each ring's BORDER cells (O(r),
-            // not the whole O(r²) square). A near query (a POI along the corridor)
-            // resolves in the first ring or two. If the query is far enough that
-            // we'd expand past `maxRings`, a full linear scan is both correct and
-            // cheaper than more rings — and such a point is beyond any usable
-            // detour anyway, so the caller discards it.
-            let maxRings = 16
-            var r = 0
-            while r <= maxRings {
-                if r == 0 {
-                    consider(c0.x, c0.y)
-                } else {
-                    for dx in -r...r {                       // top & bottom rows
-                        consider(c0.x + dx, c0.y - r)
-                        consider(c0.x + dx, c0.y + r)
-                    }
-                    for dy in (-r + 1)...(r - 1) {            // left & right columns
-                        consider(c0.x - r, c0.y + dy)
-                        consider(c0.x + r, c0.y + dy)
-                    }
-                }
-                // The next ring (r+1) is ≥ r·cellMinMeters away; once that exceeds
-                // the best found, no unscanned cell can hold a closer point.
-                if bestIdx >= 0 && Double(r) * cellMinMeters > bestD {
-                    return (bestIdx, bestD)
-                }
-                r += 1
-            }
-            // Far from the route: full scan (correct, and O(V) beats more rings).
-            bestIdx = -1
-            bestD = CLLocationDistance.greatestFiniteMagnitude
-            for (i, c) in coords.enumerated() {
-                let d = POIRanking.meters(c, coord)
-                if d < bestD || (d == bestD && (bestIdx < 0 || i < bestIdx)) {
-                    bestD = d
-                    bestIdx = i
-                }
-            }
-            return bestIdx >= 0 ? (bestIdx, bestD) : nil
+            let hit = handle.nearest(coord.latitude, coord.longitude)
+            return hit.has ? (Int(hit.index), hit.off_route) : nil
         }
     }
 
@@ -140,13 +80,13 @@ enum POIRanking {
 
     /// Tolerated backtrack (GPS jitter / stations at the previous exit) and
     /// the hard "don't deviate significantly" cap.
-    static let backtrackToleranceMeters: CLLocationDistance = 500
-    static let maxDetourMeters: CLLocationDistance = 12_000
+    static let backtrackToleranceMeters: CLLocationDistance = flows_places_limits().backtrack_tolerance_meters
+    static let maxDetourMeters: CLLocationDistance = flows_places_limits().max_detour_meters
 
-    /// Assumed detour driving speed for time costing (surface roads).
-    static let detourSpeedMps = 13.4          // ≈ 30 mph
+    /// Assumed detour driving speed for time costing (surface roads, ≈ 30 mph).
+    static let detourSpeedMps = flows_places_limits().detour_speed_mps
     /// What an hour of the driver's time is worth in the fuel cost model.
-    static let dollarsPerHour = 30.0
+    static let dollarsPerHour = flows_places_limits().dollars_per_hour
 
     /// Annotate an item with route metrics; nil when the route can't place it.
     static func annotate<Item>(
@@ -154,12 +94,13 @@ enum POIRanking {
         route: RoutePath, vehicleAlong: CLLocationDistance,
         pricePerUnit: Double? = nil, rating: Double? = nil
     ) -> Candidate<Item>? {
-        guard let hit = route.nearest(to: coord) else { return nil }
+        let metrics = route.handle.annotate(coord.latitude, coord.longitude, vehicleAlong)
+        guard metrics.count == 2 else { return nil }
         return Candidate(
             item: item,
             coordinate: coord,
-            aheadMeters: route.cumulative[hit.index] - vehicleAlong,
-            detourMeters: hit.offRoute,
+            aheadMeters: metrics[0],
+            detourMeters: metrics[1],
             pricePerUnit: pricePerUnit,
             rating: rating)
     }
@@ -168,7 +109,39 @@ enum POIRanking {
     /// (within jitter tolerance) and within the corridor deviation cap
     /// (long-haul trucker mode widens the cap — savings justify range).
     static func admissible<Item>(_ c: Candidate<Item>, maxDetour: CLLocationDistance) -> Bool {
-        c.aheadMeters > -backtrackToleranceMeters && c.detourMeters <= maxDetour
+        flows_places_admissible(c.aheadMeters, c.detourMeters, maxDetour)
+    }
+
+    /// A Rust ranker over the candidate columns: ahead, detour, prices and
+    /// their presence, ratings and their presence.
+    private typealias Ranker = (UnsafeBufferPointer<Double>, UnsafeBufferPointer<Double>,
+                                UnsafeBufferPointer<Double>, UnsafeBufferPointer<UInt8>,
+                                UnsafeBufferPointer<Double>, UnsafeBufferPointer<UInt8>) -> RustVec<Int64>
+
+    /// The candidates in a Rust ranker's order: it keeps the admissible ones
+    /// and sorts them with Swift's own sort on the kind's comparator. The
+    /// candidates cross as parallel columns, an optional as a value and a
+    /// presence flag; an empty list is answered here, because swift-bridge
+    /// must never see an empty buffer.
+    private static func ordered<Item>(_ candidates: [Candidate<Item>], by ranker: Ranker) -> [Candidate<Item>] {
+        guard !candidates.isEmpty else { return [] }
+        let ahead = candidates.map(\.aheadMeters), detour = candidates.map(\.detourMeters)
+        let prices = candidates.map { $0.pricePerUnit ?? 0 }
+        let hasPrice = candidates.map { UInt8($0.pricePerUnit == nil ? 0 : 1) }
+        let ratings = candidates.map { $0.rating ?? 0 }
+        let hasRating = candidates.map { UInt8($0.rating == nil ? 0 : 1) }
+        let order = ahead.withUnsafeBufferPointer { a in
+            detour.withUnsafeBufferPointer { d in
+                prices.withUnsafeBufferPointer { p in
+                    hasPrice.withUnsafeBufferPointer { hp in
+                        ratings.withUnsafeBufferPointer { r in
+                            hasRating.withUnsafeBufferPointer { hr in ranker(a, d, p, hp, r, hr) }
+                        }
+                    }
+                }
+            }
+        }
+        return order.map { candidates[Int($0)] }
     }
 
     /// Food (and general POI) ordering: soonest reachable along the route —
@@ -178,27 +151,19 @@ enum POIRanking {
         _ candidates: [Candidate<Item>],
         maxDetour: CLLocationDistance = maxDetourMeters
     ) -> [Candidate<Item>] {
-        candidates.filter { admissible($0, maxDetour: maxDetour) }.sorted {
-            ($0.aheadMeters + 3 * $0.detourMeters) < ($1.aheadMeters + 3 * $1.detourMeters)
-        }
+        ordered(candidates) { flows_places_rank_food($0, $1, $2, $3, $4, $5, maxDetour) }
     }
 
-    /// Fuel ordering: minimize fill cost + detour time cost. Stations with no
-    /// known price rank by detour time only, after any priced station whose
-    /// total beats them (nil price treated as the fleet-average fill so the
-    /// two groups stay comparable).
+    /// Fuel ordering: minimize fill cost + detour time cost (there and back,
+    /// valued at the driver's hourly rate). Stations with no known price fill
+    /// at the fleet average, so the two groups stay comparable.
     static func rankFuel<Item>(
         _ candidates: [Candidate<Item>], fillUnits: Double, averagePricePerUnit: Double,
         maxDetour: CLLocationDistance = maxDetourMeters
     ) -> [Candidate<Item>] {
-        func totalCost(_ c: Candidate<Item>) -> Double {
-            let fill = (c.pricePerUnit ?? averagePricePerUnit) * fillUnits
-            // Detour there and back, valued at the driver's hourly rate.
-            let detourHours = (2 * c.detourMeters / detourSpeedMps) / 3600
-            return fill + detourHours * dollarsPerHour
+        ordered(candidates) {
+            flows_places_rank_fuel($0, $1, $2, $3, $4, $5, fillUnits, averagePricePerUnit, maxDetour)
         }
-        return candidates.filter { admissible($0, maxDetour: maxDetour) }
-            .sorted { totalCost($0) < totalCost($1) }
     }
 
     /// Hotels: balance PUBLIC REVIEW quality against COST, still respecting
@@ -206,21 +171,14 @@ enum POIRanking {
     /// minus price relative to the average nightly rate (neutral when
     /// unknown) minus detour time — so with no licensed rating/price feed the
     /// ordering gracefully degrades to closest-to-corridor.
-    static let averageNightlyPrice = 120.0
+    static let averageNightlyPrice = flows_places_limits().average_nightly_price
 
     static func rankHotels<Item>(
         _ candidates: [Candidate<Item>],
         averageNightly: Double = averageNightlyPrice,
         maxDetour: CLLocationDistance = maxDetourMeters
     ) -> [Candidate<Item>] {
-        func value(_ c: Candidate<Item>) -> Double {
-            let rating = (c.rating ?? 3.5) / 5
-            let price = (c.pricePerUnit ?? averageNightly) / max(averageNightly, 1)
-            let detourHours = (2 * c.detourMeters / detourSpeedMps) / 3600
-            return rating * 2 - price - detourHours * 1.5
-        }
-        return candidates.filter { admissible($0, maxDetour: maxDetour) }
-            .sorted { value($0) > value($1) }
+        ordered(candidates) { flows_places_rank_hotels($0, $1, $2, $3, $4, $5, averageNightly, maxDetour) }
     }
 
     /// Parking: FREE AND CLOSE beats EXPENSIVE AND FAR. With no live rate
@@ -228,30 +186,20 @@ enum POIRanking {
     /// = 0; garages / ramps / valet = 2; unknown = 1), then detour breaks
     /// ties inside a tier via a strong weight.
     static func parkingCostTier(name: String?) -> Int {
-        let lower = (name ?? "").lowercased()
-        if lower.contains("free") || lower.contains("park & ride")
-            || lower.contains("park and ride") || lower.contains("street parking") {
-            return 0
-        }
-        if lower.contains("garage") || lower.contains("ramp") || lower.contains("valet")
-            || lower.contains("premium") || lower.contains("airport") {
-            return 2
-        }
-        return 1
+        Int(flows_places_parking_cost_tier(name ?? "", name != nil))
     }
 
+    /// A cost tier is worth ~4 km of detour; an hourly price from a live feed
+    /// replaces the tier directly (pricePerUnit).
     static func rankParking<Item>(
         _ candidates: [Candidate<Item>], costTier: (Item) -> Int,
         maxDetour: CLLocationDistance = maxDetourMeters
     ) -> [Candidate<Item>] {
-        func score(_ c: Candidate<Item>) -> Double {
-            // A cost tier is worth ~4 km of detour; hourly $ when a live
-            // feed lands can replace the tier directly (pricePerUnit).
-            let cost = c.pricePerUnit ?? Double(costTier(c.item)) * 4.0
-            return cost + (c.aheadMeters + 3 * c.detourMeters) / 1000
+        let tiers = candidates.map { Int64(costTier($0.item)) }
+        guard !tiers.isEmpty else { return [] }
+        return tiers.withUnsafeBufferPointer { t in
+            ordered(candidates) { flows_places_rank_parking($0, $1, $2, $3, $4, $5, t, maxDetour) }
         }
-        return candidates.filter { admissible($0, maxDetour: maxDetour) }
-            .sorted { score($0) < score($1) }
     }
 
     /// THE app-wide short-range distance primitive (BadgeClustering and the
@@ -287,24 +235,12 @@ enum FuelType: String, CaseIterable, Identifiable, Codable {
     }
 
     /// Typical fill for the cost model (gal / gal / kWh).
-    var fillUnits: Double {
-        switch self {
-        case .gas: return 15
-        case .diesel: return 25
-        case .electric: return 60
-        }
-    }
+    var fillUnits: Double { flows_places_fuel_fill_units(rustCode) }
 
     /// Fleet-average unit price used ONLY to keep unpriced stations
     /// comparable in the cost model — station-level prices need a licensed
     /// feed (GasBuddy/OPIS) wired into POIService.priceProvider.
-    var averagePricePerUnit: Double {
-        switch self {
-        case .gas: return 3.20
-        case .diesel: return 3.90
-        case .electric: return 0.36
-        }
-    }
+    var averagePricePerUnit: Double { flows_places_fuel_average_price(rustCode) }
 
     var symbol: String {
         switch self {
@@ -404,27 +340,16 @@ enum StoreCategory: String, CaseIterable, Identifiable {
 
 extension POIRanking {
     /// National-brand market-share order (rough US retail revenue rank; lower =
-    /// bigger). The tie-break when Yelp ratings are unavailable — Walmart
-    /// outranks Target, Home Depot outranks Ace, and unknown local names sort
-    /// after every recognized national brand (then by corridor position).
-    static let storeMarketShareOrder: [String] = [
-        "walmart", "amazon fresh", "costco", "kroger", "home depot", "target",
-        "lowe's", "lowes", "albertsons", "safeway", "publix", "aldi", "sam's club",
-        "best buy", "meijer", "heb", "h-e-b", "dollar general", "dollar tree",
-        "walgreens", "cvs", "whole foods", "trader joe", "menards", "ace hardware",
-        "tractor supply", "petsmart", "petco", "autozone", "o'reilly", "oreilly",
-        "advance auto", "napa", "bass pro", "cabela", "academy sports",
-        "sportsman's warehouse", "scheels", "big 5", "tj maxx", "ross", "kohl's",
-        "macy's", "nordstrom", "burlington", "marshalls",
-    ]
+    /// bigger), lowercase. The tie-break when Yelp ratings are unavailable —
+    /// Walmart outranks Target, Home Depot outranks Ace, and unknown local
+    /// names sort after every recognized national brand (then by corridor
+    /// position). The table is spelled once, in places.rs.
+    static let storeMarketShareOrder: [String] = flows_places_store_market_share_order().map { $0.text }
 
     /// Index into the market-share table for a store name (case-insensitive
     /// substring), or count (= after every known brand) when unrecognized.
     static func storeMarketShareRank(name: String?) -> Int {
-        guard let lower = name?.lowercased(), !lower.isEmpty
-        else { return storeMarketShareOrder.count }
-        return storeMarketShareOrder.firstIndex(where: { lower.contains($0) })
-            ?? storeMarketShareOrder.count
+        Int(flows_places_store_market_share_rank(name ?? "", name != nil))
     }
 
     /// Stores ordering: highest Yelp rating first; stores WITHOUT a rating
@@ -435,19 +360,71 @@ extension POIRanking {
         _ candidates: [Candidate<Item>], name: (Item) -> String?,
         maxDetour: CLLocationDistance = maxDetourMeters
     ) -> [Candidate<Item>] {
-        candidates.filter { admissible($0, maxDetour: maxDetour) }.sorted { a, b in
-            switch (a.rating, b.rating) {
-            case let (ra?, rb?):
-                if ra != rb { return ra > rb }
-            case (.some, .none): return true
-            case (.none, .some): return false
-            case (.none, .none):
-                let (ma, mb) = (storeMarketShareRank(name: name(a.item)),
-                                storeMarketShareRank(name: name(b.item)))
-                if ma != mb { return ma < mb }
-            }
-            return (a.aheadMeters + 3 * a.detourMeters)
-                < (b.aheadMeters + 3 * b.detourMeters)
+        let ranks = candidates.map { Int64(storeMarketShareRank(name: name($0.item))) }
+        guard !ranks.isEmpty else { return [] }
+        return ranks.withUnsafeBufferPointer { m in
+            ordered(candidates) { flows_places_rank_stores($0, $1, $2, $3, $4, $5, m, maxDetour) }
         }
+    }
+
+    /// Points by straight-line meters to `center`, nearest first, the first
+    /// `limit`, as (index, meters): Swift's own sort, in places.rs
+    /// (`rank_by_distance`). A negative limit answers nothing.
+    static func byDistance(_ points: [CLLocationCoordinate2D], from center: CLLocationCoordinate2D,
+                           limit: Int) -> [(index: Int, meters: CLLocationDistance)] {
+        guard !points.isEmpty else { return [] }
+        let lats = points.map(\.latitude), lons = points.map(\.longitude)
+        let flat = lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in
+                flows_places_rank_by_distance(la, lo, center.latitude, center.longitude, Int64(limit))
+            }
+        }
+        return stride(from: 0, to: flat.count, by: 2).map { (index: Int(flat[$0]), meters: flat[$0 + 1]) }
+    }
+
+    /// The first point no later point is strictly nearer to `target` than
+    /// (`min(by:)` on straight-line meters, in places.rs); nil for no points.
+    static func firstNearest(_ points: [CLLocationCoordinate2D], to target: CLLocationCoordinate2D) -> Int? {
+        guard !points.isEmpty else { return nil }
+        let lats = points.map(\.latitude), lons = points.map(\.longitude)
+        let i = lats.withUnsafeBufferPointer { la in
+            lons.withUnsafeBufferPointer { lo in
+                flows_places_first_nearest(la, lo, target.latitude, target.longitude)
+            }
+        }
+        return i < 0 ? nil : Int(i)
+    }
+
+    /// Indices of `count` corridor points a sweep searches around: all of
+    /// them when they fit in `cap - 1` slots, else spread evenly (places.rs
+    /// `center_picks`).
+    static func centerPicks(count: Int, cap: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        return flows_places_center_picks(Int64(count), Int64(cap)).map { Int($0) }
+    }
+}
+
+/// A list of texts as the Rust side reads one: the texts joined, each text's
+/// UTF-8 length, and a presence flag per text (a nil crosses as an empty
+/// text flagged absent). Lengths rather than a separator, so a name holding
+/// any character splits back exactly. swift-bridge must never see an empty
+/// buffer, so an empty list carries one placeholder that its count ignores.
+struct RustTextColumn {
+    let joined: String
+    let lengths: [Int64]
+    let present: [UInt8]
+
+    init(_ texts: [String?]) {
+        joined = texts.map { $0 ?? "" }.joined()
+        let lens = texts.map { Int64($0?.utf8.count ?? 0) }
+        let flags = texts.map { UInt8($0 == nil ? 0 : 1) }
+        lengths = lens.isEmpty ? [0] : lens
+        present = flags.isEmpty ? [0] : flags
+    }
+
+    init(_ texts: [String]) { self.init(texts.map { Optional($0) }) }
+
+    func with<R>(_ body: (String, UnsafeBufferPointer<Int64>, UnsafeBufferPointer<UInt8>) -> R) -> R {
+        lengths.withUnsafeBufferPointer { l in present.withUnsafeBufferPointer { p in body(joined, l, p) } }
     }
 }

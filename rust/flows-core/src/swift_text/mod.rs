@@ -585,6 +585,16 @@ pub fn replacing(text: &str, target: &str, replacement: &str) -> String {
     out
 }
 
+/// Swift's `hasPrefix`: the first clusters compared one to one, canonically
+/// (the runtime's byte fast path also requires the prefix to end on a
+/// cluster boundary, which is the same answer). An empty prefix is always
+/// present.
+#[must_use]
+pub fn has_prefix(text: &str, prefix: &str) -> bool {
+    let mut own = graphemes(text);
+    graphemes(prefix).all(|head| own.next().is_some_and(|c| eq(c, head)))
+}
+
 /// Swift's `hasSuffix`: the last clusters compared one to one, canonically.
 /// An empty suffix is always present.
 #[must_use]

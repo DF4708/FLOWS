@@ -95,8 +95,11 @@ struct EverydayPlace: Codable, Equatable {
     /// from home" as one countable key). The pattern net's training signal.
     var contexts: [String: Int] = [:]
 
+    /// `name|Int(lat·500)|Int(lon·500)`, a name and a ~220 m cell — built in
+    /// rust/flows-core places.rs. A coordinate that cannot become an Int
+    /// (where this used to trap) writes its cell as `-|-`.
     static func attributeID(name: String, latitude: Double, longitude: Double) -> String {
-        "\(name)|\(Int(latitude * 500))|\(Int(longitude * 500))"
+        flows_places_attribute_id(name, latitude, longitude).text
     }
 }
 

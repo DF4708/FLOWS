@@ -1318,6 +1318,489 @@ extension __swift_bridge__$Option$FlowsLearningEta {
 }
 
 
+public func flows_places_route_path(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) -> FlowsRoutePath {
+    FlowsRoutePath(ptr: __swift_bridge__$flows_places_route_path(lats.toFfiSlice(), lons.toFfiSlice()))
+}
+public func flows_places_route_path_empty() -> FlowsRoutePath {
+    FlowsRoutePath(ptr: __swift_bridge__$flows_places_route_path_empty())
+}
+public func flows_places_route_decimation_step(_ count: Int64) -> Int64 {
+    __swift_bridge__$flows_places_route_decimation_step(count)
+}
+public func flows_places_admissible(_ ahead_meters: Double, _ detour_meters: Double, _ max_detour: Double) -> Bool {
+    __swift_bridge__$flows_places_admissible(ahead_meters, detour_meters, max_detour)
+}
+public func flows_places_rank_food(_ ahead: UnsafeBufferPointer<Double>, _ detour: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ has_price: UnsafeBufferPointer<UInt8>, _ ratings: UnsafeBufferPointer<Double>, _ has_rating: UnsafeBufferPointer<UInt8>, _ max_detour: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_rank_food(ahead.toFfiSlice(), detour.toFfiSlice(), prices.toFfiSlice(), has_price.toFfiSlice(), ratings.toFfiSlice(), has_rating.toFfiSlice(), max_detour))
+}
+public func flows_places_rank_fuel(_ ahead: UnsafeBufferPointer<Double>, _ detour: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ has_price: UnsafeBufferPointer<UInt8>, _ ratings: UnsafeBufferPointer<Double>, _ has_rating: UnsafeBufferPointer<UInt8>, _ fill_units: Double, _ average_price_per_unit: Double, _ max_detour: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_rank_fuel(ahead.toFfiSlice(), detour.toFfiSlice(), prices.toFfiSlice(), has_price.toFfiSlice(), ratings.toFfiSlice(), has_rating.toFfiSlice(), fill_units, average_price_per_unit, max_detour))
+}
+public func flows_places_rank_hotels(_ ahead: UnsafeBufferPointer<Double>, _ detour: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ has_price: UnsafeBufferPointer<UInt8>, _ ratings: UnsafeBufferPointer<Double>, _ has_rating: UnsafeBufferPointer<UInt8>, _ average_nightly: Double, _ max_detour: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_rank_hotels(ahead.toFfiSlice(), detour.toFfiSlice(), prices.toFfiSlice(), has_price.toFfiSlice(), ratings.toFfiSlice(), has_rating.toFfiSlice(), average_nightly, max_detour))
+}
+public func flows_places_rank_parking(_ ahead: UnsafeBufferPointer<Double>, _ detour: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ has_price: UnsafeBufferPointer<UInt8>, _ ratings: UnsafeBufferPointer<Double>, _ has_rating: UnsafeBufferPointer<UInt8>, _ cost_tiers: UnsafeBufferPointer<Int64>, _ max_detour: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_rank_parking(ahead.toFfiSlice(), detour.toFfiSlice(), prices.toFfiSlice(), has_price.toFfiSlice(), ratings.toFfiSlice(), has_rating.toFfiSlice(), cost_tiers.toFfiSlice(), max_detour))
+}
+public func flows_places_rank_stores(_ ahead: UnsafeBufferPointer<Double>, _ detour: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ has_price: UnsafeBufferPointer<UInt8>, _ ratings: UnsafeBufferPointer<Double>, _ has_rating: UnsafeBufferPointer<UInt8>, _ market_ranks: UnsafeBufferPointer<Int64>, _ max_detour: Double) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_rank_stores(ahead.toFfiSlice(), detour.toFfiSlice(), prices.toFfiSlice(), has_price.toFfiSlice(), ratings.toFfiSlice(), has_rating.toFfiSlice(), market_ranks.toFfiSlice(), max_detour))
+}
+public func flows_places_parking_cost_tier<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool) -> Int64 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_parking_cost_tier(nameAsRustStr, has_name)
+    })
+}
+public func flows_places_store_market_share_rank<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool) -> Int64 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_store_market_share_rank(nameAsRustStr, has_name)
+    })
+}
+public func flows_places_store_market_share_order() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_places_store_market_share_order())
+}
+public func flows_places_fuel_fill_units(_ fuel: UInt8) -> Double {
+    __swift_bridge__$flows_places_fuel_fill_units(fuel)
+}
+public func flows_places_fuel_average_price(_ fuel: UInt8) -> Double {
+    __swift_bridge__$flows_places_fuel_average_price(fuel)
+}
+public func flows_places_limits() -> FlowsPlacesLimits {
+    __swift_bridge__$flows_places_limits().intoSwiftRepr()
+}
+public func flows_places_kind_policy(_ kind: UInt8) -> FlowsPlacesKindPolicy {
+    __swift_bridge__$flows_places_kind_policy(kind).intoSwiftRepr()
+}
+public func flows_places_search_center_cap(_ query_count: Int64) -> Int64 {
+    __swift_bridge__$flows_places_search_center_cap(query_count)
+}
+public func flows_places_center_picks(_ count: Int64, _ cap: Int64) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_center_picks(count, cap))
+}
+public func flows_places_first_nearest(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Int64 {
+    __swift_bridge__$flows_places_first_nearest(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
+public func flows_places_rank_by_distance(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double, _ limit: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_places_rank_by_distance(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon, limit))
+}
+public func flows_places_attribute_id<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ latitude: Double, _ longitude: Double) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_places_attribute_id(nameAsRustStr, latitude, longitude))
+    })
+}
+public func flows_places_dedup<GenericToRustStr: ToRustStr>(_ location_only: Bool, _ names_joined: GenericToRustStr, _ name_lens: UnsafeBufferPointer<Int64>, _ name_present: UnsafeBufferPointer<UInt8>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>) -> RustVec<Int64> {
+    return names_joined.toRustStr({ names_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_places_dedup(location_only, names_joinedAsRustStr, name_lens.toFfiSlice(), name_present.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice()))
+    })
+}
+public func flows_places_pinned<GenericToRustStr: ToRustStr>(_ keys_joined: GenericToRustStr, _ key_lens: UnsafeBufferPointer<Int64>, _ everyday_count: Int64, _ closed_count: Int64, _ ranked_count: Int64) -> RustVec<Int64> {
+    return keys_joined.toRustStr({ keys_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_places_pinned(keys_joinedAsRustStr, key_lens.toFfiSlice(), everyday_count, closed_count, ranked_count))
+    })
+}
+public func flows_places_merge<GenericToRustStr: ToRustStr>(_ keys_joined: GenericToRustStr, _ key_lens: UnsafeBufferPointer<Int64>, _ everyday_count: Int64, _ network_count: Int64) -> RustVec<Int64> {
+    return keys_joined.toRustStr({ keys_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_places_merge(keys_joinedAsRustStr, key_lens.toFfiSlice(), everyday_count, network_count))
+    })
+}
+public func flows_places_shower_brand<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> UInt8 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_shower_brand(nameAsRustStr)
+    })
+}
+public func flows_places_index_parse(_ data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsPlacesIndex> {
+    { let val = __swift_bridge__$flows_places_index_parse(data.toFfiSlice()); if val != nil { return FlowsPlacesIndex(ptr: val!) } else { return nil } }()
+}
+public func flows_places_cell_key(_ lat5: Int64, _ lon5: Int64) -> FlowsPlacesCellKey {
+    __swift_bridge__$flows_places_cell_key(lat5, lon5).intoSwiftRepr()
+}
+public struct FlowsPlacesNearest {
+    public var has: Bool
+    public var index: Int64
+    public var off_route: Double
+
+    public init(has: Bool,index: Int64,off_route: Double) {
+        self.has = has
+        self.index = index
+        self.off_route = off_route
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsPlacesNearest {
+        { let val = self; return __swift_bridge__$FlowsPlacesNearest(has: val.has, index: val.index, off_route: val.off_route); }()
+    }
+}
+extension __swift_bridge__$FlowsPlacesNearest {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsPlacesNearest {
+        { let val = self; return FlowsPlacesNearest(has: val.has, index: val.index, off_route: val.off_route); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsPlacesNearest {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsPlacesNearest> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsPlacesNearest>) -> __swift_bridge__$Option$FlowsPlacesNearest {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsPlacesNearest(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsPlacesNearest(is_some: false, val: __swift_bridge__$FlowsPlacesNearest())
+        }
+    }
+}
+public struct FlowsPlacesCellKey {
+    public var has: Bool
+    public var key: Int64
+
+    public init(has: Bool,key: Int64) {
+        self.has = has
+        self.key = key
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsPlacesCellKey {
+        { let val = self; return __swift_bridge__$FlowsPlacesCellKey(has: val.has, key: val.key); }()
+    }
+}
+extension __swift_bridge__$FlowsPlacesCellKey {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsPlacesCellKey {
+        { let val = self; return FlowsPlacesCellKey(has: val.has, key: val.key); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsPlacesCellKey {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsPlacesCellKey> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsPlacesCellKey>) -> __swift_bridge__$Option$FlowsPlacesCellKey {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsPlacesCellKey(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsPlacesCellKey(is_some: false, val: __swift_bridge__$FlowsPlacesCellKey())
+        }
+    }
+}
+public struct FlowsPlacesKindPolicy {
+    public var has: Bool
+    public var max_detour_meters: Double
+    public var max_detour_trucker_meters: Double
+    public var region_meters: Double
+    public var shard_groups: UInt32
+    public var closed_fallback: Bool
+    public var empty_fallback: Bool
+    public var habit_pins: Bool
+    public var nearest_leads: Bool
+    public var ratings_lookup: Bool
+    public var brand_cost_tier: Bool
+    public var shower_ladder: Bool
+    public var location_dedup: Bool
+
+    public init(has: Bool,max_detour_meters: Double,max_detour_trucker_meters: Double,region_meters: Double,shard_groups: UInt32,closed_fallback: Bool,empty_fallback: Bool,habit_pins: Bool,nearest_leads: Bool,ratings_lookup: Bool,brand_cost_tier: Bool,shower_ladder: Bool,location_dedup: Bool) {
+        self.has = has
+        self.max_detour_meters = max_detour_meters
+        self.max_detour_trucker_meters = max_detour_trucker_meters
+        self.region_meters = region_meters
+        self.shard_groups = shard_groups
+        self.closed_fallback = closed_fallback
+        self.empty_fallback = empty_fallback
+        self.habit_pins = habit_pins
+        self.nearest_leads = nearest_leads
+        self.ratings_lookup = ratings_lookup
+        self.brand_cost_tier = brand_cost_tier
+        self.shower_ladder = shower_ladder
+        self.location_dedup = location_dedup
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsPlacesKindPolicy {
+        { let val = self; return __swift_bridge__$FlowsPlacesKindPolicy(has: val.has, max_detour_meters: val.max_detour_meters, max_detour_trucker_meters: val.max_detour_trucker_meters, region_meters: val.region_meters, shard_groups: val.shard_groups, closed_fallback: val.closed_fallback, empty_fallback: val.empty_fallback, habit_pins: val.habit_pins, nearest_leads: val.nearest_leads, ratings_lookup: val.ratings_lookup, brand_cost_tier: val.brand_cost_tier, shower_ladder: val.shower_ladder, location_dedup: val.location_dedup); }()
+    }
+}
+extension __swift_bridge__$FlowsPlacesKindPolicy {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsPlacesKindPolicy {
+        { let val = self; return FlowsPlacesKindPolicy(has: val.has, max_detour_meters: val.max_detour_meters, max_detour_trucker_meters: val.max_detour_trucker_meters, region_meters: val.region_meters, shard_groups: val.shard_groups, closed_fallback: val.closed_fallback, empty_fallback: val.empty_fallback, habit_pins: val.habit_pins, nearest_leads: val.nearest_leads, ratings_lookup: val.ratings_lookup, brand_cost_tier: val.brand_cost_tier, shower_ladder: val.shower_ladder, location_dedup: val.location_dedup); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsPlacesKindPolicy {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsPlacesKindPolicy> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsPlacesKindPolicy>) -> __swift_bridge__$Option$FlowsPlacesKindPolicy {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsPlacesKindPolicy(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsPlacesKindPolicy(is_some: false, val: __swift_bridge__$FlowsPlacesKindPolicy())
+        }
+    }
+}
+public struct FlowsPlacesLimits {
+    public var backtrack_tolerance_meters: Double
+    public var max_detour_meters: Double
+    public var detour_speed_mps: Double
+    public var dollars_per_hour: Double
+    public var average_nightly_price: Double
+    public var ranked_rows: Int64
+    public var instant_rows: Int64
+    public var fallback_rows: Int64
+    public var search_enough_hits: Int64
+    public var named_enough_hits: Int64
+    public var named_centers: Int64
+    public var named_region_meters: Double
+
+    public init(backtrack_tolerance_meters: Double,max_detour_meters: Double,detour_speed_mps: Double,dollars_per_hour: Double,average_nightly_price: Double,ranked_rows: Int64,instant_rows: Int64,fallback_rows: Int64,search_enough_hits: Int64,named_enough_hits: Int64,named_centers: Int64,named_region_meters: Double) {
+        self.backtrack_tolerance_meters = backtrack_tolerance_meters
+        self.max_detour_meters = max_detour_meters
+        self.detour_speed_mps = detour_speed_mps
+        self.dollars_per_hour = dollars_per_hour
+        self.average_nightly_price = average_nightly_price
+        self.ranked_rows = ranked_rows
+        self.instant_rows = instant_rows
+        self.fallback_rows = fallback_rows
+        self.search_enough_hits = search_enough_hits
+        self.named_enough_hits = named_enough_hits
+        self.named_centers = named_centers
+        self.named_region_meters = named_region_meters
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsPlacesLimits {
+        { let val = self; return __swift_bridge__$FlowsPlacesLimits(backtrack_tolerance_meters: val.backtrack_tolerance_meters, max_detour_meters: val.max_detour_meters, detour_speed_mps: val.detour_speed_mps, dollars_per_hour: val.dollars_per_hour, average_nightly_price: val.average_nightly_price, ranked_rows: val.ranked_rows, instant_rows: val.instant_rows, fallback_rows: val.fallback_rows, search_enough_hits: val.search_enough_hits, named_enough_hits: val.named_enough_hits, named_centers: val.named_centers, named_region_meters: val.named_region_meters); }()
+    }
+}
+extension __swift_bridge__$FlowsPlacesLimits {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsPlacesLimits {
+        { let val = self; return FlowsPlacesLimits(backtrack_tolerance_meters: val.backtrack_tolerance_meters, max_detour_meters: val.max_detour_meters, detour_speed_mps: val.detour_speed_mps, dollars_per_hour: val.dollars_per_hour, average_nightly_price: val.average_nightly_price, ranked_rows: val.ranked_rows, instant_rows: val.instant_rows, fallback_rows: val.fallback_rows, search_enough_hits: val.search_enough_hits, named_enough_hits: val.named_enough_hits, named_centers: val.named_centers, named_region_meters: val.named_region_meters); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsPlacesLimits {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsPlacesLimits> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsPlacesLimits>) -> __swift_bridge__$Option$FlowsPlacesLimits {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsPlacesLimits(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsPlacesLimits(is_some: false, val: __swift_bridge__$FlowsPlacesLimits())
+        }
+    }
+}
+
+public class FlowsPlacesIndex: FlowsPlacesIndexRefMut {
+    var isOwned: Bool = true
+
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+
+    deinit {
+        if isOwned {
+            __swift_bridge__$FlowsPlacesIndex$_free(ptr)
+        }
+    }
+}
+public class FlowsPlacesIndexRefMut: FlowsPlacesIndexRef {
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+}
+public class FlowsPlacesIndexRef {
+    var ptr: UnsafeMutableRawPointer
+
+    public init(ptr: UnsafeMutableRawPointer) {
+        self.ptr = ptr
+    }
+}
+extension FlowsPlacesIndexRef {
+    public func count() -> Int64 {
+        __swift_bridge__$FlowsPlacesIndex$count(ptr)
+    }
+
+    public func places_near(_ data: UnsafeBufferPointer<UInt8>, _ lat: Double, _ lon: Double, _ groups: UnsafeBufferPointer<UInt8>, _ radius_meters: Double, _ limit: Int64) -> RustVec<Int64> {
+        RustVec(ptr: __swift_bridge__$FlowsPlacesIndex$places_near(ptr, data.toFfiSlice(), lat, lon, groups.toFfiSlice(), radius_meters, limit))
+    }
+
+    public func place_numbers(_ data: UnsafeBufferPointer<UInt8>, _ index: Int64) -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsPlacesIndex$place_numbers(ptr, data.toFfiSlice(), index))
+    }
+
+    public func place_texts(_ data: UnsafeBufferPointer<UInt8>, _ index: Int64) -> RustVec<RustString> {
+        RustVec(ptr: __swift_bridge__$FlowsPlacesIndex$place_texts(ptr, data.toFfiSlice(), index))
+    }
+}
+extension FlowsPlacesIndex: Vectorizable {
+    public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
+        __swift_bridge__$Vec_FlowsPlacesIndex$new()
+    }
+
+    public static func vecOfSelfFree(vecPtr: UnsafeMutableRawPointer) {
+        __swift_bridge__$Vec_FlowsPlacesIndex$drop(vecPtr)
+    }
+
+    public static func vecOfSelfPush(vecPtr: UnsafeMutableRawPointer, value: FlowsPlacesIndex) {
+        __swift_bridge__$Vec_FlowsPlacesIndex$push(vecPtr, {value.isOwned = false; return value.ptr;}())
+    }
+
+    public static func vecOfSelfPop(vecPtr: UnsafeMutableRawPointer) -> Optional<Self> {
+        let pointer = __swift_bridge__$Vec_FlowsPlacesIndex$pop(vecPtr)
+        if pointer == nil {
+            return nil
+        } else {
+            return (FlowsPlacesIndex(ptr: pointer!) as! Self)
+        }
+    }
+
+    public static func vecOfSelfGet(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsPlacesIndexRef> {
+        let pointer = __swift_bridge__$Vec_FlowsPlacesIndex$get(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsPlacesIndexRef(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsPlacesIndexRefMut> {
+        let pointer = __swift_bridge__$Vec_FlowsPlacesIndex$get_mut(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsPlacesIndexRefMut(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<FlowsPlacesIndexRef> {
+        UnsafePointer<FlowsPlacesIndexRef>(OpaquePointer(__swift_bridge__$Vec_FlowsPlacesIndex$as_ptr(vecPtr)))
+    }
+
+    public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
+        __swift_bridge__$Vec_FlowsPlacesIndex$len(vecPtr)
+    }
+}
+
+
+public class FlowsRoutePath: FlowsRoutePathRefMut {
+    var isOwned: Bool = true
+
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+
+    deinit {
+        if isOwned {
+            __swift_bridge__$FlowsRoutePath$_free(ptr)
+        }
+    }
+}
+public class FlowsRoutePathRefMut: FlowsRoutePathRef {
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+}
+public class FlowsRoutePathRef {
+    var ptr: UnsafeMutableRawPointer
+
+    public init(ptr: UnsafeMutableRawPointer) {
+        self.ptr = ptr
+    }
+}
+extension FlowsRoutePathRef {
+    public func cumulative() -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsRoutePath$cumulative(ptr))
+    }
+
+    public func nearest(_ lat: Double, _ lon: Double) -> FlowsPlacesNearest {
+        __swift_bridge__$FlowsRoutePath$nearest(ptr, lat, lon).intoSwiftRepr()
+    }
+
+    public func annotate(_ lat: Double, _ lon: Double, _ vehicle_along: Double) -> RustVec<Double> {
+        RustVec(ptr: __swift_bridge__$FlowsRoutePath$annotate(ptr, lat, lon, vehicle_along))
+    }
+
+    public func rank_along<GenericToRustStr: ToRustStr>(_ kind: UInt8, _ has_fuel: Bool, _ fuel: UInt8, _ trucker: Bool, _ has_position: Bool, _ lat: Double, _ lon: Double, _ item_lats: UnsafeBufferPointer<Double>, _ item_lons: UnsafeBufferPointer<Double>, _ prices: UnsafeBufferPointer<Double>, _ has_price: UnsafeBufferPointer<UInt8>, _ ratings: UnsafeBufferPointer<Double>, _ has_rating: UnsafeBufferPointer<UInt8>, _ names_joined: GenericToRustStr, _ name_lens: UnsafeBufferPointer<Int64>, _ name_present: UnsafeBufferPointer<UInt8>) -> RustVec<Double> {
+        return names_joined.toRustStr({ names_joinedAsRustStr in
+            RustVec(ptr: __swift_bridge__$FlowsRoutePath$rank_along(ptr, kind, has_fuel, fuel, trucker, has_position, lat, lon, item_lats.toFfiSlice(), item_lons.toFfiSlice(), prices.toFfiSlice(), has_price.toFfiSlice(), ratings.toFfiSlice(), has_rating.toFfiSlice(), names_joinedAsRustStr, name_lens.toFfiSlice(), name_present.toFfiSlice()))
+        })
+    }
+}
+extension FlowsRoutePath: Vectorizable {
+    public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
+        __swift_bridge__$Vec_FlowsRoutePath$new()
+    }
+
+    public static func vecOfSelfFree(vecPtr: UnsafeMutableRawPointer) {
+        __swift_bridge__$Vec_FlowsRoutePath$drop(vecPtr)
+    }
+
+    public static func vecOfSelfPush(vecPtr: UnsafeMutableRawPointer, value: FlowsRoutePath) {
+        __swift_bridge__$Vec_FlowsRoutePath$push(vecPtr, {value.isOwned = false; return value.ptr;}())
+    }
+
+    public static func vecOfSelfPop(vecPtr: UnsafeMutableRawPointer) -> Optional<Self> {
+        let pointer = __swift_bridge__$Vec_FlowsRoutePath$pop(vecPtr)
+        if pointer == nil {
+            return nil
+        } else {
+            return (FlowsRoutePath(ptr: pointer!) as! Self)
+        }
+    }
+
+    public static func vecOfSelfGet(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsRoutePathRef> {
+        let pointer = __swift_bridge__$Vec_FlowsRoutePath$get(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsRoutePathRef(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsRoutePathRefMut> {
+        let pointer = __swift_bridge__$Vec_FlowsRoutePath$get_mut(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsRoutePathRefMut(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<FlowsRoutePathRef> {
+        UnsafePointer<FlowsRoutePathRef>(OpaquePointer(__swift_bridge__$Vec_FlowsRoutePath$as_ptr(vecPtr)))
+    }
+
+    public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
+        __swift_bridge__$Vec_FlowsRoutePath$len(vecPtr)
+    }
+}
+
+
+
 public func flows_places_text_cost_tier<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Int64 {
     return name.toRustStr({ nameAsRustStr in
         __swift_bridge__$flows_places_text_cost_tier(nameAsRustStr)
