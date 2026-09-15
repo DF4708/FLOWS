@@ -38,6 +38,475 @@ public func flows_alerts_threat_rank<GenericToRustStr: ToRustStr>(_ event: Gener
 }
 
 
+public func flows_climate_south_anchor() -> Double {
+    __swift_bridge__$flows_climate_south_anchor()
+}
+public func flows_climate_north_anchor() -> Double {
+    __swift_bridge__$flows_climate_north_anchor()
+}
+public func flows_climate_pitch_degrees() -> Double {
+    __swift_bridge__$flows_climate_pitch_degrees()
+}
+public func flows_climate_min_latitude() -> Double {
+    __swift_bridge__$flows_climate_min_latitude()
+}
+public func flows_climate_max_latitude() -> Double {
+    __swift_bridge__$flows_climate_max_latitude()
+}
+public func flows_climate_reference_elevation_meters() -> Double {
+    __swift_bridge__$flows_climate_reference_elevation_meters()
+}
+public func flows_climate_meters_per_band_step() -> Double {
+    __swift_bridge__$flows_climate_meters_per_band_step()
+}
+public func flows_climate_band_index(_ latitude: Double) -> FlowsClimateOptional {
+    __swift_bridge__$flows_climate_band_index(latitude).intoSwiftRepr()
+}
+public func flows_climate_elevation_band_shift(_ elevation_meters: Double, _ has_elevation: Bool) -> Int64 {
+    __swift_bridge__$flows_climate_elevation_band_shift(elevation_meters, has_elevation)
+}
+public func flows_climate_band_profile(_ latitude: Double, _ elevation_meters: Double, _ has_elevation: Bool) -> FlowsClimateProfile {
+    __swift_bridge__$flows_climate_band_profile(latitude, elevation_meters, has_elevation).intoSwiftRepr()
+}
+public func flows_climate_type_names() -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_climate_type_names())
+}
+public func flows_climate_type_profile(_ code: UInt8) -> FlowsClimateProfile {
+    __swift_bridge__$flows_climate_type_profile(code).intoSwiftRepr()
+}
+public func flows_climate_classify(_ latitude: Double, _ longitude: Double, _ elevation_meters: Double, _ has_elevation: Bool) -> UInt8 {
+    __swift_bridge__$flows_climate_classify(latitude, longitude, elevation_meters, has_elevation)
+}
+public func flows_climate_temp_sigma_f() -> Double {
+    __swift_bridge__$flows_climate_temp_sigma_f()
+}
+public func flows_climate_seasonal_norms(_ week: Int64, _ latitude: Double, _ longitude: Double, _ elevation_meters: Double, _ has_elevation: Bool) -> FlowsClimateNorms {
+    __swift_bridge__$flows_climate_seasonal_norms(week, latitude, longitude, elevation_meters, has_elevation).intoSwiftRepr()
+}
+public func flows_climate_temperature_beyond_normal(_ temp_f: Double, _ week_low_f: Double, _ week_high_f: Double, _ wind_mean_mph: Double, _ wind_sigma_mph: Double) -> Bool {
+    __swift_bridge__$flows_climate_temperature_beyond_normal(temp_f, week_low_f, week_high_f, wind_mean_mph, wind_sigma_mph)
+}
+public func flows_climate_wind_beyond_normal(_ wind_mph: Double, _ week_low_f: Double, _ week_high_f: Double, _ wind_mean_mph: Double, _ wind_sigma_mph: Double) -> Bool {
+    __swift_bridge__$flows_climate_wind_beyond_normal(wind_mph, week_low_f, week_high_f, wind_mean_mph, wind_sigma_mph)
+}
+public func flows_climate_profile(_ latitude: Double, _ longitude: Double, _ elevation_meters: Double, _ has_elevation: Bool) -> FlowsClimateProfile {
+    __swift_bridge__$flows_climate_profile(latitude, longitude, elevation_meters, has_elevation).intoSwiftRepr()
+}
+public func flows_climate_civil_twilight_degrees() -> Double {
+    __swift_bridge__$flows_climate_civil_twilight_degrees()
+}
+public func flows_climate_julian_day(_ now: Double) -> Double {
+    __swift_bridge__$flows_climate_julian_day(now)
+}
+public func flows_climate_midnight_jd(_ jd: Double) -> Double {
+    __swift_bridge__$flows_climate_midnight_jd(jd)
+}
+public func flows_climate_solar_terms(_ jd: Double) -> FlowsClimateSolarTerms {
+    __swift_bridge__$flows_climate_solar_terms(jd).intoSwiftRepr()
+}
+public func flows_climate_hour_angle_minutes(_ latitude: Double, _ declination: Double, _ angle: Double) -> Double {
+    __swift_bridge__$flows_climate_hour_angle_minutes(latitude, declination, angle)
+}
+public func flows_climate_twilight(_ latitude: Double, _ longitude: Double, _ now: Double, _ angle: Double) -> FlowsClimateTwilight {
+    __swift_bridge__$flows_climate_twilight(latitude, longitude, now, angle).intoSwiftRepr()
+}
+public func flows_climate_is_night(_ latitude: Double, _ longitude: Double, _ now: Double) -> Bool {
+    __swift_bridge__$flows_climate_is_night(latitude, longitude, now)
+}
+public func flows_climate_solar_elevation(_ latitude: Double, _ longitude: Double, _ now: Double) -> Double {
+    __swift_bridge__$flows_climate_solar_elevation(latitude, longitude, now)
+}
+public func flows_climate_next_change(_ latitude: Double, _ longitude: Double, _ now: Double) -> Double {
+    __swift_bridge__$flows_climate_next_change(latitude, longitude, now)
+}
+public func flows_climate_score_max() -> Double {
+    __swift_bridge__$flows_climate_score_max()
+}
+public func flows_climate_week_trig(_ week: Int64) -> FlowsClimateWeekTrig {
+    __swift_bridge__$flows_climate_week_trig(week).intoSwiftRepr()
+}
+public func flows_climate_is_active(_ expires: Double, _ has_expires: Bool, _ arrival_offset: Double, _ now: Double) -> Bool {
+    __swift_bridge__$flows_climate_is_active(expires, has_expires, arrival_offset, now)
+}
+public func flows_climate_max_arrival_samples() -> Int64 {
+    __swift_bridge__$flows_climate_max_arrival_samples()
+}
+public func flows_climate_arrival_offsets(_ sample_count: Int64, _ total_travel_seconds: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_climate_arrival_offsets(sample_count, total_travel_seconds))
+}
+public func flows_climate_parse_flhh(_ data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsHarmonicTable> {
+    { let val = __swift_bridge__$flows_climate_parse_flhh(data.toFfiSlice()); if val != nil { return FlowsHarmonicTable(ptr: val!) } else { return nil } }()
+}
+public struct FlowsClimateProfile {
+    public var has: Double
+    public var band: Int64
+    public var comfort_low_f: Double
+    public var comfort_high_f: Double
+    public var record_low_f: Double
+    public var record_high_f: Double
+    public var wind_low: Double
+    public var wind_medium: Double
+    public var wind_high: Double
+    public var pop_low: Double
+    public var pop_medium: Double
+    public var pop_high: Double
+
+    public init(has: Double,band: Int64,comfort_low_f: Double,comfort_high_f: Double,record_low_f: Double,record_high_f: Double,wind_low: Double,wind_medium: Double,wind_high: Double,pop_low: Double,pop_medium: Double,pop_high: Double) {
+        self.has = has
+        self.band = band
+        self.comfort_low_f = comfort_low_f
+        self.comfort_high_f = comfort_high_f
+        self.record_low_f = record_low_f
+        self.record_high_f = record_high_f
+        self.wind_low = wind_low
+        self.wind_medium = wind_medium
+        self.wind_high = wind_high
+        self.pop_low = pop_low
+        self.pop_medium = pop_medium
+        self.pop_high = pop_high
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsClimateProfile {
+        { let val = self; return __swift_bridge__$FlowsClimateProfile(has: val.has, band: val.band, comfort_low_f: val.comfort_low_f, comfort_high_f: val.comfort_high_f, record_low_f: val.record_low_f, record_high_f: val.record_high_f, wind_low: val.wind_low, wind_medium: val.wind_medium, wind_high: val.wind_high, pop_low: val.pop_low, pop_medium: val.pop_medium, pop_high: val.pop_high); }()
+    }
+}
+extension __swift_bridge__$FlowsClimateProfile {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsClimateProfile {
+        { let val = self; return FlowsClimateProfile(has: val.has, band: val.band, comfort_low_f: val.comfort_low_f, comfort_high_f: val.comfort_high_f, record_low_f: val.record_low_f, record_high_f: val.record_high_f, wind_low: val.wind_low, wind_medium: val.wind_medium, wind_high: val.wind_high, pop_low: val.pop_low, pop_medium: val.pop_medium, pop_high: val.pop_high); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsClimateProfile {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsClimateProfile> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsClimateProfile>) -> __swift_bridge__$Option$FlowsClimateProfile {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsClimateProfile(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsClimateProfile(is_some: false, val: __swift_bridge__$FlowsClimateProfile())
+        }
+    }
+}
+public struct FlowsClimateNorms {
+    public var week_low_f: Double
+    public var week_high_f: Double
+    public var wind_mean_mph: Double
+    public var wind_sigma_mph: Double
+
+    public init(week_low_f: Double,week_high_f: Double,wind_mean_mph: Double,wind_sigma_mph: Double) {
+        self.week_low_f = week_low_f
+        self.week_high_f = week_high_f
+        self.wind_mean_mph = wind_mean_mph
+        self.wind_sigma_mph = wind_sigma_mph
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsClimateNorms {
+        { let val = self; return __swift_bridge__$FlowsClimateNorms(week_low_f: val.week_low_f, week_high_f: val.week_high_f, wind_mean_mph: val.wind_mean_mph, wind_sigma_mph: val.wind_sigma_mph); }()
+    }
+}
+extension __swift_bridge__$FlowsClimateNorms {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsClimateNorms {
+        { let val = self; return FlowsClimateNorms(week_low_f: val.week_low_f, week_high_f: val.week_high_f, wind_mean_mph: val.wind_mean_mph, wind_sigma_mph: val.wind_sigma_mph); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsClimateNorms {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsClimateNorms> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsClimateNorms>) -> __swift_bridge__$Option$FlowsClimateNorms {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsClimateNorms(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsClimateNorms(is_some: false, val: __swift_bridge__$FlowsClimateNorms())
+        }
+    }
+}
+public struct FlowsClimateSolarTerms {
+    public var declination: Double
+    public var equation_of_time: Double
+
+    public init(declination: Double,equation_of_time: Double) {
+        self.declination = declination
+        self.equation_of_time = equation_of_time
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsClimateSolarTerms {
+        { let val = self; return __swift_bridge__$FlowsClimateSolarTerms(declination: val.declination, equation_of_time: val.equation_of_time); }()
+    }
+}
+extension __swift_bridge__$FlowsClimateSolarTerms {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsClimateSolarTerms {
+        { let val = self; return FlowsClimateSolarTerms(declination: val.declination, equation_of_time: val.equation_of_time); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsClimateSolarTerms {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsClimateSolarTerms> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsClimateSolarTerms>) -> __swift_bridge__$Option$FlowsClimateSolarTerms {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsClimateSolarTerms(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsClimateSolarTerms(is_some: false, val: __swift_bridge__$FlowsClimateSolarTerms())
+        }
+    }
+}
+public struct FlowsClimateTwilight {
+    public var has: Double
+    public var dawn: Double
+    public var dusk: Double
+
+    public init(has: Double,dawn: Double,dusk: Double) {
+        self.has = has
+        self.dawn = dawn
+        self.dusk = dusk
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsClimateTwilight {
+        { let val = self; return __swift_bridge__$FlowsClimateTwilight(has: val.has, dawn: val.dawn, dusk: val.dusk); }()
+    }
+}
+extension __swift_bridge__$FlowsClimateTwilight {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsClimateTwilight {
+        { let val = self; return FlowsClimateTwilight(has: val.has, dawn: val.dawn, dusk: val.dusk); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsClimateTwilight {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsClimateTwilight> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsClimateTwilight>) -> __swift_bridge__$Option$FlowsClimateTwilight {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsClimateTwilight(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsClimateTwilight(is_some: false, val: __swift_bridge__$FlowsClimateTwilight())
+        }
+    }
+}
+public struct FlowsClimateWeekTrig {
+    public var cos_t: Double
+    public var sin_t: Double
+    public var cos_2t: Double
+    public var sin_2t: Double
+
+    public init(cos_t: Double,sin_t: Double,cos_2t: Double,sin_2t: Double) {
+        self.cos_t = cos_t
+        self.sin_t = sin_t
+        self.cos_2t = cos_2t
+        self.sin_2t = sin_2t
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsClimateWeekTrig {
+        { let val = self; return __swift_bridge__$FlowsClimateWeekTrig(cos_t: val.cos_t, sin_t: val.sin_t, cos_2t: val.cos_2t, sin_2t: val.sin_2t); }()
+    }
+}
+extension __swift_bridge__$FlowsClimateWeekTrig {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsClimateWeekTrig {
+        { let val = self; return FlowsClimateWeekTrig(cos_t: val.cos_t, sin_t: val.sin_t, cos_2t: val.cos_2t, sin_2t: val.sin_2t); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsClimateWeekTrig {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsClimateWeekTrig> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsClimateWeekTrig>) -> __swift_bridge__$Option$FlowsClimateWeekTrig {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsClimateWeekTrig(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsClimateWeekTrig(is_some: false, val: __swift_bridge__$FlowsClimateWeekTrig())
+        }
+    }
+}
+public struct FlowsClimateOptional {
+    public var is_some: Double
+    public var value: Double
+
+    public init(is_some: Double,value: Double) {
+        self.is_some = is_some
+        self.value = value
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsClimateOptional {
+        { let val = self; return __swift_bridge__$FlowsClimateOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$FlowsClimateOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsClimateOptional {
+        { let val = self; return FlowsClimateOptional(is_some: val.is_some, value: val.value); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsClimateOptional {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsClimateOptional> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsClimateOptional>) -> __swift_bridge__$Option$FlowsClimateOptional {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsClimateOptional(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsClimateOptional(is_some: false, val: __swift_bridge__$FlowsClimateOptional())
+        }
+    }
+}
+
+public class FlowsHarmonicTable: FlowsHarmonicTableRefMut {
+    var isOwned: Bool = true
+
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+
+    deinit {
+        if isOwned {
+            __swift_bridge__$FlowsHarmonicTable$_free(ptr)
+        }
+    }
+}
+public class FlowsHarmonicTableRefMut: FlowsHarmonicTableRef {
+    public override init(ptr: UnsafeMutableRawPointer) {
+        super.init(ptr: ptr)
+    }
+}
+public class FlowsHarmonicTableRef {
+    var ptr: UnsafeMutableRawPointer
+
+    public init(ptr: UnsafeMutableRawPointer) {
+        self.ptr = ptr
+    }
+}
+extension FlowsHarmonicTableRef {
+    public func families() -> RustVec<RustString> {
+        RustVec(ptr: __swift_bridge__$FlowsHarmonicTable$families(ptr))
+    }
+
+    public func zips() -> RustVec<RustString> {
+        RustVec(ptr: __swift_bridge__$FlowsHarmonicTable$zips(ptr))
+    }
+
+    public func family_count() -> UInt32 {
+        __swift_bridge__$FlowsHarmonicTable$family_count(ptr)
+    }
+
+    public func zip_index<GenericToRustStr: ToRustStr>(_ zip: GenericToRustStr) -> Int32 {
+        return zip.toRustStr({ zipAsRustStr in
+            __swift_bridge__$FlowsHarmonicTable$zip_index(ptr, zipAsRustStr)
+        })
+    }
+
+    public func score_named<GenericToRustStr: ToRustStr>(_ zip: GenericToRustStr, _ family: GenericToRustStr, _ week: Int64) -> FlowsClimateOptional {
+        return family.toRustStr({ familyAsRustStr in
+            return zip.toRustStr({ zipAsRustStr in
+            __swift_bridge__$FlowsHarmonicTable$score_named(ptr, zipAsRustStr, familyAsRustStr, week).intoSwiftRepr()
+        })
+        })
+    }
+
+    public func score_row(_ zip_index: Int64, _ family_index: Int64, _ cos_t: Double, _ sin_t: Double, _ cos_2t: Double, _ sin_2t: Double) -> Double {
+        __swift_bridge__$FlowsHarmonicTable$score_row(ptr, zip_index, family_index, cos_t, sin_t, cos_2t, sin_2t)
+    }
+}
+extension FlowsHarmonicTable: Vectorizable {
+    public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
+        __swift_bridge__$Vec_FlowsHarmonicTable$new()
+    }
+
+    public static func vecOfSelfFree(vecPtr: UnsafeMutableRawPointer) {
+        __swift_bridge__$Vec_FlowsHarmonicTable$drop(vecPtr)
+    }
+
+    public static func vecOfSelfPush(vecPtr: UnsafeMutableRawPointer, value: FlowsHarmonicTable) {
+        __swift_bridge__$Vec_FlowsHarmonicTable$push(vecPtr, {value.isOwned = false; return value.ptr;}())
+    }
+
+    public static func vecOfSelfPop(vecPtr: UnsafeMutableRawPointer) -> Optional<Self> {
+        let pointer = __swift_bridge__$Vec_FlowsHarmonicTable$pop(vecPtr)
+        if pointer == nil {
+            return nil
+        } else {
+            return (FlowsHarmonicTable(ptr: pointer!) as! Self)
+        }
+    }
+
+    public static func vecOfSelfGet(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsHarmonicTableRef> {
+        let pointer = __swift_bridge__$Vec_FlowsHarmonicTable$get(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsHarmonicTableRef(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfGetMut(vecPtr: UnsafeMutableRawPointer, index: UInt) -> Optional<FlowsHarmonicTableRefMut> {
+        let pointer = __swift_bridge__$Vec_FlowsHarmonicTable$get_mut(vecPtr, index)
+        if pointer == nil {
+            return nil
+        } else {
+            return FlowsHarmonicTableRefMut(ptr: pointer!)
+        }
+    }
+
+    public static func vecOfSelfAsPtr(vecPtr: UnsafeMutableRawPointer) -> UnsafePointer<FlowsHarmonicTableRef> {
+        UnsafePointer<FlowsHarmonicTableRef>(OpaquePointer(__swift_bridge__$Vec_FlowsHarmonicTable$as_ptr(vecPtr)))
+    }
+
+    public static func vecOfSelfLen(vecPtr: UnsafeMutableRawPointer) -> UInt {
+        __swift_bridge__$Vec_FlowsHarmonicTable$len(vecPtr)
+    }
+}
+
 
 
 

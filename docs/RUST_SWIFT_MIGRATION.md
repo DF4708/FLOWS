@@ -1080,6 +1080,26 @@ Two guards keep swift-bridge's rule that an empty buffer never crosses: an
 empty impact window is no impact, and an empty schedule has no next stop —
 both the Swift's own answers.
 
+## Wave 1: the climate facades switch (2026-09-15)
+
+`flows-bridge::climate` exposes the climate core (36 functions and one opaque
+type), and the five Swift files call it. `LatitudeBands`, `ClimateProfiles`,
+`DaylightClock`, `RiskTiming` and `HarmonicClimatology` hold no anchor,
+envelope, seasonal table, orbital term or coefficient: instants cross as
+`timeIntervalSinceReferenceDate`; an optional elevation as a value plus a
+flag; a climate type as its code. The harmonic table is the first opaque
+Rust type across the bridge — Swift's `HarmonicClimatology` is a handle to a
+table parsed once in Rust and never copied out, so the 33,613-ZIP rescore
+scores through the handle with the week's trig factors hoisted as before.
+What stays is presentation and state: the climate-type labels, the
+`precise` per-ZIP snapshot and its cell arithmetic, and the file loading.
+
+Two answers the Swift never gave: a latitude that is not a number crashed
+the Swift's band index; the facade answers the Wisconsin anchor row (band 1)
+and says so. A row or family past the harmonic table crashed the Swift's
+score; the facade answers NaN. Both are documented at the facade, neither
+reaches a driver from the app's own callers.
+
 ### Remaining wave-1 groups
 
 | group | state | next |
@@ -1087,7 +1107,7 @@ both the Swift's own answers.
 | seasonal | LANDED: core + oracle test (3,163 records, bit-exact); bridge is the reserved stub | switch `SeasonalRiskModel`/`RouteHeadTrainer` to the bridge with their callers |
 | learning | LANDED: core + fixture + oracle test (10,673 records, bit-exact; two name records diverge by design); bridge is the reserved stub | switch the seven Swift classes to the bridge with their callers |
 | vehicle_policy | LANDED: core + bridge (48 functions) + oracle (14,260 records, bit-exact) + five facades switched (SpeedLaw, SpeedSign, TowingLimits, FilterLimits, PursuitReach) | switch GradeProfile and DriveEfficiency with their callers |
-| climate | LANDED: core written from the Swift + oracle (13,447 records; trig to a stated tolerance, every instant exact); bridge is the reserved stub | switch the five Swift files to the bridge with their callers |
+| climate | LANDED: core + oracle (13,447 records) + bridge (36 functions, one opaque table type) + five facades switched | — |
 | places_text | harness only | port from scratch — the heaviest: it needs Swift's grapheme segmentation, case mapping and canonical equivalence in zero-dependency Rust |
 | alerts | done by hand (`ded56c1`), except `bandInput` | switch `bandInput` with the route-scoring move |
 

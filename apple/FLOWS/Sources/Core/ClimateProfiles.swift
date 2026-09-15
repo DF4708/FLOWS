@@ -20,38 +20,33 @@ import Foundation
 /// has a climate-aware profile immediately. The precise per-ZIP NOAA normals are
 /// a later, on-demand refinement that drops into `precise[…]` for the route
 /// corridor (and a cached home radius); until then the computed type serves.
+///
+/// The classifier, the envelopes, the seasonal anchors and the gates are
+/// computed in rust/flows-core (climate.rs) and called through
+/// rust/flows-bridge; the labels and the `precise` snapshot stay here. Pinned
+/// to the Swift this replaced by
+/// rust/flows-bridge/tests/fixtures/swift_climate_oracle.tsv.
 enum ClimateProfiles {
-
-    /// Köppen-style types relevant to North American driving climates. Each maps
-    /// to a temperature envelope (comfort band = zero temp-risk; ramps to the
-    /// record extremes). Wind/precip thresholds stay the universal defaults.
+    /// Köppen-style types relevant to North American driving climates, in the
+    /// bridge's code order.
     enum ClimateType: String, CaseIterable {
         case marineWestCoast, mediterranean, hotDesert, coldSteppe,
              humidSubtropical, humidContinentalWarm, humidContinentalCool,
              subarctic, tropical, tundra, highland, temperateOceanic
 
-        /// (comfortLowF, comfortHighF, recordLowF, recordHighF).
-        private var temps: (Double, Double, Double, Double) {
-            switch self {
-            case .marineWestCoast:      return (45, 72, 12, 106)
-            case .mediterranean:        return (48, 82, 25, 116)
-            case .hotDesert:            return (55, 98, 25, 125)
-            case .coldSteppe:           return (35, 85, -25, 110)
-            case .humidSubtropical:     return (45, 90, 5, 112)
-            case .humidContinentalWarm: return (35, 82, -20, 108)
-            case .humidContinentalCool: return (28, 78, -35, 104)
-            case .subarctic:            return (20, 72, -55, 98)
-            case .tropical:             return (68, 90, 40, 106)
-            case .tundra:               return (10, 58, -65, 86)
-            case .highland:             return (28, 74, -40, 100)
-            case .temperateOceanic:     return (42, 74, 5, 102)
-            }
+        /// The bridge's code: position in `allCases`.
+        var rustCode: UInt8 { UInt8(ClimateType.allCases.firstIndex(of: self) ?? 0) }
+
+        init(rustCode code: UInt8) {
+            let all = ClimateType.allCases
+            self = Int(code) < all.count ? all[Int(code)] : .subarctic
         }
 
+        /// The type's temperature envelope (comfort band = zero temp-risk;
+        /// ramps to the record extremes) as a band-0 profile.
         var profile: LatitudeBands.Profile {
-            let (cl, ch, rl, rh) = temps
-            return LatitudeBands.Profile(
-                band: 0, comfortLowF: cl, comfortHighF: ch, recordLowF: rl, recordHighF: rh)
+            let p = flows_climate_type_profile(rustCode)
+            return p.has == 1 ? LatitudeBands.Profile(bridge: p) : LatitudeBands.anchorProfile
         }
 
         var label: String {
@@ -73,31 +68,9 @@ enum ClimateProfiles {
     }
 
     /// Classify a coordinate into its North-American climate type from geography.
-    /// Coarse but captures the major divisions latitude bands miss (coast vs.
-    /// interior, desert, subtropical). Ordered most-specific first.
     static func classify(latitude lat: Double, longitude lon: Double,
                          elevationMeters elev: Double?) -> ClimateType {
-        let e = elev ?? 0
-        if lat >= 66 { return .tundra }
-        if e >= 2000 { return .highland }              // Rockies / Sierra spine
-        // Tropics + the South-Florida peninsula tip (Miami/Naples/Keys).
-        if lat < 25 || (lat < 27 && lon > -83) { return .tropical }
-        // Western North America (Pacific-influenced), west of the continental interior.
-        if lon <= -117 {
-            if lat >= 42 { return .marineWestCoast }    // WA/OR coast, BC (Seattle, Portland)
-            return .mediterranean                       // CA (LA, SF, Sacramento)
-        }
-        // Interior West: deserts (low, hot/dry) vs. high steppe.
-        if lon > -117 && lon <= -102 {
-            if e >= 1000 { return .coldSteppe }         // Denver, high plains, Great Basin rim
-            if lat < 37 { return .hotDesert }           // Phoenix, Vegas, Tucson
-            return .coldSteppe
-        }
-        // Eastern North America, split by latitude into the continental gradient.
-        if lat < 37 { return .humidSubtropical }        // Atlanta, Houston, Dallas, Charlotte
-        if lat < 43 { return .humidContinentalWarm }    // Chicago, KC, NYC, DC, St Louis
-        if lat < 50 { return .humidContinentalCool }    // Minneapolis, Detroit, Boston, Toronto
-        return .subarctic                               // most of Canada's interior
+        ClimateType(rustCode: flows_climate_classify(lat, lon, elev ?? 0, elev != nil))
     }
 
     // MARK: seasonal norms — "normal for HERE at THIS time of year"
@@ -113,59 +86,29 @@ enum ClimateProfiles {
         var windSigmaMph: Double
         /// Daily temperature variability around the seasonal norm (NOAA daily
         /// anomaly σ runs ~8–15 °F; 12 is the continental mid).
-        static let tempSigmaF = 12.0
-    }
-
-    /// Winter (week 0) and summer (week 26) anchor temps + wind norms per
-    /// climate type — NOAA 1991–2020 normals for representative cities of each
-    /// Köppen type. Weeks in between blend sinusoidally.
-    private static func anchors(_ t: ClimateType)
-        -> (wLo: Double, wHi: Double, sLo: Double, sHi: Double, wind: Double, sigma: Double) {
-        switch t {
-        case .marineWestCoast:      return (38, 50, 58, 72, 8, 3)
-        case .mediterranean:        return (45, 58, 65, 82, 7, 2.5)
-        case .hotDesert:            return (38, 62, 72, 98, 9, 4)
-        case .coldSteppe:           return (15, 35, 55, 85, 11, 5)
-        case .humidSubtropical:     return (38, 58, 68, 90, 8, 3.5)
-        case .humidContinentalWarm: return (22, 38, 62, 82, 9, 4)
-        case .humidContinentalCool: return (12, 28, 58, 78, 10, 4.5)
-        case .subarctic:            return (0, 20, 50, 72, 12, 5.5)
-        case .tropical:             return (68, 84, 76, 90, 11, 4)
-        case .tundra:               return (-15, 10, 35, 58, 13, 6)
-        case .highland:             return (18, 35, 50, 74, 11, 5)
-        case .temperateOceanic:     return (35, 48, 55, 74, 9, 3.5)
-        }
+        static let tempSigmaF = flows_climate_temp_sigma_f()
     }
 
     /// Seasonal norms for a location at a week-of-year (0…51): sinusoidal
-    /// blend between the climate type's winter and summer anchors (southern-
-    /// hemisphere phase isn't handled — FLOWS is North-America scoped).
+    /// blend between the climate type's winter and summer anchors.
     static func seasonalNorms(week: Int, latitude: Double, longitude: Double,
                               elevationMeters: Double? = nil) -> SeasonalNorms {
-        let t = classify(latitude: latitude, longitude: longitude,
-                         elevationMeters: elevationMeters)
-        let a = anchors(t)
-        // 0 at week 0 (mid-winter) → 1 at week 26 (mid-summer) → 0 at week 52.
-        let phase = (1 - cos(2 * Double.pi * Double(((week % 52) + 52) % 52) / 52)) / 2
-        return SeasonalNorms(
-            weekLowF: a.wLo + (a.sLo - a.wLo) * phase,
-            weekHighF: a.wHi + (a.sHi - a.wHi) * phase,
-            windMeanMph: a.wind, windSigmaMph: a.sigma)
+        let n = flows_climate_seasonal_norms(Int64(week), latitude, longitude,
+                                             elevationMeters ?? 0, elevationMeters != nil)
+        return SeasonalNorms(weekLowF: n.week_low_f, weekHighF: n.week_high_f,
+                             windMeanMph: n.wind_mean_mph, windSigmaMph: n.wind_sigma_mph)
     }
 
     /// Presentation gates: a condition draws on the map ONLY when it exceeds
     /// the regional+seasonal normal window by at least one standard deviation.
-    /// Between the seasonal average min and max (±σ) is "normal" — no notice.
     static func temperatureBeyondNormal(tempF: Double, norms: SeasonalNorms) -> Bool {
-        guard tempF.isFinite else { return false }
-        return tempF > norms.weekHighF + SeasonalNorms.tempSigmaF
-            || tempF < norms.weekLowF - SeasonalNorms.tempSigmaF
+        flows_climate_temperature_beyond_normal(
+            tempF, norms.weekLowF, norms.weekHighF, norms.windMeanMph, norms.windSigmaMph)
     }
 
     static func windBeyondNormal(windMph: Double, norms: SeasonalNorms) -> Bool {
-        guard windMph.isFinite else { return false }
-        // Normal peak gusts run ~mean+σ; notice begins another σ beyond that.
-        return windMph > norms.windMeanMph + 2 * norms.windSigmaMph
+        flows_climate_wind_beyond_normal(
+            windMph, norms.weekLowF, norms.weekHighF, norms.windMeanMph, norms.windSigmaMph)
     }
 
     // MARK: precise per-ZIP normals (on-demand refinement)
@@ -194,7 +137,8 @@ enum ClimateProfiles {
     static func profile(latitude lat: Double, longitude lon: Double,
                         elevationMeters elev: Double? = nil) -> LatitudeBands.Profile {
         if let p = precise[cell(lat, lon)] { return p }
-        return classify(latitude: lat, longitude: lon, elevationMeters: elev).profile
+        let p = flows_climate_profile(lat, lon, elev ?? 0, elev != nil)
+        return p.has == 1 ? LatitudeBands.Profile(bridge: p) : LatitudeBands.anchorProfile
     }
 
     /// Merge freshly-loaded precise normals (on-demand corridor / home-radius
