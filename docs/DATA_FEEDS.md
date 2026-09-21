@@ -409,6 +409,16 @@ Mexico `mx-smn-es`, Panama `pa-imhpa-es`, Costa Rica `cr-imn-es`, Dominican
 Republic `do-indomet-es`, Belize `bz-nms-en`, Jamaica `jm-jms-en`, Trinidad &
 Tobago `tt-ttms-en`.
 
+Canada reads MSC GeoMet's **`weather-alerts`** collection
+(`api.weather.gc.ca/collections/weather-alerts/items?bbox=…`). The older
+`alerts` collection began answering 404 (found 2026-09-21), which had left
+Canada with no weather alerts at all. Its records are one per warned area:
+`alert_name_en` (the event, title-cased to match the US names),
+`feature_name_en` (the area), `risk_colour_en` (ECCC's yellow/orange/red,
+read as moderate/severe/extreme), `alert_type`, `alert_text_en`, `status_en`
+(ended and cancelled records are dropped) and times with milliseconds
+(`WeatherAlertService.parseECCCFeatures`, pinned by `CanadianAlertsTests`).
+
 Mechanics: the RSS is a country-wide index with `cap:severity`/`event`/`expires`
 inline but geometry only in each item's linked CAP file. So `WMOAlertCache`
 fetches the RSS, keeps unexpired items, fetches the **24 most-recent** items'

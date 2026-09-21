@@ -770,8 +770,12 @@ final class WeatherAlertService: ObservableObject {
     nonisolated private func ecccAlerts(at point: CLLocationCoordinate2D) async -> [NWSAlert]? {
         // Rough Canada envelope: skip the fetch for clearly-US/MX points.
         guard point.latitude > 41.5 else { return nil }
+        // MSC GeoMet's `weather-alerts` collection. The old `alerts`
+        // collection answers 404 now, so every Canadian stretch came back
+        // "unavailable" and Canada had no weather alerts at all; its records
+        // changed shape too (parseECCCFeatures).
         let url = String(
-            format: "https://api.weather.gc.ca/collections/alerts/items"
+            format: "https://api.weather.gc.ca/collections/weather-alerts/items"
                 + "?bbox=%.3f,%.3f,%.3f,%.3f&f=json&limit=20",
             point.longitude - 0.5, point.latitude - 0.5,
             point.longitude + 0.5, point.latitude + 0.5)
@@ -781,31 +785,75 @@ final class WeatherAlertService: ObservableObject {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let features = json["features"] as? [[String: Any]]
         else { return nil }
-        return features.compactMap { feature in
+        return Self.parseECCCFeatures(features)
+    }
+
+    /// One `weather-alerts` record per warned area: `alert_name_en` ("frost
+    /// advisory"), `alert_type` (warning, watch, advisory, statement),
+    /// `risk_colour_en` (ECCC's own yellow, orange or red), `alert_text_en`,
+    /// `feature_name_en` (the area), `status_en` (issued, continued, ended,
+    /// cancelled) and times with fractional seconds.
+    nonisolated static func parseECCCFeatures(_ features: [[String: Any]]) -> [NWSAlert] {
+        features.compactMap { feature in
             guard let props = feature["properties"] as? [String: Any] else { return nil }
-            let event = (props["event"] as? String)
-                ?? (props["alert_type"] as? String)
-                ?? (props["headline"] as? String) ?? "Weather alert"
-            let headline = (props["headline"] as? String)
-                ?? (props["descrip_en"] as? String) ?? event
-            let score = Self.severityScore((props["severity"] as? String) ?? "moderate")
-            let id = (props["identifier"] as? String) ?? (feature["id"] as? String)
-                ?? "\(event)-\(headline.hashValue)"
-            let expires = (props["expires"] as? String).flatMap {
-                Self.alertDateParser.date(from: $0)
-            }
-            let source = (props["url"] as? String).flatMap(URL.init(string:))
-                ?? URL(string: "https://weather.gc.ca/warnings/index_e.html")
-            let detail = (props["descrip_en"] as? String).map { String($0.prefix(280)) }
+            let status = ((props["status_en"] as? String) ?? "").lowercased()
+            guard status != "ended", status != "cancelled" else { return nil }
+            // Title case, the way the US names them ("Frost Advisory"), so
+            // one event vocabulary serves both feeds.
+            let event = ((props["alert_name_en"] as? String)
+                ?? (props["alert_short_name_en"] as? String)
+                ?? (props["alert_type"] as? String) ?? "weather alert").capitalized
+            let area = props["feature_name_en"] as? String
+            let headline = area.map { "\(event) for \($0)" } ?? event
+            let score = Self.severityScore(Self.ecccSeverity(
+                colour: props["risk_colour_en"] as? String,
+                type: props["alert_type"] as? String))
+            let id = (feature["id"] as? String) ?? "\(event)-\(area ?? "")"
+            let expires = (props["expiration_datetime"] as? String).flatMap(Self.ecccDate)
+            let onset = ["validity_datetime", "publication_datetime"]
+                .compactMap { props[$0] as? String }
+                .compactMap(Self.ecccDate)
+                .first
+            let detail = (props["alert_text_en"] as? String).map { String($0.prefix(280)) }
             let rings = Self.allRings(of: feature["geometry"] as? [String: Any])
             return NWSAlert(
                 id: id, event: event, headline: headline, severityScore: score,
                 polygon: rings.first,
                 extraRings: Array(rings.dropFirst()),
                 expires: expires,
-                sourceURL: source,
+                onset: onset,
+                sourceURL: URL(string: "https://weather.gc.ca/warnings/index_e.html"),
                 detail: detail)
         }
+    }
+
+    /// ECCC's risk colour is its severity (impact and confidence together):
+    /// red is extreme, orange severe, yellow moderate. Without a colour the
+    /// alert's kind decides.
+    nonisolated static func ecccSeverity(colour: String?, type: String?) -> String {
+        switch colour?.lowercased() {
+        case "red": return "extreme"
+        case "orange": return "severe"
+        case "yellow": return "moderate"
+        default: break
+        }
+        switch type?.lowercased() {
+        case "warning": return "severe"
+        case "watch": return "moderate"
+        default: return "minor"
+        }
+    }
+
+    /// ECCC stamps times with milliseconds ("2026-09-22T08:50:44.658Z"),
+    /// which the plain internet-date parser rejects.
+    nonisolated(unsafe) private static let ecccDateParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    nonisolated static func ecccDate(_ text: String) -> Date? {
+        ecccDateParser.date(from: text) ?? alertDateParser.date(from: text)
     }
 
     nonisolated private func nwsAlerts(at point: CLLocationCoordinate2D) async -> NWSResult {
