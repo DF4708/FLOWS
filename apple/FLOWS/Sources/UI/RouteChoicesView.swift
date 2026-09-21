@@ -833,48 +833,78 @@ struct RouteChoicesView: View {
         return scored.min(by: { $0.distanceMeters < $1.distanceMeters })?.id
     }
 
+    private var routesTitle: some View {
+        Text("Routes")
+            .scaledFont(size: 15, weight: .bold)
+            .lineLimit(1)
+            .fixedSize()   // a landscape phone wrapped this to "Route / s"
+    }
+
+    /// Walk ↔ drive, then rail, bus and plane.
+    @ViewBuilder
+    private var modeToggles: some View {
+        // Walk ↔ drive toggle: walking uses Apple's pedestrian
+        // network (sidewalks/crossings where mapped, real pace).
+        Toggle(isOn: Binding(
+            get: { model.walkingMode },
+            set: { model.walkingMode = $0; Task { await replanForMode() } })) {
+            Image(systemName: model.walkingMode ? "figure.walk" : "car.fill")
+                .scaledFont(size: 12, weight: .bold)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.mini)
+        .fixedSize()
+        // Rail/bus/plane are TOGGLES: tinted while active, tap again
+        // to turn off (back to drive-only choices).
+        transitToggle(.rail, symbol: "tram.fill",
+                      help: "Rail option: local rail/subway, or Amtrak for long trips")
+        transitToggle(.bus, symbol: "bus.fill",
+                      help: "Bus option: local transit, or Greyhound for long trips")
+        transitToggle(.plane, symbol: "airplane",
+                      help: "Plane option: fly between the nearest airports with airline service")
+        // (Tourist stops live in the FILTER grid below — a route
+        // option, not a transportation mode.)
+    }
+
+    /// X = minimize, not abandon: the panel tucks into the round routes icon
+    /// at the top right; the trip pill's Edit is how a plan is actually
+    /// discarded.
+    private var tuckButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                _ = model.collapsedPanels.insert("routes")
+            }
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Tuck the route list away")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text("Routes")
-                    .scaledFont(size: 15, weight: .bold)
-                    .lineLimit(1)
-                    .fixedSize()   // a landscape phone wrapped this to "Route / s"
-                // Walk ↔ drive toggle: walking uses Apple's pedestrian
-                // network (sidewalks/crossings where mapped, real pace).
-                Toggle(isOn: Binding(
-                    get: { model.walkingMode },
-                    set: { model.walkingMode = $0; Task { await replanForMode() } })) {
-                    Image(systemName: model.walkingMode ? "figure.walk" : "car.fill")
-                        .scaledFont(size: 12, weight: .bold)
+            // One row when it fits; in a narrow list (the Mac with settings
+            // open) the mode toggles fold onto a second line instead of
+            // pushing the card past its column. The header holds no state
+            // of its own, so laying it out twice to measure is safe.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    routesTitle
+                    modeToggles
+                    Spacer()
+                    tuckButton
                 }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .fixedSize()
-                // Rail/bus/plane are TOGGLES: tinted while active, tap again
-                // to turn off (back to drive-only choices).
-                transitToggle(.rail, symbol: "tram.fill",
-                              help: "Rail option: local rail/subway, or Amtrak for long trips")
-                transitToggle(.bus, symbol: "bus.fill",
-                              help: "Bus option: local transit, or Greyhound for long trips")
-                transitToggle(.plane, symbol: "airplane",
-                              help: "Plane option: fly between the nearest airports with airline service")
-                // (Tourist stops live in the FILTER grid below — a route
-                // option, not a transportation mode.)
-                Spacer()
-                // X = minimize, not abandon: the panel tucks into the round
-                // routes icon at the top right; the trip pill's Edit is how
-                // a plan is actually discarded.
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        _ = model.collapsedPanels.insert("routes")
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        routesTitle
+                        Spacer()
+                        tuckButton
                     }
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        modeToggles
+                    }
                 }
-                .buttonStyle(.plain)
-                .help("Tuck the route list away")
             }
             if let notice = model.plannerNotice {
                 Label(notice, systemImage: "exclamationmark.triangle.fill")

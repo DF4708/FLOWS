@@ -41,6 +41,13 @@ final class CrashDetectionService: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var impactTime: Date?
 
+    /// DEMO (FLOWS_DEMO=drive): show the check-in card with no impact, no
+    /// spoken loop and no timer, so the layout check can see where it sits.
+    /// "I'm OK" clears it as usual.
+    func showCheckInForLayoutDemo() {
+        state = .checkingIn(attempt: 1)
+    }
+
     /// Set by AppModel: where we are + what we drive + medical notes.
     var context: () -> (coordinate: CLLocationCoordinate2D?,
                         vehicle: VehicleProfile?,

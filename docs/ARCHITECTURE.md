@@ -659,3 +659,12 @@ the gear always holds the first position. It kept the `Set` call surface
 only the top-right column now renders `order` instead of a fixed list.
 Persisted as that ordered array.
 
+The column shows only the icons whose menu comes back on the current
+screen (`TuckedMenus.comesBack`): the planner while planning, the
+route list and the limits card while choosing, the instruments and a stop
+list that still has stops while driving, and the map key where the screen
+has room for it (`mapKeyComesBack`, never while driving). Hidden icons stay
+in the pile and show again where their menu lives. On a phone the column
+becomes a row beside the gear when the phone is on its side
+(`PlanningChrome.trayInRow`).
+

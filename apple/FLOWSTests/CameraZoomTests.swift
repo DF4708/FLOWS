@@ -135,4 +135,54 @@ final class CameraZoomTests: XCTestCase {
             last = alt
         }
     }
+
+    // MARK: chrome layout — no menu covers another
+
+    func testOverlapsFindOnlyElementsThatReallyCoverEachOther() {
+        let frames = [
+            ChromeFrame(id: "planner", rect: CGRect(x: 8, y: 500, width: 400, height: 300)),
+            ChromeFrame(id: "card", rect: CGRect(x: 8, y: 700, width: 400, height: 90)),
+            ChromeFrame(id: "gear", rect: CGRect(x: 380, y: 8, width: 44, height: 44)),
+            // Stacked edge to edge under the gear: touching, not covering.
+            ChromeFrame(id: "tray", rect: CGRect(x: 380, y: 52, width: 44, height: 44)),
+            // A collapsed menu sits at a point and covers nothing.
+            ChromeFrame(id: "tucked", rect: CGRect(x: 100, y: 600, width: 0, height: 0)),
+        ]
+        let found = ChromeLayout.overlaps(frames)
+        XCTAssertEqual(found.map { "\($0.0)+\($0.1)" }, ["card+planner"])
+        XCTAssertEqual(found.first?.2, CGRect(x: 8, y: 700, width: 400, height: 90))
+        XCTAssertTrue(ChromeLayout.overlaps([]).isEmpty)
+    }
+
+    func testCoverMeasuresTheChromeThatIsActuallyOnScreen() {
+        let cover = ChromeLayout.cover(
+            top: [CGRect(x: 0, y: 8, width: 400, height: 100),
+                  CGRect(x: 200, y: 116, width: 200, height: 60),
+                  CGRect(x: 0, y: 700, width: 0, height: 0)],
+            bottom: [CGRect(x: 0, y: 690, width: 400, height: 100)],
+            height: 800, insetTop: 50, insetBottom: 50)
+        XCTAssertEqual(cover.top ?? -1, (50.0 + 176) / 900, accuracy: 1e-9)
+        XCTAssertEqual(cover.bottom ?? -1, (50.0 + 110) / 900, accuracy: 1e-9)
+        let none = ChromeLayout.cover(top: [], bottom: [], height: 800, insetTop: 0, insetBottom: 0)
+        XCTAssertNil(none.top)
+        XCTAssertNil(none.bottom)
+    }
+
+    /// A tucked-menu icon shows only on a screen where its menu comes back.
+    func testTuckedIconsShowOnlyWhereTheirMenuComesBack() {
+        let screens: [ChromeScreen] = [.planning, .choosing, .driving]
+        func shown(_ id: String, hasStops: Bool = true, mapKey: Bool = true) -> [ChromeScreen] {
+            screens.filter {
+                TuckedMenus.comesBack(id, on: $0, hasStops: hasStops, mapKeyComesBack: mapKey)
+            }
+        }
+        XCTAssertEqual(shown("planner"), [.planning])
+        XCTAssertEqual(shown("routes"), [.choosing])
+        XCTAssertEqual(shown("sliders"), [.choosing])
+        XCTAssertEqual(shown("fuel"), [.driving])
+        XCTAssertEqual(shown("stops"), [.driving])
+        XCTAssertEqual(shown("stops", hasStops: false), [], "a cleared stop list has nothing to bring back")
+        XCTAssertEqual(shown("legend"), screens, "the map key comes back wherever it has room")
+        XCTAssertEqual(shown("legend", mapKey: false), [], "no icon where the key cannot show")
+    }
 }

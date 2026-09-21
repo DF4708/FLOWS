@@ -1687,3 +1687,61 @@ without a regression:
   and route sharing is a prefilled text because iOS lets no app start Find My
   sharing. Read the owner's commentary for a feature before its facades, and
   report the gaps; the newest commentary and validations win.
+
+## A layer placed by a guess will land on another one
+
+- **Floating chrome belongs in stacks, not in a ZStack of offsets.** The map
+  screen placed the tucked-menu icons at `pad * 2 + iconCircle` (or
+  `topClear * 3` while driving), the planning alert at `topClear`, the
+  detail cards at `bottomClear` (or `* 2.6`), and the Mac settings panel at
+  the icons' own inset. Each guess was tuned for one device and one state.
+  A read-only audit found 75 candidate collisions across iPhone, iPad, Mac
+  and Watch and confirmed 23 in the code. A stack cannot overlap its own
+  rows, so the fix moved every piece into the chrome's stacks and columns
+  instead of re-tuning the numbers.
+- **Prove it at run time, not by eye.** Every menu registers its frame with
+  an anchor preference; `ChromeLayout.overlaps` (pure, tested) reports any
+  pair that covers another as a [layout] journal line. The same frames
+  measure how much of the map the driving chrome really covers, which
+  replaced the camera's guessed fractions, and let the background map key
+  step aside instead of drawing under a card.
+- **"May take its place" is a layout rule.** The owner allowed an emergency
+  to take the instruments' place until answered. In a short window that
+  permission is what makes room for the alert at all.
+- **A minimum set inside a GeometryReader never reaches the window.** The
+  Mac root view is a GeometryReader, which reports no minimum of its own, so
+  `.frame(minWidth: 900, minHeight: 620)` on its child left
+  `.windowResizability(.contentMinSize)` nothing to enforce: the window
+  dragged down to 862 x 582 and cut the gear column off. The minimum goes on
+  the reader itself.
+- **A view held twice keeps two states.** `ScrollWhenTight` was a
+  ViewThatFits holding its content twice, plain and inside a ScrollView.
+  Wrapping stateful cards in it lost their state whenever the room changed:
+  a dragged fuel needle snapped back, the trip-share chooser closed itself
+  through its own `onDisappear`, a tourist stop refetched its ratings. It is
+  now one ScrollView sized to its measured content. A scroll view takes the
+  map's drags across its whole width, though, so content with no state of
+  its own (plain chips) still lies flat while it fits
+  (`ScrollWhenTight(holdsNoState: true)`), and an urgent card (the crash
+  check-in) never waits in another scroll's hidden tail: it has a row of
+  its own. Neither a fixed card nor one with the first claim on the height
+  worked: each squeezed every other row to nothing on a phone held
+  sideways. The card's buttons stay put and its words scroll, so it shares
+  the height and its answer is always in reach.
+- **A branch is a new view.** Switching an `if`/`else` between two whole
+  layouts gives every view in them a new identity: on the Mac, opening
+  Settings rebuilt the planner (typed text gone) and reloaded a tourist
+  card. Keep one structure and move only what must move.
+- **A Spacer takes an equal share.** Beside regions capped at their
+  content, a plain `Spacer()` took as much as each of them, so alerts
+  scrolled beside empty map. `Spacer(minLength: 0).layoutPriority(-1)`
+  takes only what the rows leave.
+- **A frame with a maximum is greedy.** `.frame(maxHeight: cap)` grows to
+  whatever it is offered, up to the cap, and centres its content, so a
+  suggestion list sized to its rows still sat in the middle of a tall empty
+  box. A cap on a region sized to its content goes inside it
+  (`ScrollWhenTight(maxHeight:)`), not around it.
+- **An icon must bring something back where it shows.** The tucked-menu
+  pile keeps every icon, but the column shows only those whose menu this
+  screen has; an icon for the route list while planning, or for a stop list
+  with no stops, did nothing and lengthened the column past the planner.

@@ -272,13 +272,60 @@ struct MixedEfficiencyIcon: View {
 /// Scrolls only when the content is too tall for the space offered — tall
 /// cards keep their natural size when there's room and become scrollable in
 /// short windows (a phone on its side) instead of being clipped.
+///
+/// ONE copy of the content, always inside one scroll view that is never
+/// taller than the content. It used to be a ViewThatFits holding the content
+/// twice — plain, and inside a ScrollView — and each copy kept its own state.
+/// When the room changed and the other copy took over, a dragged fuel needle
+/// snapped back, the trip-share chooser closed itself, a tourist stop
+/// refetched its ratings, and on the Mac a click landed on a row that had
+/// just been replaced.
+///
+/// A scroll view also takes the map's drags across its whole width, beside
+/// narrow content too. Content that holds no state of its own (plain chips,
+/// labels and buttons that act on the model) passes `holdsNoState: true`: it
+/// lies flat while it fits, so the map beside it still pans, and is copied
+/// into a scroll view only when it does not.
+///
+/// A cap goes in `maxHeight`, not in a `.frame(maxHeight:)` around the
+/// region: a frame with a maximum grows to whatever it is offered up to that
+/// maximum and centres the region in it, so one suggestion sat in the middle
+/// of a tall empty box. (Only the one-copy form takes the cap.)
+///
+/// `growsOnly` keeps the tallest height measured while the region stays up:
+/// a list whose rows arrive in waves (typed suggestions) would otherwise
+/// shrink and grow on every keystroke and move what sits above it.
 struct ScrollWhenTight<Content: View>: View {
+    var holdsNoState = false
+    var maxHeight: CGFloat = .infinity
+    var growsOnly = false
     @ViewBuilder var content: Content
+    /// The content's own height, measured inside the scroll view. Zero until
+    /// the first measurement, so a new region opens instead of claiming the
+    /// whole window for a moment.
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
-        ViewThatFits(in: .vertical) {
-            content
-            ScrollView(showsIndicators: false) { content }
+        if holdsNoState {
+            ViewThatFits(in: .vertical) {
+                content
+                ScrollView(showsIndicators: false) { content }
+            }
+        } else {
+            ScrollView(.vertical, showsIndicators: false) {
+                // A stack, so an empty region still measures (zero) and
+                // gives back its height when its last row goes.
+                VStack(spacing: 0) {
+                    content
+                }
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
+                    contentHeight = growsOnly ? max(contentHeight, height) : height
+                }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: min(contentHeight, maxHeight))
         }
     }
 }
@@ -350,5 +397,26 @@ extension RiskBand {
         case .yellow: return Theme.riskYellow
         case .red: return Theme.riskRed
         }
+    }
+}
+
+/// Frames of every registered piece of floating chrome, by id.
+struct ChromeFramesKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] { [:] }
+    static func reduce(value: inout [String: Anchor<CGRect>],
+                       nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { first, _ in first }
+    }
+}
+
+extension View {
+    /// Registers this view as floating chrome so ContentView can prove that
+    /// nothing covers it: any overlap is written to the journal as a
+    /// [layout] line, the map key steps aside from it, and ids beginning
+    /// "top." or "bottom." tell the driving camera how much of the map the
+    /// chrome covers. Register only leaves — never a container whose rows
+    /// are registered too.
+    func chromeRegion(_ id: String) -> some View {
+        anchorPreference(key: ChromeFramesKey.self, value: .bounds) { [id: $0] }
     }
 }

@@ -3803,6 +3803,9 @@ final class AppModel: ObservableObject {
         learnTripDuration()   // teach the delay model what this drive cost
         tripGeneration += 1
         tripClosures = []
+        // The towing card belongs to the drive; left open, it came back over
+        // the planner once the trip ended.
+        showTowingCard = false
         tripLive = .empty
         tripLiveBox = nil
         corridorContextTask?.cancel()
@@ -4760,9 +4763,19 @@ struct FLOWSApp: App {
                         }
                     }
             }
+            #if os(macOS)
+            // On the reader itself: a GeometryReader reports no minimum of
+            // its own, so a minimum set inside it never reached the window
+            // and the window could still be dragged smaller than this.
+            .frame(minWidth: 900, minHeight: 620)
+            #endif
         }
         #if os(macOS)
         .defaultSize(width: 1200, height: 800)
+        // Below the content's minimum the Mac layout cannot keep its menus
+        // apart: the settings panel alone needs 340 x 480 pt beside the map's
+        // own chrome.
+        .windowResizability(.contentMinSize)
         #endif
     }
 }

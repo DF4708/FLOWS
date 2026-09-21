@@ -85,53 +85,90 @@ final class WatchGuidance: NSObject, ObservableObject, WCSessionDelegate {
 struct WatchNavView: View {
     @EnvironmentObject private var link: WatchGuidance
     @State private var camera: MapCameraPosition = .automatic
+    /// How much of the face the instruction card covers, measured, so the
+    /// camera keeps the vehicle in the middle of the map left below it.
+    @State private var cardCover: Double = 0
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Map(position: $camera) {
-                if link.routeCoords.count > 1 {
-                    MapPolyline(coordinates: link.routeCoords)
-                        .stroke(.blue, lineWidth: 4)
-                }
-                if let v = link.vehicle {
-                    Annotation("", coordinate: v) {
-                        Image(systemName: "location.north.circle.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.white, .blue)
-                            .rotationEffect(.degrees(link.heading))
+        GeometryReader { face in
+            ZStack(alignment: .top) {
+                Map(position: $camera) {
+                    if link.routeCoords.count > 1 {
+                        MapPolyline(coordinates: link.routeCoords)
+                            .stroke(.blue, lineWidth: 4)
+                    }
+                    if let v = link.vehicle {
+                        Annotation("", coordinate: v) {
+                            Image(systemName: "location.north.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.white, .blue)
+                                .rotationEffect(.degrees(link.heading))
+                        }
                     }
                 }
-            }
-            .ignoresSafeArea()
-            // Next turn + countdown, Apple-Maps-on-watch style.
-            VStack(spacing: 1) {
-                if !link.distanceText.isEmpty {
-                    Text(link.distanceText)
-                        .font(.system(size: 20, weight: .heavy, design: .rounded))
-                        .monospacedDigit()
+                .ignoresSafeArea()
+                // Next turn + countdown, Apple-Maps-on-watch style.
+                VStack(spacing: 1) {
+                    if !link.distanceText.isEmpty {
+                        Text(link.distanceText)
+                            .font(.system(size: 20, weight: .heavy, design: .rounded))
+                            .monospacedDigit()
+                    }
+                    Text(link.instruction)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
                 }
-                Text(link.instruction)
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
+                // Inset from the BEZEL, not just from the clock. A watch face is
+                // heavily rounded, so a card run edge-to-edge has its corners
+                // clipped by the glass and the text sits right against it. The
+                // top padding keeps it clear of the system clock.
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
+                .background(GeometryReader { card in
+                    Color.clear
+                        .onAppear { cardCover = Self.cover(card: card, face: face) }
+                        .onChange(of: card.size.height) { _, _ in
+                            cardCover = Self.cover(card: card, face: face)
+                        }
+                })
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity)
-            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 10))
-            // Inset from the BEZEL, not just from the clock. A watch face is
-            // heavily rounded, so a card run edge-to-edge has its corners
-            // clipped by the glass and the text sits right against it. The
-            // top padding keeps it clear of the system clock.
-            .padding(.horizontal, 6)
-            .padding(.top, 4)
         }
         .onChange(of: link.vehicle?.latitude) { _, _ in
             guard let v = link.vehicle else { return }
             withAnimation(.easeInOut(duration: 0.6)) {
-                camera = .camera(MapCamera(centerCoordinate: v, distance: 800,
-                                           heading: link.heading, pitch: 0))
+                camera = .camera(MapCamera(
+                    centerCoordinate: Self.aimPoint(vehicle: v, headingDegrees: link.heading,
+                                                    distanceMeters: 800, cover: cardCover),
+                    distance: 800, heading: link.heading, pitch: 0))
             }
         }
+    }
+
+    /// The share of the whole face, safe areas included, above the card's
+    /// bottom edge.
+    private static func cover(card: GeometryProxy, face: GeometryProxy) -> Double {
+        let full = face.size.height + face.safeAreaInsets.top + face.safeAreaInsets.bottom
+        guard full > 0 else { return 0 }
+        return Double(min(max(card.frame(in: .global).maxY / full, 0), 0.9))
+    }
+
+    /// The camera centre that puts the vehicle in the middle of the map below
+    /// the card: ahead of it along the heading by half the covered share of
+    /// the view. The map's height tracks the camera distance, the same
+    /// approximation the phone's chase camera makes.
+    static func aimPoint(vehicle: CLLocationCoordinate2D, headingDegrees: Double,
+                         distanceMeters: Double, cover: Double) -> CLLocationCoordinate2D {
+        let ahead = distanceMeters * cover / 2
+        let radians = headingDegrees * .pi / 180
+        let metersPerDegree = 111_320.0
+        let latitude = vehicle.latitude + ahead * cos(radians) / metersPerDegree
+        let longitude = vehicle.longitude + ahead * sin(radians)
+            / (metersPerDegree * max(cos(vehicle.latitude * .pi / 180), 0.01))
+        return CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 }

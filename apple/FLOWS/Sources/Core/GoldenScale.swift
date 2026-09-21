@@ -89,3 +89,89 @@ struct GoldenScale: Equatable {
     var listMaxHeight: CGFloat { size.height / pow(goldenRatio, 3) }
 }
 
+// MARK: - Chrome layout: nothing covers anything else
+
+/// One piece of floating chrome — a menu, card, banner, icon column or
+/// instrument window — and where it sits in the window.
+struct ChromeFrame: Equatable {
+    let id: String
+    let rect: CGRect
+}
+
+/// How much of the window the driving chrome covers, as fractions of the
+/// window's full height (safe areas included); nil where none is on screen.
+struct ChromeCover: Equatable {
+    var top: Double?
+    var bottom: Double?
+}
+
+/// The layout rule every floating element keeps: nothing covers anything
+/// else. Pure, pinned by FLOWSTests; ContentView feeds it the frames the
+/// chrome reports through `chromeRegion`.
+enum ChromeLayout {
+    /// Shadows touching and rows that share an edge are not one element
+    /// covering another: an overlap must be wider AND taller than this.
+    static let tolerance: CGFloat = 1
+
+    /// Every pair of frames that overlap, as (first id, second id, shared
+    /// rectangle), ids in sorted order. A collapsed (zero-size) element
+    /// never overlaps anything.
+    static func overlaps(_ frames: [ChromeFrame]) -> [(String, String, CGRect)] {
+        let sorted = frames.sorted { $0.id < $1.id }
+        var found: [(String, String, CGRect)] = []
+        for i in sorted.indices {
+            for j in sorted.indices where j > i {
+                let shared = sorted[i].rect.intersection(sorted[j].rect)
+                if !shared.isNull, shared.width > tolerance, shared.height > tolerance {
+                    found.append((sorted[i].id, sorted[j].id, shared))
+                }
+            }
+        }
+        return found
+    }
+
+    /// The chrome's cover: the lowest bottom edge among the `top` frames and
+    /// the highest top edge among the `bottom` frames, in a window `height`
+    /// tall whose safe areas add `insetTop` and `insetBottom` beyond it.
+    /// Collapsed (zero-size) frames are ignored.
+    static func cover(top: [CGRect], bottom: [CGRect], height: CGFloat,
+                      insetTop: CGFloat, insetBottom: CGFloat) -> ChromeCover {
+        let full = height + insetTop + insetBottom
+        guard full > 0 else { return ChromeCover() }
+        let real = { (r: CGRect) in r.width > 0 && r.height > 0 }
+        let fraction = { (x: CGFloat) in Double(min(max(x / full, 0), 1)) }
+        return ChromeCover(
+            top: top.filter(real).map(\.maxY).max().map { fraction(insetTop + $0) },
+            bottom: bottom.filter(real).map(\.minY).min().map { fraction(insetBottom + height - $0) })
+    }
+}
+
+/// The screen a tucked-menu icon would show on.
+enum ChromeScreen: Equatable {
+    case planning, choosing, driving
+}
+
+/// Which tucked menus come back on which screen: the rule the tucked-menu
+/// tray shows its icons by (pure, so it is tested).
+enum TuckedMenus {
+    /// Whether a tucked menu comes back on this screen: the planner while
+    /// planning, the route list and the limits card while choosing, the
+    /// instruments and a stop list that still has stops while driving, and
+    /// the map key where the screen has room for it (never while driving).
+    /// An icon for a menu the screen does not have used to sit in the column
+    /// doing nothing (the route list's after Edit went back to planning, the
+    /// stop list's after its stops were cleared), and every extra icon made
+    /// the column longer. The pile itself is unchanged: a hidden icon shows
+    /// again where its menu lives.
+    static func comesBack(_ id: String, on screen: ChromeScreen, hasStops: Bool,
+                          mapKeyComesBack: Bool) -> Bool {
+        switch id {
+        case "planner": return screen == .planning
+        case "routes", "sliders": return screen == .choosing
+        case "fuel": return screen == .driving
+        case "stops": return screen == .driving && hasStops
+        case "legend": return mapKeyComesBack
+        default: return true
+        }
+    }
+}

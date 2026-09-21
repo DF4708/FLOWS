@@ -277,8 +277,15 @@ struct ContentView: View {
         var event: String? = nil
     }
     @State private var hazardInfo: HazardTapInfo?
+    /// The map key steps aside while any chrome would sit on it
+    /// (ChromeOverlapReporter decides).
+    @State private var legendYields = false
+    /// How much of the map the driving chrome really covers, measured.
+    @State private var chromeCover = ChromeCoverBox()
+    /// The window's safe-area insets, for turning chrome frames into cover.
+    @State private var safeInsets = EdgeInsets()
     @State private var redAlertTick = 0
-    /// Demo/gallery hooks (FLOWS_DEMO env: "gallery" | "redalert").
+    /// Demo/gallery hooks (FLOWS_DEMO env: "gallery" | "redalert" | "chrome" | "drive").
     @State private var showDemoGalleryRoot = false
     /// Real ZIP (ZCTA) rings for elevated US risk points — Census TIGERweb.
     @State private var zctaRings: [String: [CLLocationCoordinate2D]] = [:]
@@ -310,8 +317,13 @@ struct ContentView: View {
     /// first-launch vehicle card. Tucking those menus away (collapse)
     /// brings the legend back.
     private var legendHasRoom: Bool {
+        !model.collapsedPanels.contains("legend") && legendWouldHaveRoom
+    }
+
+    /// Whether this screen has room for the map key, tucked or not: the
+    /// tucked-menu tray shows the key's icon only where it can come back.
+    private var legendWouldHaveRoom: Bool {
         guard model.mode != .navigating else { return false }
-        guard !model.collapsedPanels.contains("legend") else { return false }
         // Wide layouts used to return true unconditionally, so on an
         // 11-inch iPad in portrait the key ran under the centred planner.
         guard isCompact else {
@@ -340,25 +352,32 @@ struct ContentView: View {
                 .onChange(of: geo.size, initial: true) { _, size in
                     golden = GoldenScale(size: size)
                 }
+                .onChange(of: geo.safeAreaInsets, initial: true) { _, insets in
+                    safeInsets = insets
+                }
         }
     }
 
-    /// How much room the bottom chrome actually needs.
-    ///
-    /// Driving shows the drive bar (two rows plus the stop strip); planning
-    /// shows the planner. One value, derived once, instead of a different
-    /// guess at each call site.
-    private var bottomSlotClearance: CGFloat {
-        model.mode == .navigating ? golden.bottomClear * 2.6 : golden.bottomClear
+    /// Whether a detail card is open: a tapped hazard, a tourist stop or the
+    /// towing limits. (The crash check-in has a row of its own in each
+    /// chrome, never inside the cards' scroll.)
+    private var hasDetailCards: Bool {
+        model.poi.touristDetail != nil || hazardInfo != nil
+            || model.showTowingCard
     }
 
-    /// Every card that floats above the bottom bar, stacked in one column
-    /// so two of them can never cover each other. Most urgent last, so it
-    /// sits nearest the driver's eye above the bar.
-    @ViewBuilder
-    private var bottomCardSlot: some View {
+    /// The detail cards, stacked in one column with the most urgent last, so
+    /// it sits nearest the driver's eye above the bar. The chrome that places
+    /// the column registers it (and lets it scroll) as one region.
+    ///
+    /// These were four independent layers once, then one slot with a guessed
+    /// bottom clearance — bottomClear planning, bottomClear × 2.6 driving —
+    /// which still put them on the planner, the route list, the HUD's radio
+    /// and music cards and the drive bar whenever the guess missed. The
+    /// chrome now places this column inside its own bottom stack, above the
+    /// planner, the route list or the drive bar, so there is nothing to guess.
+    private var detailCards: some View {
         VStack(spacing: 8) {
-            Spacer()
             if let stop = model.poi.touristDetail {
                 TouristStopCard(stop: stop) { model.poi.touristDetail = nil }
                     .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
@@ -369,12 +388,7 @@ struct ContentView: View {
             if model.showTowingCard {
                 TowingCard()
             }
-            if model.crash.state != .idle {
-                CrashCheckInCard()
-            }
         }
-        .padding(.horizontal, golden.padCard)
-        .padding(.bottom, bottomSlotClearance)
     }
 
     private var mainStack: some View {
@@ -386,41 +400,31 @@ struct ContentView: View {
                 LegendCard(isCompact: isCompact,
                            dockTrailing: !isCompact && model.mode == .choosing
                                && !model.collapsedPanels.contains("routes"))
+                    // The key is background: while a menu, card or banner
+                    // would sit on it, it steps aside instead of covering or
+                    // being covered, and comes back when the space is clear.
+                    .opacity(legendYields ? 0 : 1)
+                    .allowsHitTesting(!legendYields)
+                    .animation(.easeInOut(duration: 0.2), value: legendYields)
             }
+            // Every menu, card and banner, the tucked-menu icons and the
+            // instruments live INSIDE the chrome's own stacks. The icon tray,
+            // the planning alert banner, the bottom card slot and the Mac
+            // settings panel used to be separate layers here, each placed by
+            // a guessed offset, and any two could land on each other. A stack
+            // cannot overlap its own rows.
             chromeLayer
-            // Menus tucked away by their grab bars wait here as small round
-            // icons; a tap brings the menu back.
-            CollapsedPanelTray()
-            // (Re-center now lives in the middle of the bottom bar.)
-            // A red alert matters while PLANNING too — same banner as the HUD.
-            if model.mode != .navigating, let warning = model.imminentWarning {
-                VStack {
-                    ImminentBannerView(
-                        warning: warning, isCompact: isCompact,
-                        onDismiss: { model.dismissImminentWarning() },
-                        onShelterDelay: nil, onFindRest: nil)
-                        .padding(.top, golden.topClear)
-                    Spacer()
-                }
-                .padding(.horizontal, golden.padCard)
+        }
+        .overlayPreferenceValue(ChromeFramesKey.self) { anchors in
+            GeometryReader { proxy in
+                ChromeOverlapReporter(
+                    frames: anchors.map { ChromeFrame(id: $0.key, rect: proxy[$0.value]) }
+                        .sorted { $0.id < $1.id },
+                    size: proxy.size,
+                    insets: safeInsets,
+                    legendYields: $legendYields,
+                    cover: chromeCover)
             }
-            // ONE bottom slot for every floating card.
-            //
-            // These used to be four independent ZStack siblings, each with
-            // its own Spacer and its own hand-tuned bottom padding —
-            // bottomClear here, bottomClear × 2.6 there. Any two showing at
-            // once landed on top of each other, and none of the guesses
-            // matched the real bar height, which changes with mode and
-            // device. Stacking them in one slot with ONE clearance is what
-            // makes that impossible rather than merely unlikely.
-            bottomCardSlot
-            #if os(macOS)
-            // Settings floats as a panel instead of a modal sheet, so a
-            // click on the map (or Done) closes it — click-off behavior.
-            if model.showSettings {
-                settingsPanel
-            }
-            #endif
         }
         .sheet(isPresented: $model.showVehicleEditor) {
             VehicleEditorSheet()
@@ -647,6 +651,43 @@ struct ContentView: View {
                     center: madison, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     model.demoRedAlert(near: madison)
+                }
+            case "chrome":
+                // The layout check: a red alert, a hazard card, the towing
+                // card and a tucked map-key icon all at once, so a
+                // screenshot (and the [layout] journal lines) show whether
+                // any menu covers another on this device.
+                let madison = CLLocationCoordinate2D(latitude: 43.0731, longitude: -89.4012)
+                moveCamera(.region(MKCoordinateRegion(
+                    center: madison, latitudinalMeters: 120_000, longitudinalMeters: 120_000)))
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    model.demoRedAlert(near: madison)
+                    model.showTowingCard = true
+                    if let kind = HazardStyle.legendKinds.first {
+                        hazardInfo = HazardTapInfo(kind: kind, coordinate: madison, score: 0.62)
+                    }
+                    _ = model.collapsedPanels.insert("legend")
+                }
+            case "drive":
+                // The same check while driving: plan Madison to Milwaukee,
+                // start the first route, then open the radio, the towing
+                // card and a hazard card together above the drive bar.
+                let madison = CLLocationCoordinate2D(latitude: 43.0731, longitude: -89.4012)
+                let milwaukee = CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(2))
+                    guard let routes = try? await model.plan(
+                        from: madison, fromName: "Madison", to: milwaukee, toName: "Milwaukee"),
+                          let first = routes.first else { return }
+                    model.select(route: first)
+                    try? await Task.sleep(for: .seconds(1))
+                    _ = model.collapsedPanels.insert("fuel")
+                    model.showTowingCard = true
+                    model.showRadioCardRequested = true
+                    model.crash.showCheckInForLayoutDemo()
+                    if let kind = HazardStyle.legendKinds.first {
+                        hazardInfo = HazardTapInfo(kind: kind, coordinate: madison, score: 0.62)
+                    }
                 }
             default:
                 break
@@ -1529,33 +1570,6 @@ struct ContentView: View {
         // directions banner carries a compass instead (NavigationHUD);
         // a north-up planning map has nothing to report.
         .mapControls { }
-        // No network: routing can't help, but the breadcrumb trail can. The
-        // banner names the situation and offers the way back — the recorded
-        // trail draws entirely offline (MapKit shows recently-cached tiles).
-        .overlay(alignment: .top) {
-            if model.breadcrumbs.isOffline {
-                HStack(spacing: 8) {
-                    Image(systemName: "wifi.slash")
-                    Text("Offline — live routing unavailable.")
-                        .scaledFont(.footnote, weight: .semibold)
-                    if model.breadcrumbs.points.count >= 2 {
-                        Button(model.breadcrumbs.showTrail
-                               ? "Hide my trail"
-                               : String(format: "Find my way back (%.1f mi trail)",
-                                        model.breadcrumbs.wayBack().meters / 1609.344)) {
-                            model.breadcrumbs.showTrail.toggle()
-                        }
-                        .scaledFont(.footnote, weight: .bold)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.blue)
-                    }
-                }
-                .padding(.horizontal, 14).padding(.vertical, 8)
-                .background(.ultraThinMaterial)
-                .clipShape(Capsule())
-                .padding(.top, golden.pad)
-            }
-        }
         .mapScope(mapScope)
         // A drag is DEFINITIVE user intent: stop chasing GPS immediately.
         // (The old stamp-window heuristic never fired at 1 Hz guidance —
@@ -1666,6 +1680,11 @@ struct ContentView: View {
     /// Share of the window the top chrome covers while driving: the
     /// directions banner, plus the instrument cluster when it's up.
     private var chromeTopFraction: Double {
+        // Measured from the chrome actually on screen (ChromeOverlapReporter).
+        // The guesses below stand in only until the first layout reports;
+        // they counted the instruments while walking, and none of the
+        // offers, prompts or chips that also sit up there.
+        if let measured = chromeCover.value.top { return measured }
         var f = 0.16                                   // directions banner
         if model.vehicle.profile != nil,
            !model.collapsedPanels.contains("fuel") { f += 0.10 }
@@ -1673,8 +1692,8 @@ struct ContentView: View {
         return f
     }
 
-    /// …and the drive bar at the bottom.
-    private var chromeBottomFraction: Double { 0.22 }
+    /// …and the drive bar at the bottom, with any card open above it.
+    private var chromeBottomFraction: Double { chromeCover.value.bottom ?? 0.22 }
 
     /// Hand the camera to the driver: any deliberate gesture — drag, pinch,
     /// rotate — stops the automatic zoom and heading-up chase until the
@@ -1899,29 +1918,6 @@ struct ContentView: View {
         }
     }
 
-    #if os(macOS)
-    /// Settings as a floating top-right panel (under the gear). The map's
-    /// click-off tap closes it; panel clicks land on the panel itself.
-    private var settingsPanel: some View {
-        VStack {
-            HStack {
-                Spacer()
-                SettingsSheet()
-                    .frame(width: golden.sidePanel)
-                    .frame(maxHeight: golden.size.height / Theme.phi)
-                    .background(Theme.cardBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius,
-                                                style: .continuous))
-                    .shadow(color: Theme.cardShadow, radius: 18, y: 6)
-            }
-            Spacer()
-        }
-        // One pad below the gear, same trailing inset — the top-right column.
-        .padding(.top, golden.pad * 2 + golden.iconCircle)
-        .padding(.trailing, golden.pad)
-    }
-    #endif
-
     /// Corridor hazard areas as REAL ZIP boundaries: risky corridor samples
     /// resolve to their containing ZCTA rings (fetched once per highlighted
     /// route, cached by the fetcher) — the map shows the actual affected ZIP,
@@ -2076,9 +2072,13 @@ struct ContentView: View {
     private var chromeLayer: some View {
         switch model.mode {
         case .planning, .choosing:
-            PlanningChrome(isCompact: isCompact, camera: $camera)
+            PlanningChrome(isCompact: isCompact, camera: $camera,
+                           detailCards: hasDetailCards ? AnyView(detailCards) : nil)
+                .environment(\.mapKeyComesBack, legendWouldHaveRoom)
         case .navigating:
-            NavigationHUD(isCompact: isCompact)
+            NavigationHUD(isCompact: isCompact,
+                          detailCards: hasDetailCards ? AnyView(detailCards) : nil)
+                .environment(\.mapKeyComesBack, legendWouldHaveRoom)
         }
     }
 
@@ -2158,68 +2158,389 @@ private struct VehicleOnboardingCard: View {
 private struct PlanningChrome: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
+    #if os(iOS)
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    #endif
     let isCompact: Bool
     @Binding var camera: MapCameraPosition
+    /// The open detail cards (a tapped hazard, a tourist stop, the towing
+    /// limits, the crash check-in), placed in this chrome's own bottom stack.
+    let detailCards: AnyView?
+
+    /// Whether the Mac's settings panel is open in the top-right column.
+    private var settingsInColumn: Bool {
+        #if os(macOS)
+        model.showSettings
+        #else
+        false
+        #endif
+    }
+
+    /// The right column's width on wide layouts: the gear's, or the settings
+    /// panel's while it is open (never narrower than the sheet's own floor).
+    private var columnWidth: CGFloat {
+        settingsInColumn ? max(golden.sidePanel, 340) : golden.iconCircle
+    }
+
+    /// The top-right column: the gear, the tucked-menu icons stacked right
+    /// under it with no dead gap, and on the Mac the settings panel the gear
+    /// opens. One column, so none of them can sit on another.
+    private var gearColumn: some View {
+        VStack(alignment: .trailing, spacing: golden.pad) {
+            SettingsGear()
+                .chromeRegion("gear")
+            CollapsedPanelTray()
+            #if os(macOS)
+            if model.showSettings {
+                SettingsPanelCard()
+                    .chromeRegion("settings-panel")
+            }
+            #endif
+        }
+    }
+
+    /// The tucked-menu icons go in a row beside the gear on a phone held
+    /// sideways: a column is as tall as its icons, and there it ran the
+    /// planner's Plan route button off the screen. A fixed rule rather than
+    /// a size test, which could flip the corner back and forth as the banner
+    /// beside it grew and shrank.
+    private var trayInRow: Bool {
+        #if os(iOS)
+        verticalSizeClass == .compact
+        #else
+        false
+        #endif
+    }
+
+    /// The phone's top-right corner: the gear, and the tucked-menu icons in
+    /// a column under it or a row beside it.
+    @ViewBuilder
+    private var compactGearCorner: some View {
+        if trayInRow {
+            HStack(alignment: .top, spacing: golden.pad) {
+                CollapsedPanelTray(axis: .horizontal)
+                SettingsGear()
+                    .chromeRegion("gear")
+            }
+        } else {
+            VStack(alignment: .trailing, spacing: golden.pad) {
+                SettingsGear()
+                    .chromeRegion("gear")
+                CollapsedPanelTray()
+            }
+        }
+    }
+
+    /// What arrives at the top while planning: the offline pill and a red
+    /// alert (a red alert matters while planning too — the HUD's banner).
+    /// The pill lies flat; the alert scrolls in its own region when the
+    /// window has no room for all of it. Scrolling regions register as a
+    /// whole: a row scrolled out of view is not covering anything.
+    private var topStack: some View {
+        VStack(spacing: 8) {
+            if model.breadcrumbs.isOffline {
+                OfflinePill()
+                    .chromeRegion("offline-pill")
+            }
+            ScrollWhenTight {
+                if let warning = model.imminentWarning {
+                    ImminentBannerView(
+                        warning: warning, isCompact: isCompact,
+                        onDismiss: { model.dismissImminentWarning() },
+                        onShelterDelay: nil, onFindRest: nil)
+                }
+            }
+            .chromeRegion("top-banners")
+        }
+    }
+
+    /// The cards above the planner or the route list: the open detail
+    /// cards and, when asked, the vehicle nag. One scrolling region, so a tall
+    /// card or the largest text size scrolls instead of pushing the planner
+    /// under the keyboard or the stack up under the gear.
+    @ViewBuilder
+    private func cardsAbovePlanner(showsNag: Bool, nagWidth: CGFloat?) -> some View {
+        if detailCards != nil || showsNag {
+            ScrollWhenTight {
+                VStack(spacing: 8) {
+                    if let detailCards {
+                        detailCards
+                    }
+                    if showsNag {
+                        VehicleOnboardingCard()
+                            .frame(width: nagWidth)
+                    }
+                }
+            }
+            // Always room to see a card begin, even with the keyboard up.
+            .frame(minHeight: min(golden.bottomClear * 0.6, golden.size.height / 8), alignment: .bottom)
+            // No wider than the cards: a scroll view catches the map's drags
+            // across its whole width.
+            .frame(maxWidth: isCompact ? .infinity
+                   : (detailCards == nil ? (nagWidth ?? golden.cardMax) : golden.cardMax))
+            // Yields before the rows around it: the red alert above and the
+            // crash check-in below keep their room first.
+            .layoutPriority(-0.5)
+            .chromeRegion(detailCards != nil ? "detail-cards" : "vehicle-card")
+        }
+        // The crash check-in never waits in the cards' scroll: a row of its
+        // own, whose buttons never scroll.
+        if model.crash.state != .idle {
+            CrashCheckInCard()
+                .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+                .chromeRegion("crash-check-in")
+        }
+    }
 
     var body: some View {
         if isCompact {
+            // The gear column owns the top-right corner. Alerts use the top of
+            // the screen BESIDE it rather than a row under it, and everything
+            // else stacks below the taller of the two. A row, not a computed
+            // height: the old limit let the largest text size push the vehicle
+            // card up over the tucked-menu icons.
             VStack {
-                HStack { Spacer(); SettingsGear() }   // gear top-right
-                // EVERYTHING ELSE HANGS FROM THE BOTTOM. The top of a phone
-                // screen is the most valuable map there is — it is the road
-                // ahead — so no card is allowed to sit up there and the
-                // whole choosing stack drops to the thumb end, the same way
-                // the planner always has.
-                Spacer()
+                HStack(alignment: .top, spacing: golden.pad) {
+                    topStack
+                        .frame(maxWidth: .infinity)
+                    compactGearCorner
+                }
+                // EVERYTHING ELSE HANGS FROM THE BOTTOM. The top of a
+                // phone screen is the most valuable map there is — it is
+                // the road ahead — so no card is allowed to sit up there
+                // and the whole choosing stack drops to the thumb end,
+                // the same way the planner always has.
+                // Empty map takes only what the rows leave.
+                Spacer(minLength: 0)
+                    .layoutPriority(-1)
                 if model.mode == .choosing {
+                    cardsAbovePlanner(showsNag: false, nagWidth: nil)
                     TripSummaryPill()
+                        .chromeRegion("trip-pill")
                     FilterSlidersCard()
-                    // Enough for a whole route card, and no more: the map
-                    // above still has to show the route being chosen.
+                        .chromeRegion("sliders")
+                    // Enough for a whole route card, and no more: the
+                    // map above still has to show the route chosen.
                     RouteChoicesView(camera: $camera)
                         .frame(maxHeight: golden.choicesPanelHeight)
+                        .chromeRegion("routes")
                 } else {
-                    if model.needsVehicleOnboarding { VehicleOnboardingCard() }
+                    // The vehicle nag waits while a card the driver just
+                    // opened needs the room (a phone with the keyboard up
+                    // cannot fit both above the planner).
+                    cardsAbovePlanner(
+                        showsNag: model.needsVehicleOnboarding && detailCards == nil,
+                        nagWidth: nil)
                     PlannerPanel(camera: $camera)     // planner bottom-center
+                        // The planner the driver is typing into gets its room
+                        // first; the cards above it scroll in what is left.
+                        .layoutPriority(1)
+                        .chromeRegion("planner")
                 }
             }
             .padding(golden.pad)
-        } else {
-            ZStack {
-                // Gear pinned top-right.
-                VStack {
-                    HStack { Spacer(); SettingsGear() }
-                    Spacer()
+        } else if model.mode == .choosing {
+            // Three columns: the route list down the left, alerts and detail
+            // cards in the middle, and the gear column with the trip pill and
+            // the vehicle limits down the right. Columns cannot overlap.
+            HStack(alignment: .top, spacing: golden.pad) {
+                // Narrower while the Mac's settings card widens the right
+                // column, so the alerts and cards between them stay readable.
+                RouteChoicesView(camera: $camera)
+                    .frame(width: settingsInColumn ? max(golden.sideColumn, 260) : golden.sidePanel)
+                    .chromeRegion("routes")
+                VStack(spacing: 8) {
+                    topStack
+                    Spacer(minLength: 0)
+                        .layoutPriority(-1)
+                    cardsAbovePlanner(showsNag: false, nagWidth: nil)
                 }
-                if model.mode == .choosing {
-                    HStack(alignment: .top) {
-                        RouteChoicesView(camera: $camera)
-                            .frame(width: golden.sidePanel)
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 10) {
-                            TripSummaryPill()
-                            FilterSlidersCard()
+                .frame(maxWidth: .infinity)
+                VStack(alignment: .trailing, spacing: 10) {
+                    // An open settings card shares the column's height with
+                    // the limits card; both scroll.
+                    gearColumn
+                    TripSummaryPill()
+                        .chromeRegion("trip-pill")
+                    FilterSlidersCard()
+                        .chromeRegion("sliders")
+                }
+                .frame(width: settingsInColumn ? max(golden.sidePanel, 340) : golden.sideColumn,
+                       alignment: .trailing)
+            }
+            .padding(golden.pad)
+        } else {
+            // One structure whether or not settings is open, so opening it
+            // on the Mac moves only the gear's column. Switching between two
+            // layouts rebuilt the planner, dropping what was typed, and
+            // reloaded an open tourist card.
+            HStack(alignment: .top, spacing: golden.pad) {
+                VStack {
+                    HStack(alignment: .top, spacing: golden.pad) {
+                        if !settingsInColumn {
+                            // As wide as the gear column, so the banners stay centred.
+                            Color.clear
+                                .frame(width: columnWidth, height: 1)
                         }
-                        .frame(width: golden.sideColumn)
-                        .padding(.top, golden.topClear)   // clear of the gear
+                        topStack
+                            .frame(maxWidth: golden.cardMax)
+                            .frame(maxWidth: .infinity)
+                        if !settingsInColumn {
+                            gearColumn
+                                .frame(width: columnWidth, alignment: .trailing)
+                        }
                     }
-                } else {
+                    // Empty map takes only what the rows leave.
+                    Spacer(minLength: 0)
+                        .layoutPriority(-1)
                     // Planner bottom-center, with the vehicle nag stacked
                     // directly above it rather than floating on a
                     // phone-tuned padding that lands mid-map on a tablet.
-                    VStack {
-                        Spacer()
-                        if model.needsVehicleOnboarding {
-                            VehicleOnboardingCard()
-                                .frame(width: golden.sidePanel)
-                        }
-                        PlannerPanel(camera: $camera)
-                            .frame(width: golden.sidePanel)
-                    }
+                    cardsAbovePlanner(showsNag: model.needsVehicleOnboarding,
+                                      nagWidth: golden.sidePanel)
+                    PlannerPanel(camera: $camera)
+                        .frame(width: golden.sidePanel)
+                        .layoutPriority(1)
+                        .chromeRegion("planner")
+                }
+                .frame(maxWidth: .infinity)
+                // Settings open on the Mac: the gear's column runs the
+                // window's full height BESIDE the planner. Stacked above it,
+                // the settings card ran the planner off the window.
+                if settingsInColumn {
+                    gearColumn
+                        .frame(width: columnWidth, alignment: .trailing)
                 }
             }
             .padding(golden.pad)
         }
+    }
+}
+
+/// No network: routing can't help, but the breadcrumb trail can. The pill
+/// names the situation and offers the way back — the recorded trail draws
+/// entirely offline (MapKit shows recently-cached tiles). It sits in the
+/// chrome's top stack, under the gear row or the directions window; it used
+/// to hang from the map's physical top, under the status bar, the gear and
+/// the directions window.
+struct OfflinePill: View {
+    @EnvironmentObject private var model: AppModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wifi.slash")
+            Text("Offline — live routing unavailable.")
+                .scaledFont(.footnote, weight: .semibold)
+            if model.breadcrumbs.points.count >= 2 {
+                Button(model.breadcrumbs.showTrail
+                       ? "Hide my trail"
+                       : String(format: "Find my way back (%.1f mi trail)",
+                                model.breadcrumbs.wayBack().meters / 1609.344)) {
+                    model.breadcrumbs.showTrail.toggle()
+                }
+                .scaledFont(.footnote, weight: .bold)
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+    }
+}
+
+#if os(macOS)
+/// Settings on the Mac: a panel rather than a modal sheet, so a click on the
+/// map (or Done) closes it. It opens inside the chrome's own stacks — under
+/// the gear and its icons while planning, above the drive bar while driving —
+/// instead of floating over whatever sat in the top-right.
+struct SettingsPanelCard: View {
+    @Environment(\.golden) private var golden
+
+    var body: some View {
+        SettingsSheet()
+            // At least the sheet's own 340 pt width. Its height is whatever
+            // the column or card stack has left, up to the cap: the sheet
+            // scrolls, and a fixed 480 pt floor ran the gear, the planner or
+            // the route list off a small window.
+            .frame(width: max(golden.sidePanel, 340))
+            .frame(maxHeight: max(golden.size.height / Theme.phi, 480))
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+            .shadow(color: Theme.cardShadow, radius: 18, y: 6)
+    }
+}
+#endif
+
+/// Reference box for the measured chrome cover: the camera reads it when a
+/// guidance update arrives, and writing it must not redraw the map.
+final class ChromeCoverBox {
+    var value = ChromeCover()
+}
+
+/// Watches every registered piece of chrome (`chromeRegion`). It writes any
+/// overlap to the journal as a [layout] line, tells the map key to step
+/// aside while something would sit on it, and measures how much of the
+/// window the driving chrome covers so the camera centres the vehicle in the
+/// map the driver can see. FLOWS_LAYOUT_DEBUG=1 outlines every region.
+private struct ChromeOverlapReporter: View {
+    let frames: [ChromeFrame]
+    let size: CGSize
+    let insets: EdgeInsets
+    @Binding var legendYields: Bool
+    let cover: ChromeCoverBox
+
+    private static let outlines =
+        ProcessInfo.processInfo.environment["FLOWS_LAYOUT_DEBUG"] != nil
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            if Self.outlines {
+                ForEach(frames, id: \.id) { frame in
+                    Rectangle()
+                        .stroke(Color.purple, lineWidth: 1)
+                        .frame(width: frame.rect.width, height: frame.rect.height)
+                        .overlay(alignment: .topLeading) {
+                            Text(frame.id)
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundStyle(.purple)
+                        }
+                        .offset(x: frame.rect.minX, y: frame.rect.minY)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        // The window's size and safe area feed the camera's cover too: a
+        // change that moved no registered frame used to leave the cover
+        // measured against the old window.
+        .onChange(of: Inputs(frames: frames, size: size, insets: insets), initial: true) { _, inputs in
+            evaluate(inputs.frames)
+        }
+    }
+
+    private struct Inputs: Equatable {
+        let frames: [ChromeFrame]
+        let size: CGSize
+        let insets: EdgeInsets
+    }
+
+    private func evaluate(_ frames: [ChromeFrame]) {
+        let overlaps = ChromeLayout.overlaps(frames)
+        let legendCovered = overlaps.contains { $0.0 == "legend" || $0.1 == "legend" }
+        if legendCovered != legendYields {
+            legendYields = legendCovered
+        }
+        for (a, b, shared) in overlaps where a != "legend" && b != "legend" {
+            FlowsDiag.logThrottled(
+                key: "layout.\(a).\(b)", interval: 60, .warn, "layout",
+                "\(a) overlaps \(b) by \(Int(shared.width))x\(Int(shared.height)) pt "
+                    + "in a \(Int(size.width))x\(Int(size.height)) window")
+        }
+        cover.value = ChromeLayout.cover(
+            top: frames.filter { $0.id.hasPrefix("top.") }.map(\.rect),
+            bottom: frames.filter { $0.id.hasPrefix("bottom.") }.map(\.rect),
+            height: size.height, insetTop: insets.top, insetBottom: insets.bottom)
     }
 }
 
@@ -2435,9 +2756,23 @@ struct SettingsGear: View {
 /// The tucked-menu tray: a small round icon per menu the driver collapsed
 /// with its grab bar, pinned top-right under the gear and compass. Tapping
 /// an icon brings that menu back.
+/// Whether the map key would show on this screen once un-tucked (set by
+/// ContentView, read by the tucked-menu tray).
+private struct MapKeyComesBackKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var mapKeyComesBack: Bool {
+        get { self[MapKeyComesBackKey.self] }
+        set { self[MapKeyComesBackKey.self] = newValue }
+    }
+}
+
 struct CollapsedPanelTray: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
+    @Environment(\.mapKeyComesBack) private var mapKeyComesBack
 
     struct PanelBadge: Identifiable {
         let id: String
@@ -2456,29 +2791,56 @@ struct CollapsedPanelTray: View {
         PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
         PanelBadge(id: "fuel", symbol: "gauge.with.dots.needle.bottom.50percent",
                    name: "Driving instruments"),
+        // The stop list tucks with its own X; it had no icon to come back by.
+        PanelBadge(id: "stops", symbol: "mappin.and.ellipse", name: "Stop list"),
     ]
 
-    var body: some View {
-        // In the order they were put away — the pile the driver built, not
-        // the order this list happens to declare them in.
-        let tucked = model.collapsedPanels.order.compactMap { id in
-            Self.panels.first { $0.id == id }
+    /// A column under the gear, or a row beside it where a column will not
+    /// fit (`PlanningChrome.compactGearCorner`).
+    var axis: Axis = .vertical
+
+    /// The icons to show, in the order they were put away — the pile the
+    /// driver built, not the order this list happens to declare them in.
+    @MainActor
+    static func visible(_ model: AppModel, mapKeyComesBack: Bool) -> [PanelBadge] {
+        let hasStops = !model.poi.results.isEmpty
+        let screen: ChromeScreen = switch model.mode {
+        case .planning: .planning
+        case .choosing: .choosing
+        case .navigating: .driving
         }
-        VStack(spacing: 8) {
-            ForEach(tucked) { panel in
-                badgeButton(panel)
+        // Only the icons whose menu comes back on this screen (TuckedMenus).
+        return model.collapsedPanels.order.compactMap { id in
+            panels.first {
+                $0.id == id && TuckedMenus.comesBack(id, on: screen, hasStops: hasStops,
+                                                     mapKeyComesBack: mapKeyComesBack)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-        // Stacked right under the gear, one pad apart, in the same
-        // top-right column — no dead gap. While navigating the gear lives
-        // in the bottom bar, so the tray takes the corner itself.
-        // Clear of whatever owns the top-right: the instruction banner
-        // while driving, the settings gear while planning.
-        .padding(.top, model.mode == .navigating
-                 ? golden.topClear * 3
-                 : golden.pad * 2 + golden.iconCircle)
-        .padding(.trailing, golden.pad)
+    }
+
+    /// Whether any tucked menu has an icon to show on this screen.
+    @MainActor
+    static func hasIcons(_ model: AppModel, mapKeyComesBack: Bool) -> Bool {
+        !visible(model, mapKeyComesBack: mapKeyComesBack).isEmpty
+    }
+
+    var body: some View {
+        let tucked = Self.visible(model, mapKeyComesBack: mapKeyComesBack)
+        // Whoever owns the top-right places it: the gear stacks it directly
+        // underneath while planning (no dead gap), and the instruments row
+        // carries it at its end while driving. It used to float at a fixed
+        // offset that knew nothing about the alert banner, the route pill or
+        // the directions window beneath it.
+        if !tucked.isEmpty {
+            let layout = axis == .horizontal
+                ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
+            layout {
+                ForEach(tucked) { panel in
+                    badgeButton(panel)
+                }
+            }
+            .chromeRegion(model.mode == .navigating ? "top.tray" : "tray")
+        }
     }
 
     private func badgeButton(_ panel: PanelBadge) -> some View {
@@ -2496,6 +2858,9 @@ struct CollapsedPanelTray: View {
         }
         .buttonStyle(.plain)
         .help("Show \(panel.name)")
+        // Said aloud by VoiceOver: the symbol's own name ("bulleted list in a
+        // rectangle") told nobody what the button brings back.
+        .accessibilityLabel("Show \(panel.name)")
     }
 }
 
@@ -2512,6 +2877,10 @@ struct WelcomeCard: View {
     var body: some View {
         ZStack {
             Color.black.opacity(0.45).ignoresSafeArea()
+            // Scrolls in its card when the text is too large for the window
+            // (a phone held sideways at the largest text size) instead of
+            // running off both edges.
+            ScrollWhenTight {
             VStack(alignment: .leading, spacing: 12) {
                 Label("Welcome to FLOWS", systemImage: "cloud.sun.fill")
                     .scaledFont(size: 18, weight: .bold)
@@ -2540,6 +2909,7 @@ struct WelcomeCard: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.cta)
+            }
             }
             .padding(20)
             .frame(maxWidth: 440)
@@ -3348,11 +3718,12 @@ struct SettingsSheet: View {
         }
         .padding(20)
         }
-        // Panel-sizing floors are for the macOS floating panel — on an
-        // iPhone sheet a 480 pt floor pushed the scroll area past a
-        // landscape window's edge.
+        // The width floor is for the macOS panel — on an iPhone sheet a
+        // 480 pt floor pushed the scroll area past a landscape window's
+        // edge. The panel takes its height from the room the Mac window has
+        // (SettingsPanelCard).
         #if os(macOS)
-        .frame(minWidth: 340, minHeight: 480)
+        .frame(minWidth: 340)
         #endif
         .sheet(isPresented: $showDemoGallery) {
             DemoAlertsView()
@@ -3482,6 +3853,7 @@ private struct LegendCard: View {
                 .buttonStyle(.plain)
                 .help("Tuck the key away")
             }
+            .chromeRegion("legend")
     }
 
     private var legendContent: some View {
@@ -3915,79 +4287,66 @@ struct CrashCheckInCard: View {
     @Environment(\.golden) private var golden
 
     var body: some View {
-        // Anchoring belongs to the shared bottom slot — this only says what
-        // the card IS.
+        // The chrome places it (right above the drive bar while driving).
+        // Its words scroll when the card is short; its buttons never do: a
+        // short window used to cut them off first, Done included.
         VStack(alignment: .leading, spacing: 10) {
-            Group {
-                Label("Possible crash detected", systemImage: "car.side.rear.and.collision.and.car.side.front")
-                    .scaledFont(size: 17, weight: .heavy)
-                if case .checkingIn(let attempt) = model.crash.state {
-                    Text("Do you need assistance? Say “yes” or “I'm okay” — "
-                         + "or use the buttons. FLOWS keeps asking (attempt \(attempt)) "
-                         + "until you respond.")
-                        .scaledFont(.footnote)
-                    HStack(spacing: 10) {
-                        Button("I'm OK") { model.crash.standDown() }
-                            .scaledFont(size: 15, weight: .bold)
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-                            .background(Color.white.opacity(0.25))
-                            .clipShape(Capsule())
-                        Button("Get help") { model.crash.requestAssistance() }
-                            .scaledFont(size: 15, weight: .heavy)
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-                            .background(Color.white)
-                            .foregroundStyle(Theme.riskRed)
-                            .clipShape(Capsule())
-                    }
-                } else {
-                    #if os(iOS)
-                    Text("Step 1 — call 911 (one tap; the report below is read "
-                         + "aloud so you can relay it). Step 2 — send the report "
-                         + "to \(model.emergencyContactName.isEmpty ? "your contact" : model.emergencyContactName). "
-                         + "Step 3 — call them.")
-                        .scaledFont(.footnote)
-                    HStack(spacing: 8) {
-                        Button("Call 911") { model.crash.call911() }
-                            .scaledFont(size: 15, weight: .heavy)
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-                            .background(Color.white)
-                            .foregroundStyle(Theme.riskRed)
-                            .clipShape(Capsule())
-                        if !model.emergencyContactPhone.isEmpty {
-                            Button("Text report") {
-                                model.crash.messageContact(number: model.emergencyContactPhone)
-                            }
-                            .scaledFont(size: 15, weight: .bold)
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-                            .background(Color.white.opacity(0.25))
-                            .clipShape(Capsule())
-                            Button("Call contact") {
-                                model.crash.callContact(number: model.emergencyContactPhone)
-                            }
-                            .scaledFont(size: 15, weight: .bold)
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
-                            .background(Color.white.opacity(0.25))
-                            .clipShape(Capsule())
-                        }
-                    }
-                    ScrollView {
+            Label("Possible crash detected", systemImage: "car.side.rear.and.collision.and.car.side.front")
+                .scaledFont(size: 17, weight: .heavy)
+            // Up to a quarter of the window, so the card never takes every
+            // other row's room; the rest scrolls.
+            ScrollWhenTight(maxHeight: golden.size.height / 4) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if case .checkingIn(let attempt) = model.crash.state {
+                        Text("Do you need assistance? Say “yes” or “I'm okay” — "
+                             + "or use the buttons. FLOWS keeps asking (attempt \(attempt)) "
+                             + "until you respond.")
+                            .scaledFont(.footnote)
+                    } else {
+                        #if os(iOS)
+                        Text("Step 1 — call 911 (one tap; the report below is read "
+                             + "aloud so you can relay it). Step 2 — send the report "
+                             + "to \(model.emergencyContactName.isEmpty ? "your contact" : model.emergencyContactName). "
+                             + "Step 3 — call them.")
+                            .scaledFont(.footnote)
                         Text(model.crash.emergencyReport())
                             .font(.caption.monospaced())
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        #endif
                     }
-                    .frame(maxHeight: 110)
-                    #endif
-                    Button("Done — dismiss") { model.crash.standDown() }
-                        .scaledFont(size: 14, weight: .bold)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if case .checkingIn = model.crash.state {
+                HStack(spacing: 10) {
+                    Button("I'm OK") { model.crash.standDown() }
+                        .scaledFont(size: 15, weight: .bold)
                         .buttonStyle(.plain)
-                        .frame(maxWidth: .infinity, minHeight: 38)
+                        .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
                         .background(Color.white.opacity(0.25))
                         .clipShape(Capsule())
+                    Button("Get help") { model.crash.requestAssistance() }
+                        .scaledFont(size: 15, weight: .heavy)
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                        .background(Color.white)
+                        .foregroundStyle(Theme.riskRed)
+                        .clipShape(Capsule())
+                }
+            } else {
+                // One row when it fits (a phone on its side has height to
+                // spare for nothing), the call buttons over Done when not.
+                // Plain buttons: laying the row out twice to measure is safe.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        callButtons
+                        doneButton
+                    }
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            callButtons
+                        }
+                        doneButton
+                    }
                 }
             }
         }
@@ -3997,5 +4356,46 @@ struct CrashCheckInCard: View {
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 18, y: 6)
+    }
+
+    /// Call 911, and the report to the emergency contact when one is set.
+    @ViewBuilder
+    private var callButtons: some View {
+        #if os(iOS)
+        Button("Call 911") { model.crash.call911() }
+            .scaledFont(size: 15, weight: .heavy)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+            .background(Color.white)
+            .foregroundStyle(Theme.riskRed)
+            .clipShape(Capsule())
+        if !model.emergencyContactPhone.isEmpty {
+            Button("Text report") {
+                model.crash.messageContact(number: model.emergencyContactPhone)
+            }
+            .scaledFont(size: 15, weight: .bold)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+            .background(Color.white.opacity(0.25))
+            .clipShape(Capsule())
+            Button("Call contact") {
+                model.crash.callContact(number: model.emergencyContactPhone)
+            }
+            .scaledFont(size: 15, weight: .bold)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+            .background(Color.white.opacity(0.25))
+            .clipShape(Capsule())
+        }
+        #endif
+    }
+
+    private var doneButton: some View {
+        Button("Done — dismiss") { model.crash.standDown() }
+            .scaledFont(size: 14, weight: .bold)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .background(Color.white.opacity(0.25))
+            .clipShape(Capsule())
     }
 }

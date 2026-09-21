@@ -211,14 +211,26 @@ struct PlannerPanel: View {
             // stays reachable; the richer rows (icon by kind, distance,
             // recents and predictions) come from the search work. Both
             // survive: their scroll behaviour wrapping our row rendering.
-            if focusedField == .destination || listHold == .destination, !destSearch.suggestions.isEmpty {
-                // A plain, bounded ScrollView — NOT ScrollWhenTight. That
-                // wrapper is a ViewThatFits holding the list twice, and as
-                // suggestions change under the pointer it can swap which copy
-                // is live; on the Mac the click then landed on a row that had
-                // just been replaced, so no destination was ever selectable.
-                // The source list, never wrapped, always worked.
-                ScrollView(showsIndicators: false) {
+            // The list stays up, empty, while its field has focus: between a
+            // keystroke and the results that follow it the suggestions are
+            // often empty, and a list that went away there lost the height
+            // it had grown to.
+            if focusedField == .destination || listHold == .destination {
+                // As tall as its rows, up to a cap, and ONE copy of them.
+                // A plain ScrollView always grew to its cap, so one recent
+                // place sat on a tall empty box that pushed the cards above
+                // it out of room. ScrollWhenTight used to be a ViewThatFits
+                // holding the list twice, and as suggestions changed under
+                // the pointer it swapped which copy was live: on the Mac the
+                // click landed on a row that had just been replaced. It now
+                // holds one copy.
+                // Never more than a third of the window: at the Mac's
+                // smallest window a full 280 pt list ran Plan route off the
+                // bottom.
+                // It grows but does not shrink while it is open: results
+                // arrive after each keystroke, and a list that shrank and
+                // grew again moved the field above it under the pointer.
+                ScrollWhenTight(maxHeight: min(280, golden.size.height / 3), growsOnly: true) {
                     suggestionList(destSearch.suggestions) { sug in
                         destSearch.accept()
                         model.plannerDestination = sug.searchText
@@ -227,8 +239,7 @@ struct PlannerPanel: View {
                         Task { await plan() }
                     }
                 }
-                .frame(maxHeight: 280)
-                .background(Theme.fill(0.03))
+                .background(destSearch.suggestions.isEmpty ? Color.clear : Theme.fill(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
 
@@ -279,19 +290,26 @@ struct PlannerPanel: View {
                     .autocorrectionDisabled()
                     .onSubmit { Task { await plan() } }
                 // The start field completes like the destination does.
-                if focusedField == .source || listHold == .source, !sourceSearch.suggestions.isEmpty {
-                    suggestionList(sourceSearch.suggestions) { sug in
-                        sourceSearch.accept()
-                        model.plannerSource = sug.searchText
-                        // A filled start + a filled destination = ready; jump
-                        // straight to planning. Otherwise walk to Where to?.
-                        if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
-                            focusedField = .destination
-                        } else {
-                            focusedField = nil
-                            Task { await plan() }
+                if focusedField == .source || listHold == .source {
+                    // Capped and scrolling like the destination's list: an
+                    // uncapped list of eight rows ran Plan route off a small
+                    // Mac window.
+                    ScrollWhenTight(maxHeight: min(280, golden.size.height / 3), growsOnly: true) {
+                        suggestionList(sourceSearch.suggestions) { sug in
+                            sourceSearch.accept()
+                            model.plannerSource = sug.searchText
+                            // A filled start + a filled destination = ready; jump
+                            // straight to planning. Otherwise walk to Where to?.
+                            if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
+                                focusedField = .destination
+                            } else {
+                                focusedField = nil
+                                Task { await plan() }
+                            }
                         }
                     }
+                    .background(sourceSearch.suggestions.isEmpty ? Color.clear : Theme.fill(0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
 

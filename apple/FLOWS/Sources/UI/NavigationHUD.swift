@@ -18,7 +18,12 @@ import SwiftUI
 struct NavigationHUD: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
+    @Environment(\.mapKeyComesBack) private var mapKeyComesBack
     let isCompact: Bool
+    /// The open detail cards from ContentView (a tapped hazard, a tourist
+    /// stop, the towing limits, the crash check-in): they join this HUD's own
+    /// card column above the drive bar.
+    let detailCards: AnyView?
     /// Short window (phone held sideways): the floating cards get the room
     /// the inline fuel cluster would take.
     #if os(iOS)
@@ -44,6 +49,8 @@ struct NavigationHUD: View {
     @State private var shelterTick = Date()
     /// AM/FM search field text (radio-browser.info directory).
     @State private var stationSearch = ""
+    /// The station search has the keyboard (see searchingInShortWindow).
+    @FocusState private var stationSearchFocused: Bool
     /// The AM/FM kind currently on the dial, so its chip reads as chosen.
     @State private var radioGenre: BroadcastRadio.Kind?
     /// Long-trip share banner: recipient list expanded / contacts sheet up.
@@ -70,163 +77,219 @@ struct NavigationHUD: View {
 
     var body: some View {
         VStack {
-            if let arrived = model.arrivedAt {
-                arrivedBanner(arrived)
-            } else if let failure = model.continuationFailure {
-                continuationBanner(failure)
-            } else {
-                instructionBanner
-            }
-            // Compact layouts flow the fuel cluster under the banner (the
-            // banner spans the full width there, so a corner overlay would
-            // cover its text); regular layouts pin it to the true corner.
-            // In a SHORT window an open floating card takes the cluster's
-            // room — the driver just asked for that card, and the gauge
-            // returns the moment it closes.
-            if isCompact, showsFuelCluster, !(isShort && floatingCardOpen) {
-                HStack {
-                    Spacer()
-                    fuelCluster
-                }
-            }
-            if let warning = model.imminentWarning {
-                imminentBanner(warning)
-            }
-            if let escalation = model.escalation {
-                escalationBanner(escalation)
-            } else if model.imminentWarning == nil, !model.alerts.activeHeadlines.isEmpty {
-                alertStrip
-            }
-            if model.tripSharePrompt {
-                tripShareBanner
-            }
-            if model.stopDelaySeconds > 0 {
-                shelterDelayChip
-            }
-            if let need = model.nextTripNeed {
-                tripNeedChip(need)
-            }
-            if let lastChance = model.fuelWarningText {
-                lastChanceFuelBanner(lastChance)
-            }
-            if let fuelNote = model.fuelRecommendation {
-                fuelRecommendationChip(fuelNote)
-            }
-            if model.refuelPrompt {
-                refuelGauge
-            }
-            if let camera = model.cameraWarning {
-                cameraChip(camera)
-            }
-            if let steep = model.upcomingSteepGrade {
-                steepGradeChip(steep)
-            }
-            if model.truckerUI, model.hosStatus != .ok {
-                hosChip
-            }
-            if model.notifyTraffic, model.workZonesAhead > 0 {
-                Label(model.workZonesAhead == 1
-                      ? "Work zone ahead"
-                        + (model.workZoneRoad.map { " · \($0)" } ?? "")
-                      : "\(model.workZonesAhead) work zones ahead (state DOT)",
-                      systemImage: "cone.fill")
-                    .scaledFont(.footnote, weight: .bold)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.orange.opacity(0.92))
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                    .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-            }
-            if model.towingActive, let worst = model.towingViolations.first {
-                Button { model.showTowingCard = true } label: {
-                    Label(worst.title, systemImage: "exclamationmark.octagon.fill")
-                        .scaledFont(.footnote, weight: .heavy)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Theme.riskRed.opacity(0.95))
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                }
-                .buttonStyle(.plain)
-            }
-            if let lowTire = model.lowTireWarning {
-                Label(lowTire, systemImage: "exclamationmark.tirepressure")
-                    .scaledFont(.footnote, weight: .bold)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Theme.riskYellow.opacity(0.92))
-                    .foregroundStyle(.black)
-                    .clipShape(Capsule())
-                    .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-            }
-            // Live towing-limit violation: red banner the moment active weights
-            // exceed a manufacturer rating; tap to dismiss (the TowingCard's
-            // sliders/badges stay live in the submenu).
-            if let towWarn = model.towingWarning {
-                Button { model.towingWarning = nil } label: {
-                    Label(towWarn, systemImage: "exclamationmark.triangle.fill")
-                        .scaledFont(.footnote, weight: .bold)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Theme.riskRed.opacity(0.94))
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
-                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                }
-                .buttonStyle(.plain)
-            }
-            if let message = model.poi.emptyResultMessage {
-                Text(message)
-                    .scaledFont(.footnote, weight: .semibold)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Theme.cardBackground)
-                    .clipShape(Capsule())
-                    .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-            }
-            if let delay = model.trafficDelayMinutes {
-                HStack(spacing: 8) {
-                    Image(systemName: "car.rear.waves.up.fill")
-                    Text("Traffic ahead — +\(delay) min")
-                        .scaledFont(.footnote, weight: .bold)
-                    Button("Faster route") {
-                        Task { await model.rerouteForTraffic() }
+            // Typing a station search in a short window leaves only the
+            // strip above the keyboard: the directions window and the drive
+            // bar step aside for the card until the keyboard goes away.
+            if !searchingInShortWindow, !checkInInShortWindow {
+                Group {
+                    if let arrived = model.arrivedAt {
+                        arrivedBanner(arrived)
+                    } else if let failure = model.continuationFailure {
+                        continuationBanner(failure)
+                    } else {
+                        instructionBanner
                     }
-                    .scaledFont(.footnote, weight: .heavy)
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 32)
-                    .background(Color.white)
-                    .foregroundStyle(.orange)
-                    .clipShape(Capsule())
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Color.orange.opacity(0.92))
-                .foregroundStyle(.white)
-                .clipShape(Capsule())
-                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                .chromeRegion("top.directions")
             }
-            if model.addingStop {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Adding stop — replanning route…")
+            // The instruments and the tucked-menu icons share ONE row under
+            // the directions window, on every layout: the icons stack at the
+            // row's end and the instruments take the room beside them. Wide
+            // layouts used to pin the instruments to the window's corner —
+            // on top of the directions window itself. In a SHORT window an
+            // open floating card takes the instruments' room: the driver
+            // just asked for that card, and the gauge returns when it closes.
+            if showsInstrumentRow {
+                HStack(alignment: .top, spacing: golden.pad) {
+                    Spacer(minLength: 0)
+                    if instrumentsFit {
+                        fuelCluster
+                            .frame(maxWidth: isCompact ? .infinity : golden.cardMax / goldenRatio)
+                            .chromeRegion("top.instruments")
+                    }
+                    CollapsedPanelTray()
                 }
-                .scaledFont(.footnote, weight: .semibold)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Theme.cardBackground)
-                .clipShape(Capsule())
-                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
             }
-            Spacer()
+            if model.breadcrumbs.isOffline {
+                OfflinePill()
+                    .chromeRegion("top.offline-pill")
+            }
+            // Everything else that arrives at the top — alerts, offers,
+            // prompts, chips — scrolls in its own region when there are
+            // too many for the window, instead of pushing the drive bar
+            // off the bottom of it. The banners that hold state (a chooser
+            // opened, a needle dragged, a pulse running) scroll in ONE
+            // copy; the plain chips under them lie flat while they fit, so
+            // the map beside a chip still pans.
+            ScrollWhenTight(maxHeight: golden.size.height / 3) {
+                VStack {
+                    if let warning = model.imminentWarning {
+                        imminentBanner(warning)
+                    }
+                    if let escalation = model.escalation {
+                        escalationBanner(escalation)
+                    }
+                    if model.tripSharePrompt {
+                        tripShareBanner
+                    }
+                    if let lastChance = model.fuelWarningText {
+                        lastChanceFuelBanner(lastChance)
+                    }
+                    if model.refuelPrompt {
+                        refuelGauge
+                    }
+                }
+            }
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            // An emergency is sized before the chips and the cards, up to a
+            // third of the window: an open radio or hazard card scrolls
+            // rather than squeeze it. Everything else shares what is left.
+            .layoutPriority(1)
+            .chromeRegion("top.alerts")
+            ScrollWhenTight(holdsNoState: true) {
+                VStack {
+                    // The one-line weather strip holds no state: it lies flat
+                    // with the chips, so the map beside it still pans.
+                    if model.escalation == nil, model.imminentWarning == nil,
+                       !model.alerts.activeHeadlines.isEmpty {
+                        alertStrip
+                    }
+                    if model.stopDelaySeconds > 0 {
+                        shelterDelayChip
+                    }
+                    if let need = model.nextTripNeed {
+                        tripNeedChip(need)
+                    }
+                    if let fuelNote = model.fuelRecommendation {
+                        fuelRecommendationChip(fuelNote)
+                    }
+                    if let camera = model.cameraWarning {
+                        cameraChip(camera)
+                    }
+                    if let steep = model.upcomingSteepGrade {
+                        steepGradeChip(steep)
+                    }
+                    if model.truckerUI, model.hosStatus != .ok {
+                        hosChip
+                    }
+                    if model.notifyTraffic, model.workZonesAhead > 0 {
+                        Label(model.workZonesAhead == 1
+                              ? "Work zone ahead"
+                                + (model.workZoneRoad.map { " · \($0)" } ?? "")
+                              : "\(model.workZonesAhead) work zones ahead (state DOT)",
+                              systemImage: "cone.fill")
+                            .scaledFont(.footnote, weight: .bold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.orange.opacity(0.92))
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    if model.towingActive, let worst = model.towingViolations.first {
+                        Button { model.showTowingCard = true } label: {
+                            Label(worst.title, systemImage: "exclamationmark.octagon.fill")
+                                .scaledFont(.footnote, weight: .heavy)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Theme.riskRed.opacity(0.95))
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
+                                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let lowTire = model.lowTireWarning {
+                        Label(lowTire, systemImage: "exclamationmark.tirepressure")
+                            .scaledFont(.footnote, weight: .bold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Theme.riskYellow.opacity(0.92))
+                            .foregroundStyle(.black)
+                            .clipShape(Capsule())
+                            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    // Live towing-limit violation: red banner the moment active weights
+                    // exceed a manufacturer rating; tap to dismiss (the TowingCard's
+                    // sliders/badges stay live in the submenu).
+                    if let towWarn = model.towingWarning {
+                        Button { model.towingWarning = nil } label: {
+                            Label(towWarn, systemImage: "exclamationmark.triangle.fill")
+                                .scaledFont(.footnote, weight: .bold)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Theme.riskRed.opacity(0.94))
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
+                                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let message = model.poi.emptyResultMessage {
+                        Text(message)
+                            .scaledFont(.footnote, weight: .semibold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Theme.cardBackground)
+                            .clipShape(Capsule())
+                            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    if let delay = model.trafficDelayMinutes {
+                        HStack(spacing: 8) {
+                            Image(systemName: "car.rear.waves.up.fill")
+                            Text("Traffic ahead — +\(delay) min")
+                                .scaledFont(.footnote, weight: .bold)
+                            Button("Faster route") {
+                                Task { await model.rerouteForTraffic() }
+                            }
+                            .scaledFont(.footnote, weight: .heavy)
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 32)
+                            .background(Color.white)
+                            .foregroundStyle(.orange)
+                            .clipShape(Capsule())
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.92))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    if model.addingStop {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Adding stop — replanning route…")
+                        }
+                        .scaledFont(.footnote, weight: .semibold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Theme.cardBackground)
+                        .clipShape(Capsule())
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                }
+            }
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            .chromeRegion("top.chips")
+            // Empty map takes only what the rows leave: with an equal share
+            // it left alerts and cards scrolling beside open map.
+            Spacer(minLength: 0)
+                .layoutPriority(-1)
             // The floating cards share one scrolls-when-tight region: with
             // several open in a short (landscape) window they must squeeze
             // and scroll HERE — never push the maneuver banner or the bottom
-            // bar off the screen. All of these cards keep their state on the
-            // model or the HUD, so the fits/scrolls swap loses nothing.
+            // bar off the screen.
+            #if os(macOS)
+            // Settings opens from the gear in the drive bar, so it opens here,
+            // above the cards and the bar, scrolling on its own: nested in the
+            // cards' scroll it was a small window inside a small window.
+            if model.showSettings {
+                SettingsPanelCard()
+                    .chromeRegion("bottom.settings")
+            }
+            #endif
             ScrollWhenTight {
                 VStack(spacing: 8) {
                     if showShelterSheet {
@@ -250,16 +313,42 @@ struct NavigationHUD: View {
                     } else if !model.poi.results.isEmpty {
                         poiListCard
                     }
+                    // The detail cards (hazard, tourist stop, towing, crash
+                    // check-in) join this column, the most urgent nearest the
+                    // bar. They used to float in a separate slot at a guessed
+                    // height, on top of these cards and the bar.
+                    if let detailCards {
+                        detailCards
+                    }
                 }
             }
-            bottomBar
-        }
-        .overlay(alignment: .topTrailing) {
-            if !isCompact, showsFuelCluster {
-                fuelCluster
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            // One region: a card scrolled out of view covers nothing.
+            .chromeRegion("bottom.cards")
+            // The crash check-in is never below the fold of the cards'
+            // scroll: it waits for the driver's answer, so it sits right
+            // above the bar in a row of its own. Its buttons never scroll;
+            // its words scroll within a quarter of the window, so its first
+            // claim on the height, ahead of the chips and the cards, is
+            // bounded.
+            if model.crash.state != .idle {
+                CrashCheckInCard()
+                    .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+                    .layoutPriority(1)
+                    .chromeRegion("bottom.crash-check-in")
+            }
+            if !searchingInShortWindow {
+                bottomBar
+                    .chromeRegion("bottom.drive-bar")
             }
         }
         .padding(golden.pad)
+        // A short window (a phone held sideways) cannot fit the directions
+        // window, the instruments and the drive bar at the largest text
+        // sizes, so the HUD's type stops growing a step earlier there.
+        .dynamicTypeSize(isShort
+                         ? DynamicTypeSize.xSmall...DynamicTypeSize.accessibility1
+                         : DynamicTypeSize.xSmall...DynamicTypeSize.accessibility5)
         .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now in
             // Only while sheltering — a per-second tick on an idle HUD would
             // redraw the whole thing for nothing.
@@ -312,6 +401,48 @@ struct NavigationHUD: View {
         showRadio || showMusicMenu || model.showMusicProviderPrompt
             || model.poi.pendingFoodChoice || model.poi.pendingStoreChoice
             || model.poi.pendingFuelChoice || !model.poi.results.isEmpty
+            || detailCards != nil
+    }
+
+    /// On a phone or in a short window an emergency message (a red or yellow
+    /// alert, the crash check-in) takes the instruments' place until it is
+    /// answered. They come back afterwards unless the driver tucked them away.
+    private var emergencyTakesInstrumentsPlace: Bool {
+        (isCompact || isShort) && (model.imminentWarning != nil || model.crash.state != .idle)
+    }
+
+    /// A prompt waiting at the top for the driver's answer: a reroute offer,
+    /// the long-trip share, the last-chance fuel banner or the refuel gauge.
+    private var topPromptOpen: Bool {
+        model.escalation != nil || model.tripSharePrompt
+            || model.fuelWarningText != nil || model.refuelPrompt
+    }
+
+    /// The station search has the keyboard in a short window.
+    private var searchingInShortWindow: Bool {
+        isShort && stationSearchFocused
+    }
+
+    /// A crash check-in is up in a short window (a phone on its side). The
+    /// car has stopped: the directions window and the instrument row step
+    /// aside so the check-in, the alerts and the drive bar all fit.
+    private var checkInInShortWindow: Bool {
+        isShort && model.crash.state != .idle
+    }
+
+    /// The instruments show on this row: a car with a vehicle on file, not
+    /// tucked away, not a short window whose room an open card or a waiting
+    /// prompt is using, and not giving their place to an emergency.
+    private var instrumentsFit: Bool {
+        showsFuelCluster && !(isShort && (floatingCardOpen || topPromptOpen))
+            && !emergencyTakesInstrumentsPlace
+    }
+
+    /// The row under the directions window holds the instruments, the
+    /// tucked-menu icons, or both.
+    private var showsInstrumentRow: Bool {
+        (instrumentsFit || CollapsedPanelTray.hasIcons(model, mapKeyComesBack: mapKeyComesBack))
+            && !searchingInShortWindow && !checkInInShortWindow
     }
 
     /// Average economy from the vehicle's habit-learned figures (rolling
@@ -1668,6 +1799,29 @@ struct NavigationHUD: View {
                         SettingsGear()
                     }
                 }
+                // Three rows when even two cannot hold the trip total beside
+                // re-center and End (the largest text sizes): the total gets
+                // a row of its own, so End never runs off the bar.
+                VStack(spacing: 8) {
+                    HStack {
+                        tripStats
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 10) {
+                        recenterButton
+                        Spacer()
+                        endButton
+                    }
+                    HStack(spacing: 10) {
+                        if MusicController.isAvailable {
+                            musicControls
+                        }
+                        Spacer()
+                        towingButton
+                        radioButton
+                        SettingsGear()
+                    }
+                }
             }
             // Row 1 keeps its comfortable cap on wide layouts; row 2 below
             // may run wider. Compact goes edge to edge.
@@ -2147,6 +2301,7 @@ struct NavigationHUD: View {
             HStack(spacing: 6) {
                 TextField("Search by name or genre", text: $stationSearch)
                     .textFieldStyle(.roundedBorder)
+                    .focused($stationSearchFocused)
                     .scaledFont(.caption)
                     .onSubmit {
                         let query = stationSearch
