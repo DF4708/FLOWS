@@ -36,6 +36,8 @@
 //!              corridors
 //!   tags_and_replies — route tags, sensor replies, spoken replies and the
 //!              radio directory's rules on swift_text
+//!   recents_and_rides — pasted coordinates, recent places, rental counters
+//!              and the emergency radio's station rules on swift_text
 //!
 //! flows-core has no FFI of its own and never will: `#[no_mangle]` is
 //! rejected by `forbid(unsafe_code)`. The app reaches these functions through
@@ -80,6 +82,7 @@ pub mod media_policy;
 pub mod places;
 pub mod places_text;
 pub mod polyline;
+pub mod recents_and_rides;
 pub mod risk;
 pub mod risk_field;
 pub mod routing;

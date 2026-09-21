@@ -1745,3 +1745,14 @@ without a regression:
   pile keeps every icon, but the column shows only those whose menu this
   screen has; an icon for the route list while planning, or for a stop list
   with no stops, did nothing and lengthened the column past the planner.
+
+## A dictionary's order belongs to the launch
+
+- **Sorting `Dictionary.values` is not a stable order.** `RentalCars.recommend`
+  kept the nearest office per brand in a `Dictionary`, then sorted its values
+  by brand rank and miles. Offices of one rank whose miles did not order
+  (equal, or not a number) came out in the order of that launch's hash seed,
+  so two launches could list the same offices differently, and no frozen
+  oracle could pin them. The Rust port keeps them in the order their brands
+  first appeared; the oracle writes such groups sorted and compares them as
+  sets, and writes only the count when a limit cuts one.

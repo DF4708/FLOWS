@@ -1511,6 +1511,41 @@ on the first run, in debug and release. The directory rows were decoded from
 real JSON and their fields recorded as `parseStations` casts them, so the
 rules are pinned apart from the decoding that stays in Swift.
 
+## Wave 2, long tail, fourth landing: recents, rides and relay rules (2026-09-21)
+
+The decisions in the last three long-tail files are Rust.
+`flows_core::recents_and_rides` holds the pasted-coordinate parser
+(`CoordinateInput`), the recent places' score, merge, name guard and
+matching (`RecentDestinations`), the suggestion blend
+(`DestinationSearch.blend`), the rental counters' brand rank, booking site
+and recommendation (`RentalCars`), and the emergency radio's purpose, car
+band, queue step, state code and transmitter position (`TruckerRadio`'s
+static rules). The ride estimates (`TransitPlanning`) joined the transit
+fares in `flows_core::travel_modes`. The display names, ride steps, ticket
+and booking links, the purposes' words, the stores' encrypted files,
+Apple's completer, the relay directory's scrape and the player stay in
+Swift.
+
+The oracle (12,082 records, 15 kinds) is bridge-linked from c206b98. The
+recents were driven through sixty real `RecentDestinations` with the secure
+store stubbed, so the harness never read the user's saved places;
+`TruckerRadio` was never instantiated.
+
+### One Swift result was not reproducible
+
+`RentalCars.recommend` sorted `Dictionary.values`. Offices of one brand rank
+whose miles do not order (equal, or not a number) came out in the order of
+that launch's hash seed, so two launches could list the same offices
+differently. The Rust keeps them in the order their brands first appeared.
+The oracle compares those groups as sets and pins everything else exactly.
+
+### Still in Swift from the long tail
+
+`TruckerRadio.refreshStations`' relay-directory scrape: the harness cannot
+build a `TruckerRadio` without reading Application Support and UserDefaults,
+and a copied loop would pin a copy rather than the original. It moves with
+a refactor that makes the scrape a pure static first.
+
 ### Wave 2 remaining
 
 | item | state |
@@ -1518,5 +1553,5 @@ rules are pinned apart from the decoding that stays in Swift.
 | the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
 | POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
-| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). THIRD LANDING: RouteAttributes, VehicleLink's parsers, VoiceReply's word rules, BroadcastRadio, RadioBrowser's rules (`flows_core::tags_and_replies`). Not started: recents (RecentDestinations), transit estimates and rentals (TransitItinerary), TruckerRadio's helpers |
+| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). THIRD LANDING: RouteAttributes, VehicleLink's parsers, VoiceReply's word rules, BroadcastRadio, RadioBrowser's rules (`flows_core::tags_and_replies`). FOURTH LANDING: CoordinateInput, RecentDestinations, DestinationSearch.blend, RentalCars, TruckerRadio's static rules (`flows_core::recents_and_rides`) and TransitPlanning's ride estimates (`flows_core::travel_modes`). Still Swift: TruckerRadio's relay-directory scrape, which needs a pure static before a harness can reach it |
 | wave-1 leftovers | LANDED: EscalationPolicy, AlertEntityParser, ScannerIncidents (`flows_core::alert_text`) |

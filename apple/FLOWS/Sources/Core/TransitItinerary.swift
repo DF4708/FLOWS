@@ -76,27 +76,14 @@ enum TransitPlanning {
     /// Long-haul US rail rides slower than a bus here — circuitous track and
     /// mandatory transfers (e.g. Miami→NYC→Toronto) — so its factor is higher.
     static func rideMultiplier(_ mode: String) -> Double {
-        switch mode {
-        case "Amtrak": return 1.45     // intercity rail, transfer-heavy long-haul
-        case "Greyhound": return 1.35  // intercity coach: highway + terminal dwell
-        case "Rail": return 1.30       // local/commuter rail + subway
-        default: return 2.00           // local bus: frequent stops, headways
-        }
+        flows_rides_ride_multiplier(mode)
     }
 
     /// Fallback effective speed (mph) when there is no drivable base time —
     /// distance ÷ this. Deliberately conservative; exact times need GTFS.
-    /// Kept MONOTONIC with `rideMultiplier`: within a comparable pair the
-    /// higher-overhead mode also has the lower speed, so which mode is "slower"
-    /// never flips between the drive-scaled path and this fallback path
-    /// (intercity: Amtrak 40 < Greyhound 44; local: Bus 12 < Rail 22).
+    /// Kept MONOTONIC with `rideMultiplier` (flows_core::travel_modes).
     static func fallbackMPH(_ mode: String) -> Double {
-        switch mode {
-        case "Amtrak": return 40
-        case "Greyhound": return 44
-        case "Rail": return 22
-        default: return 12
-        }
+        flows_rides_fallback_mph(mode)
     }
 
     /// Ride seconds: scale a real drive time by the mode's door-to-door
@@ -106,9 +93,7 @@ enum TransitPlanning {
     static func rideDuration(
         mode: String, driveSeconds: TimeInterval?, miles: Double
     ) -> TimeInterval {
-        if let d = driveSeconds, d > 0 { return d * rideMultiplier(mode) }
-        let mph = fallbackMPH(mode)
-        return mph > 0 && miles > 0 ? miles / mph * 3600 : 0
+        flows_rides_ride_duration(mode, driveSeconds ?? 0, driveSeconds != nil, miles)
     }
 
     /// Board / ride / alight instructions for the ride leg.
@@ -151,41 +136,29 @@ enum RentalCars {
     /// Enterprise Holdings brands lead (Enterprise/National/Alamo), then
     /// Hertz group (Hertz/Dollar/Thrifty), then Avis Budget, then the rest;
     /// unknown local agencies sort after every recognized brand.
-    static let brandOrder: [String] = [
-        "enterprise", "hertz", "avis", "budget", "national", "alamo",
-        "sixt", "thrifty", "dollar", "zipcar", "turo", "u-haul",
-    ]
+    static let brandOrder: [String] = {
+        // flows_core::recents_and_rides::RENTAL_BRANDS, split by UTF-8 length.
+        let joined = Array(flows_rides_rental_brands().text.utf8)
+        var at = 0
+        return flows_rides_rental_brand_lengths().map { length in
+            let end = at + Int(length)
+            defer { at = end }
+            return String(decoding: joined[at..<end], as: UTF8.self)
+        }
+    }()
 
     /// Index into the brand table (case-insensitive substring), or count
     /// (= after every known brand) when unrecognized.
     static func brandRank(name: String?) -> Int {
-        guard let lower = name?.lowercased(), !lower.isEmpty
-        else { return brandOrder.count }
-        return brandOrder.firstIndex(where: { lower.contains($0) })
-            ?? brandOrder.count
+        Int(flows_rides_rental_brand_rank(name ?? "", name != nil))
     }
 
     /// Keyless booking fallback when MapKit has no office URL: the brand's
     /// own reservation site. Unrecognized brands get nil (the row still
     /// shows — name + distance are useful without a link).
     static func bookingURL(name: String?) -> URL? {
-        guard let lower = name?.lowercased() else { return nil }
-        let sites: [(String, String)] = [
-            ("enterprise", "https://www.enterprise.com"),
-            ("hertz", "https://www.hertz.com"),
-            ("avis", "https://www.avis.com"),
-            ("budget", "https://www.budget.com"),
-            ("national", "https://www.nationalcar.com"),
-            ("alamo", "https://www.alamo.com"),
-            ("sixt", "https://www.sixt.com"),
-            ("thrifty", "https://www.thrifty.com"),
-            ("dollar", "https://www.dollar.com"),
-            ("zipcar", "https://www.zipcar.com"),
-            ("turo", "https://turo.com"),
-            ("u-haul", "https://www.uhaul.com"),
-        ]
-        return sites.first(where: { lower.contains($0.0) })
-            .flatMap { URL(string: $0.1) }
+        let site = flows_rides_rental_booking_site(name ?? "", name != nil).text
+        return site.isEmpty ? nil : URL(string: site)
     }
 
     /// Pick the offices worth showing: nearest office PER BRAND (an
@@ -194,20 +167,19 @@ enum RentalCars {
     /// agencies keep their own name as the dedupe key so two different
     /// independents both survive.
     static func recommend(_ offices: [Office], limit: Int = 3) -> [Office] {
-        var bestPerBrand: [String: Office] = [:]
-        for o in offices {
-            let rank = brandRank(name: o.name)
-            let key = rank < brandOrder.count
-                ? brandOrder[rank] : o.name.lowercased()
-            if let held = bestPerBrand[key], held.miles <= o.miles { continue }
-            bestPerBrand[key] = o
-        }
-        return bestPerBrand.values
-            .sorted {
-                let (ra, rb) = (brandRank(name: $0.name), brandRank(name: $1.name))
-                return ra != rb ? ra < rb : $0.miles < $1.miles
+        // flows_core::recents_and_rides::recommend_rentals. Offices that do
+        // not order (same brand rank, equal or unknown miles) keep the order
+        // their brands first appeared; Swift's Dictionary left them to the
+        // launch's hash seed.
+        let names = RustTextColumn(offices.map(\.name))
+        let miles = offices.isEmpty ? [0] : offices.map(\.miles)
+        let picks = names.with { joined, lengths, _ in
+            miles.withUnsafeBufferPointer { m in
+                Array(flows_rides_recommend_rentals(joined, lengths, m, Int64(offices.count),
+                                                    Int64(limit)))
             }
-            .prefix(limit).map { $0 }
+        }
+        return picks.map { offices[Int($0)] }
     }
 }
 

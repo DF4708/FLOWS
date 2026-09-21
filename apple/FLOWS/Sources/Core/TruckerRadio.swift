@@ -62,19 +62,21 @@ final class TruckerRadio: ObservableObject {
     /// Two-or-three plain words on WHY you'd tune a channel — the radio
     /// card's car-radio line stays one breath instead of a paragraph.
     static func shortPurpose(_ channel: String) -> String {
-        if channel.hasPrefix("CB 19") { return "traffic" }
-        if channel.hasPrefix("CB 17") { return "west-coast traffic" }
-        if channel.hasPrefix("CB 9") { return "emergency help" }
-        if channel.hasPrefix("NOAA") { return "weather alerts" }
-        return "road work alerts"
+        // flows_core::recents_and_rides::radio_purpose; the words are the UI's.
+        switch flows_rides_radio_purpose(channel) {
+        case 0: return "traffic"
+        case 1: return "west-coast traffic"
+        case 2: return "emergency help"
+        case 3: return "weather alerts"
+        default: return "road work alerts"
+        }
     }
 
     /// The AM/FM dial position for channels a NORMAL car radio can tune —
     /// nil for CB and weather-band channels, which need their own sets.
     /// Outside trucker mode the radio card lists only these.
     static func carBandLabel(_ channel: String) -> String? {
-        guard channel.hasPrefix("Highway Advisory") else { return nil }
-        return "AM 530 or 1610 kHz"
+        flows_rides_radio_is_car_band(channel) ? "AM 530 or 1610 kHz" : nil
     }
 
     @Published private(set) var channels: [Channel]
@@ -104,9 +106,7 @@ final class TruckerRadio: ObservableObject {
     /// Wrap-around step through a queue — pure so the walk is pinned.
     /// Returns 0 for an empty queue (nothing to play).
     nonisolated static func advance(index: Int, count: Int, by step: Int) -> Int {
-        guard count > 0 else { return 0 }
-        let raw = (index + step) % count
-        return raw < 0 ? raw + count : raw
+        Int(flows_rides_radio_advance(Int64(index), Int64(count), Int64(step)))
     }
 
     /// Start a genre/search result set: play the first station and keep
@@ -415,10 +415,8 @@ final class TruckerRadio: ObservableObject {
 
     /// State code parsed from the relay name ("AL-Mobile: KEC61" → "AL").
     nonisolated static func stateCode(of channel: Channel) -> String? {
-        let name = channel.name.replacingOccurrences(of: "NOAA WX ", with: "")
-        guard let dash = name.firstIndex(of: "-"), name.distance(
-            from: name.startIndex, to: dash) == 2 else { return nil }
-        return String(name[..<dash]).uppercased()
+        let code = flows_rides_radio_state_code(channel.name).text
+        return code.isEmpty ? nil : code
     }
 
     /// Nearest-by-state station: same state first, else first available.
@@ -441,13 +439,12 @@ final class TruckerRadio: ObservableObject {
     /// the right side of the country.
     nonisolated static func position(of channel: Channel)
         -> (coordinate: CLLocationCoordinate2D, isExact: Bool)? {
-        if let la = channel.latitude, let lo = channel.longitude {
-            return (CLLocationCoordinate2D(latitude: la, longitude: lo), true)
-        }
-        guard let code = stateCode(of: channel),
-              let box = LiveHazardFeedFetcher.stateBBoxes[code] else { return nil }
-        return (CLLocationCoordinate2D(latitude: (box.s + box.n) / 2,
-                                       longitude: (box.w + box.e) / 2), false)
+        // flows_core::recents_and_rides::radio_position, with the state
+        // boxes of flows_core::hazard_feeds.
+        let p = flows_rides_radio_position(channel.name,
+                                           channel.latitude ?? 0, channel.latitude != nil,
+                                           channel.longitude ?? 0, channel.longitude != nil)
+        return p.has ? (CLLocationCoordinate2D(latitude: p.lat, longitude: p.lon), p.exact) : nil
     }
 
     /// Every channel the tuner can rank, as RadioTuning sees them.

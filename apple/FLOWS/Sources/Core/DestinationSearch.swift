@@ -21,67 +21,9 @@ enum CoordinateInput {
     /// else (street numbers, extra words, out-of-range values) is not a
     /// coordinate.
     static func parse(_ text: String) -> CLLocationCoordinate2D? {
-        let cleaned = text.uppercased()
-            .replacingOccurrences(of: ",", with: " ")
-            .replacingOccurrences(of: ";", with: " ")
-            .replacingOccurrences(of: "°", with: " ")
-        var comps: [(value: Double, hemi: Character?)] = []
-        // A hemisphere letter that arrives BEFORE its number ("N 43.07") —
-        // consumed by the next numeric token.
-        var pendingHemi: Character?
-        for token in cleaned.split(separator: " ") where !token.isEmpty {
-            var body = String(token)
-            var hemi: Character?
-            if let first = body.first, "NSEW".contains(first) {
-                hemi = first
-                body.removeFirst()
-            }
-            if let last = body.last, "NSEW".contains(last) {
-                guard hemi == nil else { return nil }   // "N43W" nonsense
-                hemi = last
-                body.removeLast()
-            }
-            // A hemisphere letter as its own token: label the number beside it.
-            if body.isEmpty {
-                guard let hemi else { return nil }
-                if let i = comps.indices.last, comps[i].hemi == nil {
-                    comps[i].hemi = hemi   // "43.07 N"
-                } else if pendingHemi == nil {
-                    pendingHemi = hemi     // "N 43.07"
-                } else {
-                    return nil
-                }
-                continue
-            }
-            guard let value = Double(body) else { return nil }
-            comps.append((value, hemi ?? pendingHemi))
-            pendingHemi = nil
-        }
-        guard comps.count == 2, pendingHemi == nil else { return nil }
-
-        func signed(_ c: (value: Double, hemi: Character?)) -> Double {
-            switch c.hemi {
-            case "S", "W": return -abs(c.value)
-            case "N", "E": return abs(c.value)
-            default: return c.value
-            }
-        }
-        var lat: Double?
-        var lon: Double?
-        for c in comps {
-            switch c.hemi {
-            case "N", "S": guard lat == nil else { return nil }; lat = signed(c)
-            case "E", "W": guard lon == nil else { return nil }; lon = signed(c)
-            default: break
-            }
-        }
-        // Letter-free components fill the remaining slots in lat, lon order.
-        var rest = comps.filter { $0.hemi == nil }.map { signed($0) }.makeIterator()
-        if lat == nil { lat = rest.next() }
-        if lon == nil { lon = rest.next() }
-        guard rest.next() == nil, let lat, let lon,
-              abs(lat) <= 90, abs(lon) <= 180 else { return nil }
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        // flows_core::recents_and_rides::parse_coordinate.
+        let point = flows_rides_parse_coordinate(text)
+        return point.has ? CLLocationCoordinate2D(latitude: point.lat, longitude: point.lon) : nil
     }
 
     /// Plain display name for a parsed point ("Map point 43.0731, -89.4012").
@@ -111,7 +53,7 @@ final class RecentDestinations: ObservableObject {
     private let url: URL
     /// nonisolated: the pure `merged`/`score` helpers (and their tests) run
     /// off the main actor.
-    nonisolated static let cap = 20
+    nonisolated static let cap = Int(flows_rides_recents_cap())
 
     init(directory: URL? = nil) {
         let dir = directory
@@ -132,8 +74,9 @@ final class RecentDestinations: ObservableObject {
     /// A plan landed for this destination — remember it (dedupe by name,
     /// newest state wins, capped at the lowest-ranked entry).
     func record(name: String, coordinate: CLLocationCoordinate2D, now: Date = Date()) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, trimmed.lowercased() != "current location" else { return }
+        // Empty when the name is blank or "current location" in any case.
+        let trimmed = flows_rides_recordable_name(name).text
+        guard !trimmed.isEmpty else { return }
         entries = Self.merged(entries, adding: Entry(
             name: trimmed, latitude: coordinate.latitude, longitude: coordinate.longitude,
             lastUsed: now, uses: 1), now: now)
@@ -143,26 +86,36 @@ final class RecentDestinations: ObservableObject {
     /// Pure merge (tested): dedupe by case-insensitive name (uses
     /// accumulate), rank by frequency-decayed recency, cap.
     nonisolated static func merged(_ list: [Entry], adding new: Entry, now: Date) -> [Entry] {
-        var out = list
-        if let i = out.firstIndex(where: { $0.id == new.id }) {
-            out[i].uses += 1
-            out[i].lastUsed = new.lastUsed
-            out[i].latitude = new.latitude
-            out[i].longitude = new.longitude
-            out[i].name = new.name
-        } else {
-            out.append(new)
+        // flows_core::recents_and_rides::merged_recent_order: the merged
+        // place's use count, then the order as indices, -1 for the merged
+        // place (the new name, place and time with that count).
+        let names = RustTextColumn(list.map(\.name))
+        let lastUsed = list.isEmpty ? [0] : list.map { $0.lastUsed.timeIntervalSinceReferenceDate }
+        let uses = list.isEmpty ? [0] : list.map { Int64($0.uses) }
+        let answer = names.with { joined, lengths, _ in
+            lastUsed.withUnsafeBufferPointer { lu in
+                uses.withUnsafeBufferPointer { us in
+                    Array(flows_rides_merged_recents(
+                        joined, lengths, lu, us, Int64(list.count),
+                        new.name, new.lastUsed.timeIntervalSinceReferenceDate, Int64(new.uses),
+                        now.timeIntervalSinceReferenceDate))
+                }
+            }
         }
-        out.sort { score($0, now: now) > score($1, now: now) }
-        return Array(out.prefix(cap))
+        // A real answer is the count and at least one index; the bridge's
+        // failure fallback is the count alone, and then the list stays.
+        guard answer.count >= 2, let mergedUses = answer.first else { return list }
+        var merged = new
+        merged.uses = Int(mergedUses)
+        return answer.dropFirst().map { $0 < 0 ? merged : list[Int($0)] }
     }
 
     /// Frequency × two-week recency half-life: the daily coffee run outranks
     /// last month's one-off even if the one-off is slightly fresher than one
     /// of its visits.
     nonisolated static func score(_ e: Entry, now: Date) -> Double {
-        let ageDays = max(now.timeIntervalSince(e.lastUsed), 0) / 86_400
-        return Double(e.uses) * pow(0.5, ageDays / 14)
+        flows_rides_recent_score(Int64(e.uses), e.lastUsed.timeIntervalSinceReferenceDate,
+                                 now.timeIntervalSinceReferenceDate)
     }
 
     /// Forget every recorded destination.
@@ -174,11 +127,14 @@ final class RecentDestinations: ObservableObject {
     /// Entries matching a typed fragment (empty fragment = the top of the
     /// list), best first.
     func matching(_ fragment: String, limit: Int = 3) -> [Entry] {
-        let f = fragment.trimmingCharacters(in: .whitespaces).lowercased()
-        let hits = f.isEmpty
-            ? entries
-            : entries.filter { $0.name.lowercased().contains(f) }
-        return Array(hits.prefix(limit))
+        // flows_core::recents_and_rides::matching_recents, over the entries
+        // in rank order.
+        let names = RustTextColumn(entries.map(\.name))
+        let picks = names.with { joined, lengths, _ in
+            Array(flows_rides_matching_recents(joined, lengths, Int64(entries.count),
+                                               fragment, Int64(limit)))
+        }
+        return picks.map { entries[Int($0)] }
     }
 }
 
@@ -314,9 +270,17 @@ final class DestinationSearch: NSObject, ObservableObject {
     nonisolated static func blend(
         pinned: [Suggestion], completions: [Suggestion], cap: Int = 8
     ) -> [Suggestion] {
-        let pinnedTitles = Set(pinned.map { $0.title.lowercased() })
-        let fresh = completions.filter { !pinnedTitles.contains($0.title.lowercased()) }
-        return Array((pinned + fresh).prefix(cap))
+        // flows_core::recents_and_rides::blend_suggestions: a pinned row i
+        // as i, a completion j as -(j + 1).
+        let p = RustTextColumn(pinned.map(\.title))
+        let c = RustTextColumn(completions.map(\.title))
+        let rows = p.with { pj, pl, _ in
+            c.with { cj, cl, _ in
+                Array(flows_rides_blend_suggestions(pj, pl, Int64(pinned.count),
+                                                    cj, cl, Int64(completions.count), Int64(cap)))
+            }
+        }
+        return rows.map { $0 >= 0 ? pinned[Int($0)] : completions[Int(-$0 - 1)] }
     }
 
     /// The user tapped a suggestion — clear the list and swallow the field

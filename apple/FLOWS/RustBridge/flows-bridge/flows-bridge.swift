@@ -2675,6 +2675,188 @@ extension __swift_bridge__$Option$FlowsPlacesTextPrices {
 }
 
 
+public func flows_rides_parse_coordinate<GenericToRustStr: ToRustStr>(_ text: GenericToRustStr) -> FlowsRidesPoint {
+    return text.toRustStr({ textAsRustStr in
+        __swift_bridge__$flows_rides_parse_coordinate(textAsRustStr).intoSwiftRepr()
+    })
+}
+public func flows_rides_recents_cap() -> Int64 {
+    __swift_bridge__$flows_rides_recents_cap()
+}
+public func flows_rides_recent_score(_ uses: Int64, _ last_used: Double, _ now: Double) -> Double {
+    __swift_bridge__$flows_rides_recent_score(uses, last_used, now)
+}
+public func flows_rides_recordable_name<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_rides_recordable_name(nameAsRustStr))
+    })
+}
+public func flows_rides_merged_recents<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ last_used: UnsafeBufferPointer<Double>, _ uses: UnsafeBufferPointer<Int64>, _ count: Int64, _ new_name: GenericToRustStr, _ new_last_used: Double, _ new_uses: Int64, _ now: Double) -> RustVec<Int64> {
+    return new_name.toRustStr({ new_nameAsRustStr in
+        return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_rides_merged_recents(namesAsRustStr, name_lengths.toFfiSlice(), last_used.toFfiSlice(), uses.toFfiSlice(), count, new_nameAsRustStr, new_last_used, new_uses, now))
+    })
+    })
+}
+public func flows_rides_matching_recents<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ count: Int64, _ fragment: GenericToRustStr, _ limit: Int64) -> RustVec<Int64> {
+    return fragment.toRustStr({ fragmentAsRustStr in
+        return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_rides_matching_recents(namesAsRustStr, name_lengths.toFfiSlice(), count, fragmentAsRustStr, limit))
+    })
+    })
+}
+public func flows_rides_blend_suggestions<GenericToRustStr: ToRustStr>(_ pinned: GenericToRustStr, _ pinned_lengths: UnsafeBufferPointer<Int64>, _ pinned_count: Int64, _ completions: GenericToRustStr, _ completion_lengths: UnsafeBufferPointer<Int64>, _ completion_count: Int64, _ cap: Int64) -> RustVec<Int64> {
+    return completions.toRustStr({ completionsAsRustStr in
+        return pinned.toRustStr({ pinnedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_rides_blend_suggestions(pinnedAsRustStr, pinned_lengths.toFfiSlice(), pinned_count, completionsAsRustStr, completion_lengths.toFfiSlice(), completion_count, cap))
+    })
+    })
+}
+public func flows_rides_ride_multiplier<GenericToRustStr: ToRustStr>(_ mode: GenericToRustStr) -> Double {
+    return mode.toRustStr({ modeAsRustStr in
+        __swift_bridge__$flows_rides_ride_multiplier(modeAsRustStr)
+    })
+}
+public func flows_rides_fallback_mph<GenericToRustStr: ToRustStr>(_ mode: GenericToRustStr) -> Double {
+    return mode.toRustStr({ modeAsRustStr in
+        __swift_bridge__$flows_rides_fallback_mph(modeAsRustStr)
+    })
+}
+public func flows_rides_ride_duration<GenericToRustStr: ToRustStr>(_ mode: GenericToRustStr, _ drive_seconds: Double, _ has_drive: Bool, _ miles: Double) -> Double {
+    return mode.toRustStr({ modeAsRustStr in
+        __swift_bridge__$flows_rides_ride_duration(modeAsRustStr, drive_seconds, has_drive, miles)
+    })
+}
+public func flows_rides_rental_brands() -> RustString {
+    RustString(ptr: __swift_bridge__$flows_rides_rental_brands())
+}
+public func flows_rides_rental_brand_lengths() -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_rides_rental_brand_lengths())
+}
+public func flows_rides_rental_brand_rank<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool) -> Int64 {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_rides_rental_brand_rank(nameAsRustStr, has_name)
+    })
+}
+public func flows_rides_rental_booking_site<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_rides_rental_booking_site(nameAsRustStr, has_name))
+    })
+}
+public func flows_rides_recommend_rentals<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ miles: UnsafeBufferPointer<Double>, _ count: Int64, _ limit: Int64) -> RustVec<Int64> {
+    return names.toRustStr({ namesAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_rides_recommend_rentals(namesAsRustStr, name_lengths.toFfiSlice(), miles.toFfiSlice(), count, limit))
+    })
+}
+public func flows_rides_radio_purpose<GenericToRustStr: ToRustStr>(_ channel: GenericToRustStr) -> UInt8 {
+    return channel.toRustStr({ channelAsRustStr in
+        __swift_bridge__$flows_rides_radio_purpose(channelAsRustStr)
+    })
+}
+public func flows_rides_radio_is_car_band<GenericToRustStr: ToRustStr>(_ channel: GenericToRustStr) -> Bool {
+    return channel.toRustStr({ channelAsRustStr in
+        __swift_bridge__$flows_rides_radio_is_car_band(channelAsRustStr)
+    })
+}
+public func flows_rides_radio_advance(_ index: Int64, _ count: Int64, _ step: Int64) -> Int64 {
+    __swift_bridge__$flows_rides_radio_advance(index, count, step)
+}
+public func flows_rides_radio_state_code<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> RustString {
+    return name.toRustStr({ nameAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_rides_radio_state_code(nameAsRustStr))
+    })
+}
+public func flows_rides_radio_position<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ lat: Double, _ has_lat: Bool, _ lon: Double, _ has_lon: Bool) -> FlowsRidesPosition {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_rides_radio_position(nameAsRustStr, lat, has_lat, lon, has_lon).intoSwiftRepr()
+    })
+}
+public struct FlowsRidesPoint {
+    public var has: Bool
+    public var lat: Double
+    public var lon: Double
+
+    public init(has: Bool,lat: Double,lon: Double) {
+        self.has = has
+        self.lat = lat
+        self.lon = lon
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsRidesPoint {
+        { let val = self; return __swift_bridge__$FlowsRidesPoint(has: val.has, lat: val.lat, lon: val.lon); }()
+    }
+}
+extension __swift_bridge__$FlowsRidesPoint {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsRidesPoint {
+        { let val = self; return FlowsRidesPoint(has: val.has, lat: val.lat, lon: val.lon); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsRidesPoint {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsRidesPoint> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsRidesPoint>) -> __swift_bridge__$Option$FlowsRidesPoint {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsRidesPoint(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsRidesPoint(is_some: false, val: __swift_bridge__$FlowsRidesPoint())
+        }
+    }
+}
+public struct FlowsRidesPosition {
+    public var has: Bool
+    public var lat: Double
+    public var lon: Double
+    public var exact: Bool
+
+    public init(has: Bool,lat: Double,lon: Double,exact: Bool) {
+        self.has = has
+        self.lat = lat
+        self.lon = lon
+        self.exact = exact
+    }
+
+    @inline(__always)
+    func intoFfiRepr() -> __swift_bridge__$FlowsRidesPosition {
+        { let val = self; return __swift_bridge__$FlowsRidesPosition(has: val.has, lat: val.lat, lon: val.lon, exact: val.exact); }()
+    }
+}
+extension __swift_bridge__$FlowsRidesPosition {
+    @inline(__always)
+    func intoSwiftRepr() -> FlowsRidesPosition {
+        { let val = self; return FlowsRidesPosition(has: val.has, lat: val.lat, lon: val.lon, exact: val.exact); }()
+    }
+}
+extension __swift_bridge__$Option$FlowsRidesPosition {
+    @inline(__always)
+    func intoSwiftRepr() -> Optional<FlowsRidesPosition> {
+        if self.is_some {
+            return self.val.intoSwiftRepr()
+        } else {
+            return nil
+        }
+    }
+
+    @inline(__always)
+    static func fromSwiftRepr(_ val: Optional<FlowsRidesPosition>) -> __swift_bridge__$Option$FlowsRidesPosition {
+        if let v = val {
+            return __swift_bridge__$Option$FlowsRidesPosition(is_some: true, val: v.intoFfiRepr())
+        } else {
+            return __swift_bridge__$Option$FlowsRidesPosition(is_some: false, val: __swift_bridge__$FlowsRidesPosition())
+        }
+    }
+}
+
+
 public func flows_risk_green_min() -> Double {
     __swift_bridge__$flows_risk_green_min()
 }

@@ -11,7 +11,9 @@
 //! the outlined risk areas, transit fares and the walk-plus-ride offer —
 //! `AmtrakStations.swift`, `BreadcrumbTrail.swift`, `AirTravel.swift`,
 //! `Mobility.swift` and `HybridWalk.swift` at commit bea472d, the last before
-//! their facade switch.
+//! their facade switch. The ride estimates (`TransitPlanning`) followed from
+//! `TransitItinerary.swift` at commit c206b98, pinned with the recents and
+//! rentals by `swift_recents_and_rides_oracle.tsv`.
 //!
 //! | here | Swift |
 //! |---|---|
@@ -21,6 +23,7 @@
 //! | [`is_peak`], [`local_minutes`], [`traffic_interval_seconds`] | `TrafficCadence` |
 //! | [`risk_clusters`], [`risk_hull`] | `RiskBlob.clusters`, `.hull` |
 //! | [`amtrak_fare`], [`greyhound_fare`], [`LOCAL_BUS_FARE`], [`LOCAL_RAIL_FARE`] | `TransitFares` |
+//! | [`ride_multiplier`], [`fallback_mph`], [`ride_duration`] | `TransitPlanning` |
 //! | [`ride_cost`], [`meets_bar`], [`evaluate_ride`], [`prefix_coordinates`] | `HybridWalk` |
 //!
 //! # Fidelity
@@ -337,6 +340,56 @@ pub fn amtrak_fare(miles: f64) -> f64 {
 #[must_use]
 pub fn greyhound_fare(miles: f64) -> f64 {
     smax(12.0, miles * 0.12)
+}
+
+// ============================================================ TransitPlanning
+
+/// `TransitPlanning.rideMultiplier`: a scheduled service's door-to-door
+/// overhead over driving the same corridor alone (station dwell, stops,
+/// transfers). Long-haul US rail, transfer-heavy, rides slower than a coach.
+#[must_use]
+pub fn ride_multiplier(mode: &str) -> f64 {
+    if st::eq(mode, "Amtrak") {
+        1.45
+    } else if st::eq(mode, "Greyhound") {
+        1.35
+    } else if st::eq(mode, "Rail") {
+        1.30
+    } else {
+        2.00
+    }
+}
+
+/// `TransitPlanning.fallbackMPH`: the effective speed when no drivable base
+/// time exists, in the same order as [`ride_multiplier`] so which mode is
+/// slower never flips between the two paths.
+#[must_use]
+pub fn fallback_mph(mode: &str) -> f64 {
+    if st::eq(mode, "Amtrak") {
+        40.0
+    } else if st::eq(mode, "Greyhound") {
+        44.0
+    } else if st::eq(mode, "Rail") {
+        22.0
+    } else {
+        12.0
+    }
+}
+
+/// `TransitPlanning.rideDuration`: a real drive time scaled by the mode's
+/// overhead; otherwise distance over the fallback speed; 0 when neither is
+/// known.
+#[must_use]
+pub fn ride_duration(mode: &str, drive_seconds: Option<f64>, miles: f64) -> f64 {
+    if let Some(drive) = drive_seconds.filter(|&d| d > 0.0) {
+        return drive * ride_multiplier(mode);
+    }
+    let mph = fallback_mph(mode);
+    if mph > 0.0 && miles > 0.0 {
+        miles / mph * 3600.0
+    } else {
+        0.0
+    }
 }
 
 // ============================================================ HybridWalk
