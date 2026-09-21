@@ -234,7 +234,22 @@ final class TruckerRadio: ObservableObject {
         guard let url = URL(string: "https://www.weatherusa.net/radio"),
               let (data, resp) = try? await ThrottledNet.fetch(url),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let html = String(data: data, encoding: .utf8) else { return }
+              let html = String(data: data, encoding: .utf8),
+              // A user's own list wins: the scrape must not replace it.
+              !usingCustomList,
+              let refreshed = Self.relayChannels(fromDirectory: html, bundled: Self.loadChannels())
+        else { return }
+        channels = refreshed
+    }
+
+    /// The NOAA relays the weatherusa directory page lists, each carrying the
+    /// bundled transmitter's coordinates when a bundled station has the same
+    /// callsign (so nearest-by-GPS keeps working after a refresh); nil when
+    /// the page lists fewer than ten, which is a page that did not parse
+    /// rather than a directory that shrank. Pure, so a frozen oracle can pin
+    /// it without building a TruckerRadio (whose init reads the user's files).
+    nonisolated static func relayChannels(fromDirectory html: String,
+                                          bundled: [Channel]) -> [Channel]? {
         var fresh: [Channel] = []
         var seen = Set<String>()
         for chunk in html.components(separatedBy: "<option value=\"") {
@@ -253,10 +268,9 @@ final class TruckerRadio: ObservableObject {
                                  detail: "NOAA Weather Radio relay (weatherusa.net)",
                                  url: streamURL))
         }
-        guard fresh.count >= 10, !usingCustomList else { return }
+        guard fresh.count >= 10 else { return nil }
         // Carry the bundled transmitter coordinates over to the refreshed list
         // (matched by callsign) so nearest-by-GPS keeps working after refresh.
-        let bundled = Self.loadChannels()
         func callsign(_ n: String) -> String? {
             n.split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) }
         }
@@ -266,7 +280,7 @@ final class TruckerRadio: ObservableObject {
                       let lo = ch.longitude else { return nil }
                 return (cs, (la, lo))
             }, uniquingKeysWith: { a, _ in a })
-        channels = fresh.map { ch in
+        return fresh.map { ch in
             var c = ch
             if let cs = callsign(ch.name), let (la, lo) = coordsByCall[cs] {
                 c.latitude = la; c.longitude = lo
