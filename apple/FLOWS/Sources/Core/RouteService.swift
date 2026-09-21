@@ -189,6 +189,51 @@ struct PlannedRoute: Identifiable {
         if unknown > 0 { out.append((nil, Double(unknown) / n)) }
         return out
     }
+
+    /// A long-walk estimate's time: 3.1 mph sustained pace plus 10% rest.
+    nonisolated static func walkingEstimateSeconds(meters: Double) -> TimeInterval {
+        meters / 1.39 * 1.10
+    }
+
+    /// Fold in the weather pass's answer (`AppModel.scored`) from `scored`, a
+    /// scoring of this same road, and leave every other field alone. A leg
+    /// that starts before it is scored (the off-route replan) gets its
+    /// scoring and its physical attributes in either order, and the live
+    /// corridor keeps patching it in between: whole-route writes let the
+    /// later pass wipe the earlier one's fields.
+    mutating func takeScore(from scored: PlannedRoute) {
+        weatherRisk = scored.weatherRisk
+        alertCoverage = scored.alertCoverage
+        alertHeadlines = scored.alertHeadlines
+        alertEvents = scored.alertEvents
+        alertPolygons = scored.alertPolygons
+        weatherScored = scored.weatherScored
+        riskSamples = scored.riskSamples
+        riskSegments = scored.riskSegments
+        peakRisk = scored.peakRisk
+        avgRisk = scored.avgRisk
+        zipExposure = scored.zipExposure
+        rankingRisk = scored.rankingRisk
+        milesByBand = scored.milesByBand
+        hazardSummaries = scored.hazardSummaries
+        familyPeaks = scored.familyPeaks
+    }
+
+    /// Fold in the physical-attribute pass (`AppModel.attributeScored`) from
+    /// `hydrated`, a pass over this same road, and leave every other field
+    /// alone — see `takeScore(from:)`.
+    mutating func takeAttributes(from hydrated: PlannedRoute) {
+        maxGradePercent = hydrated.maxGradePercent
+        gradeProfile = hydrated.gradeProfile
+        gradeRibbonSlices = hydrated.gradeRibbonSlices
+        steepMarkers = hydrated.steepMarkers
+        clearancesMeters = hydrated.clearancesMeters
+        weightLimitsLbs = hydrated.weightLimitsLbs
+        clearanceDataUnavailable = hydrated.clearanceDataUnavailable
+        femaFloodFraction = hydrated.femaFloodFraction
+        evChargingGapMiles = hydrated.evChargingGapMiles
+        attributesScored = hydrated.attributesScored
+    }
 }
 
 /// Route filters for the choices screen.

@@ -1756,3 +1756,37 @@ without a regression:
   oracle could pin them. The Rust port keeps them in the order their brands
   first appeared; the oracle writes such groups sorted and compares them as
   sets, and writes only the count when a limit cuts one.
+
+## A missed turn is a new leg, not a new trip
+
+- **Swapping the route under a trip is not starting a leg.** The off-route
+  reroute replaced `NavigationEngine.route` in place. Everything AppModel
+  keys on a leg (the corridor weather watch, the stops search, the Watch's
+  line, scoring) stayed on the road the driver had left, and the new line
+  had no risk colours for the rest of the trip. A replan goes through
+  `startLeg` like any other leg swap.
+- **But a leg swap resets choices a missed turn did not make.** `startLeg`
+  starts the escalation state fresh and restarts the pace learner's clock;
+  for a missed turn both must carry across (the driver's Continue on an
+  alert still stands, and stop time is subtracted from the leg's start).
+  Write down what each reset is for before routing a new path through it.
+- **`@Published` replays its current value synchronously on subscribe.**
+  `NavigationEngine.start` subscribed to `location.$latest`, so the current
+  fix was handled inside `start()`, inside the caller's leg setup: a replan
+  that landed at the door fired arrival, and the rest of the setup then
+  undid the arrival. `dropFirst()` plus the existing next-tick delivery
+  keeps the promise the comment made.
+- **Passes that land on a live value merge their own fields.** The weather
+  score and the physical attributes each wrote the whole route back, so
+  whichever landed second wiped the other, and a late attribute pass also
+  undid the live corridor's repaint. `PlannedRoute.takeScore(from:)` and
+  `takeAttributes(from:)` fold in only their own fields.
+- **A failed fetch is unknown, never clear.** Two places learned it in one
+  batch: a GPS fix with no speed (-1) was clamped to 0 and read as a crash
+  stop at full speed, and an incomplete corridor score (failed cells score
+  0) replaced a carried Red verdict. Unknown inputs keep the last known
+  answer or answer nothing.
+- **A scoring pass can have trip-wide side effects.** `scored()` hands its
+  corridor's closures and live feeds to the trip's live watch. Scoring a
+  replan to an added stop replaced the continuation leg's with a small box
+  for the rest of the drive; such a pass now scores without adopting them.

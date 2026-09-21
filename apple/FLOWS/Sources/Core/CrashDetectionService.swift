@@ -53,9 +53,15 @@ final class CrashDetectionService: ObservableObject {
                         vehicle: VehicleProfile?,
                         medicalNotes: String?) = { (nil, nil, nil) }
 
+    /// Set by AppModel: whether an emergency contact's number is saved — the
+    /// card offers "Text report" and "Call contact" only then, so the voice
+    /// may only mention them then.
+    var hasEmergencyContact: () -> Bool = { false }
+
     /// Set by AppModel: the MOTION evidence that separates a crash from a
     /// thrill ride — how fast the vehicle was going just before, how fast it
-    /// is now, and how far it is from the road corridor being driven
+    /// is now (NaN when the latest fix has no speed: unknown is not
+    /// stopped), and how far it is from the road corridor being driven
     /// (nil when unknown). See CrashLogic.isCrash.
     var motionEvidence: () -> (speedBeforeMps: Double,
                                speedAfterMps: Double,
@@ -120,17 +126,7 @@ final class CrashDetectionService: ObservableObject {
                     // the trip it belonged to has ended.
                     guard let self, self.monitorGeneration == generation,
                           self.state == .idle else { return }
-                    // The g-force only opened the question. A crash also
-                    // means a road-speed vehicle ON A ROAD suddenly stopped —
-                    // the motion evidence (MainActor state) decides.
-                    let motion = self.motionEvidence()
-                    guard CrashLogic.isCrash(CrashLogic.ImpactEvidence(
-                        window: snapshot,
-                        speedBeforeMps: motion.speedBeforeMps,
-                        speedAfterMps: motion.speedAfterMps,
-                        metersFromRoad: motion.metersFromRoad))
-                    else { return }
-                    self.impactDetected()
+                    await self.confirmCrash(window: snapshot, generation: generation)
                 }
             }
         }
@@ -139,13 +135,48 @@ final class CrashDetectionService: ObservableObject {
     func end() {
         motion.stopAccelerometerUpdates()
         monitorGeneration += 1   // invalidate any impact hop still in flight
+        addressLookup += 1       // and any address lookup
+        reverseGeocodedAddress = nil
         stopCheckIn()
         state = .idle
         releaseAudioSessionWhenQuiet()
     }
 
+    /// The g-force only opened the question. A crash also means a road-speed
+    /// vehicle ON A ROAD suddenly stopped (CrashLogic.isCrash), and GPS cannot
+    /// say "stopped" at the instant of the bang: its latest fix is up to a
+    /// second old and still reads the speed before the hit. Judged at the
+    /// impact itself, a real crash failed the stop test. So the speed before
+    /// the hit and the road check are taken now, and the stop is looked for in
+    /// the fixes of the next few seconds (CrashLogic.stopSettleSeconds). A
+    /// pothole at speed never loses its speed, so it still never trips it —
+    /// and a fix with no speed (Wi-Fi or cell, GPS reacquiring) reads NaN,
+    /// which isCrash never takes for a stop. The price: a crash whose every
+    /// fix in the window lacks a speed goes unasked.
+    private func confirmCrash(window: [Double], generation: Int) async {
+        let atImpact = motionEvidence()
+        let deadline = Date().addingTimeInterval(CrashLogic.stopSettleSeconds)
+        while Date() < deadline {
+            guard monitorGeneration == generation, state == .idle else { return }
+            if CrashLogic.isCrash(CrashLogic.ImpactEvidence(
+                window: window,
+                speedBeforeMps: atImpact.speedBeforeMps,
+                speedAfterMps: motionEvidence().speedAfterMps,
+                metersFromRoad: atImpact.metersFromRoad)) {
+                impactDetected()
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+    }
+
     private func impactDetected() {
         impactTime = Date()
+        // Where the crash happened, not where the drive began: the address
+        // was resolved once at trip start, and the report sent the driver's
+        // contact to the start of the trip.
+        reverseGeocodedAddress = nil
+        resolveAddress()
         state = .checkingIn(attempt: 1)
         // Re-ask FOREVER until answered or physically dismissed — a
         // concussed driver may surface minutes later.
@@ -168,8 +199,14 @@ final class CrashDetectionService: ObservableObject {
         stopCheckIn()
         state = .assisting
         let report = emergencyReport()
-        speak("Calling 9 1 1. After the call, a report is ready to send to "
-              + "your emergency contact. The report reads: " + report)
+        // Apps cannot place a call on their own: the driver taps Call 911 on
+        // the card, and iOS dials. The voice used to say "Calling 9 1 1" while
+        // nothing was being called, and promised a report for a contact the
+        // driver may never have saved (the card then has no send button).
+        let contact = hasEmergencyContact()
+            ? "A report is ready to send to your emergency contact. " : ""
+        speak("Tap Call 9 1 1 on the screen to call for help. " + contact
+              + "The report reads: " + report)
     }
 
     /// Physical dismissal or a spoken "I'm okay" — stand down.
@@ -209,16 +246,22 @@ final class CrashDetectionService: ObservableObject {
     }
 
     private(set) var reverseGeocodedAddress: String?
+    /// Bumped by every lookup (and at trip end): only the newest may write.
+    /// A slow lookup from an earlier check-in could otherwise land after a
+    /// later crash and put the wrong place in its report.
+    private var addressLookup = 0
 
     func resolveAddress() {
+        addressLookup += 1
+        let lookup = addressLookup
         guard let coord = context().coordinate else { return }
         let loc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
         CLGeocoder().reverseGeocodeLocation(loc) { [weak self] placemarks, _ in
             Task { @MainActor in
-                if let pm = placemarks?.first {
-                    self?.reverseGeocodedAddress = [pm.name, pm.locality, pm.administrativeArea]
-                        .compactMap { $0 }.joined(separator: ", ")
-                }
+                guard let self, self.addressLookup == lookup,
+                      let pm = placemarks?.first else { return }
+                self.reverseGeocodedAddress = [pm.name, pm.locality, pm.administrativeArea]
+                    .compactMap { $0 }.joined(separator: ", ")
             }
         }
     }

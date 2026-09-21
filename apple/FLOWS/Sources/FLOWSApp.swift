@@ -1947,8 +1947,7 @@ final class AppModel: ObservableObject {
             let estimates = base.map { r -> PlannedRoute in
                 var w = r
                 w.isWalkingEstimate = true
-                // 3.1 mph sustained pace + 10% rest overhead.
-                w.etaOverride = r.distanceMeters / 1.39 * 1.10
+                w.etaOverride = PlannedRoute.walkingEstimateSeconds(meters: r.distanceMeters)
                 return w
             }
             // The notice describes the estimates; with none, it described
@@ -2014,6 +2013,7 @@ final class AppModel: ObservableObject {
         // Target = a point ~window-meters ahead ALONG the estimate route, so the
         // pedestrian router hugs the intended corridor instead of shortcutting.
         let target = navigation.coordinateAhead(meters: Self.walkRefineWindowMeters) ?? here
+        let routeID = navigation.route?.id
         walkRefineTask?.cancel()
         // Background geometry refinement — not latency-critical; keep it off
         // the P-core/userInteractive band the MainActor would grant it.
@@ -2036,7 +2036,8 @@ final class AppModel: ObservableObject {
             poly.getCoordinates(&coords, range: NSRange(location: 0, length: n))
             let refined = coords   // a value crosses the actor hop, not the captured var
             await MainActor.run { [weak self] in
-                guard let self, self.navigation.route?.isWalkingEstimate == true else { return }
+                guard let self, !Task.isCancelled, self.navigation.route?.id == routeID,
+                      self.navigation.route?.isWalkingEstimate == true else { return }
                 self.walkingRefinedPath = refined
             }
         }
@@ -2075,6 +2076,7 @@ final class AppModel: ObservableObject {
             }
             return ShelterPolicy.Kind.anyBuilding.searchQueries
         }
+        navigation.onReroute = { [weak self] leg in self?.startRerouteLeg(leg) ?? false }
         // `location` publishes once a second and is forwarded to the whole
         // model. Reviewed and KEPT: 34 view sites across ContentView,
         // PlannerPanel, the HUD, the banners and CarPlay read position,
@@ -2285,9 +2287,16 @@ final class AppModel: ObservableObject {
         // vehicle ON A ROAD coming to a sudden stop (CrashLogic.isCrash).
         crash.motionEvidence = { [weak self] in
             guard let self else { return (0, 0, nil) }
-            return (self.recentPeakSpeedMps,
-                    max(self.location.speed, 0),
-                    self.navigation.metersFromCorridor)
+            // A fix with no speed (-1: Wi-Fi or cell, GPS reacquiring) is
+            // unknown, not stopped — `location.speed` clamps it to 0, which
+            // read as a dead stop at full speed.
+            let after = self.location.latest.map {
+                $0.speed >= 0 && $0.speedAccuracy >= 0 ? $0.speed : .nan
+            } ?? .nan
+            return (self.recentPeakSpeedMps, after, self.navigation.metersFromCorridor)
+        }
+        crash.hasEmergencyContact = { [weak self] in
+            self?.emergencyContactPhone.isEmpty == false
         }
         // Telemetry ladder: OEM cloud (Smartcar) → Bluetooth (OBD adapter /
         // TPMS caps) → nothing (odometer model carries on). Real fuel data
@@ -3155,8 +3164,12 @@ final class AppModel: ObservableObject {
         let done = await attributeScored(leg)
         if let i = routeChoices.firstIndex(where: { $0.id == done.id }) {
             routeChoices[i] = done
-        } else {
-            navigation.updateRouteMetadata(done)
+        } else if var live = navigation.route, live.id == done.id {
+            // Only the attributes: the live leg may have been scored (the
+            // off-route replan) or repainted by the corridor watch since
+            // `leg` was copied, and writing `done` whole put that back.
+            live.takeAttributes(from: done)
+            navigation.updateRouteMetadata(live)
         }
     }
 
@@ -3242,8 +3255,11 @@ final class AppModel: ObservableObject {
     /// a stop). Background scorings (the continuation leg planned while the
     /// driver is still en route to a stop) call `scored` directly and stay at
     /// the background ceiling. No progress sink: these routes have no card.
-    private func scoredBurst(_ input: PlannedRoute) async -> PlannedRoute {
-        await RequestGate.shared.withPlanningBurst { await self.scored(input) }
+    private func scoredBurst(_ input: PlannedRoute,
+                             adoptTripFeeds: Bool = true) async -> PlannedRoute {
+        await RequestGate.shared.withPlanningBurst {
+            await self.scored(input, adoptTripFeeds: adoptTripFeeds)
+        }
     }
 
     /// `onProgress` (optional): per-batch provisional updates, supplied by
@@ -3254,8 +3270,15 @@ final class AppModel: ObservableObject {
     /// (field predictors + capped alert), so the provisional band can't
     /// red-out on a watch the final pass would cap. GO still waits for the
     /// complete verdict.
+    ///
+    /// `adoptTripFeeds`: whether this corridor's closures and live feeds
+    /// become the TRIP's (what the live watch scores with). False for a
+    /// scoring that must not take them over — the off-route replan to an
+    /// added stop, whose small box would otherwise replace the continuation
+    /// leg's for the rest of the trip.
     private func scored(
         _ input: PlannedRoute,
+        adoptTripFeeds: Bool = true,
         onProgress: (@MainActor (Double, [RiskSample?]) -> Void)? = nil
     ) async -> PlannedRoute {
         var r = input
@@ -3331,11 +3354,13 @@ final class AppModel: ObservableObject {
             : []
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
         let corridorClosures = await closuresF
-        tripClosures = corridorClosures   // the live watch reads these
         let corridorLive = await liveF
-        tripLive = corridorLive
-        tripLiveFetched = Date()
-        tripLiveBox = bbox
+        if adoptTripFeeds {
+            tripClosures = corridorClosures   // the live watch reads these
+            tripLive = corridorLive
+            tripLiveFetched = Date()
+            tripLiveBox = bbox
+        }
         let corridorGauges = await gaugesF
         let corridorWater = await waterF
 
@@ -3772,8 +3797,9 @@ final class AppModel: ObservableObject {
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
         checkTowingSignal()   // trailer signal checked at trip start, not per tick
         if crashDetectionEnabled, CrashDetectionService.isAvailable {
+            // The report's address is looked up at the crash site, when an
+            // impact is confirmed (CrashDetectionService.impactDetected).
             crash.begin()
-            crash.resolveAddress()
         }
     }
 
@@ -4236,6 +4262,13 @@ final class AppModel: ObservableObject {
         // escalations. Deferring makes baseline and live means like-for-like
         // by construction.
         escalationState = .fresh(baseline: nil)
+        // The sidewalk overlay belongs to the leg it was refined for: kept
+        // across a swap it drew the path along the road just left, for up to
+        // 400 m, and a refine still in flight could write it back.
+        walkRefineTask?.cancel()
+        walkRefineTask = nil
+        walkingRefinedPath = []
+        walkRefineAnchor = nil
         navigation.start(route: leg, onArrival: { [weak self] in self?.handleArrival() })
         // Legs swapped in mid-drive (reroute, added stop, arrival chaining)
         // arrive weather-scored but attribute-pending — hydrate grades /
@@ -4480,6 +4513,71 @@ final class AppModel: ObservableObject {
         pendingStopName = nil
         pendingStopKind = nil
         startLeg(route)
+    }
+
+    /// The off-route replan (NavigationEngine.onReroute). It used to swap
+    /// in place: the line lost its risk colours for the rest of the trip,
+    /// and the corridor watch, the stops search and the Watch stayed on the
+    /// road the driver had left. It now starts as a leg like any other.
+    /// Guidance moves to the new road at once — a lost driver can't wait on
+    /// scoring — so the score lands afterwards and is folded into the live
+    /// leg. Any stop still pending stays: the replan runs to the end of this
+    /// leg, not the trip.
+    ///
+    /// A missed turn is not a new choice, so two things carry across the
+    /// swap that a chosen leg resets: the escalation state (the driver's
+    /// Continue on an alert still stands, and the risk they accepted is still
+    /// the yardstick — a replan onto a worse road must not quietly become the
+    /// new normal) and the pace learner's leg clock (the stop and shelter
+    /// time subtracted at arrival counts from the leg's start, not the
+    /// replan's). Answers false when there is no trip to replan.
+    private func startRerouteLeg(_ replanned: PlannedRoute) -> Bool {
+        guard mode == .navigating, arrivedAt == nil else { return false }
+        var leg = RouteService.applyPersonalPace(
+            [replanned], multiplier: DrivingProfileStore.shared.etaMultiplier)[0]
+        // Until the new road is scored it carries the old road's verdict.
+        if let old = navigation.route {
+            leg.weatherRisk = old.weatherRisk
+            leg.alertHeadlines = old.alertHeadlines
+        }
+        let accepted = escalationState
+        let started = legStartedAt, predicted = legPredictedSeconds
+        startLeg(leg)
+        escalationState = accepted
+        legStartedAt = started
+        legPredictedSeconds = predicted
+        let gen = tripGeneration
+        // A replan to an added stop must not hand its small box's closures
+        // and live feeds to the trip: the continuation leg scored them for
+        // the rest of the drive.
+        let toFinal = upcomingLeg == nil && pendingStopName == nil
+        Task { [weak self] in
+            // Retried with backoff while a weather fetch keeps failing, as the
+            // route cards are: nothing else re-scores a leg once it is driven.
+            for delay in [0.0, 6, 15, 30, 60] {
+                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                guard let self, self.mode == .navigating, gen == self.tripGeneration,
+                      self.navigation.route?.id == leg.id else { return }
+                let scored = await self.scoredBurst(leg, adoptTripFeeds: toFinal)
+                guard self.mode == .navigating, gen == self.tripGeneration,
+                      var live = self.navigation.route, live.id == leg.id else { return }
+                let carried = (risk: live.weatherRisk, headlines: live.alertHeadlines)
+                live.takeScore(from: scored)
+                if !scored.weatherScored {
+                    // A failed cell scores 0, and unknown is never clear: an
+                    // incomplete score may raise the carried verdict, never
+                    // lower it.
+                    live.weatherRisk = max(live.weatherRisk, carried.risk)
+                    for h in carried.headlines where !live.alertHeadlines.contains(h) {
+                        live.alertHeadlines.append(h)
+                    }
+                }
+                self.navigation.updateRouteMetadata(live)
+                self.routeMetadataVersion &+= 1
+                if scored.weatherScored { return }
+            }
+        }
+        return true
     }
 
     // MARK: POI stop chaining

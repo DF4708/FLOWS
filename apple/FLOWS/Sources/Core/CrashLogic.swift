@@ -94,6 +94,16 @@ enum CrashLogic {
         }
     }
 
+    /// How long after a hard jolt to watch the GPS for the stop. A fix is
+    /// about a second old at the moment of impact and still reads the speed
+    /// before it, and Core Location's smoothing can take a couple more fixes
+    /// to read a crashed car as stopped. The wait is kept short on purpose:
+    /// the longer it is, the more often a phone knocked off its mount just
+    /// before an ordinary stop at a light (from under ~35 mph, normal braking
+    /// gets below the stop speed inside 5 s) asks "Are you OK?". A missed
+    /// crash costs more than that question, so it is not shorter still.
+    static let stopSettleSeconds: TimeInterval = 5
+
     /// Re-ask cadence: after a crash the driver may be unconscious — keep
     /// asking until they answer or PHYSICALLY dismiss, never stop after one
     /// attempt.

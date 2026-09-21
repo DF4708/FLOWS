@@ -55,6 +55,13 @@ final class NavigationEngine: ObservableObject {
     /// Set via start(route:onArrival:) — never assigned post-start.
     private var onArrival: (() -> Void)?
     private var arrivalFired = false
+    /// Takes an off-route replan and starts it as a new leg: AppModel
+    /// restarts the corridor watch, the stops search and the Watch's line
+    /// on the new road and scores it. Answers false when it declines (no
+    /// trip being navigated), and then — as with no owner at all — the
+    /// engine swaps the route in place, so it is back on the road being
+    /// driven instead of asking for the same replan every few fixes.
+    var onReroute: ((PlannedRoute) -> Bool)?
 
     private let location: LocationService
     private var cancellable: AnyCancellable?
@@ -100,7 +107,13 @@ final class NavigationEngine: ObservableObject {
         offRouteFixes = 0
         arrivalFired = false
         location.beginNavigationUpdates()
+        // dropFirst: @Published replays the current fix SYNCHRONOUSLY on
+        // subscribe, so without it an instant arrival ran inside start() —
+        // inside the caller's leg setup, which then undid the arrival's
+        // handling (a replan that lands at the door). The next-tick Task
+        // below delivers that fix instead.
         cancellable = location.$latest
+            .dropFirst()
             .compactMap { $0 }
             .sink { [weak self] fix in self?.advance(with: fix) }
         // First instruction/camera immediately — but on the NEXT main-actor
@@ -210,6 +223,7 @@ final class NavigationEngine: ObservableObject {
                 latitude: dest.latitude, longitude: dest.longitude))
             if destDist < 200 {
                 arrivalFired = true
+                rerouteTask?.cancel()   // a replan in flight must not re-arm the finished leg
                 onArrival?()
             }
         }
@@ -237,25 +251,57 @@ final class NavigationEngine: ObservableObject {
     private var rerouteTask: Task<Void, Never>?
 
     private func requestReroute(from fix: CLLocation) {
-        guard !isRerouting, let current = route else { return }
+        // Not after arrival: circling the lot or GPS drift indoors would
+        // start a fresh leg and fire arrival a second time.
+        guard !isRerouting, !arrivalFired, let current = route else { return }
         isRerouting = true
         offRouteFixes = 0
         let destination = points.last!
+        // Replan the way the leg was planned. This always asked for a
+        // driving route, so a walker who strayed was sent down roads for
+        // cars — freeways included on a long walk.
+        let walking = current.route.transportType == .walking
+        let walkingEstimate = current.isWalkingEstimate
+        let planKind = current.planKind
         rerouteTask?.cancel()
         rerouteTask = Task { [weak self] in
             defer { self?.isRerouting = false }
             let request = MKDirections.Request()
             request.source = MKMapItem(placemark: MKPlacemark(coordinate: fix.coordinate))
             request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
-            request.transportType = .automobile
+            request.transportType = walking ? .walking : .automobile
             request.departureDate = Date()
+            if walkingEstimate {
+                // Beyond the pedestrian router's range: local roads, and the
+                // first answer with no highway at all, as the planner does.
+                request.highwayPreference = .avoid
+                request.requestsAlternateRoutes = true
+            } else if !walking {
+                // A driver who chose the local-roads or toll-free route
+                // keeps that choice on the way back.
+                switch planKind {
+                case .standard: break
+                case .avoidHighways: request.highwayPreference = .avoid
+                case .tollFree: request.tollPreference = .avoid
+                }
+            }
             guard let response = try? await MKDirections(request: request).calculate(),
                   !Task.isCancelled,   // stop()/new leg superseded this reroute
-                  let newRoute = response.routes.first, let self else { return }
+                  let newRoute = walkingEstimate
+                    ? response.routes.first(where: { !$0.hasHighways }) ?? response.routes.first
+                    : response.routes.first,
+                  let self, !self.arrivalFired else { return }
             var replanned = PlannedRoute(
                 route: newRoute,
                 sourceName: "Current location",
-                destinationName: current.destinationName)
+                destinationName: current.destinationName,
+                planKind: planKind)
+            if walkingEstimate {
+                replanned.isWalkingEstimate = true
+                replanned.etaOverride = PlannedRoute.walkingEstimateSeconds(
+                    meters: newRoute.distance)
+            }
+            if let onReroute = self.onReroute, onReroute(replanned) { return }
             replanned.weatherRisk = current.weatherRisk
             replanned.alertHeadlines = current.alertHeadlines
             self.route = replanned

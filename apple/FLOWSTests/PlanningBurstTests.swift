@@ -454,4 +454,65 @@ final class PlanningBurstTests: XCTestCase {
         for f in fractions { XCTAssertEqual(f.fraction, 0.25, accuracy: 1e-9) }
         XCTAssertEqual(fractions.map(\.fraction).reduce(0, +), 1, accuracy: 1e-9)
     }
+
+    /// The off-route replan starts before it is scored, so its weather score
+    /// and its physical attributes land on the live leg in either order.
+    /// Each pass folds in only its own fields: a whole-route write let the
+    /// later pass wipe the earlier one's (the line lost its colours, or the
+    /// grades vanished).
+    func testScoreAndAttributesFoldInWithoutWipingEachOther() {
+        let road = MKRoute()
+        var live = PlannedRoute(route: road, sourceName: "A", destinationName: "B")
+        live.isWalkingEstimate = true
+        live.etaOverride = 600
+
+        var scored = live
+        scored.weatherRisk = 0.7
+        scored.weatherScored = true
+        scored.riskSamples = [sample(0.2), sample(0.7)]
+        scored.riskSegments = [RiskSegment(coordinates: [], risk: 0.7, lengthMeters: 900)]
+        scored.alertHeadlines = ["Flood Warning"]
+        scored.peakRisk = 0.7
+        scored.familyPeaks = ["wind": 0.4]
+
+        var attributes = live
+        attributes.maxGradePercent = 9
+        attributes.clearancesMeters = [3.9]
+        attributes.femaFloodFraction = 0.25
+        attributes.attributesScored = true
+
+        // Attributes first, then the score…
+        var a = live
+        a.takeAttributes(from: attributes)
+        a.takeScore(from: scored)
+        // …and the score first, then the attributes.
+        var b = live
+        b.takeScore(from: scored)
+        b.takeAttributes(from: attributes)
+
+        for r in [a, b] {
+            XCTAssertEqual(r.id, live.id)
+            XCTAssertEqual(r.weatherRisk, 0.7)
+            XCTAssertTrue(r.weatherScored)
+            XCTAssertEqual(r.riskSamples.map(\.risk), [0.2, 0.7])
+            XCTAssertEqual(r.riskSegments.count, 1)
+            XCTAssertEqual(r.alertHeadlines, ["Flood Warning"])
+            XCTAssertEqual(r.peakRisk, 0.7)
+            XCTAssertEqual(r.familyPeaks, ["wind": 0.4])
+            XCTAssertEqual(r.maxGradePercent, 9)
+            XCTAssertEqual(r.clearancesMeters, [3.9])
+            XCTAssertEqual(r.femaFloodFraction, 0.25)
+            XCTAssertTrue(r.attributesScored)
+            // Neither pass touches what the leg itself carries.
+            XCTAssertTrue(r.isWalkingEstimate)
+            XCTAssertEqual(r.etaOverride, 600)
+        }
+    }
+
+    /// The replan's long-walk estimate uses the planner's pace: 3.1 mph and
+    /// 10% for rests.
+    func testWalkingEstimatePace() {
+        XCTAssertEqual(PlannedRoute.walkingEstimateSeconds(meters: 1_390), 1_100, accuracy: 1e-9)
+        XCTAssertEqual(PlannedRoute.walkingEstimateSeconds(meters: 0), 0)
+    }
 }
