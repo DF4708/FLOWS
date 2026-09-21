@@ -45,14 +45,44 @@ final class WatchGuidance: NSObject, ObservableObject, WCSessionDelegate {
         WCSession.default.activate()
     }
 
+    /// A picture the phone stamped more than 15 minutes ago is an old one,
+    /// not a live trip. A drive refreshes the stamp every couple of seconds,
+    /// so only a trip the phone never ended (quit, crash, dead battery)
+    /// leaves one — and the system keeps it, and hands it over late.
+    private static func isStale(_ context: [String: Any]) -> Bool {
+        guard let at = context["at"] as? Double else { return false }
+        return Date().timeIntervalSince1970 - at >= 15 * 60
+    }
+
+    /// A context that arrived while this app was closed waits here: show it
+    /// at once instead of "Waiting for FLOWS" until the next change, while
+    /// it is fresh. One without a stamp (an older phone build) is never
+    /// replayed.
     func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState,
-                 error: Error?) {}
+                 error: Error?) {
+        let waiting = session.receivedApplicationContext
+        guard state == .activated, waiting["at"] is Double, !Self.isStale(waiting) else { return }
+        apply(waiting)
+    }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         apply(message)
     }
 
+    /// A context delivered late (the app was closed or asleep when it came)
+    /// is checked the same way. An old one clears the face rather than being
+    /// skipped: the face may still hold an even older trip.
     func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
+        guard !Self.isStale(context) else {
+            DispatchQueue.main.async {
+                self.navigating = false
+                self.instruction = "Waiting for FLOWS on iPhone…"
+                self.distanceText = ""
+                self.routeCoords = []
+                self.vehicle = nil
+            }
+            return
+        }
         apply(context)
     }
 

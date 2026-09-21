@@ -10,8 +10,11 @@ import Combine
 import CoreLocation
 import MapKit
 import SwiftUI
+import UserNotifications
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 
 /// App-wide mode: plan on a continent-scale map, then flip to a time-sensitive
@@ -1473,10 +1476,61 @@ final class AppModel: ObservableObject {
             guard let warning = imminentWarning,
                   warning.alertID != oldValue?.alertID else { return }
             if hapticAlerts { Haptics.warning() }
-            guard voiceAlerts else { return }
-            VoiceAnnouncer.shared.announce(SiriSummaries.emergencyAnnouncement(
+            let spoken = SiriSummaries.emergencyAnnouncement(
                 event: warning.event, headline: warning.headline,
-                action: warning.action))
+                action: warning.action)
+            Self.noticeIfAway(id: "imminent." + warning.alertID,
+                              title: warning.event, body: spoken)
+            guard voiceAlerts else { return }
+            VoiceAnnouncer.shared.announce(spoken)
+        }
+    }
+
+    // MARK: lock-screen notices
+
+    /// A warning raised while FLOWS is not on screen (the phone locked in
+    /// its mount, another app in front) also goes to the lock screen. The
+    /// banner cannot be seen then, the haptic cannot fire from the
+    /// background, and with voice off the driver got nothing at all. The
+    /// Settings → Notifications switches decide which warnings exist in the
+    /// first place; this only carries them where the driver can see them.
+    /// Nothing is posted while FLOWS is in front: the banner is there.
+    private static func noticeIfAway(id: String, title: String, body: String) {
+        #if os(macOS)
+        guard !NSApplication.shared.isActive else { return }
+        #else
+        guard UIApplication.shared.applicationState != .active else { return }
+        #endif
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.threadIdentifier = "flows.warnings"
+        // One notice per warning: the same id replaces, never piles up.
+        UNUserNotificationCenter.current().add(UNNotificationRequest(
+            identifier: "flows." + id, content: content, trigger: nil))
+    }
+
+    /// A finished trip's warnings describe a road no longer driven: they
+    /// leave the lock screen with it.
+    private static func clearNotices() {
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let ids = await center.deliveredNotifications()
+                .map(\.request.identifier).filter { $0.hasPrefix("flows.") }
+            if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+        }
+    }
+
+    /// Asked once, the first time a trip starts with a warning switch on —
+    /// not at launch, when the question has no context.
+    private func askForNoticesIfNeeded() {
+        guard notifyImminent || notifyEscalation else { return }
+        Task {
+            let center = UNUserNotificationCenter.current()
+            guard await center.notificationSettings().authorizationStatus == .notDetermined
+            else { return }
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
         }
     }
 
@@ -3794,6 +3848,7 @@ final class AppModel: ObservableObject {
         tripDistanceMeters = route.distanceMeters
         mode = .navigating
         startLeg(route)
+        askForNoticesIfNeeded()   // lock-screen warnings, asked at the first GO
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
         checkTowingSignal()   // trailer signal checked at trip start, not per tick
         if crashDetectionEnabled, CrashDetectionService.isAvailable {
@@ -3828,6 +3883,7 @@ final class AppModel: ObservableObject {
         // future estimate for it.
         learnTripDuration()   // teach the delay model what this drive cost
         tripGeneration += 1
+        Self.clearNotices()   // the trip's lock-screen warnings go with it
         tripClosures = []
         // The towing card belongs to the drive; left open, it came back over
         // the planner once the trip ended.
@@ -4061,10 +4117,27 @@ final class AppModel: ObservableObject {
             state: escalationState)
         escalationState = next
         if let trigger, notifyEscalation {
-            escalation = Escalation(
+            let raised = Escalation(
                 newRisk: trigger.risk,
                 headline: score.headlines.first ?? "Conditions worsening along this route",
                 alertID: trigger.alertID)
+            let previous = escalation
+            escalation = raised
+            // The policy raises the same prompt on every corridor pass until
+            // the driver answers it, and a driver can't answer at speed: the
+            // lock screen hears about a prompt once, and again only for a
+            // different hazard or a clearly worse one — not every 2 minutes.
+            let isNew = previous == nil
+                || previous?.alertID != raised.alertID
+                || raised.newRisk > (previous?.newRisk ?? 0) + EscalationPolicy.dismissMargin
+            if isNew {
+                // No cause in the title: a road closure, a fire or an
+                // evacuation raises this as surely as a storm.
+                Self.noticeIfAway(
+                    id: "escalation",
+                    title: "Your route is getting riskier",
+                    body: raised.headline + ". Open FLOWS to find a safer way or keep going.")
+            }
         }
     }
 

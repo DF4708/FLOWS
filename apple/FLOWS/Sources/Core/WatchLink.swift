@@ -26,6 +26,15 @@ final class WatchLink: NSObject, ObservableObject {
     private var hapticFiredForManeuver = false
     private var lastManeuverInstruction = ""
     private var lastManeuverDistance = Double.greatestFiniteMagnitude
+    /// Everything the Watch should be showing now. The application context
+    /// holds ONE dictionary and each update replaces the last, so a guidance
+    /// tick queued while the Watch was out of reach replaced the route line
+    /// it had not received yet: the Watch showed turns over an empty map.
+    /// Every push folds in here and the context always carries all of it; a
+    /// live message carries only the change.
+    private var shown: [String: Any] = [:]
+    /// One-shot cues: a context replayed later must not tap the wrist again.
+    private static let cues: Set<String> = ["nearTurn", "arrived"]
 
     override init() {
         super.init()
@@ -40,6 +49,9 @@ final class WatchLink: NSObject, ObservableObject {
         let capped = pts.count > 120
             ? stride(from: 0, to: pts.count, by: pts.count / 120 + 1).map { pts[$0] }
             : pts
+        // A new trip, not a reroute: nothing of the last one carries over
+        // (its "Trip ended", its position and heading).
+        if shown["navigating"] as? Bool != true { shown = [:] }
         push([
             "navigating": true,
             "routeLat": capped.map(\.latitude),
@@ -90,17 +102,38 @@ final class WatchLink: NSObject, ObservableObject {
     }
 
     func sendEnded() {
-        push(["navigating": false, "instruction": "Trip ended", "distance": ""],
+        // The trip goes whole: its line (kept, it drew the last route under
+        // "Trip ended" until the next one), its position and its heading.
+        shown = [:]
+        push(["navigating": false, "instruction": "Trip ended", "distance": "",
+              "routeLat": [Double](), "routeLon": [Double]()],
              urgent: false)
     }
 
     private func push(_ payload: [String: Any], urgent: Bool) {
+        for (key, value) in payload where !Self.cues.contains(key) { shown[key] = value }
+        // When the picture was true: the Watch shows a stored one at launch
+        // only while it is fresh (WatchApp's activation handler).
+        shown["at"] = Date().timeIntervalSince1970
         let session = WCSession.default
         guard session.activationState == .activated else { return }
         if urgent, session.isReachable {
             session.sendMessage(payload, replyHandler: nil, errorHandler: nil)
-        } else {
-            try? session.updateApplicationContext(payload)
+        }
+        try? session.updateApplicationContext(shown)
+    }
+
+    /// The session came up. Something already sent (a trip started right at
+    /// launch was dropped whole) goes to the Watch now. With nothing sent
+    /// yet, a trip the last run never ended (the app was quit, crashed or
+    /// lost power mid-drive) is ended, so the Watch stops showing its turns.
+    fileprivate func sessionActivated() {
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        if !shown.isEmpty {
+            try? session.updateApplicationContext(shown)
+        } else if session.applicationContext["navigating"] as? Bool == true {
+            sendEnded()
         }
     }
     #else
@@ -118,7 +151,10 @@ final class WatchLink: NSObject, ObservableObject {
 extension WatchLink: WCSessionDelegate {
     nonisolated func session(_ session: WCSession,
                              activationDidCompleteWith state: WCSessionActivationState,
-                             error: Error?) {}
+                             error: Error?) {
+        guard state == .activated else { return }
+        Task { @MainActor in self.sessionActivated() }
+    }
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         session.activate()
