@@ -4788,6 +4788,8 @@ struct FLOWSApp: App {
     @StateObject private var model = AppModel()
 
     init() {
+        // Before anything reads the Keychain (AppModel is built after this).
+        FreshInstall.clearLeftoversIfFresh()
         #if os(macOS)
         // Every text input in FLOWS is a place name, ZIP, or vehicle spec —
         // macOS inline predictions only ever "correct" those, and the gray

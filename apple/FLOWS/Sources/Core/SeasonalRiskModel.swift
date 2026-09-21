@@ -491,6 +491,19 @@ final class SeasonalRiskModel: ObservableObject {
                 .flatMap { try? Data(contentsOf: $0) })
             await MainActor.run { [weak self] in
                 guard let self else { return }
+                // An erase that landed while this read must win: what was
+                // read is the history the driver just erased, and putting it
+                // back let the next arrival persist it under a fresh key.
+                // Keep only the shipped baseline, and shred again in case the
+                // read upgraded an old plaintext file after the erase's shred.
+                guard self.eraseGeneration == 0 else {
+                    self.applyHead(local: nil, bundled: bundled)
+                    SecureBehaviorStore.persistQueue.async {
+                        SecureBehaviorStore.shred(storeURL)
+                        SecureBehaviorStore.shred(headFileURL)
+                    }
+                    return
+                }
                 if let loadedStore { self.store = loadedStore }
                 self.applyHead(local: local, bundled: bundled)
             }
@@ -588,6 +601,7 @@ final class SeasonalRiskModel: ObservableObject {
         tunedAtTripCount = trips
         let rows = store.trainingRows(now: now.timeIntervalSince1970)
         let headURL = self.headURL
+        let generation = eraseGeneration
         Task.detached(priority: .utility) { [weak self] in
             guard let tuned = RouteHeadTrainer.fineTune(base: baseline, rows: rows),
                   let tunedError = RouteHeadTrainer.meanSquaredError(tuned, rows: rows),
@@ -598,15 +612,30 @@ final class SeasonalRiskModel: ObservableObject {
                               "route head fine-tune discarded — no improvement on own trips")
                 return
             }
-            SecureBehaviorStore.save(tuned, to: headURL)
-            FlowsDiag.log(.info, "learning", String(
-                format: "route head fine-tuned on %d rows (MSE %.4f → %.4f)",
-                rows.count, baseError, tunedError))
-            await MainActor.run { [weak self] in self?.head = tuned }
+            // An erase while this trained must win: the rows it learned
+            // from are gone. The save used to run here, off the persist
+            // queue, and could land after the erase destroyed the key —
+            // minting a fresh one and writing the trained model back,
+            // readable — and the head came back in memory too. Checked on
+            // the main actor, then sealed on the one persist queue, so an
+            // erase after this point still runs its key delete after the
+            // write (FIFO) and leaves only ciphertext nothing can open.
+            await MainActor.run { [weak self] in
+                guard let self, self.eraseGeneration == generation else { return }
+                self.head = tuned
+                SecureBehaviorStore.persistQueue.async {
+                    SecureBehaviorStore.save(tuned, to: headURL)
+                }
+                FlowsDiag.log(.info, "learning", String(
+                    format: "route head fine-tuned on %d rows (MSE %.4f → %.4f)",
+                    rows.count, baseError, tunedError))
+            }
         }
     }
 
     private var lastTunedAt: Date?
+    /// Bumped by every erase; a fine-tune started before one is discarded.
+    private var eraseGeneration = 0
     private var tunedAtTripCount = 0
 
     /// Plain-words summary of what the model has learned, for the Settings
@@ -624,6 +653,7 @@ final class SeasonalRiskModel: ObservableObject {
 
     /// Erase everything learned about the driver and destroy the file.
     func eraseLearnedHistory() {
+        eraseGeneration &+= 1
         store = SeasonalStore()
         lastTunedAt = nil
         tunedAtTripCount = 0

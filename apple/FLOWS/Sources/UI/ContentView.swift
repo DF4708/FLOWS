@@ -3628,6 +3628,13 @@ struct SettingsSheet: View {
                     learnedRow("Destinations kept", "\(model.recents.entries.count)")
                     learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
                     learnedRow("Your pace", DrivingProfileStore.shared.profile.etaDescription)
+                    // Where the driver has actually been. The erase button
+                    // reached these four, but this list — "exactly what is
+                    // stored", in the privacy policy's words — left them out.
+                    learnedRow("Trail points saved", "\(model.breadcrumbs.points.count)")
+                    learnedRow("Roads saved for no signal", "\(model.corridors.corridors.count)")
+                    learnedRow("Traffic times learned", "\(model.trafficModel.store.cells.count)")
+                    learnedRow("Fuel use learned", "\(model.roadEfficiency.store.cells.count)")
                     if let cal = summary.calibration {
                         learnedRow("Risk prediction error",
                                    String(format: "%.3f typical", cal))

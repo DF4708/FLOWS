@@ -34,7 +34,7 @@ import Security
 /// Rust trainer consumes, which is the most sensitive file of the set (raw
 /// trip rows).
 enum SecureBehaviorStore {
-    private static let service = "com.flows.app.behavior"
+    static let service = "com.flows.app.behavior"
 
     /// Which key a file is sealed under.
     ///

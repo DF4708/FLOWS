@@ -266,6 +266,12 @@ final class LearningAndPrivacyTests: XCTestCase {
     /// when one existed.
     func testDriverShowerReportOutranksTheBrandTable() {
         let lat = 41.1234, lon = -95.4321
+        // The report lands in the test runner's own preferences, which
+        // persist between runs: left behind, the next run of this class
+        // alone found the stop already disproved.
+        let reportsKey = "flows.showersDisproved"
+        UserDefaults.standard.removeObject(forKey: reportsKey)
+        defer { UserDefaults.standard.removeObject(forKey: reportsKey) }
         XCTAssertFalse(ShowerAvailability.isDisproved(lat: lat, lon: lon))
         // Brand knowledge alone claims showers at a big-chain truck stop.
         XCTAssertEqual(
@@ -327,5 +333,26 @@ final class LearningAndPrivacyTests: XCTestCase {
         XCTAssertNil(RouteHeadTrainer.fineTune(base: base, rows: []))
         let stale = LearnedHead(w1: [[0.1, 0.2]], b1: [0], w2: [0.1], b2: 0, version: 1)
         XCTAssertNil(RouteHeadTrainer.fineTune(base: stale, rows: rows(target: 0.5, count: 5)))
+    }
+
+    /// A fresh install clears the Keychain an earlier install left; an
+    /// update never does. Every sign of an earlier launch keeps it.
+    func testOnlyAFreshInstallClearsTheKeychain() {
+        XCTAssertTrue(FreshInstall.isFresh(markerPresent: false, preferenceKeys: [],
+                                           supportFileCount: 0))
+        // Keys the system writes into the app's domain are not FLOWS's.
+        XCTAssertTrue(FreshInstall.isFresh(markerPresent: false,
+                                           preferenceKeys: ["AKLastLocale", "NSLanguages"],
+                                           supportFileCount: 0))
+        // Launched before (this build or one from before the marker).
+        XCTAssertFalse(FreshInstall.isFresh(markerPresent: true, preferenceKeys: [],
+                                            supportFileCount: 0))
+        XCTAssertFalse(FreshInstall.isFresh(markerPresent: false,
+                                            preferenceKeys: ["flows.lastUsed"],
+                                            supportFileCount: 0))
+        XCTAssertFalse(FreshInstall.isFresh(markerPresent: false, preferenceKeys: [],
+                                            supportFileCount: 1))
+        XCTAssertEqual(Set(FreshInstall.keychainServices),
+                       ["com.flows.app.secure", "com.flows.app.behavior"])
     }
 }

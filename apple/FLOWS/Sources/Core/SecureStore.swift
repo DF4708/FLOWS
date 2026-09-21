@@ -20,7 +20,7 @@ import Security
 /// medical notes without the screen being active), never synced to iCloud, and
 /// never copied to another device in a backup.
 enum SecureStore {
-    private static let service = "com.flows.app.secure"
+    static let service = "com.flows.app.secure"
 
     /// Store a value (nil/empty deletes the item).
     static func set(_ value: String?, for key: String) {
@@ -63,5 +63,54 @@ enum SecureStore {
             UserDefaults.standard.removeObject(forKey: defaultsKey)  // scrub plaintext
         }
         return legacy
+    }
+}
+
+/// Keychain items outlive the app: iOS keeps them when FLOWS is deleted, so a
+/// reinstall found the last install's medical notes, trip-share contacts,
+/// account tokens and data keys waiting — while the privacy policy says
+/// deleting the app deletes its data. Nothing runs at deletion, so the first
+/// launch of a fresh install clears FLOWS's own Keychain items instead.
+enum FreshInstall {
+    /// Set at every launch. Preferences go with the app, so no marker means
+    /// this install has never launched.
+    static let markerKey = "flows.installed"
+    /// Every Keychain service FLOWS stores under.
+    static let keychainServices = [SecureStore.service, SecureBehaviorStore.service]
+
+    /// A fresh install: no marker, no FLOWS preference and no file in
+    /// Application Support. Builds from before the marker left the other
+    /// two behind (every launch stamps `flows.lastUsed`), so an update never
+    /// wipes; anything unclear keeps the Keychain as it is.
+    static func isFresh(markerPresent: Bool, preferenceKeys: [String],
+                        supportFileCount: Int) -> Bool {
+        !markerPresent && supportFileCount == 0
+            && !preferenceKeys.contains { $0.hasPrefix("flows.") }
+    }
+
+    /// First thing at launch, before anything reads the Keychain. iPhone
+    /// only: a Mac app's container, preferences included, stays after it is
+    /// deleted, so there a reinstall is not a fresh start either way.
+    static func clearLeftoversIfFresh(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: markerKey) == nil else { return }
+        #if os(iOS)
+        let keys = Bundle.main.bundleIdentifier
+            .flatMap { defaults.persistentDomain(forName: $0) }
+            .map { Array($0.keys) } ?? []
+        let files = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            .flatMap { try? FileManager.default.contentsOfDirectory(atPath: $0.path) }?
+            .count ?? 0
+        if isFresh(markerPresent: false, preferenceKeys: keys, supportFileCount: files) {
+            for service in keychainServices {
+                SecItemDelete([
+                    kSecClass as String: kSecClassGenericPassword,
+                    kSecAttrService as String: service,
+                ] as CFDictionary)
+            }
+            FlowsDiag.log(.info, "privacy", "fresh install: cleared Keychain items an earlier install left")
+        }
+        #endif
+        defaults.set(true, forKey: markerKey)
     }
 }
