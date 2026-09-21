@@ -1546,6 +1546,23 @@ build a `TruckerRadio` without reading Application Support and UserDefaults,
 and a copied loop would pin a copy rather than the original. It moves with
 a refactor that makes the scrape a pure static first.
 
+## Wave 2, long tail, fifth landing: the relay-directory scrape (2026-09-21)
+
+`TruckerRadio.refreshStations` parsed the weatherusa directory page and
+carried the bundled transmitters' coordinates over inline, inside an
+instance whose init reads the user's Application Support and UserDefaults.
+A refactor (17622c5) made the parse and the merge a pure static,
+`relayChannels(fromDirectory:bundled:)`, with behaviour unchanged; the
+oracle was taken there (1,203 pages, 144 of which parse into relay lists)
+and matched `flows_core::recents_and_rides::relay_spans` on the first run.
+The bridge answers byte ranges into the page and the index of the bundled
+station whose coordinates a relay carries, so no text crosses back; the
+facade builds the channels. The fetch and the rule that a user's own list
+wins stay in Swift.
+
+With this the long tail is done: every file the plan listed for wave 2
+computes in Rust behind its facade.
+
 ### Wave 2 remaining
 
 | item | state |
@@ -1553,5 +1570,5 @@ a refactor that makes the scrape a pure static first.
 | the NWS forecast predictors (`ForecastConditions.forecastScore`, `predictorFamilies`) | LANDED (second landing) |
 | LiveHazardFeeds, WeatherAlertService, PrimarySources interpretation | LANDED (third landing); the fetchers' own selection logic (`roadClosures` state pick, provider chains) stays with the network code |
 | POIRanking, PlacesStore (FPS1), POIService decisions | LANDED (fourth landing); the MapKit search, the providers and the row decorations stay with the service |
-| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). THIRD LANDING: RouteAttributes, VehicleLink's parsers, VoiceReply's word rules, BroadcastRadio, RadioBrowser's rules (`flows_core::tags_and_replies`). FOURTH LANDING: CoordinateInput, RecentDestinations, DestinationSearch.blend, RentalCars, TruckerRadio's static rules (`flows_core::recents_and_rides`) and TransitPlanning's ride estimates (`flows_core::travel_modes`). Still Swift: TruckerRadio's relay-directory scrape, which needs a pure static before a harness can reach it |
+| the long tail | FIRST LANDING: SignalQuality, AdaptiveTuning, PlaybackFallback, PlaybackGrace, RadioTuning, AmtrakStations, BreadcrumbTrail, AirTravel, Mobility, HybridWalk. SECOND LANDING: FuelWarning, TripShare, OfflineCorridors (`flows_core::long_trips`, first geo bridge functions). THIRD LANDING: RouteAttributes, VehicleLink's parsers, VoiceReply's word rules, BroadcastRadio, RadioBrowser's rules (`flows_core::tags_and_replies`). FOURTH LANDING: CoordinateInput, RecentDestinations, DestinationSearch.blend, RentalCars, TruckerRadio's static rules (`flows_core::recents_and_rides`) and TransitPlanning's ride estimates (`flows_core::travel_modes`). FIFTH LANDING: TruckerRadio's relay-directory scrape (made a pure static first). DONE |
 | wave-1 leftovers | LANDED: EscalationPolicy, AlertEntityParser, ScannerIncidents (`flows_core::alert_text`) |

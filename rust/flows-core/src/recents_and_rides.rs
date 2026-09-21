@@ -21,6 +21,7 @@
 //! | [`blend_suggestions`] | `DestinationSearch.blend` |
 //! | [`RENTAL_BRANDS`], [`rental_brand_rank`], [`rental_booking_site`], [`recommend_rentals`] | `RentalCars` |
 //! | [`radio_purpose`], [`radio_is_car_band`], [`radio_advance`], [`radio_state_code`], [`radio_position`] | `TruckerRadio` |
+//! | [`relay_spans`], [`relay_callsign`] | `TruckerRadio.relayChannels` (the relay directory's scrape) |
 //!
 //! # Fidelity
 //!
@@ -43,8 +44,9 @@
 //!
 //! What stays in Swift: the pasted point's display name, the stores'
 //! encrypted files, Apple's search completer, the purposes' and ride steps'
-//! wording, booking and stream links, the relay directory's scrape, and the
-//! player.
+//! wording, booking and stream links, the directory fetch, and the player.
+//! The scrape's rules followed from the commit that made them a pure static,
+//! pinned by `swift_relay_scrape_oracle.tsv`.
 
 use crate::fcmp::smax;
 use crate::hazard_feeds::STATE_BOXES;
@@ -492,8 +494,200 @@ pub fn radio_position(
     Some(((south + north) / 2.0, (west + east) / 2.0, false))
 }
 
+// ============================================================ the relay directory
+
+/// Where a relay's stream link must start to count.
+pub const RELAY_URL_PREFIX: &str = "https://radio.weatherusa.net/NWR/";
+
+/// Fewer relays than this is a page that did not parse, not a directory that
+/// shrank.
+pub const MIN_RELAYS: usize = 10;
+
+/// What a relay's name starts with; its label follows.
+pub const RELAY_NAME_PREFIX: &str = "NOAA WX ";
+
+/// One relay the directory page lists, as byte ranges into the page: its
+/// stream link and its label (trimmed), and the bundled station whose
+/// coordinates it carries, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RelaySpan {
+    /// The stream link, `start..end`.
+    pub url: (usize, usize),
+    /// The label, trimmed of whitespace and newlines, `start..end`.
+    pub label: (usize, usize),
+    /// The bundled station whose coordinates this relay carries.
+    pub bundled: Option<usize>,
+}
+
+/// The callsign at the end of a station name: the last piece between colons
+/// (Swift's `split(separator: ":")`, empty pieces dropped), trimmed of spaces
+/// and tabs; `None` when the name has no piece.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn relay_callsign(name: &str) -> Option<&str> {
+    let mut last = None;
+    let (mut start, mut pos) = (0, 0);
+    for cluster in st::graphemes(name) {
+        if cluster == ":" {
+            if pos > start {
+                last = Some(&name[start..pos]);
+            }
+            start = pos + cluster.len();
+        }
+        pos += cluster.len();
+    }
+    if pos > start {
+        last = Some(&name[start..pos]);
+    }
+    last.map(st::trim_whitespace)
+}
+
+/// The byte offset of the first cluster that is a double quote.
+fn first_quote(text: &str) -> Option<usize> {
+    let mut pos = 0;
+    for cluster in st::graphemes(text) {
+        if cluster == "\"" {
+            return Some(pos);
+        }
+        pos += cluster.len();
+    }
+    None
+}
+
+/// The NOAA relays the weatherusa directory page lists: the page split at
+/// every `<option value="`; a piece counts when it starts with
+/// [`RELAY_URL_PREFIX`] and has a closing quote; the link is what comes
+/// before that quote, and a link seen before is skipped; the label is what
+/// lies between the piece's first `>` and the next `<`, trimmed, and must not
+/// be empty. Each relay carries the coordinates of the first bundled station
+/// that has both coordinates and shares its callsign (the name being
+/// [`RELAY_NAME_PREFIX`] and the label). `None` when fewer than
+/// [`MIN_RELAYS`] are found.
+///
+/// `bundled_names` and `bundled_located` are parallel: whether each bundled
+/// station has both coordinates.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn relay_spans(
+    html: &str,
+    bundled_names: &[&str],
+    bundled_located: &[bool],
+) -> Option<Vec<RelaySpan>> {
+    // Foundation's components(separatedBy:), keeping each piece's place.
+    let index = st::ClusterIndex::new(html);
+    let separator = "<option value=\"";
+    let mut pieces: Vec<(usize, usize)> = Vec::new();
+    let mut pos = 0;
+    while let Some((a, b)) = index.find_in(separator, pos, html.len()) {
+        pieces.push((pos, a));
+        pos = b;
+    }
+    pieces.push((pos, html.len()));
+
+    let mut spans: Vec<RelaySpan> = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    for (start, end) in pieces {
+        let chunk = &html[start..end];
+        if !st::has_prefix(chunk, RELAY_URL_PREFIX) {
+            continue;
+        }
+        let Some(url_end) = first_quote(chunk) else {
+            continue;
+        };
+        let url = &chunk[..url_end];
+        if seen.iter().any(|s| st::eq(s, url)) {
+            continue;
+        }
+        seen.push(url);
+        let Some((_, after_gt)) = st::find(chunk, ">") else {
+            continue;
+        };
+        let Some((lt, _)) = st::find_in(chunk, "<", after_gt, chunk.len()) else {
+            continue;
+        };
+        let raw = &chunk[after_gt..lt];
+        let lead = raw.len() - raw.trim_start_matches(st::is_whitespace_or_newline).len();
+        let label = st::trim_whitespace_newlines(raw);
+        if label.is_empty() {
+            continue;
+        }
+        let label_start = start + after_gt + lead;
+        spans.push(RelaySpan {
+            url: (start, start + url_end),
+            label: (label_start, label_start + label.len()),
+            bundled: None,
+        });
+    }
+    if spans.len() < MIN_RELAYS {
+        return None;
+    }
+    // The first bundled station per callsign that has both coordinates.
+    let mut calls: Vec<(&str, usize)> = Vec::new();
+    for (i, name) in bundled_names.iter().enumerate() {
+        if !bundled_located.get(i).copied().unwrap_or(false) {
+            continue;
+        }
+        if let Some(call) = relay_callsign(name) {
+            if !calls.iter().any(|c| st::eq(c.0, call)) {
+                calls.push((call, i));
+            }
+        }
+    }
+    for span in &mut spans {
+        let name = format!("{RELAY_NAME_PREFIX}{}", &html[span.label.0..span.label.1]);
+        if let Some(call) = relay_callsign(&name) {
+            span.bundled = calls.iter().find(|c| st::eq(c.0, call)).map(|c| c.1);
+        }
+    }
+    Some(spans)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_relay_directory_page_gives_its_relays_with_bundled_coordinates() {
+        let option = |i: usize| {
+            format!(
+                "<option value=\"https://radio.weatherusa.net/NWR/K{i}.mp3\"> WI-Town{i}: KEC{i} </option>"
+            )
+        };
+        let mut html: String = (0..12).map(option).collect();
+        // A repeated link, a foreign link and an empty label are skipped.
+        html.push_str(&option(3));
+        html.push_str("<option value=\"https://example.com/x\">X: Y</option>");
+        html.push_str("<option value=\"https://radio.weatherusa.net/NWR/empty\">  </option>");
+        let names = [
+            "NOAA WX WI-Old: KEC3",
+            "Somewhere: KEC3",
+            "NOAA WX WI-Far: KEC4",
+        ];
+        let located = [true, true, false];
+        let spans = relay_spans(&html, &names, &located).expect("twelve relays");
+        assert_eq!(spans.len(), 12);
+        assert_eq!(
+            &html[spans[3].url.0..spans[3].url.1],
+            "https://radio.weatherusa.net/NWR/K3.mp3"
+        );
+        assert_eq!(&html[spans[3].label.0..spans[3].label.1], "WI-Town3: KEC3");
+        assert_eq!(
+            spans[3].bundled,
+            Some(0),
+            "the first located station with the callsign"
+        );
+        assert_eq!(
+            spans[4].bundled, None,
+            "a station without coordinates carries none"
+        );
+        // Nine relays is a page that did not parse.
+        let short: String = (0..9).map(option).collect();
+        assert_eq!(relay_spans(&short, &[], &[]), None);
+        assert_eq!(relay_callsign("NOAA WX AL-Mobile:  KEC61 "), Some("KEC61"));
+        assert_eq!(relay_callsign("Mobile:"), Some("Mobile"));
+        assert_eq!(relay_callsign("::"), None);
+    }
+
     use super::*;
 
     #[test]

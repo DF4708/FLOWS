@@ -2771,6 +2771,13 @@ public func flows_rides_radio_position<GenericToRustStr: ToRustStr>(_ name: Gene
         __swift_bridge__$flows_rides_radio_position(nameAsRustStr, lat, has_lat, lon, has_lon).intoSwiftRepr()
     })
 }
+public func flows_rides_relay_channels<GenericToRustStr: ToRustStr>(_ html: GenericToRustStr, _ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ located: UnsafeBufferPointer<UInt8>, _ count: Int64) -> RustVec<Int64> {
+    return names.toRustStr({ namesAsRustStr in
+        return html.toRustStr({ htmlAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_rides_relay_channels(htmlAsRustStr, namesAsRustStr, name_lengths.toFfiSlice(), located.toFfiSlice(), count))
+    })
+    })
+}
 public struct FlowsRidesPoint {
     public var has: Bool
     public var lat: Double

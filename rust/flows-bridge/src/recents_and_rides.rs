@@ -23,7 +23,11 @@
 //!   indices into the old list, `-1` standing for the merged place;
 //! - the suggestion blend answers a pinned row `i` as `i` and a completion
 //!   `j` as `-(j + 1)`;
-//! - a radio purpose is its code (see [`rr::radio_purpose`]).
+//! - a radio purpose is its code (see [`rr::radio_purpose`]);
+//! - the relay directory answers `1`, then per relay the link's and the
+//!   label's byte ranges in the page and the bundled station whose
+//!   coordinates it carries (`-1` for none), or `0` for a page that did not
+//!   parse.
 //!
 //! Every column travels with its count, so the facades send a one-element
 //! placeholder for an empty list: swift-bridge must never see an empty
@@ -127,6 +131,13 @@ mod ffi {
             lon: f64,
             has_lon: bool,
         ) -> FlowsRidesPosition;
+        fn flows_rides_relay_channels(
+            html: &str,
+            names: &str,
+            name_lengths: &[i64],
+            located: &[u8],
+            count: i64,
+        ) -> Vec<i64>;
     }
 }
 
@@ -395,6 +406,41 @@ pub fn flows_rides_radio_position(
                 lat,
                 lon,
                 exact,
+            },
+        )
+    })
+}
+
+/// `TruckerRadio.relayChannels(fromDirectory:bundled:)`: see the module
+/// notes for the answer's layout. `located` says, per bundled station,
+/// whether it has both coordinates.
+pub fn flows_rides_relay_channels(
+    html: &str,
+    names: &str,
+    name_lengths: &[i64],
+    located: &[u8],
+    count: i64,
+) -> Vec<i64> {
+    contain(vec![0], || {
+        let n = clamp(count, located.len());
+        let Some(names) = texts(names, name_lengths, index(n)) else {
+            return vec![0];
+        };
+        let located: Vec<bool> = located[..n].iter().map(|&b| b != 0).collect();
+        rr::relay_spans(html, &names, &located).map_or_else(
+            || vec![0],
+            |spans| {
+                let mut out = vec![1];
+                for s in spans {
+                    out.extend([
+                        index(s.url.0),
+                        index(s.url.1),
+                        index(s.label.0),
+                        index(s.label.1),
+                        s.bundled.map_or(-1, index),
+                    ]);
+                }
+                out
             },
         )
     })

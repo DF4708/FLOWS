@@ -250,40 +250,31 @@ final class TruckerRadio: ObservableObject {
     /// it without building a TruckerRadio (whose init reads the user's files).
     nonisolated static func relayChannels(fromDirectory html: String,
                                           bundled: [Channel]) -> [Channel]? {
-        var fresh: [Channel] = []
-        var seen = Set<String>()
-        for chunk in html.components(separatedBy: "<option value=\"") {
-            guard chunk.hasPrefix("https://radio.weatherusa.net/NWR/"),
-                  let urlEnd = chunk.firstIndex(of: "\"") else { continue }
-            let streamURL = String(chunk[..<urlEnd])
-            guard !seen.contains(streamURL) else { continue }
-            seen.insert(streamURL)
-            guard let labelStart = chunk.range(of: ">"),
-                  let labelEnd = chunk.range(of: "<", range: labelStart.upperBound..<chunk.endIndex)
-            else { continue }
-            let label = String(chunk[labelStart.upperBound..<labelEnd.lowerBound])
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !label.isEmpty else { continue }
-            fresh.append(Channel(name: "NOAA WX " + label,
-                                 detail: "NOAA Weather Radio relay (weatherusa.net)",
-                                 url: streamURL))
+        // flows_core::recents_and_rides::relay_spans: 1, then per relay the
+        // link's and the label's byte ranges in the page and the bundled
+        // station whose coordinates it carries (-1 for none); 0 for a page
+        // that did not parse.
+        let names = RustTextColumn(bundled.map(\.name))
+        let located: [UInt8] = bundled.isEmpty ? [0]
+            : bundled.map { $0.latitude != nil && $0.longitude != nil ? 1 : 0 }
+        let answer = names.with { joined, lengths, _ in
+            located.withUnsafeBufferPointer { l in
+                Array(flows_rides_relay_channels(html, joined, lengths, l, Int64(bundled.count)))
+            }
         }
-        guard fresh.count >= 10 else { return nil }
-        // Carry the bundled transmitter coordinates over to the refreshed list
-        // (matched by callsign) so nearest-by-GPS keeps working after refresh.
-        func callsign(_ n: String) -> String? {
-            n.split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) }
+        guard answer.first == 1, answer.count % 5 == 1 else { return nil }
+        let bytes = Array(html.utf8)
+        func text(_ a: Int64, _ b: Int64) -> String {
+            String(decoding: bytes[Int(a)..<Int(b)], as: UTF8.self)
         }
-        let coordsByCall = Dictionary(
-            bundled.compactMap { ch -> (String, (Double, Double))? in
-                guard let cs = callsign(ch.name), let la = ch.latitude,
-                      let lo = ch.longitude else { return nil }
-                return (cs, (la, lo))
-            }, uniquingKeysWith: { a, _ in a })
-        return fresh.map { ch in
-            var c = ch
-            if let cs = callsign(ch.name), let (la, lo) = coordsByCall[cs] {
-                c.latitude = la; c.longitude = lo
+        return stride(from: 1, to: answer.count, by: 5).map { i in
+            var c = Channel(name: "NOAA WX " + text(answer[i + 2], answer[i + 3]),
+                            detail: "NOAA Weather Radio relay (weatherusa.net)",
+                            url: text(answer[i], answer[i + 1]))
+            let k = Int(answer[i + 4])
+            if k >= 0 {
+                c.latitude = bundled[k].latitude
+                c.longitude = bundled[k].longitude
             }
             return c
         }
