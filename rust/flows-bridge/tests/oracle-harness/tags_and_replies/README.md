@@ -11,7 +11,7 @@ records in 26 kinds.
 
 | record | Swift original | Rust twin |
 |---|---|---|
-| `u-letter` | `Character.isLetter` over every scalar, as ranges | `swift_text::is_letter_scalar` (the table `gen_tables.py` writes from this record) |
+| `u-letter` | `Character.isLetter` over every scalar, as ranges | `swift_text::is_letter_scalar` (the table `../../swift_text_tables.rs` writes from this record) |
 | `ra-grade`, `ra-clear`, `ra-weight`, `ra-flood`, `ra-consts` | grades with missing, NaN and infinite samples and odd spacings; `maxheight` and `maxweight` tags in feet and inches, metric and US units, decimal commas, fullwidth digits, marks and odd spaces; FEMA zones after trimming and uppercasing | `tags_and_replies::max_grade_percent`, `clearance_meters`, `weight_limit_lbs`, `is_high_risk_flood_zone` |
 | `vl-tpms`, `vl-fuel`, `vl-obd`, `vl-consts` | sensor advertisements at the pressure window's edges with names whose uppercasing changes (`ſ`, `İ`, fullwidth letters) and short data; ELM327 replies with signs, marks and non-ASCII digits; the adapter-name check (a verbatim copy of the discovery callback's expression) | `parse_tpms_advertisement`, `displayed_psi`, `parse_fuel_reply`, `looks_like_obd_adapter` |
 | `yn`, `yn-words`, `vp-choose`, `vp-place` | yes and no with curly apostrophes, marks, odd spaces and mixed replies; picks and changes of mind over offered names and cuisines | `interpret_yes_no`, `wants_weather_radio`, `choose`, `place_reply` |
@@ -48,6 +48,7 @@ Three runs, one with `SWIFT_DETERMINISTIC_HASHING=1`, were byte-identical
 (sha1 in the fixture's header line is of the body). Run the loops in bash:
 zsh neither splits `$FILES` nor leaves `$BASE:apple` alone.
 
-After regenerating the fixture, rerun
-`../places_text/gen_tables.py` so `swift_text/tables.rs` carries the new
-letter table, then `rustfmt` that file.
+After regenerating the fixture, run
+`FLOWS_WRITE_SWIFT_TEXT_TABLES=1 cargo test -p flows-bridge --test swift_text_tables`
+so `swift_text/tables.rs` carries the new letter table (it is written in
+`cargo fmt`'s form already).

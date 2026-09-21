@@ -1503,7 +1503,7 @@ kind titles and symbols stay in Swift.
 Swift's `Character.isLetter` reads a scalar's Alphabetic property, which the
 text module could not derive from its word and number tables: a Roman numeral
 is both a letter and a number. The harness reads the letter table over every
-scalar, `gen_tables.py` writes it into `swift_text/tables.rs`, and the oracle
+scalar, `flows-bridge/tests/swift_text_tables.rs` writes it into `swift_text/tables.rs`, and the oracle
 checks it against the runtime.
 
 The oracle (8,462 records, 26 kinds) is bridge-linked from b4b8cd1 and matched

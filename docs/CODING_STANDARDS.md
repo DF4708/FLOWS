@@ -18,9 +18,12 @@ written here, verified by the test harness and the resource governor.
 
 The product ships exactly two languages: **Rust** (core algorithms, data
 pipelines, on-device training) and **Swift** (the app). No Python, no JS, no
-interpreter of any kind runs in or ships with the product. Python remains
-legitimate as *repo tooling* — verification scripts, one-off data checks — but
-never as a runtime dependency or a build step the product needs.
+interpreter of any kind runs in or ships with the product. The repository has
+no Python at all, tooling included (owner rule, 2026-09-21): a generator is
+Rust (a test that rebuilds its output and fails when the checked-in copy
+differs, like `flows-bridge/tests/swift_text_tables.rs`), and glue is shell.
+`flows-bridge/tests/no_python.rs` fails the tests on a Python file or on a
+script line that runs Python or `pip`.
 
 Hand-written **AArch64 assembly** is not a shipping language but a last-resort
 *technique* (§1): legitimate, but a hand kernel earns its place only by

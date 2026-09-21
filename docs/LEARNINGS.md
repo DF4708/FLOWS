@@ -124,8 +124,8 @@ a partially-NA mask is safe because `any(TRUE, NA)` is TRUE; but
 - **Disk snapshots** (`data/runtime_cache/*.rds`) — regenerable, tied
   to a content-hashed cache key. Gitignored. Warm start reads these.
 - **Reference data** (`data/reference/*.gpkg`, `*.rds`) — long-lived,
-  offline-built by `scripts/build_wisconsin_reference_assets.py`.
-  Tracked in git.
+  offline-built (R era; the builder and the assets were retired in
+  c8a903e).
 
 Never mix. Anything that could ever contain PII, per-session state,
 or a horizon-specific value goes into the first two — never `data/reference/`.

@@ -22,7 +22,7 @@ in 25 kinds, plus the fold and blocker tables over every scalar.
 | `ep-eval`, `ep-consts` | `EscalationPolicy.evaluate` over 120 simulated drives with NaN and threshold readings and canonically equal ids | `evaluate_escalation` |
 | `ep-dismiss` | `EscalationPolicy.dismissed`, the bookkeeping that stays in Swift (read, not compared) | — |
 
-`../places_text/gen_tables.py` writes `FOLD_MAP` and
+`../../swift_text_tables.rs` writes `FOLD_MAP` and
 `CI_AFTER_BLOCKER_RANGES` into `swift_text/tables.rs` from this fixture.
 
 ## Reproduce

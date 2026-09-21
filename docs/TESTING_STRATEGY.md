@@ -18,8 +18,8 @@ during that expansion runs through the harness described here.
 
 > **Scope update (2026-07).** The product is now the native app
 > (Rust + Swift only — the AArch64 asm tier was retired 2026-07-19 when
-> a measured bake-off showed rustc faster; Python is allowed as repo
-> tooling/verification, never in the product). The R/Shiny engine
+> a measured bake-off showed rustc faster; the repository has no Python,
+> tooling included, and `flows-bridge/tests/no_python.rs` checks it). The R/Shiny engine
 > described in §§2–9 was **RETIRED** (commit `c8a903e`, 2026-07-11; the
 > `R/` directory is gone and `global.R`/`server.R`/`ui.R` were deleted
 > 2026-07-19). It no longer runs and no longer gates anything — there is

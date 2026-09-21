@@ -10,8 +10,8 @@
 //! discipline as `flows-core` / `flows-train`.
 //!
 //! Compiles the Foursquare OS Places TSV (Apache 2.0; produced by the repo
-//! tooling `scripts/fsq_places_to_tsv.py` — python is conversion tooling only,
-//! never a product dependency) into one binary shard per US state/territory:
+//! tooling `scripts/fsq_places_to_tsv.sh` — curl and the DuckDB command-line
+//! tool, never a product dependency) into one binary shard per US state/territory:
 //! `data/places/<XX>.fps`, plus `data/places/index.json`.
 //!
 //! ## `.fps` v1 ("FPS1") layout — little-endian throughout

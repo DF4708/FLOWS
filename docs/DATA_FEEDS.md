@@ -1008,8 +1008,9 @@ from the last ungated, keyless mirror instead:
 scripts/build_places_shards.sh [release]      # default: latest on the mirror
 ```
 
-1. **Tooling conversion** (`scripts/fsq_places_to_tsv.py`, python + duckdb —
-   REPO TOOLING only, never a product dependency): remote *filtered* scan.
+1. **Tooling conversion** (`scripts/fsq_places_to_tsv.sh`: curl and the DuckDB
+   command-line tool, `brew install duckdb` — REPO TOOLING only, never a
+   product dependency; FLOWS has no Python): remote *filtered* scan.
    Parquet footers are read first, so files whose `country` column stats
    cannot contain `'US'` are skipped wholesale (34 of 81 files survive), and
    only the needed columns are transferred — single-digit GB, not 17 GB.

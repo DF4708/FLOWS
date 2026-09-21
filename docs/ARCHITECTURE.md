@@ -113,7 +113,7 @@ FLOWS/
 │   ├── generate_national_bundle.sh ← national-bundle → bundle-frb → FRB1
 │   ├── build_history_baseline.sh   ← 20-yr NOAA Storm Events baseline
 │   ├── build_ftt.sh  fetch_gtfs.sh ← transit timetable build
-│   ├── build_places_shards.sh  fsq_places_to_tsv.py   ← POI shards
+│   ├── build_places_shards.sh  fsq_places_to_tsv.sh   ← POI shards
 │   ├── autonomous_test_runner.sh   ← cron-driven build+test loop
 │   ├── worker.sh  sync_to_shared.sh
 ├── .github/workflows/ci.yml        ← Rust + Swift CI (replaced dead r.yml)
@@ -578,8 +578,8 @@ keyless live feeds; **no server component**. See §7 and
 [`RUST_SWIFT_MIGRATION.md`](RUST_SWIFT_MIGRATION.md) and
 [`CODING_STANDARDS.md`](CODING_STANDARDS.md)): the product is **Rust +
 Swift only** — no Python and no hand-written assembly ship in or power the
-product; Python remains acceptable as repo tooling/verification
-(reference-asset builders, preflight checks).
+product, and the repository has no Python even as tooling: generators are
+Rust, glue is shell, and `flows-bridge/tests/no_python.rs` keeps it that way.
 
 **Dead code is removed, not kept "just in case."** The clearest recent
 case: the hand-written **AArch64 assembly polyline kernel was retired on

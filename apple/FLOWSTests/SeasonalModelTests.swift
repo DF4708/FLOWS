@@ -136,9 +136,9 @@ final class SeasonalModelTests: XCTestCase {
         XCTAssertGreaterThan(fieldDriven, priorDriven, "a confident calmer prior must lower the rank")
     }
 
-    // The learned head decodes the worker's JSON (extra keys ignored) and its
+    // The learned head decodes the trainer's JSON (extra keys ignored) and its
     // forward pass (relu → sigmoid) matches a hand computation — the cross-
-    // language contract with ml/route-gnn/train_worker.py.
+    // language contract with rust/flows-train/src/main.rs.
     func testLearnedHeadDecodeAndForward() throws {
         let json = """
         {"w1":[[1,0,0,0,0,0],[0,1,0,0,0,0]],"b1":[0,0],"w2":[1,1],"b2":0,

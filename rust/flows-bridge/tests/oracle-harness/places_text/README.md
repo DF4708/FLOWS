@@ -14,7 +14,7 @@ and in dictionary keys, Foundation's `range(of:)`/`components`/
 `replacingOccurrences`, `hasSuffix`, `trimmingCharacters`, and
 `Double(String)`. So the harness first reads the Swift runtime's own tables,
 scalar by scalar over the whole domain, and the Rust embeds them
-(`flows_core::swift_text::tables`, written by `gen_tables.py` from these
+(`flows_core::swift_text::tables`, written by `../../swift_text_tables.rs` from these
 records):
 
 | record | what it reads |
@@ -78,7 +78,7 @@ cp "$REPO/rust/flows-bridge/tests/oracle-harness/places_text/"{main,stubs}.swift
 xcrun --sdk macosx swiftc -O -swift-version 5 BrandKnowledge.swift RatingsAndCost.swift FuelPrices.swift \
   LaneData.swift EnforcementCameras.swift stubs.swift main.swift -o oracle
 ./oracle   # the fixture body (the harness prints its own "# base" line; three header lines are prepended)
-python3 "$REPO/rust/flows-bridge/tests/oracle-harness/places_text/gen_tables.py"   # rewrites swift_text/tables.rs
+FLOWS_WRITE_SWIFT_TEXT_TABLES=1 cargo test --manifest-path "$REPO/rust/Cargo.toml" -p flows-bridge --test swift_text_tables   # rewrites swift_text/tables.rs
 ```
 
 Three runs, one with `SWIFT_DETERMINISTIC_HASHING=1`, were byte-identical

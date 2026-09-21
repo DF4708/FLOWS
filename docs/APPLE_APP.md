@@ -549,8 +549,8 @@ risk" above. Everything else that landed with it:
   re-check on every GPS tick with a one-shot violation banner.
 - **Stack rule**: the product is **Rust + Swift only** (the AArch64 assembly
   polyline kernel was retired 2026-07-19 after the compiler beat it) —
-  no Python in the product (python remains allowed as repo tooling /
-  verification). Dead code removed accordingly: unused `risk_band`
+  no Python in the product or anywhere in the repository, tooling
+  included. Dead code removed accordingly: unused `risk_band`
   variants, the distance NEON/autovec kernels (scalar reference retained),
   `hazardFieldShapes`.
 - **Perf**: `earliest_trip` binary search in the transit core

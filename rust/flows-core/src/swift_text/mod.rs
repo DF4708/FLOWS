@@ -157,7 +157,7 @@ pub fn combining_class(c: char) -> u32 {
 // ------------------------------------------------------- grapheme clusters
 
 /// Grapheme_Cluster_Break classes as the harness's probes tell them apart
-/// (the codes are those `gen_tables.py` writes).
+/// (the codes are those `flows-bridge/tests/swift_text_tables.rs` writes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Gcb {
     Other,
@@ -206,7 +206,7 @@ impl Gcb {
         }
     }
 
-    /// The code `gen_tables.py` writes for this class (0 for `Other`).
+    /// The code `flows-bridge/tests/swift_text_tables.rs` writes for this class (0 for `Other`).
     fn code(self) -> u32 {
         match self {
             Gcb::Other => 0,
@@ -252,7 +252,7 @@ fn gcb(c: char) -> Gcb {
         .map_or(Gcb::Other, |row| Gcb::from_code(row[2]))
 }
 
-/// The grapheme-break class of a scalar as the code `gen_tables.py` writes
+/// The grapheme-break class of a scalar as the code `flows-bridge/tests/swift_text_tables.rs` writes
 /// (0 for `Other`), for the oracle test.
 #[must_use]
 pub fn grapheme_class_code(c: char) -> u32 {

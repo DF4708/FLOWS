@@ -4,7 +4,8 @@
 # -----------------------------------------------------------------------------
 # Build the FLOWS offline POI database end to end (FSQ OS Places -> regional
 # shards):
-#   1. one-time TOOLING conversion (python + duckdb, never a product dep):
+#   1. one-time TOOLING conversion (scripts/fsq_places_to_tsv.sh: curl and the
+#      DuckDB command-line tool, never a product dep; FLOWS has no Python):
 #      remote *filtered* scan of the keyless Source Cooperative mirror of the
 #      Foursquare OS Places parquet release -> data/reference/fsq_places_us.tsv
 #      (files that cannot contain US rows are skipped from parquet footers;
@@ -34,11 +35,7 @@ fi
 if [ -s "$TSV" ]; then
   echo "reusing existing $TSV (delete it to re-convert)"
 else
-  python3 -c 'import duckdb' 2>/dev/null || {
-    echo "installing duckdb (repo tooling only)"
-    pip3 install --user duckdb
-  }
-  python3 -u "$ROOT/scripts/fsq_places_to_tsv.py" "${1:-}"
+  "$ROOT/scripts/fsq_places_to_tsv.sh" "${1:-}"
 fi
 
 # ---- shard build (pure std Rust)
