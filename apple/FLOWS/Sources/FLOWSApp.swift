@@ -1381,7 +1381,15 @@ final class AppModel: ObservableObject {
     /// Live traffic: minutes of delay vs the guidance baseline, refreshed
     /// every ~5 min from MKDirections ETA (real-time traffic). HUD shows a
     /// chip with a faster-route option when it grows meaningful.
-    @Published var trafficDelayMinutes: Int?
+    @Published var trafficDelayMinutes: Int? {
+        didSet {
+            // The chip went away (taken, jam cleared, new leg, trip over):
+            // its spoken offer goes with it.
+            if oldValue != nil, trafficDelayMinutes == nil {
+                VoiceAnnouncer.shared.cancel(topic: SpeechTopic.trafficOffer)
+            }
+        }
+    }
     private var trafficWatchTask: Task<Void, Never>?
 
     /// The live-monitoring window: how far AHEAD to watch scales with speed
@@ -1405,7 +1413,15 @@ final class AppModel: ObservableObject {
         /// rather than every hazard of the same severity.
         var alertID: String? = nil
     }
-    @Published var escalation: Escalation?
+    @Published var escalation: Escalation? {
+        didSet {
+            // Continue, Reroute, a new trip or End: the prompt's spoken line
+            // goes with it.
+            if oldValue != nil, escalation == nil {
+                VoiceAnnouncer.shared.cancel(topic: SpeechTopic.escalation)
+            }
+        }
+    }
     /// Baseline, dismissed risk and dismissed hazard identities — the whole
     /// decision lives in EscalationPolicy (Core, tested); this is its state.
     private var escalationState = EscalationPolicy.State.fresh(baseline: nil)
@@ -1473,6 +1489,12 @@ final class AppModel: ObservableObject {
             // half of the imminent banner, AMBER alerts included. The
             // haptic fires regardless of the voice toggle: it's the
             // hearing-parity channel, not a companion to the voice.
+            // The warning closed or gave way to another (the X, Shelter, it
+            // cleared, a graver one, a new trip, End): stop reading it out.
+            // Dismissing used to leave the whole message being read.
+            if let old = oldValue, old.alertID != imminentWarning?.alertID {
+                VoiceAnnouncer.shared.cancel(topic: SpeechTopic.imminent(old.alertID))
+            }
             guard let warning = imminentWarning,
                   warning.alertID != oldValue?.alertID else { return }
             if hapticAlerts { Haptics.warning() }
@@ -1482,7 +1504,7 @@ final class AppModel: ObservableObject {
             Self.noticeIfAway(id: "imminent." + warning.alertID,
                               title: warning.event, body: spoken)
             guard voiceAlerts else { return }
-            VoiceAnnouncer.shared.announce(spoken)
+            VoiceAnnouncer.shared.announce(spoken, topic: SpeechTopic.imminent(warning.alertID))
         }
     }
 
@@ -2940,7 +2962,7 @@ final class AppModel: ObservableObject {
             if level != .none, level != self.dismissedFuelWarningLevel,
                let spoken = FuelWarning.spokenAdvice(
                    fuel: fuel, level: level, station: cheapest, rangeMiles: range) {
-                DriveVoice.shared.speak(spoken)
+                DriveVoice.shared.speak(spoken, topic: SpeechTopic.fuelLastChance)
                 self.dismissedFuelWarningLevel = level
             }
         }
@@ -2953,6 +2975,7 @@ final class AppModel: ObservableObject {
         fuelWarningItem = nil
         fuelWarningText = nil
         dismissedFuelWarningLevel = .none
+        DriveVoice.shared.cancel(topic: SpeechTopic.fuelLastChance)
         DriveVoice.shared.reset()
     }
 
@@ -3023,6 +3046,7 @@ final class AppModel: ObservableObject {
     func dismissFuelWarning() {
         dismissedFuelWarningLevel = fuelWarningLevel
         fuelWarningText = nil
+        DriveVoice.shared.cancel(topic: SpeechTopic.fuelLastChance)
     }
 
     // MARK: favorites (star button → one-press route planning)
@@ -4277,7 +4301,8 @@ final class AppModel: ObservableObject {
             // else happen when the router failed — read as "done" by a
             // driver heading into the storm. Put the prompt back and say so.
             if mode == .navigating { escalation = previous }
-            VoiceAnnouncer.shared.announce("Couldn't find another route yet. Still on this one.")
+            VoiceAnnouncer.shared.announce("Couldn't find another route yet. Still on this one.",
+                                           topic: SpeechTopic.escalation)
             return
         }
         // Fully score every candidate (cached cells make this fast) and swap
@@ -4429,7 +4454,8 @@ final class AppModel: ObservableObject {
                     if self.hapticAlerts { Haptics.offer() }   // chip just appeared
                     if self.voiceAlerts {
                         VoiceAnnouncer.shared.announce(
-                            SiriSummaries.fasterRouteOffer(minutes: minutes))
+                            SiriSummaries.fasterRouteOffer(minutes: minutes),
+                            topic: SpeechTopic.trafficOffer)
                         VoiceReply.shared.listenAfterSpeech { [weak self] answer in
                             guard let self,
                                   case .fasterRoute? = self.pendingVoiceOffer

@@ -138,6 +138,7 @@ final class CrashDetectionService: ObservableObject {
         addressLookup += 1       // and any address lookup
         reverseGeocodedAddress = nil
         stopCheckIn()
+        synthesizer.stopSpeaking(at: .immediate)   // the trip is over: so is the check-in's voice
         state = .idle
         releaseAudioSessionWhenQuiet()
     }
@@ -212,6 +213,10 @@ final class CrashDetectionService: ObservableObject {
     /// Physical dismissal or a spoken "I'm okay" — stand down.
     func standDown() {
         stopCheckIn()
+        // "I'm OK" or Done cuts the question or the report being read; only
+        // the short reply follows. The stop stays out of stopCheckIn():
+        // "Get help" runs it too, and the report must never be lost.
+        synthesizer.stopSpeaking(at: .immediate)
         state = .idle
         impactTime = nil
         speak("Okay. Glad you're safe.")
@@ -321,6 +326,10 @@ final class CrashDetectionService: ObservableObject {
                 while self.synthesizer.isSpeaking, waited < 60 {
                     try? await Task.sleep(for: .milliseconds(100)); waited += 1
                 }
+                // Answered, dismissed or ended while the question played: the
+                // microphone stays shut (it used to open mid-report, where a
+                // heard word could restart or stand down the help flow).
+                guard case .checkingIn = self.state else { return }
                 self.startRecognition(seconds: seconds)
             }
         }

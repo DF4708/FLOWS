@@ -1430,7 +1430,9 @@ files the plan never classified, which need a decision before wave 3:
 `ManeuverSymbol`, `VoiceReply`, `IntentClarifier`, `SiriSummaries`,
 `TouristInfo`, `VehicleTrack`, `CameraZoom`, `GoldenScale`, `TextScale`,
 `ZipBordersAndTransit` and `TruckerRadio`, besides the platform files
-(networking, audio, speech, sensors, stores) that stay.
+(networking, audio, speech, sensors, stores) that stay. `SpeechLineQueue`
+(2026-09-21, the per-message speech queue behind VoiceAnnouncer and
+DriveVoice) is speech glue and stays in Swift.
 
 ## Wave 1 leftovers: alert text and dispatch audio (2026-09-15)
 

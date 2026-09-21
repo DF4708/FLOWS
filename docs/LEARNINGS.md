@@ -1790,3 +1790,23 @@ without a regression:
   corridor's closures and live feeds to the trip's live watch. Scoring a
   replan to an added stop replaced the continuation leg's with a small box
   for the rest of the drive; such a pass now scores without adopting them.
+
+## A closed message takes its voice with it
+
+- **Closing a banner stopped nothing.** Every close path (the X, Continue,
+  Shelter, a new trip, End) changed state only; the spoken warning played
+  to the end. And `AVSpeechSynthesizer` keeps a private queue with no way
+  to take one line out: stopping it silences everything, turn directions
+  included.
+- **So the voices hand the synthesizer one line at a time.**
+  `SpeechLineQueue` holds the rest, each line tagged with its message
+  (`SpeechTopic`); closing the message stops its playing line and drops its
+  queued ones, and every other line carries on. The finish report crosses
+  to the main actor as an identity only, stale or repeated reports are
+  ignored by serial, and a report that never comes is healed on the next
+  line, so one lost callback can't silence every later turn.
+- **Hook the close on the state, not on the button.** A didSet on the
+  published message (the warning, the escalation, the traffic chip) sees
+  every way it closes, including the ones no button raises (it cleared, a
+  graver alert replaced it). A spoken prompt added later passes a topic and
+  inherits this.
