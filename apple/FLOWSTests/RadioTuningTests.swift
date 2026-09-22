@@ -88,6 +88,39 @@ final class RadioTuningTests: XCTestCase {
         XCTAssertEqual(RadioTuning.nearest(to: here, in: both)?.station.id, "listed")
     }
 
+    func testOnlyAWeatherStationOnTheAirFollowsTheDrive() {
+        XCTAssertTrue(RadioTuning.mayFollow(playingID: "Madison", isWeatherStation: true,
+                                            isPaused: false, pinnedID: nil))
+        // Nothing on the air: moving would start audio on its own.
+        XCTAssertFalse(RadioTuning.mayFollow(playingID: nil, isWeatherStation: false,
+                                             isPaused: false, pinnedID: nil))
+        // AM/FM music or a cab channel stays on its station.
+        XCTAssertFalse(RadioTuning.mayFollow(playingID: "KXYZ Rock", isWeatherStation: false,
+                                             isPaused: false, pinnedID: nil))
+    }
+
+    func testAPausedStationWaitsForTheDriver() {
+        // Moving a paused station restarts the sound — the driver paused it.
+        XCTAssertFalse(RadioTuning.mayFollow(playingID: "Madison", isWeatherStation: true,
+                                             isPaused: true, pinnedID: nil))
+    }
+
+    func testAStationPickedByHandStaysOnTheAir() {
+        XCTAssertFalse(RadioTuning.mayFollow(playingID: "Chicago", isWeatherStation: true,
+                                             isPaused: false, pinnedID: "Chicago"))
+        // The pin is for that station only; another one on the air follows.
+        XCTAssertTrue(RadioTuning.mayFollow(playingID: "Madison", isWeatherStation: true,
+                                            isPaused: false, pinnedID: "Chicago"))
+    }
+
+    func testAHandPickIsAStationOtherThanTheNearest() {
+        XCTAssertTrue(RadioTuning.isHandPick("Chicago", nearestID: "Madison"))
+        // Picking the nearest one keeps following the drive.
+        XCTAssertFalse(RadioTuning.isHandPick("Madison", nearestID: "Madison"))
+        // No fix yet, so no nearest to have picked over.
+        XCTAssertFalse(RadioTuning.isHandPick("Chicago", nearestID: nil))
+    }
+
     func testTheShippedStationListCoversTheCountry() {
         // The bundled relays are what auto-tune has to work with — every one
         // of them must carry a position, or it is invisible to the tuner.

@@ -732,6 +732,21 @@ final class RadioAndSpotifyTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testTheControllerDefaultsToTheRadioLikeTheApp() {
+        // Siri and CarPlay can reach the controller before the app model
+        // exists. With no pick stored it must drive the app's own default,
+        // the radio — not shuffle the Apple Music library over it.
+        let key = "flows.musicProvider"
+        let saved = UserDefaults.standard.string(forKey: key)
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.set(saved, forKey: key) }
+        let music = MusicController()
+        XCTAssertEqual(music.provider, .radio)
+        XCTAssertTrue(music.radioActive)
+        XCTAssertTrue(music.controlsInPlace)
+    }
+
     // MARK: Spotify Web API — request shapes
 
     func testTransportCallsMapToThePlayerEndpoints() {

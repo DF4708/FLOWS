@@ -82,4 +82,23 @@ enum RadioTuning {
         }
         return i < 0 ? nil : stations[Int(i)].id
     }
+
+    /// Whether auto-tune may move what is on the air at all. Only a weather
+    /// relay follows the drive; AM/FM music and a cab channel stay put. A
+    /// paused one waits for the driver, because moving it restarts the sound
+    /// and the app never starts audio by itself. And a station the driver
+    /// picked by hand stays until they change or stop it.
+    static func mayFollow(playingID: String?, isWeatherStation: Bool,
+                          isPaused: Bool, pinnedID: String?) -> Bool {
+        guard let playingID, isWeatherStation, !isPaused else { return false }
+        return playingID != pinnedID
+    }
+
+    /// A station picked over the nearest transmitter is a choice auto-tune
+    /// must respect. Picking the nearest one, or picking before any fix has
+    /// said which is nearest, keeps following the drive.
+    static func isHandPick(_ id: String, nearestID: String?) -> Bool {
+        guard let nearestID else { return false }
+        return id != nearestID
+    }
 }

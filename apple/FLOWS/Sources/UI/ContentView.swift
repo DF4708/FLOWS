@@ -3069,17 +3069,18 @@ struct SettingsSheet: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .tint(Theme.riskGreen)
-            Text("The little player in the drive bar uses this app. Play, "
-                 + "pause, and skip work right in FLOWS with Apple Music — "
-                 + "and with Spotify when a Spotify token is set under Data "
-                 + "sources. No other music service lets outside apps "
-                 + "control it, so the rest open in their own app. The same "
-                 + "rule drives the Siri and CarPlay buttons.")
+            Text("The little player in the drive bar uses this app. AM/FM "
+                 + "radio plays right here in FLOWS — no account needed. "
+                 + "Apple Music plays here too, and so does Spotify: on a "
+                 + "Mac right away, on iPhone once a Spotify token is added "
+                 + "under Data sources. No other music service lets outside "
+                 + "apps control it, so the rest open in their own app. The "
+                 + "same rule drives the Siri and CarPlay buttons.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
             Divider()
-            Text("Emergency radio on the map")
+            Text("Police and fire calls on the map")
                 .scaledFont(size: 14, weight: .semibold)
             if model.scanner.available {
                 Toggle("Show calls heard nearby", isOn: Binding(
@@ -3200,7 +3201,10 @@ struct SettingsSheet: View {
                 Text("Ask if I'm OK after a crash (iPhone)").scaledFont(.caption)
             }
             Toggle(isOn: $model.radioAutoSwitch) {
-                Text("Trucker radio auto-retunes to the nearest station").scaledFont(.caption)
+                // Named as the drive bar names the radio; only weather
+                // stations move — AM/FM music stays on its station.
+                Text("\(model.truckerUI ? "Trucker" : "Emergency") radio switches to the "
+                     + "nearest weather station as you drive").scaledFont(.caption)
             }
             // Part of the fuel reminders: with those off it asks nothing,
             // so it greys out rather than show an ON that does nothing.

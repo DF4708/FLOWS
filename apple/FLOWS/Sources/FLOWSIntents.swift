@@ -64,6 +64,12 @@ struct MusicControlIntent: AppIntent {
         guard music.controlsInPlace else {
             return .result(dialog: musicHandsOffDialog())
         }
+        if music.radioActive {
+            guard let model = AppModel.shared else {
+                return .result(dialog: "Open FLOWS first.")
+            }
+            return .result(dialog: radioControl(model))
+        }
         switch action {
         case .play:
             if !music.isPlaying { music.playPause() }
@@ -79,7 +85,34 @@ struct MusicControlIntent: AppIntent {
             return .result(dialog: "Back a song.")
         case .shuffle:
             music.toggleShuffle()
-            return .result(dialog: music.shuffleOn ? "Shuffle on." : "Shuffle off.")
+            return .result(dialog: music.playOrder == .shuffle ? "Shuffle on." : "Shuffle off.")
+        }
+    }
+
+    /// The radio as the music service: the same moves as the drive bar's
+    /// buttons, which start the stations around here when nothing is tuned
+    /// or queued yet — the bare transport has nothing to play or step
+    /// through then, and Siri would claim a change that never happened.
+    @MainActor
+    private func radioControl(_ model: AppModel) -> IntentDialog {
+        let radio = model.radio
+        let onAir = radio.playingChannelID != nil && !radio.isPaused
+        switch action {
+        case .play:
+            if onAir { return "Playing." }
+            let tuned = radio.playingChannelID != nil || radio.lastPlayed != nil
+            model.playMusic()
+            return tuned ? "Playing." : "Finding stations near you."
+        case .pause:
+            if onAir { MusicController.shared.playPause() }
+            return "Paused."
+        case .skip, .nextSong, .lastSong:
+            let queued = !radio.queue.isEmpty
+            model.radioStep(forward: action != .lastSong)
+            guard queued else { return "Finding stations near you." }
+            return action == .lastSong ? "Back a station." : "Next station."
+        case .shuffle:
+            return "Live radio can't shuffle. Say skip in FLOWS for another station."
         }
     }
 }
@@ -433,12 +466,12 @@ struct RouteAheadIntent: AppIntent {
 }
 
 /// "Play something in FLOWS" — voice-to-music through WHICHEVER service
-/// is picked, each by its honest route: Apple Music plays the library
-/// genre in place (Music's search otherwise), token-linked Spotify
-/// searches the catalog and STARTS the best playlist on the active
-/// device, and every no-API service opens directly at its own search
-/// for the ask (openAppWhenRun makes the hand-off legal — deep links
-/// can't launch from a background intent).
+/// is picked, each by its honest route: the radio tunes a station of that
+/// kind, Apple Music plays the library genre in place (Music's search
+/// otherwise), token-linked Spotify searches the catalog and STARTS the
+/// best playlist on the active device, and every no-API service opens
+/// directly at its own search for the ask (openAppWhenRun makes the
+/// hand-off legal — deep links can't launch from a background intent).
 struct PlayMusicSearchIntent: AppIntent {
     static let title: LocalizedStringResource = "Play something"
     static let description = IntentDescription(
@@ -454,6 +487,16 @@ struct PlayMusicSearchIntent: AppIntent {
             return .result(dialog: "Open FLOWS first.")
         }
         let provider = model.musicProvider
+        // FLOWS plays the radio itself: the ask tunes a station of that
+        // kind and queues the rest, as the in-app mic does. The directory's
+        // web page is no place to send a driver.
+        if provider == .radio {
+            guard let station = await model.playRadioMusicAsk(music) else {
+                return .result(dialog: IntentDialog("No \(music) stations found right now."))
+            }
+            return .result(dialog: IntentDialog(
+                "Playing \(music) on \(station). Say skip in FLOWS for another station."))
+        }
         if provider == .appleMusic {
             // Full catalog first (MusicKit; needs the portal's MusicKit
             // service + a subscription) — the library genre path otherwise.

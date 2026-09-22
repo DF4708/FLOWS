@@ -176,9 +176,10 @@ final class AppModel: ObservableObject {
     }
 
     /// Called on corridor updates: retune to the nearest station when the
-    /// vehicle's state changes (auto-switch on + something already playing).
+    /// vehicle's state changes (auto-switch on + a weather station on the
+    /// air that isn't paused or picked by hand — TruckerRadio.followsTheDrive).
     func retuneRadioIfNeeded(stateCode: String?) {
-        guard radioAutoSwitch, radio.playingChannelID != nil,
+        guard radioAutoSwitch, radio.followsTheDrive,
               let stateCode, stateCode != lastRadioState else { return }
         lastRadioState = stateCode
         // GPS-precise retune when a position exists; state match is the fallback.
@@ -737,12 +738,18 @@ final class AppModel: ObservableObject {
         rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
     ) ?? .radio {
         didSet {
-            UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
             // The offline handoff and its restore assign this too. Those are
             // the app moving playback, not the driver picking a service —
             // counting them silenced the "which service?" question forever
-            // after the first tunnel.
-            if !settingProviderProgrammatically { musicProviderChosen = true }
+            // after the first tunnel, and saving them made a handoff the
+            // pick the next launch came back with. A pick of the driver's
+            // own (the Settings picker binds here directly) also ends any
+            // pending switch-back.
+            if !settingProviderProgrammatically {
+                UserDefaults.standard.set(musicProvider.rawValue, forKey: "flows.musicProvider")
+                musicProviderChosen = true
+                cancelOfflineHandoff()
+            }
             MusicController.shared.provider = musicProvider
         }
     }
@@ -780,8 +787,12 @@ final class AppModel: ObservableObject {
 
     /// Radio AS the music service: a genre ask becomes a station QUEUE —
     /// the first station plays, next/previous walk the rest, exactly like
-    /// a playlist. No subscription, no account.
-    func playGenreRadio(_ genre: String, spokenPrefix: String? = nil) async {
+    /// a playlist. No subscription, no account. Returns the station now on
+    /// (nil when nothing matched); `announce: false` leaves the speaking to
+    /// the caller — Siri's reply, which would otherwise talk over FLOWS.
+    @discardableResult
+    func playGenreRadio(_ genre: String, spokenPrefix: String? = nil,
+                        announce: Bool = true) async -> String? {
         // A named kind gets the filed search (tag hits re-checked against
         // BroadcastRadio's match order, nearest first); anything else the
         // driver says falls back to free text.
@@ -794,15 +805,29 @@ final class AppModel: ObservableObject {
         }
         let channels = radioBrowser.stations.map(\.channel)
         guard !channels.isEmpty else {
-            VoiceAnnouncer.shared.announce(
-                "No \(genre) stations found right now.")
-            return
+            if announce {
+                VoiceAnnouncer.shared.announce(
+                    "No \(genre) stations found right now.")
+            }
+            return nil
         }
         radio.playQueue(channels, label: genre)
         let name = radio.lastPlayed?.name ?? "a station"
-        VoiceAnnouncer.shared.announce(
-            (spokenPrefix.map { $0 + " " } ?? "") + "Playing \(genre) — \(name). "
-            + "Say next for another \(genre) station.")
+        if announce {
+            VoiceAnnouncer.shared.announce(
+                (spokenPrefix.map { $0 + " " } ?? "") + "Playing \(genre) — \(name). "
+                + "Say next for another \(genre) station.")
+        }
+        return name
+    }
+
+    /// Siri's "play something" with the radio as the service: the same
+    /// station queue as the in-app ask, quiet, so Siri's reply is the one
+    /// spoken line. Returns the station now on, nil when nothing matched.
+    func playRadioMusicAsk(_ term: String) async -> String? {
+        cancelOfflineHandoff()   // a driver's ask outranks a pending switch-back
+        lastMusicAsk = term
+        return await playGenreRadio(term, announce: false)
     }
 
     func playMusicAsk(_ term: String) {
@@ -1195,7 +1220,9 @@ final class AppModel: ObservableObject {
         case .radio(let genre):
             handedOffOffline = true
             preHandoffProvider = musicProvider
+            settingProviderProgrammatically = true
             musicProvider = .radio
+            settingProviderProgrammatically = false
             // Pre-staged while signal remained: play instantly instead of
             // searching into the silence (the search would fail anyway —
             // the directory needs the very link that just died).

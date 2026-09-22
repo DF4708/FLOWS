@@ -82,6 +82,10 @@ final class TruckerRadio: ObservableObject {
     @Published private(set) var channels: [Channel]
     @Published private(set) var playingChannelID: String?
     @Published private(set) var status: String?
+    /// A weather station the driver chose by hand over the nearest one (the
+    /// radio card's picker). Auto-tune leaves it on the air; stopping or
+    /// tuning anything else lets go of it.
+    private(set) var pinnedChannelID: String?
 
     /// The last channel play() tuned (any kind — NOAA relay or AM/FM),
     /// persisted so the lock-screen play button and Siri have a target
@@ -343,8 +347,10 @@ final class TruckerRadio: ObservableObject {
 
     /// Tune a station. `clearQueue` defaults true so a one-off pick (a
     /// NOAA relay, a tapped row) ends the previous genre run; the queue
-    /// walkers pass false to stay inside their own list.
-    func play(_ channel: Channel, clearQueue: Bool = true) {
+    /// walkers pass false to stay inside their own list. `pinned` marks a
+    /// hand pick auto-tune must leave alone; resuming that same station
+    /// keeps the mark.
+    func play(_ channel: Channel, clearQueue: Bool = true, pinned: Bool = false) {
         if clearQueue {
             queue = []
             queueIndex = 0
@@ -355,7 +361,9 @@ final class TruckerRadio: ObservableObject {
                 + "for the cab radio, or add a relay URL in trucker_radio.json."
             return
         }
+        let keepPin = pinned || channel.id == pinnedChannelID
         stop()
+        pinnedChannelID = keepPin ? channel.id : nil
         #if os(iOS)
         // Without an active playback session iOS keeps AVPlayer SILENT —
         // the "no stream works" failure mode. (.playback + the audio
@@ -471,9 +479,25 @@ final class TruckerRadio: ObservableObject {
         return (channel: channel, meters: best.meters)
     }
 
+    /// True when the id names a weather relay from the station list — not an
+    /// AM/FM stream (never in the list) and not a cab channel that a custom
+    /// trucker_radio.json streams under its guide name.
+    func isWeatherStation(_ id: String?) -> Bool {
+        guard let id else { return false }
+        return channels.contains { $0.id == id }
+            && !Self.frequencyGuide.contains { $0.0 == id }
+    }
+
+    /// True while auto-tune may move what is on the air (RadioTuning.mayFollow).
+    var followsTheDrive: Bool {
+        RadioTuning.mayFollow(playingID: playingChannelID,
+                              isWeatherStation: isWeatherStation(playingChannelID),
+                              isPaused: isPaused, pinnedID: pinnedChannelID)
+    }
+
     /// The station the tuner should move to for this position, or nil to
-    /// stay where it is (nothing playing, already closest, or the next one
-    /// isn't meaningfully closer).
+    /// stay where it is (nothing playing, paused, picked by hand, already
+    /// closest, or the next one isn't meaningfully closer).
     func retuneTarget(for position: CLLocationCoordinate2D) -> Channel? {
         // Auto-tune follows NOAA TRANSMITTERS, and only those. An AM/FM
         // station plays through this same player but is not in `channels`,
@@ -481,7 +505,7 @@ final class TruckerRadio: ObservableObject {
         // RadioTuning treats unplaceable as yielding to any located station.
         // The result was that a driver listening to music had it swapped for
         // weather radio on the next GPS fix, every fix, forever.
-        guard let playingChannelID,
+        guard followsTheDrive, let playingChannelID,
               let playing = channels.first(where: { $0.id == playingChannelID })
         else { return nil }
         let coordinate = Self.position(of: playing)?.coordinate
@@ -512,6 +536,7 @@ final class TruckerRadio: ObservableObject {
         playingChannelID = nil
         status = nil
         isPaused = false
+        pinnedChannelID = nil
         updateNowPlaying(nil)
     }
 }

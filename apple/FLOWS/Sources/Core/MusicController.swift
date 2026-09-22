@@ -77,9 +77,12 @@ final class MusicController: ObservableObject {
 
     /// Transport for the radio service. Returns false when radio isn't
     /// the active service, so each platform's method falls through to its
-    /// own player.
+    /// own player. Before AppModel hands the radio over (Siri or CarPlay
+    /// calling in first) there is nothing to drive, and falling through
+    /// would start the system player over the driver's pick.
     private func radioTransport(_ action: (TruckerRadio) -> Void) -> Bool {
-        guard radioActive, let radio = radioService else { return false }
+        guard radioActive else { return false }
+        guard let radio = radioService else { return true }
         action(radio)
         syncFromRadio()
         return true
@@ -96,9 +99,11 @@ final class MusicController: ObservableObject {
     /// Web API calls. Everything else deep-links, so never reaches here.
     /// Seeded from the stored pick, not hard-wired to Apple Music: Siri and
     /// CarPlay can call in before the SwiftUI scene (and AppModel) exist.
-    var provider: MusicProvider = MusicProvider(
+    /// With no pick yet it is the radio, the same default AppModel uses.
+    /// Published so CarPlay can redraw its buttons when the pick changes.
+    @Published var provider: MusicProvider = MusicProvider(
         rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .appleMusic
+    ) ?? .radio
 
     /// True when the transport calls drive the PICKED service rather than
     /// falling through to Apple Music — the one gate every surface checks
@@ -408,7 +413,23 @@ final class MusicController: ObservableObject {
         }
     }
 
-    func toggleShuffle() { cyclePlayOrder() }
+    /// Siri's "shuffle": shuffle on, or back to in order — never on to
+    /// repeat the way the play-order button cycles. Both fields land in the
+    /// same step, so the reply reads the new state rather than the old one
+    /// (the player's own notice comes later, if at all).
+    func toggleShuffle() {
+        if radioActive { return }   // live radio has no play order
+        let next: PlayOrder = playOrder == .shuffle ? .ordered : .shuffle
+        if spotifyActive {
+            SpotifyRemote.shared.setOrder(next)
+        } else {
+            activateIfNeeded()
+            player.shuffleMode = next == .shuffle ? .songs : .off
+            player.repeatMode = .none
+        }
+        playOrder = next
+        shuffleOn = next == .shuffle
+    }
 
     #elseif os(macOS)
     static let isAvailable = true
@@ -467,11 +488,11 @@ final class MusicController: ObservableObject {
     }
 
     /// Which service the transport buttons drive (set from the user's
-    /// provider pick, seeded from the stored value). macOS can script
-    /// Spotify as well as Music.
+    /// provider pick, seeded from the stored value — the radio when there
+    /// is none, as in AppModel). macOS can script Spotify as well as Music.
     var provider: MusicProvider = MusicProvider(
         rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .appleMusic
+    ) ?? .radio
 
     /// Same gate as iOS: Apple Music and Spotify script in place here;
     /// no other service exposes a way in (see MusicProvider.controllable).
@@ -579,7 +600,24 @@ final class MusicController: ObservableObject {
         refreshSoon()
     }
 
-    func toggleShuffle() { cyclePlayOrder() }
+    /// Siri's "shuffle": shuffle on, or back to in order — never on to
+    /// repeat the way the play-order button cycles. Both fields land in the
+    /// same step, so the reply reads the new state rather than the old one.
+    func toggleShuffle() {
+        if radioActive { return }   // live radio has no play order
+        let next: PlayOrder = playOrder == .shuffle ? .ordered : .shuffle
+        let on = next == .shuffle
+        if provider == .spotify {
+            run("tell application \"Spotify\" to set shuffling to \(on)")
+            run("tell application \"Spotify\" to set repeating to false")
+        } else {
+            run("tell application \"Music\" to set shuffle enabled to \(on)")
+            run("tell application \"Music\" to set song repeat to off")
+            refreshSoon()
+        }
+        playOrder = next
+        shuffleOn = on
+    }
 
     #else
     static let isAvailable = false

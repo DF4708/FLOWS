@@ -101,6 +101,14 @@ final class WatchGuidance: NSObject, ObservableObject, WCSessionDelegate {
                     CLLocationCoordinate2D(latitude: $0, longitude: $1)
                 }
             }
+            // A trip that ended goes whole — its line, its position and its
+            // heading. The phone's "Trip ended" carries no position, so the
+            // arrow would otherwise stay on the map under it.
+            if payload["navigating"] as? Bool == false,
+               (payload["routeLat"] as? [Double])?.isEmpty == true {
+                self.vehicle = nil
+                self.heading = 0
+            }
             // The wrist tap: fires when the phone says a turn is near.
             if payload["nearTurn"] as? Bool == true {
                 WKInterfaceDevice.current().play(.directionUp)

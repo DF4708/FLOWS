@@ -84,12 +84,22 @@ final class ScannerListener: ObservableObject {
     /// Feeds the operator supplied. Empty means the feature is unavailable.
     @Published private(set) var feeds: [ScannerFeed] = []
 
-    /// Off unless the driver turns it on AND a feed list exists.
+    /// Off unless the driver turns it on AND a feed list exists. Turning it
+    /// on starts listening now (a parked phone or a desk Mac gets no new
+    /// fix to start it); turning it off takes its pins and its "Listening
+    /// to…" line with it, instead of leaving them up for up to an hour.
     @Published var enabled: Bool =
         UserDefaults.standard.bool(forKey: "flows.scannerEnabled") {
         didSet {
             UserDefaults.standard.set(enabled, forKey: "flows.scannerEnabled")
-            if !enabled { stop() }
+            if enabled {
+                retryAfter = .distantPast   // the driver's own retry
+                listen(near: lastPosition)
+            } else {
+                stop()
+                incidents = []
+                status = nil
+            }
         }
     }
 
@@ -98,6 +108,15 @@ final class ScannerListener: ObservableObject {
 
     private var player: AVPlayer?
     private var currentFeed: ScannerFeed?
+    /// Where listen() was last told the vehicle is — the switch turning on
+    /// picks a feed with it rather than waiting for the next fix.
+    private var lastPosition: CLLocationCoordinate2D?
+    /// Bumped by every stop(). A callback from a session stopped since (the
+    /// switch turned off, or a move to another feed) sees a newer number and
+    /// does nothing: a cancelled recognizer can still report an error on its
+    /// way out, which would read as "Feed dropped." and hold the next start
+    /// off for a minute.
+    private var session = 0
     /// True from start() until the authorization callback lands, so the
     /// per-fix listen() does not request authorization again meanwhile.
     private var starting = false
@@ -129,6 +148,7 @@ final class ScannerListener: ObservableObject {
     /// Start on the feed covering this position, if the feature is on and a
     /// feed exists for it.
     func listen(near position: CLLocationCoordinate2D?) {
+        if let position { lastPosition = position }
         // One line per state change, so a feed that never starts can say
         // why — this path had no journal line before its first callback.
         if !enabled {
@@ -147,6 +167,8 @@ final class ScannerListener: ObservableObject {
     }
 
     func stop() {
+        session += 1
+        starting = false   // a pending authorization answer is for the old session
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
         player?.pause()
@@ -173,9 +195,10 @@ final class ScannerListener: ObservableObject {
         currentFeed = feed
         starting = true
         #if canImport(Speech)
+        let mine = session
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.session == mine else { return }
                 self.starting = false
                 guard auth == .authorized else {
                     self.status = "Speech recognition is off in Settings."
@@ -231,9 +254,10 @@ final class ScannerListener: ObservableObject {
             }
         }
 
+        let mine = session
         task = recognizer.recognitionTask(with: request) { [weak self] result, error in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.session == mine else { return }
                 if let error {
                     self.status = "Feed dropped."; self.isListening = false
                     self.retryAfter = Date().addingTimeInterval(60)
@@ -306,6 +330,8 @@ final class ScannerListener: ObservableObject {
             Task { @MainActor in
                 guard let self, let c = marks?.first?.location?.coordinate else { return }
                 self.placeCache[place] = c
+                // Switched off while the lookup ran: no pin after off.
+                guard self.enabled else { return }
                 self.add(kind: kind, at: c, place: place)
             }
         }

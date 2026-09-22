@@ -2135,14 +2135,17 @@ struct NavigationHUD: View {
 
     /// Point the picker at the closest available station.
     ///
-    /// While something is playing the picker must name the station actually
-    /// on the air — auto-tune moves that as the drive crosses into the next
-    /// coverage area, and a picker left on the old name would be a lie.
-    /// While nothing is playing it simply tracks the nearest transmitter, so
-    /// the default is right for wherever the vehicle IS, not for wherever it
-    /// was when the card first opened.
+    /// While a station from its list is playing the picker must name the
+    /// station actually on the air — auto-tune moves that as the drive
+    /// crosses into the next coverage area, and a picker left on the old
+    /// name would be a lie. An AM/FM stream isn't in the list (naming it
+    /// left the picker blank), so then, as while nothing is playing, it
+    /// simply tracks the nearest transmitter, so the default is right for
+    /// wherever the vehicle IS, not for wherever it was when the card first
+    /// opened.
     private func preselectNearestStation() {
-        if let playing = model.radio.playingChannelID {
+        if let playing = model.radio.playingChannelID,
+           model.radio.channels.contains(where: { $0.id == playing }) {
             radioChannelID = playing
             return
         }
@@ -2152,6 +2155,26 @@ struct NavigationHUD: View {
         } else if let nearest = model.radio.nearestChannel(stateCode: model.currentStateCode) {
             radioChannelID = nearest.id
         }
+    }
+
+    /// The driver chose a station in the picker. While a station from its
+    /// list is on the air the picker names it, so the new pick is tuned at
+    /// once instead of the name and the sound parting ways.
+    private func pickStation(_ id: String) {
+        radioChannelID = id
+        guard let playing = model.radio.playingChannelID, playing != id,
+              model.radio.channels.contains(where: { $0.id == playing }),
+              let channel = model.radio.channels.first(where: { $0.id == id })
+        else { return }
+        playStation(channel)
+    }
+
+    /// Play a station from the card. One chosen over the nearest transmitter
+    /// is pinned, or auto-tune would move it back on the next fix.
+    private func playStation(_ channel: TruckerRadio.Channel) {
+        radioChannelID = channel.id
+        model.radio.play(channel, pinned: RadioTuning.isHandPick(
+            channel.id, nearestID: model.nearestStationID))
     }
 
     /// Radio: internet relays of highway-relevant broadcasts (trucker radio
@@ -2180,7 +2203,9 @@ struct NavigationHUD: View {
             // transmitter closest to the GPS position and auto-switches as you
             // drive (20% hysteresis). The picker stays for manual override.
             HStack(spacing: 8) {
-                Picker("Station", selection: $radioChannelID) {
+                Picker("Station", selection: Binding(
+                    get: { radioChannelID },
+                    set: { pickStation($0) })) {
                     ForEach(model.radio.channels) { channel in
                         Text(channel.name).tag(channel.id)
                     }
@@ -2198,8 +2223,7 @@ struct NavigationHUD: View {
                     } else if let channel = model.radio.channels.first(where: { $0.id == radioChannelID })
                         ?? model.effectivePosition.flatMap({ model.radio.nearestChannel(to: $0)?.channel })
                         ?? model.radio.nearestChannel(stateCode: model.currentStateCode) {
-                        radioChannelID = channel.id
-                        model.radio.play(channel)
+                        playStation(channel)
                     }
                 } label: {
                     Image(systemName: model.radio.playingChannelID != nil
@@ -2628,7 +2652,9 @@ struct NavigationHUD: View {
             .buttonStyle(.plain)
             .help(music.trackName.isEmpty
                   ? model.musicProvider.displayName : music.trackName)
-            if model.musicProvider.controllable {
+            // The token-aware gate, like the skip button below: a linked
+            // Spotify on iPhone gets back and play/pause, not "Open Spotify".
+            if model.musicControllable {
             Button {
                 // Radio walks its own station queue, and starts one when
                 // there isn't one yet — the arrows are never dead.
