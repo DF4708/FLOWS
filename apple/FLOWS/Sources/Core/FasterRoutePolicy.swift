@@ -179,6 +179,61 @@ enum FasterRoutePolicy {
         return hit[0] + margin < diverge
     }
 
+    /// The filters that keep a vehicle out of harm's way: a rig's bridges,
+    /// weights and grades, flood zones and crosswinds. Broken, they outrank
+    /// the driver's road choices.
+    static let safetyFilters: Set<RouteFilter> =
+        [.lowBridges, .bridgeWeight, .mountainGrades, .noFloodRisk, .noHighWinds]
+
+    /// The safety filters about the rig fitting the road — its bridges,
+    /// weights and grades — rather than the weather on it.
+    static let rigFilters: Set<RouteFilter> = [.lowBridges, .bridgeWeight, .mountainGrades]
+
+    /// The risk level a reroute away from risk escapes by: Red above Yellow
+    /// above the rest. The owner counts Clear and Green as one low level
+    /// (2026-09-21), as the faster-route switch does (Rust `switch_level`).
+    static func rerouteLevel(_ risk: Double) -> Int {
+        switch FlowsCore.riskBand(score: risk) {
+        case .red: return 2
+        case .yellow: return 1
+        case .green, .clear: return 0
+        }
+    }
+
+    /// The road to drive when FLOWS swaps in a leg the driver didn't pick
+    /// card by card: a reroute, the way to an added stop, the way on from
+    /// it. These used to take the router's first car route, dropping the
+    /// driver's road choices. Wins: the fewest broken safety filters, then
+    /// keeping the road choices (`keepsRoadChoice`), then the first in the
+    /// router's order. A filter that can't be checked yet (a road not
+    /// scored, its attributes not loaded) passes, as it does on the route
+    /// cards. nil when there is no candidate.
+    ///
+    /// `calmest`: a reroute away from risk. Only the rig's own limits come
+    /// before the risk level (a road the rig can't pass is no way out); then
+    /// the weather filters, the road choices, and the lowest risk, ties to
+    /// the sooner arrival. A toll or a crosswind filter must never hold the
+    /// driver on a riskier road than one that is there to take.
+    static func swapPick(_ candidates: [PlannedRoute], leg: PlannedRoute,
+                         filters: Set<RouteFilter>, limits: FilterLimits,
+                         calmest: Bool) -> PlannedRoute? {
+        let safety = filters.intersection(safetyFilters)
+        let rig = safety.intersection(rigFilters)
+        func broken(_ set: Set<RouteFilter>, _ c: PlannedRoute) -> Int {
+            set.filter { !$0.passes(c, limits: limits) }.count
+        }
+        let ranks: [[Int]] = candidates.map { c in
+            let choice = keepsRoadChoice(c, leg: leg, filters: filters) ? 0 : 1
+            guard calmest else { return [broken(safety, c), choice] }
+            return [broken(rig, c), rerouteLevel(c.weatherRisk),
+                    broken(safety.subtracting(rig), c), choice]
+        }
+        guard let best = ranks.min(by: { $0.lexicographicallyPrecedes($1) }) else { return nil }
+        let pool = candidates.indices.filter { ranks[$0] == best }.map { candidates[$0] }
+        guard calmest else { return pool.first }
+        return pool.min { ($0.weatherRisk, $0.eta) < ($1.weatherRisk, $1.eta) }
+    }
+
     private static func code(_ kind: RoutePlanKind) -> UInt8 {
         switch kind {
         case .standard: return 0

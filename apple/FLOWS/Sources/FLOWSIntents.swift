@@ -145,6 +145,10 @@ struct FindStopIntent: AppIntent {
             return .result(dialog: "Open FLOWS first.")
         }
         let position = model.effectivePosition
+        // Every answer below says the list is on screen: a list the driver
+        // tucked away comes back out for a fresh search, as the stop
+        // buttons bring it.
+        model.collapsedPanels.remove("stops")
 
         // FOOD gets the extra step the picker gives on screen: "do you
         // prefer Mexican, Greek, or fast food?" — the reply can name a
@@ -225,8 +229,10 @@ struct FindStopIntent: AppIntent {
                 let meters = position.map {
                     POIRanking.meters($0, pick.item.placemark.coordinate)
                 }
-                await model.addStop(pick.item)
-                guard model.pendingStopName == name else {
+                // addStop says whether the leg started; the stop's name falls
+                // back differently there ("Stop") than here, so comparing
+                // names called a nameless stop that was added a failure.
+                guard await model.addStop(pick.item) else {
                     return .result(dialog: IntentDialog(
                         "Couldn't route to \(name) right now. Try again in a moment."))
                 }
@@ -402,13 +408,22 @@ struct RouteAheadIntent: AppIntent {
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let model = AppModel.shared,
-              let guidance = model.navigation.guidance else {
+              let guidance = model.navigation.guidance,
+              let remaining = model.tripRemaining else {
             return .result(dialog: "Start a route first.")
         }
+        // What's left to the final destination (an added stop's way on and
+        // stopped time included, as the drive screen shows it), and the
+        // alerts on the road still ahead as the live watch last saw them,
+        // a warning on screen first. The plan-time list said "No weather
+        // alerts" through a warning issued mid-drive.
+        let alerts = [model.imminentWarning?.event].compactMap { $0 }
+            + (model.navigation.route?.alertEventsAhead(alongMeters: guidance.alongMeters) ?? [])
+            + (model.upcomingLeg?.alertEventsAhead(alongMeters: 0) ?? [])
         var summary = SiriSummaries.roadAhead(
-            remainingMeters: guidance.remainingDistance,
-            remainingSeconds: guidance.remainingTime,
-            alertEvents: model.navigation.route?.alertEvents ?? [])
+            remainingMeters: remaining.meters,
+            remainingSeconds: remaining.seconds,
+            alertEvents: alerts)
         // Trucker mode: the FMCSA break clock rides along once it matters.
         if model.truckerUI, let hos = SiriSummaries.hosLine(model.hosStatus) {
             summary += " " + hos
@@ -593,21 +608,23 @@ struct GoAheadIntent: AppIntent {
             return .result(dialog: "Open FLOWS first.")
         }
         switch model.pendingVoiceOffer {
-        case .trip(let route, let name):
-            // Re-resolve against the LIVE list: the staged copy is a value
-            // snapshot taken before scoring finished, and the driver may
-            // have planned something else since.
-            let live = model.routeChoices.first { $0.id == route.id } ?? route
-            // The on-screen GO button only exists once the route is weather
-            // scored. A spoken yes must not walk around that gate and start
-            // driving on a corridor nothing has checked yet.
-            guard live.weatherScored else {
+        case .trip:
+            // The model re-resolves against the LIVE list, holds the GO
+            // button's weather gate, and never starts a route the list's
+            // filters now hide (AppModel.acceptTripOffer).
+            switch model.acceptTripOffer() {
+            case .started(let name):
+                return .result(dialog: IntentDialog("Starting to \(name)."))
+            case .stillChecking:
                 return .result(dialog: IntentDialog(
                     "Still checking the weather on that route. Ask me again in a moment."))
+            case .changed(let pick):
+                let line = SiriSummaries.tripOfferChanged(meters: pick.distanceMeters,
+                                                          seconds: pick.eta)
+                return .result(dialog: IntentDialog("\(line)"))
+            case .nothing:
+                return .result(dialog: "Nothing is waiting for a yes right now.")
             }
-            model.pendingVoiceOffer = nil
-            model.select(route: live)
-            return .result(dialog: IntentDialog("Starting to \(name)."))
         case .fasterRoute:
             model.pendingVoiceOffer = nil
             return .result(dialog: rerouteDialog(await model.rerouteForTraffic()))
@@ -657,7 +674,7 @@ struct StartTripIntent: AppIntent {
         guard let routes = try? await model.plan(
                 from: from, fromName: "Current location",
                 to: place.placemark.coordinate, toName: name),
-              let best = routes.first else {
+              !routes.isEmpty else {
             return .result(dialog: IntentDialog("No route found to \(name)."))
         }
         // The route CHOICES show on screen (risk colors and all); the spoken
@@ -671,13 +688,19 @@ struct StartTripIntent: AppIntent {
         // this very sentence told the driver to "pick a route on screen".
         // present() is also what applies the driver's learned pace to the
         // ETA and starts the weather scoring that GO is gated on.
+        //
+        // While another trip is being driven, present() keeps the drive
+        // screen up (its warnings, turns and End button stay live) and holds
+        // the choices for the yes, so there's nothing to pick on screen.
         model.present(routes: routes)
-        let staged = model.routeChoices.first ?? best
-        model.pendingVoiceOffer = .trip(route: staged, name: name)
-        let summary = "Route to \(name): about "
-            + SiriSummaries.spokenMiles(meters: staged.distanceMeters) + " and "
-            + SiriSummaries.spokenTime(seconds: staged.eta)
-            + ". Say: go ahead in FLOWS — or pick a route on screen."
+        // The staged route is the one the list leads with, the driver's
+        // filters applied — it used to be the fastest whatever they said.
+        guard let staged = model.stageTripOffer(name: name) else {
+            return .result(dialog: IntentDialog("No route found to \(name)."))
+        }
+        let summary = SiriSummaries.tripOffer(
+            name: name, meters: staged.distanceMeters, seconds: staged.eta,
+            whileDriving: model.tripUnderway)
         return .result(dialog: IntentDialog("\(summary)"))
     }
 }

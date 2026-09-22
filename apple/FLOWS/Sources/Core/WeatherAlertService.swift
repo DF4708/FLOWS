@@ -29,6 +29,36 @@ final class WeatherAlertService: ObservableObject {
         let coordinates: [CLLocationCoordinate2D]
         let severity: Double
         let event: String
+        /// When the alert stops being in force; nil when it doesn't say.
+        var expires: Date? = nil
+
+        /// An expired warning's shape leaves the map with its banner.
+        func hasExpired(at now: Date) -> Bool { expires.map { $0 <= now } ?? false }
+    }
+
+    /// The driven route's alert shapes after a live corridor score: expired
+    /// ones leave, new ones join, and a shape already drawn (same event,
+    /// first corner within 50 m) stays as it is unless the warning's end
+    /// moved (extended, it keeps its new end). They used to be appended to
+    /// only, so a warning that expired mid-drive stayed on the map until the
+    /// leg ended.
+    nonisolated static func mergedPolygons(_ existing: [AlertPolygon], live: [AlertPolygon],
+                                           now: Date) -> [AlertPolygon] {
+        var polygons = existing.filter { !$0.hasExpired(at: now) }
+        for p in live where !p.hasExpired(at: now) {
+            let same = polygons.firstIndex { q in
+                q.event == p.event
+                    && (q.coordinates.first.flatMap { qf in
+                        p.coordinates.first.map { POIRanking.meters(qf, $0) < 50 }
+                    } ?? false)
+            }
+            if let same {
+                if polygons[same].expires != p.expires { polygons[same] = p }
+            } else {
+                polygons.append(p)
+            }
+        }
+        return polygons
     }
 
     struct CorridorScore {
@@ -234,7 +264,8 @@ final class WeatherAlertService: ObservableObject {
         let polygons: [AlertPolygon] = unique.flatMap { h -> [AlertPolygon] in
             var rings = (h.polygon?.count ?? 0) >= 3 ? [h.polygon!] : []
             rings += h.extraRings.filter { $0.count >= 3 }
-            return rings.map { AlertPolygon(coordinates: $0, severity: h.severityScore, event: h.event) }
+            return rings.map { AlertPolygon(coordinates: $0, severity: h.severityScore, event: h.event,
+                                            expires: h.expires) }
         }.prefix(40).map { $0 }   // was 12 — clipped visible weather on long routes
 
         if fetchFailures > 0 {

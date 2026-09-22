@@ -114,6 +114,17 @@ enum TripNeeds {
         return schedule[Int(position)]
     }
 
+    /// Where the needs clock stands as a new leg starts: the miles driven
+    /// since the last stop before it. A stop (or a trip's start) restarts
+    /// the clock — you just stopped; any other swap (a reroute, a faster
+    /// road, the way to an added stop) carries it on by the miles driven on
+    /// the leg it replaces. Every replan used to restart it, so repeated
+    /// reroutes could put the rest reminder off for good.
+    static func milesSinceStop(beforeLeg previous: Double, drivenOnLastLegMeters meters: Double,
+                               stopped: Bool) -> Double {
+        stopped ? 0 : previous + max(meters, 0) / 1609.344
+    }
+
     /// ETA with unplanned stopped time folded in — e.g. sheltering from a
     /// storm for an hour pushes arrival out by that hour.
     static func adjustedRemainingSeconds(baseline: Double, stopDelaySeconds: Double) -> Double {

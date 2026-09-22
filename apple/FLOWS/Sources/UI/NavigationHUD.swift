@@ -154,7 +154,7 @@ struct NavigationHUD: View {
                        !model.alerts.activeHeadlines.isEmpty {
                         alertStrip
                     }
-                    if model.stopDelaySeconds > 0 {
+                    if model.stopDelayAheadSeconds > 0 {
                         shelterDelayChip
                     }
                     if let need = model.nextTripNeed {
@@ -1491,19 +1491,25 @@ struct NavigationHUD: View {
                 if ShelterPolicy.kind(forEvent: warning.event,
                                       severityScore: warning.severityScore)
                     != .inVehicle {
+                    // A fresh search brings a tucked stop list back out.
+                    model.collapsedPanels.remove("stops")
                     Task { await model.poi.request(.shelter,
                                                    aheadOf: model.effectivePosition) }
                 }
             } : nil,
             onFindRest: warning.action == .restArea ? {
+                model.collapsedPanels.remove("stops")
                 Task { await model.poi.request(.rest, aheadOf: model.effectivePosition) }
             } : nil)
     }
 
     /// Sheltering time already added to the ETA — visible so the driver
-    /// knows the arrival time includes it.
+    /// knows the arrival time includes it. Only the wait still ahead: it
+    /// counts down with the shelter timer, as the ETA does (a part-minute
+    /// reads as a whole one, never "+0 min").
     private var shelterDelayChip: some View {
-        Label(String(format: "+%.0f min stopped time in ETA", model.stopDelaySeconds / 60),
+        Label(String(format: "+%.0f min stopped time in ETA",
+                     (model.stopDelayAheadSeconds / 60).rounded(.up)),
               systemImage: "clock.badge.exclamationmark")
             .scaledFont(.footnote, weight: .semibold)
             .padding(.horizontal, 12)
@@ -1516,7 +1522,7 @@ struct NavigationHUD: View {
     /// Next scheduled trip need (fuel/food/rest cadence) with its countdown;
     /// tapping runs that need's POI search.
     private func tripNeedChip(_ event: TripNeeds.Event) -> some View {
-        let currentMile = (model.navigation.guidance?.alongMeters ?? 0) / 1609.344
+        let currentMile = model.tripNeedsMile
         return Button {
             Task { await model.requestTripNeed(event) }
         } label: {
@@ -1886,23 +1892,20 @@ struct NavigationHUD: View {
     /// above already carries it.
     @ViewBuilder
     private var tripStats: some View {
-        let time = model.navigation.guidance.map {
-            model.adjustedRemainingTime($0.remainingTime)
-        } ?? model.navigation.route.map { model.adjustedRemainingTime($0.eta) }
-        let meters = model.navigation.guidance?.remainingDistance
-            ?? model.navigation.route?.distanceMeters
-        if let time, let meters {
+        // To the final destination, the way on from an added stop included
+        // (it used to be this leg alone, under this same header).
+        if let remaining = model.tripRemaining {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Total remaining to destination")
+                Text(remaining.toStop ? "Remaining to next stop" : "Total remaining to destination")
                     .scaledFont(size: 9, weight: .bold)
                     .foregroundStyle(.secondary)
                 Rectangle()
                     .fill(Color.secondary.opacity(0.45))
                     .frame(height: 1)
                 HStack(spacing: 8) {
-                    Text(etaText(time))
+                    Text(etaText(remaining.seconds))
                     Divider().frame(height: 16)
-                    Text(distanceText(meters))
+                    Text(distanceText(remaining.meters))
                 }
                 .scaledFont(size: 17, weight: .bold)
                 .monospacedDigit()

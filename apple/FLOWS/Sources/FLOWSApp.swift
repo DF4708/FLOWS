@@ -1772,12 +1772,16 @@ final class AppModel: ObservableObject {
         let learned = baseline * trafficModel.factor(
             area: location.coordinate.map(TrafficArea.init) ?? .pooled,
             roadClass: currentRoadClass, weather: currentTrafficWeather)
-        // Only the part of a live shelter wait still AHEAD counts toward the
-        // ETA; the minutes already sat out are behind the driver.
-        let elapsedInLiveSession = shelterSession.map { $0.addedSeconds - $0.remaining } ?? 0
         return TripNeeds.adjustedRemainingSeconds(
-            baseline: learned,
-            stopDelaySeconds: max(0, stopDelaySeconds - elapsedInLiveSession))
+            baseline: learned, stopDelaySeconds: stopDelayAheadSeconds)
+    }
+
+    /// The stopped time the ETA carries: only the part of a live shelter
+    /// wait still AHEAD counts; the minutes already sat out are behind the
+    /// driver. The HUD's "+N min" chip shows this, not the whole wait.
+    var stopDelayAheadSeconds: Double {
+        let elapsedInLiveSession = shelterSession.map { $0.addedSeconds - $0.remaining } ?? 0
+        return max(0, stopDelaySeconds - elapsedInLiveSession)
     }
 
     /// The learned travel time for a route being CHOSEN — so the delay this
@@ -1832,6 +1836,14 @@ final class AppModel: ObservableObject {
         didSet { rebuildTripNeeds() }
     }
     @Published private(set) var tripNeedSchedule: [TripNeeds.Event] = []
+    /// Miles driven since the last stop before the current leg began: the
+    /// schedule runs from the stop, not from each rerouted leg's start.
+    private var tripNeedsMilesBeforeLeg: Double = 0
+    /// The food draw's seed, fixed at the stop so the cuisines don't
+    /// reshuffle when a reroute changes the leg's length.
+    private var tripNeedsSeed: UInt64 = 0
+    /// The pace the time cadences turn into miles at, fixed at the stop.
+    private var tripNeedsAvgMph: Double = 55
 
     /// Fuel cadence from the vehicle: 75% of habit-adjusted range.
     var derivedFuelIntervalMiles: Double? {
@@ -1848,9 +1860,10 @@ final class AppModel: ObservableObject {
             tripNeedSchedule = []
             return
         }
-        // Time cadences → miles at THIS route's average speed.
-        let avgMph = route.eta > 0
-            ? (route.distanceMeters / 1609.344) / (route.eta / 3600) : 55
+        // Time cadences → miles at the average speed of the leg driven from
+        // the last stop: a reroute's slower road must not move a rest stop
+        // that was 20 miles ahead to behind the car.
+        let avgMph = tripNeedsAvgMph
         var intervals = TripNeeds.Intervals(
             foodMiles: max(tripFoodMinutes / 60 * avgMph, 20),
             restMiles: max(tripRestMinutes / 60 * avgMph, 20))
@@ -1862,18 +1875,23 @@ final class AppModel: ObservableObject {
             }
         }
         // Seeded by trip length so the "random" food cuisines are stable for
-        // the trip but differ between trips.
+        // the trip but differ between trips. Miles count from the last stop.
         tripNeedSchedule = TripNeeds.schedule(
-            totalMiles: route.distanceMeters / 1609.344,
+            totalMiles: tripNeedsMilesBeforeLeg + route.distanceMeters / 1609.344,
             intervals: intervals,
-            seed: UInt64(route.distanceMeters.rounded()))
+            seed: tripNeedsSeed)
+    }
+
+    /// Miles driven since the last stop — the odometer the needs schedule
+    /// and its chip count on.
+    var tripNeedsMile: Double {
+        tripNeedsMilesBeforeLeg + (navigation.guidance?.alongMeters ?? 0) / 1609.344
     }
 
     /// The next scheduled stop ahead of the vehicle's along-route odometer.
     var nextTripNeed: TripNeeds.Event? {
         guard !tripNeedSchedule.isEmpty else { return nil }
-        let mile = (navigation.guidance?.alongMeters ?? 0) / 1609.344
-        return TripNeeds.next(after: mile, in: tripNeedSchedule)
+        return TripNeeds.next(after: tripNeedsMile, in: tripNeedSchedule)
     }
 
     /// Trip-needs chip tapped: run the POI search that need calls for.
@@ -2605,18 +2623,40 @@ final class AppModel: ObservableObject {
         tripSharePrompt = true
     }
 
+    /// Time and distance left to the trip's final destination: the leg being
+    /// driven plus, behind an added stop, the way on from it, with stopped
+    /// time and learned traffic folded into the time. The leg alone used to
+    /// be read as the whole trip. `toStop`: the way on isn't planned yet, so
+    /// the numbers end at the stop. nil with no leg.
+    var tripRemaining: (seconds: Double, meters: Double, toStop: Bool)? {
+        let legSeconds = navigation.guidance?.remainingTime ?? navigation.route?.eta
+        let legMeters = navigation.guidance?.remainingDistance ?? navigation.route?.distanceMeters
+        guard let legSeconds, let legMeters else { return nil }
+        let onward = upcomingLeg
+        return (adjustedRemainingTime(legSeconds + (onward?.eta ?? 0)),
+                legMeters + (onward?.distanceMeters ?? 0),
+                onward == nil && pendingStopName != nil)
+    }
+
     /// The prefilled text for the CURRENT trip: true endpoint (not an added
-    /// stop), live arrival estimate (shelter delay included), map link.
+    /// stop), live arrival estimate (shelter delay and the way on from an
+    /// added stop included), map link. Until the way on is planned, the stop
+    /// is the one arrival FLOWS can stand behind, so the text names it.
     func tripShareBody() -> String {
-        let destination = finalDestination?.name
-            ?? navigation.route?.destinationName ?? "my stop"
-        let coordinate = finalDestination?.coordinate
-            ?? navigation.route.flatMap { Self.lastCoordinate(of: $0) }
-        let remaining = navigation.guidance?.remainingTime
-            ?? navigation.route?.eta ?? 0
+        let remaining = tripRemaining
+        let legEnd = navigation.route.flatMap { Self.lastCoordinate(of: $0) }
+        let destination: String
+        let coordinate: CLLocationCoordinate2D?
+        if remaining?.toStop == true, let stop = pendingStopName {
+            destination = stop
+            coordinate = legEnd
+        } else {
+            destination = finalDestination?.name ?? navigation.route?.destinationName ?? "my stop"
+            coordinate = finalDestination?.coordinate ?? legEnd
+        }
         return TripShareLogic.shareMessage(
             destination: destination,
-            arrival: Date().addingTimeInterval(adjustedRemainingTime(remaining)),
+            arrival: Date().addingTimeInterval(remaining?.seconds ?? adjustedRemainingTime(0)),
             latitude: coordinate?.latitude, longitude: coordinate?.longitude)
     }
 
@@ -2956,6 +2996,10 @@ final class AppModel: ObservableObject {
     private var lastFuelScan = Date.distantPast
     /// Cleared when the driver dismisses; re-armed when the level worsens.
     private var dismissedFuelWarningLevel: FuelWarning.Level = .none
+    /// The level the driver closed the banner at, while it stays closed —
+    /// kept apart from the level last spoken above. Without it the next
+    /// scan, 3 minutes on, put the same banner straight back.
+    private var fuelBannerClosedAt: FuelWarning.Level?
 
     /// True while the driver is NEAR the line where too few stations selling
     /// their fuel remain reachable — one step before the last-chance banner.
@@ -3009,7 +3053,14 @@ final class AppModel: ObservableObject {
             self.fuelWarningItem = cheapest.flatMap { found.items[$0.name] }
             let text = FuelWarning.bannerText(
                 fuel: fuel, level: level, station: cheapest)
-            if self.fuelWarningText != text { self.fuelWarningText = text }
+            // A closed banner stays closed while the spot is the one it was
+            // closed on; a change brings it back, as it brings the voice
+            // back below (the spoken advice asks to add the stop, and the
+            // banner holds the button).
+            if self.fuelBannerClosedAt != level {
+                self.fuelBannerClosedAt = nil
+                if self.fuelWarningText != text { self.fuelWarningText = text }
+            }
             // Say it once per level change — a driver shouldn't be told the
             // same thing every mile, but a worsening situation speaks again.
             if level != .none, level != self.dismissedFuelWarningLevel,
@@ -3028,6 +3079,7 @@ final class AppModel: ObservableObject {
         fuelWarningItem = nil
         fuelWarningText = nil
         dismissedFuelWarningLevel = .none
+        fuelBannerClosedAt = nil
         DriveVoice.shared.cancel(topic: SpeechTopic.fuelLastChance)
         DriveVoice.shared.reset()
     }
@@ -3098,6 +3150,7 @@ final class AppModel: ObservableObject {
     /// situation actually worsens.
     func dismissFuelWarning() {
         dismissedFuelWarningLevel = fuelWarningLevel
+        fuelBannerClosedAt = fuelWarningLevel
         fuelWarningText = nil
         DriveVoice.shared.cancel(topic: SpeechTopic.fuelLastChance)
     }
@@ -3134,6 +3187,20 @@ final class AppModel: ObservableObject {
         // estimates already carry their own override and are left alone.
         routeChoices = RouteService.applyPersonalPace(
             routes, multiplier: DrivingProfileStore.shared.etaMultiplier)
+        heldChoiceFeeds = [:]
+        // A trip planned while another is being driven (Siri's Start a trip,
+        // CarPlay's Where to) must not take the drive screen down. Choosing
+        // hid the directions and the End button, and the warnings, rising-
+        // risk prompts and spoken turns of the trip still being driven all
+        // wait on .navigating. The choices are weather-checked behind the
+        // drive screen and wait for a yes (acceptTripOffer); select() swaps
+        // the trip. The transit state belongs to the trip being driven.
+        if tripUnderway {
+            pendingVoiceOffer = nil
+            riskHydrationTask?.cancel()
+            riskHydrationTask = Task { await hydrateRouteRisk() }
+            return
+        }
         transitItinerary = nil   // drive routes replace any transit overlay
         // A fresh plan resets the transit pickers: cancel in-flight
         // computations, drop stale option cards, untoggle rail/bus/plane.
@@ -3207,6 +3274,100 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// A trip is being driven: started, not arrived, not ended.
+    var tripUnderway: Bool { mode == .navigating && arrivedAt == nil }
+
+    /// Route choices wait for a yes: on screen, or held behind the drive
+    /// screen for a trip planned while another is driven.
+    private var choicesOnOffer: Bool {
+        mode == .choosing || (tripUnderway && !routeChoices.isEmpty)
+    }
+
+    /// Corridor feeds of choices held behind the drive screen, by route: the
+    /// trip still being driven keeps scoring with its own until select()
+    /// hands the chosen one's over.
+    private var heldChoiceFeeds: [UUID: CorridorFeeds] = [:]
+
+    /// A choice's weather score for its card. Held behind the drive screen
+    /// there is no card to fill in as cells land, and the choice's feeds are
+    /// kept for it: taking them over (as a card's scoring does) left the
+    /// trip still being driven watched with another corridor's closures
+    /// and fires.
+    private func scoredChoice(_ route: PlannedRoute) async -> PlannedRoute {
+        guard tripUnderway else {
+            return await scored(route, onProgress: cardProgressSink(routeID: route.id))
+        }
+        let (done, feeds) = await scoredWithFeeds(route)
+        heldChoiceFeeds[route.id] = feeds
+        return done
+    }
+
+    /// What a yes to a voice-planned trip came to.
+    enum TripOfferAnswer {
+        /// On the way (GO pressed by voice).
+        case started(name: String)
+        /// Its weather check hasn't finished: GO waits for it, so a yes does.
+        case stillChecking
+        /// It no longer fits the driver's filters (its weather check can fail
+        /// one the plan couldn't): this one is offered instead, not started.
+        case changed(to: PlannedRoute)
+        /// Nothing was offered.
+        case nothing
+    }
+
+    /// The route a spoken yes should take: the one the choices list leads
+    /// with (the first to pass every filter), else its closest match — a
+    /// route the driver could have picked on screen.
+    private var tripOfferPick: PlannedRoute? {
+        filteredChoices.first
+            ?? RouteFilter.closestMatch(in: routeChoices, filters: routeFilters, limits: filterLimits)
+    }
+
+    /// Stage the planned trip for a spoken yes (Siri's Start a trip,
+    /// CarPlay's Where to) and hand back the route staged. It used to be the
+    /// fastest route whatever the filters: a towing driver's yes started a
+    /// route the list hid.
+    @discardableResult
+    func stageTripOffer(name: String) -> PlannedRoute? {
+        guard let pick = tripOfferPick else { return nil }
+        pendingVoiceOffer = .trip(route: pick, name: name)
+        return pick
+    }
+
+    /// A yes to the staged trip ("go ahead", CarPlay's Go). Re-resolved
+    /// against the live list: the staged copy is a snapshot taken before
+    /// scoring finished. The spoken yes honours the GO button's gate (the
+    /// weather checked) and the list's filters; a route that no longer fits
+    /// is swapped for the one that does, offered and not started. Nothing
+    /// starts once its list is gone (Edit, or a trip taken on screen): the
+    /// snapshot is a plan the driver left, made from where they were then.
+    func acceptTripOffer() -> TripOfferAnswer {
+        guard case .trip(let staged, let name)? = pendingVoiceOffer else { return .nothing }
+        guard let live = routeChoices.first(where: { $0.id == staged.id }) else {
+            pendingVoiceOffer = nil
+            return .nothing
+        }
+        guard live.weatherScored else { return .stillChecking }
+        if let pick = tripOfferPick, pick.id != live.id,
+           !filteredChoices.contains(where: { $0.id == live.id }) {
+            pendingVoiceOffer = .trip(route: pick, name: name)
+            return .changed(to: pick)
+        }
+        pendingVoiceOffer = nil
+        select(route: live)
+        return .started(name: name)
+    }
+
+    /// A no to the staged trip: nothing waits for a yes, and choices held
+    /// behind the drive screen go.
+    func declineTripOffer() {
+        if case .trip? = pendingVoiceOffer { pendingVoiceOffer = nil }
+        guard tripUnderway else { return }
+        riskHydrationTask?.cancel()
+        routeChoices = []
+        heldChoiceFeeds = [:]
+    }
+
     private func hydrateRouteRisk() async {
         // The driver just asked for these routes and is watching the cards —
         // the whole phase-1 pass rides the planning-burst lane (elevated
@@ -3219,18 +3380,16 @@ final class AppModel: ObservableObject {
             // of their corridor cells with the leader through the TTL cache).
             let leadID = self.routeChoices.first?.id
             if let lead = self.routeChoices.first {
-                self.landScore(await self.scored(
-                    lead, onProgress: self.cardProgressSink(routeID: lead.id)))
+                self.landScore(await self.scoredChoice(lead))
             }
             await withTaskGroup(of: PlannedRoute.self) { group in
                 for r in self.routeChoices where r.id != leadID {
-                    let sink = self.cardProgressSink(routeID: r.id)
-                    group.addTask { await self.scored(r, onProgress: sink) }
+                    group.addTask { await self.scoredChoice(r) }
                 }
                 for await done in group { self.landScore(done) }
             }
         }
-        if mode == .choosing {
+        if choicesOnOffer {
             routeChoices.sort {
                 // Near-equal ETA → prefer the lower balanced risk (band + identified
                 // ZIP exposure), not the band alone.
@@ -3254,16 +3413,15 @@ final class AppModel: ObservableObject {
             // forever; this outlives one full breaker window.
             for delay in [6.0, 15, 15, 30, 30, 60] {
                 let incomplete = routeChoices.filter { !$0.weatherScored }
-                guard !incomplete.isEmpty, mode == .choosing, !Task.isCancelled else { break }
+                guard !incomplete.isEmpty, choicesOnOffer, !Task.isCancelled else { break }
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 guard !Task.isCancelled else { break }
                 // Burst only around the re-scoring itself, never across the
                 // backoff sleeps — the elevated ceiling is for active,
                 // user-blocking work.
                 await RequestGate.shared.withPlanningBurst {
-                    for r in incomplete where self.mode == .choosing {
-                        self.landScore(await self.scored(
-                            r, onProgress: self.cardProgressSink(routeID: r.id)))
+                    for r in incomplete where self.choicesOnOffer {
+                        self.landScore(await self.scoredChoice(r))
                     }
                 }
             }
@@ -3897,6 +4055,13 @@ final class AppModel: ObservableObject {
                         chosen: r.id == route.id)
                 })
         }
+        // A trip switched to mid-drive (a yes to one planned while driving)
+        // starts with its own corridor's feeds, held for it while the old
+        // trip was still being watched, and keeps the needs clock running:
+        // no stop was made.
+        let drivingOn = tripUnderway
+        if let feeds = heldChoiceFeeds[route.id] { adoptCorridorFeeds(feeds) }
+        heldChoiceFeeds = [:]
         routeChoices = []
         pendingVoiceOffer = nil
         tripGeneration += 1
@@ -3958,7 +4123,7 @@ final class AppModel: ObservableObject {
         tripStartArea = location.coordinate.map(TrafficArea.init)
         tripDistanceMeters = route.distanceMeters
         mode = .navigating
-        startLeg(route)
+        startLeg(route, resetsNeeds: !drivingOn)
         askForNoticesIfNeeded()   // lock-screen warnings, asked at the first GO
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
         checkTowingSignal()   // trailer signal checked at trip start, not per tick
@@ -4154,17 +4319,8 @@ final class AppModel: ObservableObject {
                 live.riskSegments = live.riskSegments.enumerated().map { j, seg in
                     RiskSegment(coordinates: seg.coordinates, risk: max(samples[min(j, last)].risk, samples[min(j + 1, last)].risk), lengthMeters: seg.lengthMeters)
                 }
-                var polygons = live.alertPolygons
-                for p in score.alertPolygons {
-                    let dup = polygons.contains { q in
-                        q.event == p.event
-                            && (q.coordinates.first.flatMap { qf in
-                                p.coordinates.first.map { POIRanking.meters(qf, $0) < 50 }
-                            } ?? false)
-                    }
-                    if !dup { polygons.append(p) }
-                }
-                live.alertPolygons = polygons
+                live.alertPolygons = WeatherAlertService.mergedPolygons(
+                    live.alertPolygons, live: score.alertPolygons, now: Date())
                 navigation.updateRouteMetadata(live)
                 routeMetadataVersion &+= 1
             }
@@ -4250,6 +4406,17 @@ final class AppModel: ObservableObject {
                     id: "escalation",
                     title: "Your route is getting riskier",
                     body: raised.headline + ". Open FLOWS to find a safer way or keep going.")
+                // The prompt was silent: a driver watching the road got no
+                // cue at all while a lesser faster-route offer was spoken
+                // and felt. Once per prompt, as the lock-screen notice.
+                if hapticAlerts { Haptics.warning() }
+                if voiceAlerts {
+                    // A prompt it replaces stops being read.
+                    VoiceAnnouncer.shared.cancel(topic: SpeechTopic.escalation)
+                    VoiceAnnouncer.shared.announce(
+                        SiriSummaries.escalationPrompt(headline: raised.headline),
+                        topic: SpeechTopic.escalation)
+                }
             }
         }
     }
@@ -4350,6 +4517,7 @@ final class AppModel: ObservableObject {
         // Red alert → the shelter list for THIS hazard opens itself, once.
         if action == .shelter, !shelteredImminentIDs.contains(alert.id) {
             shelteredImminentIDs.insert(alert.id)
+            collapsedPanels.remove("stops")   // a tucked stop list comes back out for it
             Task { await poi.request(.shelter, aheadOf: effectivePosition) }
         }
     }
@@ -4374,50 +4542,129 @@ final class AppModel: ObservableObject {
 
     /// Driver tapped "Reroute" — replan from the current fix, pick the
     /// lowest-alert-risk alternative, and swap the active route.
+    ///
+    /// Planned the way the leg being driven was (`routes(like:)`), so a
+    /// walker gets a walk. The pick escapes the risk first and then keeps
+    /// the driver's filters and road choices, a rig's bridges, weights and
+    /// grades loaded first (`FasterRoutePolicy.swapPick`). This used to plan
+    /// a car route with no filters: a walker got roads for cars and a
+    /// trailer could be sent under a low bridge.
     func approveEscalationReroute() async {
-        guard let fix = location.coordinate, let dest = finalDestination else {
+        guard let fix = location.coordinate, let dest = finalDestination,
+              let leg = navigation.route else {
             escalation = nil
             return
         }
         let previous = escalation
         let gen = tripGeneration
+        let stop = pendingStopName
         // The prompt clears before the planning awaits: count the reroute so
         // no automatic faster-route switch lands in the middle of it.
         driverReroutesInFlight += 1
         defer { driverReroutesInFlight -= 1 }
         escalation = nil
-        guard let planned = try? await router.planRoutes(
-            from: fix, fromName: "Current location",
-            to: dest.coordinate, toName: dest.name), !planned.isEmpty
-        else {
+        let planned = await routes(like: leg, from: fix, fromName: "Current location",
+                                   to: dest.coordinate, toName: dest.name)
+        guard !planned.isEmpty else {
             // Tapping Reroute used to make the banner vanish and nothing
             // else happen when the router failed — read as "done" by a
             // driver heading into the storm. Put the prompt back and say so.
             if mode == .navigating { escalation = previous }
-            VoiceAnnouncer.shared.announce("Couldn't find another route yet. Still on this one.",
-                                           topic: SpeechTopic.escalation)
+            if voiceAlerts {
+                VoiceAnnouncer.shared.announce("Couldn't find another route yet. Still on this one.",
+                                               topic: SpeechTopic.escalation)
+            }
             return
         }
         // Fully score every candidate (cached cells make this fast) and swap
         // to the calmest — hydrated, so the nav map keeps its risk coloring.
-        var best: PlannedRoute?
-        for candidate in planned {
-            let s = await scoredBurst(candidate)
-            if s.weatherRisk < (best?.weatherRisk ?? .infinity) { best = s }
+        // Only the road taken hands its feeds to the trip.
+        let scored = await RequestGate.shared.withPlanningBurst {
+            var out: [(route: PlannedRoute, feeds: CorridorFeeds)] = []
+            for candidate in planned { out.append(await self.scoredWithFeeds(candidate)) }
+            return out
         }
-        guard let best else { return }
-        // The driver may have ended navigation or arrived during the awaits above
-        // — don't resurrect a dead trip by restarting nav + corridor/traffic
-        // watches over a route they no longer want.
-        guard mode == .navigating, gen == tripGeneration else { return }
+        let checked = await withAttributesIfFiltered(scored.map(\.route))
+        guard var best = FasterRoutePolicy.swapPick(checked, leg: leg, filters: routeFilters,
+                                                    limits: filterLimits, calmest: true)
+        else { return }
+        // The driver may have ended navigation or arrived during the awaits
+        // above — don't resurrect a dead trip by restarting nav + corridor/
+        // traffic watches over a route they no longer want.
+        guard mode == .navigating, gen == tripGeneration, arrivedAt == nil else { return }
+        // A stop added meanwhile (a shelter picked off the list) is the
+        // driver's newer choice: it stays, and the prompt comes back rather
+        // than the tap vanishing. A stop reached meanwhile changes nothing.
+        if let added = pendingStopName, added != stop {
+            if escalation == nil { escalation = previous }
+            return
+        }
+        best.planKind = leg.planKind   // later replans keep the driver's choice
         // Reroute goes DIRECT to the final destination — drop the pending stop
         // entirely (name AND kind), or a later final arrival would be mishandled
         // as a stop arrival: a phantom vehicle.filledUp() corrupting the range
         // model and the trip record silently skipped. (startLeg rebaselines.)
+        // Skipping a stop inside the storm is what Reroute is for.
         upcomingLeg = nil
         pendingStopName = nil
         pendingStopKind = nil
+        if let feeds = scored.first(where: { $0.route.id == best.id })?.feeds {
+            adoptCorridorFeeds(feeds)
+        }
         startLeg(best)
+    }
+
+    /// Routes from `from` to `to` planned the way `leg` was, for a leg FLOWS
+    /// swaps in mid-trip (a reroute, the way to an added stop, the way on
+    /// from it); `FasterRoutePolicy.swapPick` chooses among them. A walk is
+    /// planned as a walk — past the pedestrian router's reach, along local
+    /// roads at walking pace and never a freeway when a road avoids one, as
+    /// plan() does. A drive also asks for a toll-free plan when the driver
+    /// avoids tolls or the leg has none, so a road keeping that choice can
+    /// come back, and carries the driver's learned pace. Empty when nothing
+    /// came back.
+    private func routes(like leg: PlannedRoute, from: CLLocationCoordinate2D, fromName: String,
+                        to: CLLocationCoordinate2D, toName: String) async -> [PlannedRoute] {
+        if leg.route.transportType == .walking || leg.isWalkingEstimate {
+            let walks = (try? await router.planRoutes(
+                from: from, fromName: fromName, to: to, toName: toName, walking: true)) ?? []
+            if !walks.isEmpty { return walks }
+            let roads = (try? await router.planRoutes(
+                from: from, fromName: fromName, to: to, toName: toName)) ?? []
+            let noHighway = roads.filter { !$0.hasHighways }
+            let local = roads.filter { $0.planKind == .avoidHighways }
+            let base = !noHighway.isEmpty ? noHighway : !local.isEmpty ? local : roads
+            return base.map { r in
+                var w = r
+                w.isWalkingEstimate = true
+                w.etaOverride = PlannedRoute.walkingEstimateSeconds(meters: r.distanceMeters)
+                return w
+            }
+        }
+        guard let raw = try? await router.planRoutes(
+            from: from, fromName: fromName, to: to, toName: toName,
+            includeTollFree: leg.planKind == .tollFree || !leg.hasTolls
+                || routeFilters.contains(.noTolls)) else { return [] }
+        return RouteService.applyPersonalPace(
+            raw, multiplier: DrivingProfileStore.shared.etaMultiplier)
+    }
+
+    /// `candidates` with their physical attributes loaded when the driver
+    /// filters on them (a rig's bridges, weights and grades; flood zones on
+    /// a scored road) and there is a choice to make. Unknown never excludes,
+    /// so a fresh road would otherwise pass those filters unchecked — the
+    /// reason a faster road FLOWS finds is asked about, never taken.
+    private func withAttributesIfFiltered(_ candidates: [PlannedRoute]) async -> [PlannedRoute] {
+        var loadable: Set<RouteFilter> = [.lowBridges, .bridgeWeight, .mountainGrades]
+        if candidates.allSatisfy(\.weatherScored) { loadable.insert(.noFloodRisk) }
+        guard candidates.count > 1, !routeFilters.isDisjoint(with: loadable) else { return candidates }
+        let loaded = await withTaskGroup(of: PlannedRoute.self) { group in
+            for c in candidates { group.addTask { await self.attributeScored(c) } }
+            var out: [UUID: PlannedRoute] = [:]
+            for await r in group { out[r.id] = r }
+            return out
+        }
+        return candidates.map { loaded[$0.id] ?? $0 }
     }
 
     /// Common leg-swap: hydrated route into the engine + fresh corridor
@@ -4434,7 +4681,19 @@ final class AppModel: ObservableObject {
     /// plan would then startLeg() on the wrong trip.
     private var tripGeneration = 0
 
-    private func startLeg(_ leg: PlannedRoute) {
+    private func startLeg(_ leg: PlannedRoute, resetsNeeds: Bool = false) {
+        // The recurring food/rest/fuel needs count from the last real stop:
+        // only a trip start or a stop (`resetsNeeds`) restarts them
+        // (TripNeeds.milesSinceStop). Read before the engine takes the leg.
+        let stopped = resetsNeeds || navigation.route == nil
+        tripNeedsMilesBeforeLeg = TripNeeds.milesSinceStop(
+            beforeLeg: tripNeedsMilesBeforeLeg,
+            drivenOnLastLegMeters: navigation.guidance?.alongMeters ?? 0, stopped: stopped)
+        if stopped {
+            tripNeedsSeed = UInt64(leg.distanceMeters.rounded())
+            tripNeedsAvgMph = leg.eta > 0
+                ? (leg.distanceMeters / 1609.344) / (leg.eta / 3600) : 55
+        }
         lastRouteRect = leg.route.polyline.boundingMapRect
         legStartedAt = Date()
         // The learner corrects the router's time; it must be trained on the
@@ -4467,8 +4726,7 @@ final class AppModel: ObservableObject {
         if !leg.attributesScored {
             Task { [weak self] in await self?.hydrateAttributes(leg) }
         }
-        // Recurring-needs schedule rebases per leg (a stop resets the
-        // food/rest clocks — you just stopped).
+        // Recurring-needs schedule, from the last stop through this leg.
         rebuildTripNeeds()
         watch.sendRoute(leg)
         // Warm what matters for the next few minutes of driving, nothing more:
@@ -5062,7 +5320,7 @@ final class AppModel: ObservableObject {
     /// Traffic chip's action: take the faster road FLOWS weighed, or plan one.
     @discardableResult
     func rerouteForTraffic() async -> TrafficRerouteOutcome {
-        guard let fix = location.coordinate, let dest = finalDestination else { return .nothing }
+        guard let fix = location.coordinate else { return .nothing }
         // Nothing on offer: the only faster road is red, or none is faster.
         guard !trafficOfferBlocked else { return .stayed }
         driverReroutesInFlight += 1
@@ -5082,30 +5340,76 @@ final class AppModel: ObservableObject {
                                           position: fix, speedMps: location.speed) {
             return await takeStagedFasterRoute(staged, minutes: minutes)
         }
-        let gen = tripGeneration
-        guard let planned = try? await router.planRoutes(
-            from: fix, fromName: "Current location",
-            to: dest.coordinate, toName: dest.name),
-            let fastest = planned.first else { return .nothing }
-        let route = await scoredBurst(fastest)
-        // The traffic offer is "save N minutes", scored AFTER the driver
-        // said yes. If the saving runs through a Red corridor it is not a
-        // saving, and the spoken yes was never a yes to that. Say so and
-        // stay put; the storm escalation (which picks the calmest route)
-        // remains available.
-        if FlowsCore.riskBand(score: route.weatherRisk) == .red {
-            VoiceAnnouncer.shared.announce(
-                "The faster route runs through a red weather zone. Staying on this one.")
+        // Nothing weighed to take (the offer went up while a safety prompt
+        // was on screen, its plan failed or its score didn't finish), or the
+        // road weighed went stale or its turn-off passed: weigh one now, as
+        // the watch does — to the end of THIS leg (a stop kept) with the
+        // driver's road choices — and answer the yes as a yes to a weighed
+        // road is answered. This used to plan a car route to the final
+        // destination (dropping an added stop), cleared the chip for good on
+        // a no-go, and spoke its red refusal with the voice off.
+        guard let minutes, mode == .navigating, let leg = navigation.route else { return .nothing }
+        guard leg.route.transportType == .automobile, !leg.isWalkingEstimate else {
+            // A walk has no faster road for cars to take: the delay stays
+            // on show with nothing to press.
+            trafficDelayMinutes = minutes
+            blockFasterRoute(saying: nil)
             return .stayed
         }
-        // Don't restart a trip the driver ended/finished during the awaits above.
-        guard mode == .navigating, gen == tripGeneration else { return .nothing }
-        // Direct reroute: drop any pending stop (name + kind), same as the
-        // escalation reroute, so the final arrival isn't taken for a stop.
-        upcomingLeg = nil
-        pendingStopName = nil
-        pendingStopKind = nil
-        startLeg(route)
+        let gen = tripGeneration
+        let stop = pendingStopName
+        let check = await evaluateFasterRoute(leg: leg)
+        // A new trip, a leg swap or the stop reached meanwhile: the new leg
+        // runs its own watch.
+        guard mode == .navigating, gen == tripGeneration, arrivedAt == nil,
+              pendingStopName == stop, navigation.route?.id == leg.id else { return .nothing }
+        guard let check else {
+            // No plan came back: the jam is still there, and the next check
+            // weighs it again.
+            trafficDelayMinutes = minutes
+            blockFasterRoute(saying: SiriSummaries.trafficNoFasterRoute(minutes: minutes))
+            return .nothing
+        }
+        let stay: String?
+        if check.route == nil {
+            stay = SiriSummaries.trafficNoFasterRoute(minutes: minutes)
+        } else if check.candidateRed {
+            // The yes was to a saving, never to a red road.
+            stay = SiriSummaries.fasterRouteNowRed
+        } else if let here = location.coordinate,
+                  FasterRoutePolicy.canStillTake(candidate: check.line,
+                                                 divergeAlong: check.divergeAlong,
+                                                 position: here, speedMps: location.speed) {
+            stay = nil
+        } else {
+            stay = SiriSummaries.fasterRoutePassed
+        }
+        guard stay == nil, let route = check.route else {
+            trafficDelayMinutes = minutes   // the jam is still there
+            blockFasterRoute(saying: stay)
+            return .stayed
+        }
+        // Asked again when the road has more risk than the yes was to: than
+        // the road offered, when one was weighed (as a yes to a weighed road
+        // is asked), else than the plain offer, which named none.
+        let offered = staged.flatMap { $0.legID == leg.id ? $0.offeredRisk : nil }
+        let riskier: Bool
+        if let offered, let candidateRisk = check.candidateRisk {
+            riskier = FasterRoutePolicy.riskVerdict(candidateRisk: candidateRisk, aheadRisk: offered,
+                                                    limitsUnchecked: false) == .riskier
+        } else {
+            riskier = check.moreRisk
+        }
+        if riskier {
+            trafficDelayMinutes = minutes
+            stagedFasterRoute = StagedFasterRoute(
+                legID: leg.id, route: route, line: check.line, divergeAlong: check.divergeAlong,
+                checkSpacing: check.checkSpacing,
+                offeredRisk: check.candidateRisk ?? route.weatherRisk, stagedAt: Date())
+            offerFasterRoute(minutes: minutes, riskier: true)
+            return .askedAgain
+        }
+        takeFasterRoute(route, feeds: check.feeds, automaticSaving: nil)
         return .taken
     }
 
@@ -5224,7 +5528,8 @@ final class AppModel: ObservableObject {
         // The old guard returned SILENTLY without a GPS fix — on a Mac in
         // preview mode that read as "add stop freezes". Fall back to the
         // route-start position and always show progress.
-        guard let fix = effectivePosition, let dest = finalDestination else { return false }
+        guard let fix = effectivePosition, let dest = finalDestination,
+              let leg = navigation.route else { return false }
         let name = item.name ?? "Stop"
         pendingStopName = name
         // Classify the ITEM, not the browse mode. This read poi.activeKind
@@ -5248,21 +5553,31 @@ final class AppModel: ObservableObject {
         // Only the SHORT hop (here → stop) blocks the UI — one directions
         // call, unscored. The continuation leg and all risk scoring happen
         // while the driver is already moving (the long-pause fix: the main
-        // route is never re-derived up front).
-        guard let leg1 = (try? await router.planRoutes(
-            from: fix, fromName: "Current location",
-            to: item.placemark.coordinate, toName: name))?.first
+        // route is never re-derived up front). Both legs are planned the way
+        // the leg being driven was and keep the driver's road choices and
+        // filters (a rig's bridges and weights load first when there's a
+        // choice): they used to be the router's first car route, so a walker
+        // was sent down roads for cars and No tolls was forgotten.
+        let gen = tripGeneration
+        let hop = await withAttributesIfFiltered(await routes(
+            like: leg, from: fix, fromName: "Current location",
+            to: item.placemark.coordinate, toName: name))
+        guard var leg1 = FasterRoutePolicy.swapPick(hop, leg: leg, filters: routeFilters,
+                                                    limits: filterLimits, calmest: false)
         else { pendingStopName = nil; return false }
         // Driver may have ended/finished the trip while leg1 planned.
-        guard mode == .navigating else { pendingStopName = nil; return false }
+        guard mode == .navigating, gen == tripGeneration else { pendingStopName = nil; return false }
+        leg1.planKind = leg.planKind   // later replans keep the driver's choice
         startLeg(leg1)
-        let gen = tripGeneration
         Task { [weak self] in
             guard let self else { return }
-            let leg2 = (try? await self.router.planRoutes(
-                from: item.placemark.coordinate, fromName: name,
-                to: dest.coordinate, toName: dest.name))?.first
-            guard let leg2 else { return }
+            let onward = await self.withAttributesIfFiltered(await self.routes(
+                like: leg, from: item.placemark.coordinate, fromName: name,
+                to: dest.coordinate, toName: dest.name))
+            guard var leg2 = FasterRoutePolicy.swapPick(onward, leg: leg, filters: self.routeFilters,
+                                                        limits: self.filterLimits, calmest: false)
+            else { return }
+            leg2.planKind = leg.planKind
             let scored = await self.scored(leg2)
             // Don't reattach a phantom continuation leg after the user arrived
             // or ended navigation during this background plan+score.
@@ -5283,14 +5598,17 @@ final class AppModel: ObservableObject {
             pendingStopKind = nil
             upcomingLeg = nil
             pendingStopName = nil
-            startLeg(next)
+            startLeg(next, resetsNeeds: true)   // a stop: the food/rest clocks restart
             return
         }
         // Arrived at an ADDED STOP whose continuation leg isn't ready (the
         // background plan failed or hasn't landed) — this is NOT the final
         // destination: no arrived banner, no trip record. Replan the
-        // continuation from here; only a second failure surfaces honestly.
-        if let stopName = pendingStopName, let dest = finalDestination {
+        // continuation from here, the way the leg just driven was planned;
+        // only a second failure surfaces honestly. (The engine arrives only
+        // on a leg it has.)
+        if let stopName = pendingStopName, let dest = finalDestination,
+           let arrivedLeg = navigation.route {
             if pendingStopKind == .gas { vehicle.filledUp() }
             pendingStopKind = nil
             pendingStopName = nil
@@ -5305,13 +5623,17 @@ final class AppModel: ObservableObject {
             Task { [weak self] in
                 guard let self else { return }
                 let from = self.effectivePosition ?? dest.coordinate
-                if let leg = (try? await self.router.planRoutes(
-                    from: from, fromName: stopName,
-                    to: dest.coordinate, toName: dest.name))?.first {
+                let onward = await self.withAttributesIfFiltered(await self.routes(
+                    like: arrivedLeg, from: from, fromName: stopName,
+                    to: dest.coordinate, toName: dest.name))
+                if var leg = FasterRoutePolicy.swapPick(onward, leg: arrivedLeg,
+                                                        filters: self.routeFilters,
+                                                        limits: self.filterLimits, calmest: false) {
                     guard self.mode == .navigating, gen == self.tripGeneration else { return }
+                    leg.planKind = arrivedLeg.planKind
                     let scored = await self.scoredBurst(leg)
                     guard self.mode == .navigating, gen == self.tripGeneration else { return }
-                    self.startLeg(scored)
+                    self.startLeg(scored, resetsNeeds: true)
                 } else if self.mode == .navigating {
                     // Honest state: at the stop, continuation unavailable.
                     // (Mode guard: if the driver ended navigation during the

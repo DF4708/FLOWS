@@ -234,6 +234,34 @@ struct PlannedRoute: Identifiable {
         evChargingGapMiles = hydrated.evChargingGapMiles
         attributesScored = hydrated.attributesScored
     }
+
+    /// The alerts on the road still ahead, worst first and each once: every
+    /// check point's worst alert, from the one the vehicle last passed (it
+    /// is inside that stretch) to the end, `alongMeters` into the route. The
+    /// live watch repaints the check points it covers, so an alert issued
+    /// mid-drive is named and one that has ended is not; `alertEvents` is
+    /// fixed at plan time. A route with no check points yet has only that.
+    func alertEventsAhead(alongMeters: Double) -> [String] {
+        guard !riskSamples.isEmpty else { return alertEvents }
+        var start = 0
+        var along = 0.0
+        for i in 1..<riskSamples.count where i - 1 < riskSegments.count {
+            along += riskSegments[i - 1].lengthMeters
+            if along > alongMeters { break }
+            start = i
+        }
+        let ahead = riskSamples[start...].enumerated()
+            .filter { $0.element.worstEvent != nil }
+            .sorted {
+                $0.element.risk != $1.element.risk
+                    ? $0.element.risk > $1.element.risk : $0.offset < $1.offset
+            }
+        var events: [String] = []
+        for s in ahead {
+            if let event = s.element.worstEvent, !events.contains(event) { events.append(event) }
+        }
+        return events
+    }
 }
 
 /// Route filters for the choices screen.
@@ -309,6 +337,20 @@ extension RouteFilter {
     /// path simply never applied its one.
     static let towingSafety: Set<RouteFilter> =
         [.mountainGrades, .lowBridges, .bridgeWeight, .noHighWinds]
+
+    /// The route the choices list shows when no route passes every filter:
+    /// the fewest broken filters, then the lowest weather risk, then the
+    /// sooner arrival (the list's "Closest match" card).
+    static func closestMatch(in routes: [PlannedRoute], filters: Set<RouteFilter>,
+                             limits: FilterLimits) -> PlannedRoute? {
+        func broken(_ r: PlannedRoute) -> Int { filters.filter { !$0.passes(r, limits: limits) }.count }
+        return routes.min { a, b in
+            let (va, vb) = (broken(a), broken(b))
+            if va != vb { return va < vb }
+            if a.weatherRisk != b.weatherRisk { return a.weatherRisk < b.weatherRisk }
+            return a.eta < b.eta
+        }
+    }
 }
 
 

@@ -1739,7 +1739,9 @@ struct ContentView: View {
     /// the center of the shape"), drawn under the route lines.
     @MapContentBuilder
     private func alertPolygonOverlay(_ route: PlannedRoute) -> some MapContent {
-        ForEach(route.alertPolygons) { poly in
+        // An expired warning leaves with its banner and the line's colour,
+        // even between live scores (the map redraws every fix).
+        ForEach(route.alertPolygons.filter { !$0.hasExpired(at: Date()) }) { poly in
             let kind = HazardStyle.kind(forEvent: poly.event)
             // Solid tint + stroke (MapKit ignores ImagePaint pattern fills).
             MapPolygon(coordinates: poly.coordinates)
@@ -3772,6 +3774,12 @@ private struct TripSummaryPill: View {
                 .scaledFont(size: 13, weight: .semibold)
                 .lineLimit(1)
             Button("Edit") {
+                // A trip still loaded under the choices (arrived, Done not
+                // pressed, when the next was planned) ends here as Done would
+                // end it: planning must not leave its guidance and crash
+                // check running with no End button. (One being driven keeps
+                // the drive screen: AppModel.present.)
+                if model.navigation.route != nil { model.endNavigation() }
                 model.routeChoices = []
                 model.highlightedRouteID = nil
                 // Walking is a per-choice mode, not a persistent setting:

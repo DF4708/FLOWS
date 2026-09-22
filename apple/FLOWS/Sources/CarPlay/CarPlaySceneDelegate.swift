@@ -123,6 +123,55 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 from: here, fromName: "Current location",
                 to: coordinate, toName: name), !routes.isEmpty else { return }
             model.present(routes: routes)
+            // Mid-drive the drive screen stays up (AppModel.present) and the
+            // new trip waits for a yes: ask for it here, where the driver
+            // is looking. Planning it used to take the drive screen and its
+            // warnings down on the phone.
+            guard model.tripUnderway, let staged = model.stageTripOffer(name: name) else { return }
+            self.offerTrip(staged, named: name, lead: nil)
+        }
+    }
+
+    /// Ask to switch to a trip planned mid-drive: Go takes it the way "go
+    /// ahead" does (weather checked, the filters kept); Not now keeps the
+    /// trip being driven.
+    @MainActor
+    private func offerTrip(_ route: PlannedRoute, named name: String, lead: String?) {
+        let title = SiriSummaries.tripRoute(name: name, meters: route.distanceMeters,
+                                            seconds: route.eta)
+        let alert = CPAlertTemplate(
+            titleVariants: [lead.map { $0 + " " + title } ?? title],
+            actions: [
+                CPAlertAction(title: "Go", style: .default) { [weak self] _ in
+                    Task { @MainActor in self?.answerTripOffer(named: name) }
+                },
+                CPAlertAction(title: "Not now", style: .cancel) { [weak self] _ in
+                    Task { @MainActor in
+                        AppModel.shared?.declineTripOffer()
+                        self?.interfaceController?.dismissTemplate(animated: true, completion: nil)
+                    }
+                },
+            ])
+        interfaceController?.presentTemplate(alert, animated: true, completion: nil)
+    }
+
+    @MainActor
+    private func answerTripOffer(named name: String) {
+        guard let model = AppModel.shared else { return }
+        interfaceController?.dismissTemplate(animated: true) { [weak self] _, _ in
+            Task { @MainActor in
+                switch model.acceptTripOffer() {
+                case .started, .nothing:
+                    break
+                case .stillChecking:
+                    guard case .trip(let staged, _)? = model.pendingVoiceOffer else { return }
+                    self?.offerTrip(staged, named: name,
+                                    lead: "Still checking the weather on that route.")
+                case .changed(let pick):
+                    self?.offerTrip(pick, named: name,
+                                    lead: "That route no longer fits your filters.")
+                }
+            }
         }
     }
 

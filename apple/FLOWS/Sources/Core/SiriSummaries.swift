@@ -101,6 +101,38 @@ enum SiriSummaries {
             + "It saves about \(minutes) minute\(minutes == 1 ? "" : "s"), with no more risk."
     }
 
+    /// Said when the rising-risk prompt comes up: what raised it, clipped
+    /// for speech. Nothing is asked out loud — no spoken answer is listened
+    /// for, so the choice stays on the screen.
+    static func escalationPrompt(headline: String) -> String {
+        let clipped = spokenClip(headline, limit: 160)
+        return "Your route is getting riskier. " + clipped + (clipped.hasSuffix(".") ? "" : ".")
+    }
+
+    /// A planned trip in one breath: where, how far, how long.
+    static func tripRoute(name: String, meters: Double, seconds: Double) -> String {
+        "Route to \(name): about \(spokenMiles(meters: meters)) and \(spokenTime(seconds: seconds))."
+    }
+
+    /// Reply to "start a trip": the route and how to take it. `whileDriving`:
+    /// another trip is being driven, so the drive screen stays up and only a
+    /// yes switches to the new one.
+    static func tripOffer(name: String, meters: Double, seconds: Double,
+                          whileDriving: Bool) -> String {
+        tripRoute(name: name, meters: meters, seconds: seconds)
+            + (whileDriving ? " Say: go ahead in FLOWS to switch to it."
+                            : " Say: go ahead in FLOWS — or pick a route on screen.")
+    }
+
+    /// Reply to a yes when the offered route no longer fits the driver's
+    /// filters (its weather check can fail one the plan couldn't): the best
+    /// one left is offered instead, and nothing starts.
+    static func tripOfferChanged(meters: Double, seconds: Double) -> String {
+        "That route no longer fits your filters. The best one left is about "
+            + "\(spokenMiles(meters: meters)) and \(spokenTime(seconds: seconds)). "
+            + "Say: go ahead in FLOWS to take it."
+    }
+
     /// Turn distances, spoken the way a navigator says them.
     static func spokenTurnDistance(meters: Double) -> String {
         let miles = meters / 1609.344
