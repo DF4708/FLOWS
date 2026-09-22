@@ -220,14 +220,31 @@ enum TransitTickets {
         let ride = "\(board) → \(alight)"
         switch mode {
         case "Amtrak":
-            return ("Buy Amtrak ticket: \(ride)", URL(string: "https://www.amtrak.com/tickets"))
+            // amtrak.com/tickets opens a page with nothing on it but the
+            // menus — the owner pressed it and got exactly that. The
+            // boarding station's own Amtrak page is the useful one (times,
+            // services, and the booking form); their front page, which
+            // carries that form, is the fallback.
+            return ("Buy Amtrak ticket: \(ride)",
+                    amtrakStationURL(stationURL) ?? URL(string: "https://www.amtrak.com"))
         case "Greyhound":
-            return ("Buy Greyhound ticket: \(ride)", URL(string: "https://www.greyhound.com"))
+            // Where Greyhound itself says to buy, in its own schedule feed.
+            return ("Buy Greyhound ticket: \(ride)",
+                    URL(string: "https://shop.greyhound.com"))
         case "Rail":
             return ("Rail fare: \(ride)", stationURL)
         default:
             return ("Bus fare: \(ride)", stationURL)
         }
+    }
+
+    /// The station's own page on amtrak.com, when that is what the map knew
+    /// about it ("amtrak.com/stations/mke"). Any other site — a city page, a
+    /// transit agency — is not an Amtrak ticket and is left alone.
+    static func amtrakStationURL(_ url: URL?) -> URL? {
+        guard let url, let host = url.host()?.lowercased(),
+              host == "amtrak.com" || host.hasSuffix(".amtrak.com") else { return nil }
+        return url
     }
 }
 

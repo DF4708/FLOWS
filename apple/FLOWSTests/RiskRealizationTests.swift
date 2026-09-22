@@ -251,9 +251,20 @@ final class RiskRealizationTests: XCTestCase {
                                            alight: "Chicago Union", stationURL: nil)
         XCTAssertTrue(amtrak.label.contains("Columbia → Chicago Union"))
         XCTAssertEqual(amtrak.url?.host, "www.amtrak.com")
+        // The station's own Amtrak page when the map knew it — never a page
+        // on some other site, and never amtrak.com/tickets, which opens with
+        // nothing on it.
+        let station = URL(string: "https://www.amtrak.com/stations/mke")!
+        XCTAssertEqual(TransitTickets.ticket(mode: "Amtrak", board: "Milwaukee",
+                                             alight: "Chicago Union",
+                                             stationURL: station).url, station)
+        XCTAssertEqual(TransitTickets.ticket(mode: "Amtrak", board: "A", alight: "B",
+                                             stationURL: URL(string: "https://example.org/x")).url,
+                       URL(string: "https://www.amtrak.com"))
+        XCTAssertFalse(amtrak.url?.path.contains("tickets") ?? true)
         let grey = TransitTickets.ticket(mode: "Greyhound", board: "A", alight: "B",
                                          stationURL: nil)
-        XCTAssertEqual(grey.url?.host, "www.greyhound.com")
+        XCTAssertEqual(grey.url?.host, "shop.greyhound.com")
         let agency = URL(string: "https://www.cityliner.org")!
         let local = TransitTickets.ticket(mode: "Bus", board: "5th St", alight: "Main",
                                           stationURL: agency)

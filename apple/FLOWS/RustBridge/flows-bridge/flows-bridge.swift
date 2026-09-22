@@ -1741,6 +1741,9 @@ public func flows_modes_door_seconds(_ airport_miles: Double) -> Double {
 public func flows_modes_fare_estimate(_ airport_miles: Double) -> Double {
     __swift_bridge__$flows_modes_fare_estimate(airport_miles)
 }
+public func flows_modes_typical_fare(_ airport_miles: Double) -> Double {
+    __swift_bridge__$flows_modes_typical_fare(airport_miles)
+}
 public func flows_modes_airport_score<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Int64 {
     return name.toRustStr({ nameAsRustStr in
         __swift_bridge__$flows_modes_airport_score(nameAsRustStr)

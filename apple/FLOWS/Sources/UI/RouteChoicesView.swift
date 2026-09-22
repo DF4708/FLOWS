@@ -418,7 +418,9 @@ struct RouteChoicesView: View {
                                            "Go to \(destName) — rental counters listed below"]))
         }
 
-        let fare = AirTravel.fareEstimate(airportMiles: airportMiles)
+        // What people actually pay for a flight this long (US DOT), not the
+        // old ballpark that read 2–3× cheap beside a drive's fuel cost.
+        let fare = AirTravel.typicalFare(airportMiles: airportMiles)
         if Task.isCancelled { return }
         let itinerary = TransitItinerary(
             mode: "Plane", legs: legs, fare: fare, mapsDestination: dest,
@@ -426,14 +428,17 @@ struct RouteChoicesView: View {
         model.transitItinerary = itinerary
 
         let ticket = AirTravel.ticket(board: boardName, alight: alightName,
+                                      boardCode: ends?.board.code,
+                                      alightCode: ends?.alight.code,
                                       airportURL: boardItem?.url)
         let accessVerb = accessLeg.kind == .drive ? "Drive" : "Walk"
         if Task.isCancelled { return }
         model.transitOptions[.plane] = TransitOption(
             title: "Plane via \(boardName)",
             detail: "\(accessVerb) \(TransitPlanning.fmt(accessLeg.seconds)) to \(boardName) · "
-                    + "flight \(TransitPlanning.fmt(flySec)) counting airport time · est. fare "
-                    + String(format: "$%.0f — airlines set the real price.", fare),
+                    + "flight \(TransitPlanning.fmt(flySec)) counting airport time · "
+                    + String(format: "about $%.0f, the usual fare for this far — "
+                             + "airlines set the real price.", fare),
             fare: fare, destination: dest,
             ticketLabel: ticket.label, ticketURL: ticket.url,
             itinerary: itinerary,

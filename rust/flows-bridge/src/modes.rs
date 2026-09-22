@@ -162,6 +162,7 @@ mod ffi {
         fn flows_modes_flight_seconds(airport_miles: f64) -> f64;
         fn flows_modes_door_seconds(airport_miles: f64) -> f64;
         fn flows_modes_fare_estimate(airport_miles: f64) -> f64;
+        fn flows_modes_typical_fare(airport_miles: f64) -> f64;
         fn flows_modes_airport_score(name: &str) -> i64;
         fn flows_modes_pick_airport(
             names_joined: &str,
@@ -470,6 +471,12 @@ pub fn flows_modes_door_seconds(airport_miles: f64) -> f64 {
 
 pub fn flows_modes_fare_estimate(airport_miles: f64) -> f64 {
     tm::fare_estimate(airport_miles)
+}
+
+/// `AirTravel.typicalFare`: what a US domestic ticket of this length
+/// actually costs, from the US DOT's published fares.
+pub fn flows_modes_typical_fare(airport_miles: f64) -> f64 {
+    tm::typical_fare(airport_miles)
 }
 
 /// The airport score, or -1 when the name rejects the field.

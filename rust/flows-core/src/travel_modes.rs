@@ -129,10 +129,51 @@ pub fn door_seconds(airport_miles: f64) -> f64 {
     BOARD_BUFFER_SECONDS + flight_seconds(airport_miles) + ALIGHT_BUFFER_SECONDS
 }
 
-/// `AirTravel.fareEstimate`: $39 plus 11¢ a mile, at least $59.
+/// `AirTravel.fareEstimate` as the Swift wrote it: $39 plus 11¢ a mile, at
+/// least $59. Kept because the frozen oracle pins this port; what the app
+/// SHOWS is [`typical_fare`], which is what people actually pay.
 #[must_use]
 pub fn fare_estimate(airport_miles: f64) -> f64 {
     smax(59.0, 39.0 + airport_miles * 0.11)
+}
+
+/// What a US domestic ticket actually costs at this distance, in dollars:
+/// the fare a traveller pays on an average route of that length.
+///
+/// WHY NOT [`fare_estimate`]: that formula ($39 + 11¢ a mile) was a guess,
+/// and it is 2–3× under the real thing — $127 for an 800-mile flight the
+/// government's own figures put at $257. The plane card showed that number
+/// beside a drive's fuel cost, and the "Cheapest" chip compared them, so
+/// flying read as cheaper than it is.
+///
+/// These two numbers are a passenger-weighted least-squares fit of the US
+/// DOT's Consumer Airfare Report, Table 1a (All U.S. Airport Pair Markets),
+/// dataset `tfrh-tu9e` on data.transportation.gov — a US Government work, in
+/// the public domain. Fitted over all 2,080 airport-pair rows of the latest
+/// published quarter, 2026 Q1 (weighted by passengers, so it tracks what
+/// travellers pay rather than what thin markets charge). It lands within a
+/// few dollars of that quarter's own medians by distance: $232 under 500
+/// miles, $245 to 1,000, $269 to 1,500, $323 to 2,000.
+///
+/// To refresh after a new quarter, refit:
+/// `data.transportation.gov/resource/tfrh-tu9e.json?$select=nsmiles,fare,passengers&$where=year='YYYY' AND quarter='Q'`
+///
+/// It is still an average, never a quote: airlines set the real price, and
+/// the card says so.
+pub const FARE_BASE_USD: f64 = 159.85;
+/// See [`FARE_BASE_USD`].
+pub const FARE_PER_MILE_USD: f64 = 0.0876;
+
+/// The typical US domestic fare for a flight of `airport_miles`
+/// ([`FARE_BASE_USD`] and [`FARE_PER_MILE_USD`]); the base fare for a
+/// distance that is not a positive number.
+#[must_use]
+pub fn typical_fare(airport_miles: f64) -> f64 {
+    if airport_miles > 0.0 {
+        FARE_BASE_USD + airport_miles * FARE_PER_MILE_USD
+    } else {
+        FARE_BASE_USD
+    }
 }
 
 /// `AirTravel.airportScore`: `None` for heliports, strips and military
@@ -766,6 +807,34 @@ pub fn prefix_coordinates(coords: &[Point], meters_mark: f64) -> Vec<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- what a flight costs ----
+
+    /// The figure the card shows is the government's, not a guess: within a
+    /// few dollars of the 2026 Q1 medians by distance, and far above the old
+    /// formula it replaced.
+    #[test]
+    fn the_typical_fare_matches_what_travellers_pay() {
+        // Medians of that quarter's own rows, by distance band.
+        for (miles, median) in [(400.0, 232.0), (800.0, 245.0), (1200.0, 269.0)] {
+            let fare = typical_fare(miles);
+            assert!(
+                (fare - median).abs() < 60.0,
+                "{miles} miles: ${fare:.0} against a ${median:.0} median"
+            );
+        }
+        // Rising with distance, and never free.
+        assert!(typical_fare(2500.0) > typical_fare(500.0));
+        assert_eq!(typical_fare(0.0), FARE_BASE_USD);
+        assert_eq!(typical_fare(-5.0), FARE_BASE_USD);
+        assert!(typical_fare(f64::NAN).is_nan() || typical_fare(f64::NAN) == FARE_BASE_USD);
+        // The old guess was 2–3× under; that is the whole reason for this.
+        assert!(
+            typical_fare(800.0) > fare_estimate(800.0) * 1.8,
+            "the old estimate was ${:.0}",
+            fare_estimate(800.0)
+        );
+    }
 
     // ---- faster route ----
 

@@ -367,6 +367,7 @@ bool __swift_bridge__$flows_modes_worth_flying(double trip_miles);
 double __swift_bridge__$flows_modes_flight_seconds(double airport_miles);
 double __swift_bridge__$flows_modes_door_seconds(double airport_miles);
 double __swift_bridge__$flows_modes_fare_estimate(double airport_miles);
+double __swift_bridge__$flows_modes_typical_fare(double airport_miles);
 int64_t __swift_bridge__$flows_modes_airport_score(struct RustStr name);
 int64_t __swift_bridge__$flows_modes_pick_airport(struct RustStr names_joined, struct __private__FfiSlice name_lens, struct __private__FfiSlice meters, double max_meters);
 void* __swift_bridge__$flows_modes_air_constants(void);

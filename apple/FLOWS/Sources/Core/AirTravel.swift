@@ -51,11 +51,22 @@ enum AirTravel {
 
     // -- Fare -----------------------------------------------------------------
 
-    /// Ballpark one-way fare — floor plus a per-mile slope, in line with
-    /// published US domestic averages. Always disclosed as an estimate the
-    /// airlines control.
+    /// The app's original ballpark — kept because the frozen oracle pins it.
+    /// What the card SHOWS is `typicalFare`.
     static func fareEstimate(airportMiles: Double) -> Double {
         flows_modes_fare_estimate(airportMiles)
+    }
+
+    /// What a US domestic ticket of this length actually costs: the fare
+    /// people pay on an average route that long, fitted from the US DOT's
+    /// published airport-pair fares (public domain — see
+    /// rust/flows-core travel_modes.rs). The old ballpark was 2–3× under,
+    /// which made flying look cheaper than driving on the cards.
+    ///
+    /// Still an average, never a quote — the card says airlines set the
+    /// real price.
+    static func typicalFare(airportMiles: Double) -> Double {
+        flows_modes_typical_fare(airportMiles)
     }
 
     // -- Airports with airline service ---------------------------------------
@@ -187,11 +198,29 @@ enum AirTravel {
         return parts?.url
     }
 
-    /// Ticket link for the card: the boarding airport's own page when MapKit
-    /// knows it, else the neutral flight search. Label names the exact pair.
-    static func ticket(board: String, alight: String, airportURL: URL?)
-        -> (label: String, url: URL?) {
-        ("Find flights: \(board) → \(alight)",
-         airportURL ?? flightSearchURL(from: board, to: alight))
+    /// The same search named by AIRPORT CODE — "MKE to AGS" — which is what
+    /// a booking site matches on. A code-named search lands on the right
+    /// route; a city-named one can land on the wrong airport, or none.
+    static func flightSearchURL(boardCode: String, alightCode: String) -> URL? {
+        let board = boardCode.trimmingCharacters(in: .whitespaces).uppercased()
+        let alight = alightCode.trimmingCharacters(in: .whitespaces).uppercased()
+        guard board.count == 3, alight.count == 3, board != alight else { return nil }
+        var parts = URLComponents(string: "https://www.google.com/travel/flights")
+        parts?.queryItems = [URLQueryItem(name: "q", value: "Flights from \(board) to \(alight)")]
+        return parts?.url
+    }
+
+    /// Ticket link for the card: a flight search for the exact airport pair
+    /// when FLOWS knows their codes, then the boarding airport's own page,
+    /// then a search by name. No date is filled in — FLOWS plans the road
+    /// for today and has no idea when the driver would fly.
+    static func ticket(board: String, alight: String,
+                       boardCode: String? = nil, alightCode: String? = nil,
+                       airportURL: URL?) -> (label: String, url: URL?) {
+        let byCode = boardCode.flatMap { b in
+            alightCode.flatMap { flightSearchURL(boardCode: b, alightCode: $0) }
+        }
+        return ("Find flights: \(board) → \(alight)",
+                byCode ?? airportURL ?? flightSearchURL(from: board, to: alight))
     }
 }

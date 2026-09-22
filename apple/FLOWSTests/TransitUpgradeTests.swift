@@ -167,6 +167,20 @@ final class TransitUpgradeTests: XCTestCase {
                        39 + 110, accuracy: 0.01)
     }
 
+    /// The fare the plane card SHOWS is what people actually pay (US DOT),
+    /// not the old ballpark — which read 2–3× cheap next to a drive's fuel.
+    func testTheShownFareIsWhatTravellersActuallyPay() {
+        // The government's own medians for those distance bands: $232 under
+        // 500 miles, $245 to 1,000, $269 to 1,500 (2026 Q1).
+        XCTAssertEqual(AirTravel.typicalFare(airportMiles: 400), 232, accuracy: 60)
+        XCTAssertEqual(AirTravel.typicalFare(airportMiles: 800), 245, accuracy: 60)
+        XCTAssertEqual(AirTravel.typicalFare(airportMiles: 1200), 269, accuracy: 60)
+        XCTAssertGreaterThan(AirTravel.typicalFare(airportMiles: 2000),
+                             AirTravel.typicalFare(airportMiles: 500))
+        XCTAssertGreaterThan(AirTravel.typicalFare(airportMiles: 800),
+                             AirTravel.fareEstimate(airportMiles: 800) * 1.8)
+    }
+
     // Commercial preference: internationals first, plain airports next;
     // heliports, seaplane bases, and military fields never board a flight.
     func testAirportPickPrefersCommercial() {
@@ -205,6 +219,26 @@ final class TransitUpgradeTests: XCTestCase {
         XCTAssertEqual(url.host, "www.google.com")
         XCTAssertTrue(url.path.hasPrefix("/travel/flights"))
         XCTAssertFalse(url.absoluteString.contains("key"), "keyless by design")
+    }
+
+    /// With the airport codes known, the ticket link searches THAT pair —
+    /// a search by city name can land on the wrong airport, or none.
+    func testFlightTicketLinkNamesTheAirportPair() throws {
+        let ticket = AirTravel.ticket(board: "Milwaukee (MKE)", alight: "Augusta (AGS)",
+                                      boardCode: "MKE", alightCode: "AGS",
+                                      airportURL: URL(string: "https://www.mitchellairport.com"))
+        let url = try XCTUnwrap(ticket.url).absoluteString
+        XCTAssertTrue(url.contains("MKE"), url)
+        XCTAssertTrue(url.contains("AGS"), url)
+        XCTAssertTrue(url.hasPrefix("https://www.google.com/travel/flights"), url)
+        // A code FLOWS does not have falls back to the airport's own page.
+        XCTAssertEqual(AirTravel.ticket(board: "LAX", alight: "JFK", boardCode: "LAX",
+                                        alightCode: nil,
+                                        airportURL: URL(string: "https://www.flylax.com")).url,
+                       URL(string: "https://www.flylax.com"))
+        // Nonsense codes never build a search.
+        XCTAssertNil(AirTravel.flightSearchURL(boardCode: "MKE", alightCode: "MKE"))
+        XCTAssertNil(AirTravel.flightSearchURL(boardCode: "Milwaukee", alightCode: "AGS"))
     }
 
     // MARK: - Walk + paid ride
