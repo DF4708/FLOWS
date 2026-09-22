@@ -1307,9 +1307,10 @@ struct ContentView: View {
 
     /// The routes drawn gray under the highlighted one: those the choices
     /// list still offers. A route a filter hid is not an option, so the map
-    /// no longer draws it as one.
+    /// no longer draws it as one. Judged as the cards are (on foot, only No
+    /// highways).
     private var grayAlternates: [PlannedRoute] {
-        RouteFilter.offered(model.routeChoices, filters: model.routeFilters,
+        RouteFilter.offered(model.routeChoices, judged: model.judgingFilters,
                             limits: model.filterLimits)
             .filter { $0.id != model.highlightedRouteID }
     }
@@ -1942,7 +1943,8 @@ struct ContentView: View {
     /// wherever the sweep draws. That is the unnamed triangle, or a watch or
     /// advisory, which never names the sweep's badges either. A warning of
     /// danger in progress, or one the risk model doesn't score (an
-    /// evacuation), keeps its symbol: the sweep's grid can miss its area.
+    /// evacuation), keeps its symbol: the sweep's grid can miss its area. A
+    /// warning gives way only to a sweep badge of its kind that names it.
     private func corridorBadgesToDraw(
         _ badges: [BadgeClustering.Item<HazardKind>], events: [String: String]
     ) -> [BadgeClustering.Item<HazardKind>] {
@@ -1958,6 +1960,12 @@ struct ContentView: View {
                 if BadgeClustering.isWarning(event) { return false }
                 return RiskEquations.alertFamily(event)
                     .map { RiskEquations.secondaryFamilies.contains($0) } ?? false
+            },
+            sameHazard: { badge, shown in
+                // A warning's symbol gives way only to one that names it:
+                // its tap card must still say the warning is in force.
+                BadgeClustering.sameHazard(badgeEvent: events[badge.stableID],
+                                           shownEvent: viewportBadgeEvents[shown.stableID])
             })
     }
 
@@ -3271,10 +3279,154 @@ struct SettingsSheet: View {
     @State private var erasedConfirmation = false
     /// The one "are you sure?" before that erase.
     @State private var confirmingErase = false
+    /// "Keys for extra info" unfolded: key setup is for the few who want it.
+    @State private var keysOpen = false
+    /// The connected car's one-time setup unfolded; nil until the driver
+    /// folds or unfolds it (open while the car isn't set up yet).
+    @State private var smartcarSetupOpen: Bool?
 
     /// The name above one key field under "Keys for extra info".
     private func keyLabel(_ text: String) -> some View {
         Text(text).scaledFont(.caption2, weight: .semibold)
+    }
+
+    /// A key field with its "Get one" steps beside it: the web addresses
+    /// sit in the steps, not in the field's name.
+    private func keyField(_ placeholder: String, text: Binding<String>, steps title: String,
+                          _ steps: [String], link: String, url: String) -> some View {
+        HStack(spacing: 6) {
+            SecureField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .scaledFont(.caption)
+            Menu {
+                Text(title)
+                ForEach(Array(steps.enumerated()), id: \.offset) { i, step in
+                    Text("\(i + 1). \(step)")
+                }
+                Divider()
+                if let destination = URL(string: url) {
+                    Link(link, destination: destination)
+                }
+            } label: {
+                Text("Get one")
+                    .scaledFont(.caption, weight: .semibold)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+    }
+
+    /// The fields under "Keys for extra info". Each key is named above its
+    /// field: a filled field shows only dots, and a long placeholder was cut
+    /// off before it was filled.
+    private var keyFields: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            keyLabel("Google Places key (a free amount each month) — stars, $ and open hours")
+            keyField("Paste key", text: $model.googlePlacesAPIKey,
+                     steps: "How to get a Google Places key:",
+                     ["Open console.cloud.google.com",
+                      "Make a project and turn on the Places API",
+                      "Make an API key",
+                      "Paste the key here"],
+                     link: "Open the Google Cloud page",
+                     url: "https://console.cloud.google.com/")
+            keyLabel("Yelp key (free for 30 days, then paid) — stars and $")
+            keyField("Paste key", text: $model.yelpAPIKey,
+                     steps: "How to get a Yelp key:",
+                     ["Open business.yelp.com/data/products/places-api",
+                      "Start the free 30-day trial (5,000 calls)",
+                      "Create an app to get your API key",
+                      "Paste the key here"],
+                     link: "Open the Yelp API page",
+                     url: "https://business.yelp.com/data/products/places-api/")
+            keyLabel("TomTom key (free plan) — live gas prices")
+            keyField("Paste key", text: $model.tomtomAPIKey,
+                     steps: "How to get a TomTom key:",
+                     ["Open developer.tomtom.com",
+                      "Make a free account",
+                      "Copy the API key it gives you",
+                      "Paste the key here"],
+                     link: "Open the TomTom developer page",
+                     url: "https://developer.tomtom.com/")
+            // Big chains carry a known $ level with no key at all
+            // (BrandKnowledge), so "hidden without one" was not true.
+            Text("With a Google Places or Yelp key, hotels and food show "
+                 + "review stars (yellow→gold) and $ price levels ($ = easy "
+                 + "on a small budget, $$$$$ = the priciest). Without one, "
+                 + "only big chains show $.")
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
+            keyLabel("Spotify token (optional) — play, pause and skip Spotify in FLOWS")
+            keyField("Paste token", text: $model.spotifyWebToken,
+                     steps: "How to get a Spotify token:",
+                     ["Open developer.spotify.com (free account)",
+                      "Create an app in the developer dashboard",
+                      "Make an access token with the playback-state permissions",
+                      "Paste the token here"],
+                     link: "Open the Spotify developer page",
+                     url: "https://developer.spotify.com/documentation/web-api")
+            Text("With a token, Spotify play, pause, and skip work right in "
+                 + "FLOWS (needs Spotify Premium; a token expires after about "
+                 + "an hour). It is kept in the device's locked Keychain. "
+                 + "Without one, FLOWS opens the Spotify app instead.")
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 4)
+    }
+
+    /// The connected car's line: Refresh data and Disconnect, or Connect,
+    /// and what Smartcar last said.
+    private var smartcarStatusRow: some View {
+        HStack {
+            if model.smartcar.connected {
+                Button("Refresh data") { Task { await model.smartcar.refreshData() } }
+                    .buttonStyle(.plain).foregroundStyle(.blue).scaledFont(.caption, weight: .bold)
+                Button("Disconnect") { model.smartcar.disconnect() }
+                    .buttonStyle(.plain).foregroundStyle(.red).scaledFont(.caption, weight: .bold)
+            } else if let url = model.smartcar.connectURL {
+                Link("Connect vehicle →", destination: url)
+                    .scaledFont(.caption, weight: .bold)
+            } else {
+                // Connect needs both halves; say so rather than just
+                // leave the link out.
+                Text("Add the Client ID and Secret under Set up to connect.")
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text(model.smartcar.status).scaledFont(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    /// The connected car's one-time setup: the app's two halves from the
+    /// Smartcar dashboard, and how to get them.
+    private var smartcarSetup: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                // An ID is stored exactly as typed: the default sentence
+                // capitals and autocorrect would change a hand-typed one.
+                TextField("Client ID", text: Binding(
+                    get: { model.smartcar.clientID },
+                    set: { model.smartcar.clientID = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+                SecureField("Client Secret", text: Binding(
+                    get: { model.smartcar.clientSecret },
+                    set: { model.smartcar.clientSecret = $0 }))
+                    .textFieldStyle(.roundedBorder)
+            }
+            Text("Set up once at dashboard.smartcar.com: make an app, set its "
+                 + "redirect address to flows://smartcar, paste its Client ID "
+                 + "and Secret here, then tap Connect. Your car's real fuel "
+                 + "level and tire pressures then replace FLOWS's own guess.")
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 4)
     }
 
     /// One "label … value" line in the learned-about-you section.
@@ -3765,120 +3917,33 @@ struct SettingsSheet: View {
             }
 
             Divider()
-            Text("Keys for extra info")
-                .scaledFont(size: 14, weight: .semibold)
-            // Each key is named above its field: a filled field shows only
-            // dots, and a long placeholder was cut off before it was filled.
-            keyLabel("Google Places key (free monthly amount at "
-                     + "console.cloud.google.com) — stars, $ and open hours")
-            SecureField("Paste key", text: $model.googlePlacesAPIKey)
-                .textFieldStyle(.roundedBorder)
-                .scaledFont(.caption)
-            keyLabel("Yelp key (free for 30 days, then paid) — stars and $")
-            HStack(spacing: 6) {
-                SecureField("Paste key", text: $model.yelpAPIKey)
-                    .textFieldStyle(.roundedBorder)
-                    .scaledFont(.caption)
-                Menu {
-                    Text("How to get a Yelp key:")
-                    Text("1. Open business.yelp.com/data/products/places-api")
-                    Text("2. Start the free 30-day trial (5,000 calls)")
-                    Text("3. Create an app to get your API key")
-                    Text("4. Paste the key here")
-                    Divider()
-                    Link("Open the Yelp API page",
-                         destination: URL(string: "https://business.yelp.com/data/products/places-api/")!)
-                } label: {
-                    Text("Get one")
-                        .scaledFont(.caption, weight: .semibold)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+            // Key setup is for the few who want it: folded, so the drive's
+            // own settings aren't buried under developer steps and web
+            // addresses. The name stays: the music note and the stop list
+            // point at it.
+            DisclosureGroup(isExpanded: $keysOpen) {
+                keyFields
+            } label: {
+                Text("Keys for extra info")
+                    .scaledFont(size: 14, weight: .semibold)
             }
-            keyLabel("TomTom key (free plan at developer.tomtom.com) — live gas prices")
-            SecureField("Paste key", text: $model.tomtomAPIKey)
-                .textFieldStyle(.roundedBorder)
-                .scaledFont(.caption)
-            // Big chains carry a known $ level with no key at all
-            // (BrandKnowledge), so "hidden without one" was not true.
-            Text("With a Google Places or Yelp key, hotels and food show "
-                 + "review stars (yellow→gold) and $ price levels ($ = easy "
-                 + "on a small budget, $$$$$ = the priciest). Without one, "
-                 + "only big chains show $.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
-            keyLabel("Spotify token (optional) — play, pause and skip Spotify in FLOWS")
-            HStack(spacing: 6) {
-                SecureField("Paste token", text: $model.spotifyWebToken)
-                    .textFieldStyle(.roundedBorder)
-                    .scaledFont(.caption)
-                Menu {
-                    Text("How to get a Spotify token:")
-                    Text("1. Open developer.spotify.com (free account)")
-                    Text("2. Create an app in the developer dashboard")
-                    Text("3. Make an access token with the playback-state permissions")
-                    Text("4. Paste the token here")
-                    Divider()
-                    Link("Open the Spotify developer page",
-                         destination: URL(string: "https://developer.spotify.com/documentation/web-api")!)
-                } label: {
-                    Text("Get one")
-                        .scaledFont(.caption, weight: .semibold)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-            }
-            Text("With a token, Spotify play, pause, and skip work right in "
-                 + "FLOWS (needs Spotify Premium; a token expires after about "
-                 + "an hour). It is kept in the device's locked Keychain. "
-                 + "Without one, FLOWS opens the Spotify app instead.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
 
             Divider()
             Text("Connected vehicle (cloud — Smartcar)")
                 .scaledFont(size: 14, weight: .semibold)
-            HStack(spacing: 8) {
-                // An ID is stored exactly as typed: the default sentence
-                // capitals and autocorrect would change a hand-typed one.
-                TextField("Client ID", text: Binding(
-                    get: { model.smartcar.clientID },
-                    set: { model.smartcar.clientID = $0 }))
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                SecureField("Client Secret", text: Binding(
-                    get: { model.smartcar.clientSecret },
-                    set: { model.smartcar.clientSecret = $0 }))
-                    .textFieldStyle(.roundedBorder)
+            // The car's status, Refresh data and Disconnect stay in plain
+            // view: a driver whose sign-in ran out must find them.
+            smartcarStatusRow
+            DisclosureGroup(isExpanded: Binding(
+                get: {
+                    smartcarSetupOpen
+                        ?? (model.smartcar.connectURL == nil && !model.smartcar.connected)
+                },
+                set: { smartcarSetupOpen = $0 })) {
+                smartcarSetup
+            } label: {
+                Text("Set up (one time)").scaledFont(.caption, weight: .semibold)
             }
-            HStack {
-                if model.smartcar.connected {
-                    Button("Refresh data") { Task { await model.smartcar.refreshData() } }
-                        .buttonStyle(.plain).foregroundStyle(.blue).scaledFont(.caption, weight: .bold)
-                    Button("Disconnect") { model.smartcar.disconnect() }
-                        .buttonStyle(.plain).foregroundStyle(.red).scaledFont(.caption, weight: .bold)
-                } else if let url = model.smartcar.connectURL {
-                    Link("Connect vehicle →", destination: url)
-                        .scaledFont(.caption, weight: .bold)
-                } else {
-                    // Connect needs both halves; say so rather than just
-                    // leave the link out.
-                    Text("Paste the Client ID and Secret to connect.")
-                        .scaledFont(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Text(model.smartcar.status).scaledFont(.caption2).foregroundStyle(.secondary)
-            }
-            Text("Set up once at dashboard.smartcar.com: make an app, set its "
-                 + "redirect address to flows://smartcar, paste its Client ID "
-                 + "and Secret here, then tap Connect. Your car's real fuel "
-                 + "level and tire pressures then replace FLOWS's own guess.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
 
             Divider()
             Text("Vehicle link (Bluetooth)")

@@ -141,15 +141,35 @@ struct FilterLimits {
 extension FilterLimits: Equatable {}
 
 extension RouteFilter {
-    /// The routes the choices list still offers under `filters`: the only
-    /// ones the map draws as gray alternates, since a route a filter hid
-    /// ("No tolls", "Low bridges") is not an option. When none passes, the
-    /// list falls back to its closest match among them, so all stay.
-    static func offered(_ routes: [PlannedRoute], filters: Set<RouteFilter>,
-                        limits: FilterLimits) -> [PlannedRoute] {
-        let passing = routes.filter { route in
-            filters.allSatisfy { $0.passes(route, limits: limits) }
+    /// The routes every `judged` filter but Avoid traffic lets through —
+    /// what Avoid traffic compares a route with, so it thins the list the
+    /// other filters leave and can never empty it.
+    static func trafficPeers(_ routes: [PlannedRoute], judged: Set<RouteFilter>,
+                             limits: FilterLimits) -> [PlannedRoute] {
+        routes.filter { r in
+            judged.allSatisfy { $0 == .avoidTraffic || $0.passes(r, limits: limits) }
         }
-        return passing.isEmpty ? routes : passing
+    }
+
+    /// The routes the choices list shows, in `routes` order, under the
+    /// filters that judge them (`judging`). Avoid traffic is relative: a
+    /// route passes next to its peers, never alone.
+    static func listed(_ routes: [PlannedRoute], judged: Set<RouteFilter>,
+                       limits: FilterLimits) -> [PlannedRoute] {
+        let peers = trafficPeers(routes, judged: judged, limits: limits)
+        guard judged.contains(.avoidTraffic) else { return peers }
+        return peers.filter { RouteFilter.avoidTraffic.passes($0, among: peers) }
+    }
+
+    /// The routes the map draws as gray alternates: those the choices list
+    /// shows, since a route a filter hid ("No tolls", "Low bridges", a jam
+    /// Avoid traffic left out) is not an option. When none passes, the list
+    /// falls back to its closest match among them, so all stay. It judged
+    /// alone, and Avoid traffic passes every route with no peers to compare:
+    /// the map drew the jammed road the list had hidden.
+    static func offered(_ routes: [PlannedRoute], judged: Set<RouteFilter>,
+                        limits: FilterLimits) -> [PlannedRoute] {
+        let shown = listed(routes, judged: judged, limits: limits)
+        return shown.isEmpty ? routes : shown
     }
 }

@@ -141,14 +141,6 @@ enum BadgeClustering {
         return best.map { $0?.label }
     }
 
-    /// A second layer's badges less those a first layer already shows, in
-    /// `badges` order (the chosen route's badges beside the planning map's
-    /// own). A badge goes when a shown badge of its kind sits within
-    /// `mergeMeters`: the same hazard drawn twice. A `minor` badge, one that
-    /// names nothing the shown symbols don't, also goes when ANY shown badge
-    /// sits that close or it lies inside one of the shown `areas`: two
-    /// symbols for one area. Any other badge stays, since different hazards
-    /// may share an area (the rule `cluster` keeps).
     /// Whether an alert event is a warning (or an emergency) — never a
     /// `minor` badge. Winter storms, high wind, extreme heat and cold and red
     /// flags are zone warnings with no outline on the map: the route's badge
@@ -160,9 +152,30 @@ enum BadgeClustering {
         return lower.contains("warning") || lower.contains("emergency")
     }
 
+    /// Whether a shown badge of the same kind draws the same hazard as a
+    /// route badge (`unshown`'s `sameHazard`), from the alert each names. A
+    /// warning is the same hazard only as a badge naming that warning; any
+    /// other badge is one hazard with its kind.
+    static func sameHazard(badgeEvent: String?, shownEvent: String?) -> Bool {
+        guard let badgeEvent, isWarning(badgeEvent) else { return true }
+        return shownEvent == badgeEvent
+    }
+
+    /// A second layer's badges less those a first layer already shows, in
+    /// `badges` order (the chosen route's badges beside the planning map's
+    /// own). A badge goes when a shown badge of its kind that `sameHazard`
+    /// accepts sits within `mergeMeters`: the same hazard drawn twice. (A
+    /// route badge named by a warning is the same hazard only as a shown
+    /// badge naming that warning: one of its kind from a forecast or an
+    /// advisory nearby took the warning's symbol and its tap card away.) A
+    /// `minor` badge, one that names nothing the shown symbols don't, also
+    /// goes when ANY shown badge sits that close or it lies inside one of
+    /// the shown `areas`: two symbols for one area. Any other badge stays,
+    /// since different hazards may share an area (the rule `cluster` keeps).
     static func unshown<Kind: Hashable>(
         _ badges: [Item<Kind>], shown: [Item<Kind>], areas: [[CLLocationCoordinate2D]],
-        mergeMeters: CLLocationDistance, minor: (Item<Kind>) -> Bool
+        mergeMeters: CLLocationDistance, minor: (Item<Kind>) -> Bool,
+        sameHazard: (_ badge: Item<Kind>, _ shown: Item<Kind>) -> Bool = { _, _ in true }
     ) -> [Item<Kind>] {
         // This runs as the map draws: a ring's exact test only where its
         // bounding box could hold the badge.
@@ -171,7 +184,9 @@ enum BadgeClustering {
             let near = shown.filter {
                 POIRanking.meters($0.coordinate, badge.coordinate) < mergeMeters
             }
-            if near.contains(where: { $0.kind == badge.kind }) { return false }
+            if near.contains(where: { $0.kind == badge.kind && sameHazard(badge, $0) }) {
+                return false
+            }
             guard minor(badge) else { return true }
             guard near.isEmpty else { return false }
             return !zip(areas, boxes).contains { ring, box in

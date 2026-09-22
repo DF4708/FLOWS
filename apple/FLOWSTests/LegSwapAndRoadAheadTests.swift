@@ -270,6 +270,18 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
                        ["Tornado Warning", "Flash Flood Warning", "Wind Advisory"])
     }
 
+    /// A leg with no check points yet (the way to an added stop, a replan
+    /// whose score hasn't landed) names what the live watch saw: it gave
+    /// "No weather alerts" through a warning the watch had found.
+    func testALegWithNoCheckPointsNamesTheWatchedAlerts() {
+        var leg = route()
+        leg.watchedAlertEvents = ["Tornado Warning"]
+        XCTAssertEqual(leg.alertEventsAhead(alongMeters: 0), ["Tornado Warning"])
+        // Then the plan-time list, each alert once.
+        leg.alertEvents = ["Flood Warning", "Tornado Warning"]
+        XCTAssertEqual(leg.alertEventsAhead(alongMeters: 0), ["Tornado Warning", "Flood Warning"])
+    }
+
     // MARK: warning shapes on the driven route
 
     private func polygon(_ event: String, expires: Date?, at lat: Double = 41.0)

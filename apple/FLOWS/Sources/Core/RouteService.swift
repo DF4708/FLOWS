@@ -251,9 +251,16 @@ struct PlannedRoute: Identifiable {
     /// stretch) to the end, `alongMeters` into the route. The live watch
     /// repaints the check points it covers, so an alert issued mid-drive is
     /// named and one that has ended is not; `alertEvents` is fixed at plan
-    /// time. A route with no check points yet has only that.
+    /// time. A route with no check points yet (a leg not scored yet) has the
+    /// watch's alerts and then those.
     func alertEventsAhead(alongMeters: Double) -> [String] {
-        guard !riskSamples.isEmpty else { return alertEvents }
+        guard !riskSamples.isEmpty else {
+            var events: [String] = []
+            for event in watchedAlertEvents + alertEvents where !events.contains(event) {
+                events.append(event)
+            }
+            return events
+        }
         var start = 0
         var along = 0.0
         for i in 1..<riskSamples.count where i - 1 < riskSegments.count {

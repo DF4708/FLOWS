@@ -609,7 +609,15 @@ private func rerouteDialog(_ outcome: AppModel.TrafficRerouteOutcome) -> IntentD
     switch outcome {
     case .taken: return "Rerouting around the traffic."
     case .stayed: return "Staying on this road."
-    case .askedAgain: return "That road has more risk now. Say yes if you still want it."
+    case .askedAgain:
+        // A plain yes is heard only while FLOWS listens for it: a trip
+        // waiting for its own yes keeps "go ahead", and with the voice off
+        // nothing listens. Asking again takes the road just weighed.
+        if case .fasterRoute? = AppModel.shared?.pendingVoiceOffer,
+           AppModel.shared?.voiceAlerts == true {
+            return "That road has more risk now. Say yes if you still want it."
+        }
+        return "That road has more risk now. Ask me again to take the faster route if you still want it."
     case .nothing: return "Staying on this road for now."
     }
 }

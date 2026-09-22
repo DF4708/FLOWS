@@ -93,7 +93,17 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// no close should cut (a turn direction, a music reply).
     func announce(_ text: String, topic: String? = nil) {
         guard !text.isEmpty else { return }
-        activateSpokenSession()
+        // The crash check-in's session and a reply being listened for are
+        // left alone, as DriveVoice leaves them: switching either to
+        // playback shuts its microphone, and a turn line landing in the
+        // listen lost the driver's yes (or their "I need help"). Both
+        // sessions play out loud, so the line is still heard.
+        #if os(iOS)
+        let listening = checkInHoldsSession() || VoiceReply.shared.isListening
+        #else
+        let listening = checkInHoldsSession()
+        #endif
+        if !listening { activateSpokenSession() }
         // A line whose finish report never came must not hold up every
         // later one, turn directions included.
         if queue.isBusy, !synthesizer.isSpeaking,

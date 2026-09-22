@@ -1571,6 +1571,11 @@ final class AppModel: ObservableObject {
     /// to the traffic offer) is being planned: FLOWS doesn't swap legs under
     /// it. A count, so overlapping requests don't clear it early.
     private var driverReroutesInFlight = 0
+    /// Reroute on a rising-risk prompt is being planned: the old road's
+    /// watch raises no prompt meanwhile. One raised there was spoken over
+    /// the reroute and outlived the swap, sitting over the new road. Its
+    /// own count: a traffic yes must never mute a safety prompt.
+    private var escalationReroutesInFlight = 0
 
     /// The traffic offer is over: its risk label, its block, its staged road,
     /// the pending spoken yes, and the driver's no.
@@ -2080,12 +2085,7 @@ final class AppModel: ObservableObject {
     /// and passes the array down (reading it per card multiplied the filter
     /// pass and its ARC traffic ~50× per render).
     var filteredChoices: [PlannedRoute] {
-        let limits = filterLimits
-        let judged = judgingFilters
-        let peers = trafficPeers(judged, limits: limits)
-        var out = peers.filter {
-            !judged.contains(.avoidTraffic) || RouteFilter.avoidTraffic.passes($0, among: peers)
-        }
+        var out = RouteFilter.listed(routeChoices, judged: judgingFilters, limits: filterLimits)
         // Tourist filter CHANGES the ordering: the route with more attractions
         // within reach leads (ties fall back to ETA) — scenic beats fast while
         // the driver is explicitly asking for tourist stops. Only once every
@@ -2106,15 +2106,6 @@ final class AppModel: ObservableObject {
     /// The filters that judge the cards right now (RouteFilter.judging).
     var judgingFilters: Set<RouteFilter> {
         RouteFilter.judging(routeFilters, walking: walkingMode)
-    }
-
-    /// The routes every judged filter but Avoid traffic lets through — what
-    /// Avoid traffic compares a route with, so it thins the list the other
-    /// filters leave and can never empty it.
-    private func trafficPeers(_ judged: Set<RouteFilter>, limits: FilterLimits) -> [PlannedRoute] {
-        routeChoices.filter { r in
-            judged.allSatisfy { $0 == .avoidTraffic || $0.passes(r, limits: limits) }
-        }
     }
 
     /// Filter toggles route through here so request-level filters can
@@ -2165,7 +2156,7 @@ final class AppModel: ObservableObject {
     func brokenFilters(_ route: PlannedRoute) -> [RouteFilter] {
         let limits = filterLimits
         let judged = judgingFilters
-        let peers = trafficPeers(judged, limits: limits)
+        let peers = RouteFilter.trafficPeers(routeChoices, judged: judged, limits: limits)
         return RouteFilter.allCases.filter {
             judged.contains($0) && !$0.passes(route, limits: limits, among: peers)
         }
@@ -2567,16 +2558,21 @@ final class AppModel: ObservableObject {
                 self.scanner.listen(near: fix.coordinate)
                 guard self.mode == .navigating else { return }
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
-                self.vehicle.recordFix(speedMps: max(fix.speed, 0),
-                                       deltaMeters: min(delta, 500))   // GPS jump guard
-                // Persist the speed/idle shape (coalesced to ~1/min inside
-                // the store): these EWMAs drive range and refuel prediction
-                // and used to reset to a 55 mph stranger on every launch.
-                DrivingProfileStore.shared.updateDriving(
-                    averageSpeedMph: self.vehicle.averageSpeedMph,
-                    idleFraction: self.vehicle.idleFraction)
-                self.recordRoadEfficiency(deltaMeters: min(delta, 500), fix: fix)
-                self.recordDailyDriving(deltaMeters: min(delta, 500))
+                // A walk teaches nothing about the vehicle: it burned no fuel,
+                // and its pace dragged the speed and idle shape (and so the
+                // next drive's range and fuel stops) toward walking.
+                if self.navigation.route?.isWalk != true {
+                    self.vehicle.recordFix(speedMps: max(fix.speed, 0),
+                                           deltaMeters: min(delta, 500))   // GPS jump guard
+                    // Persist the speed/idle shape (coalesced to ~1/min inside
+                    // the store): these EWMAs drive range and refuel prediction
+                    // and used to reset to a 55 mph stranger on every launch.
+                    DrivingProfileStore.shared.updateDriving(
+                        averageSpeedMph: self.vehicle.averageSpeedMph,
+                        idleFraction: self.vehicle.idleFraction)
+                    self.recordRoadEfficiency(deltaMeters: min(delta, 500), fix: fix)
+                    self.recordDailyDriving(deltaMeters: min(delta, 500))
+                }
                 self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
                 self.refreshCloudFuelIfDue()
                 self.updateFuelRecommendation()
@@ -2763,7 +2759,9 @@ final class AppModel: ObservableObject {
             // like a fuel stop → ask ONCE per dwell. (CarPlay does not
             // expose the vehicle's real fuel level to third-party nav apps —
             // when Apple opens that API this becomes automatic.)
+            // Not on a walk: a walker stopping by a station filled no tank.
             if let stopStart = stoppedSince, let profile = vehicle.profile,
+               navigation.route?.isWalk != true,
                vehicle.telemetry().fuelFraction == nil,   // real data = no need to ask
                now.timeIntervalSince(stopStart) >= 240,
                refuelPromptShownAt.map({ $0 < stopStart }) ?? true,
@@ -2857,6 +2855,16 @@ final class AppModel: ObservableObject {
         dailyDrive = DailyDriveLog.empty()
         dailyDrivePersistedMeters = 0
         UserDefaults.standard.removeObject(forKey: "flows.dailyDrive")
+        // A trip under way began before the erase: its arrival must not
+        // teach it back (where it started, the route, the pace, the time
+        // in traffic). A leg started after this learns only itself.
+        tripPredictedSeconds = nil
+        tripStartedAt = nil
+        tripStartArea = nil
+        tripDistanceMeters = 0
+        legStartedAt = nil
+        legPredictedSeconds = 0
+        tripLearningErased = mode == .navigating
         // Last: drop the key. Each store shreds its own file above, but
         // until the key goes with it an escaped ciphertext is still
         // readable — and the button promises the app is "back to knowing
@@ -3147,7 +3155,12 @@ final class AppModel: ObservableObject {
             // The tap is the hearing-parity half, voice or not; the voice
             // follows its own switch (off = the chip alone).
             if hapticAlerts { Haptics.warning() }
-            if voiceAlerts { DriveVoice.shared.speak(next.camera.kind.title + " ahead") }
+            // Forced: every camera is a fresh trigger (announcedCameras keeps
+            // it to once each), and the repeat guard left the second speed
+            // camera of a trip unspoken.
+            if voiceAlerts {
+                DriveVoice.shared.speak(next.camera.kind.title + " ahead", force: true)
+            }
         }
     }
 
@@ -3604,10 +3617,12 @@ final class AppModel: ObservableObject {
 
     /// The route a spoken yes should take: the one the choices list leads
     /// with (the first to pass every filter), else its closest match — a
-    /// route the driver could have picked on screen.
+    /// route the driver could have picked on screen. Judged as the cards are:
+    /// on foot the raw filters picked a walk other than the list's.
     private var tripOfferPick: PlannedRoute? {
         filteredChoices.first
-            ?? RouteFilter.closestMatch(in: routeChoices, filters: routeFilters, limits: filterLimits)
+            ?? RouteFilter.closestMatch(in: routeChoices, filters: judgingFilters,
+                                        limits: filterLimits)
     }
 
     /// Stage the planned trip for a spoken yes (Siri's Start a trip,
@@ -3634,7 +3649,13 @@ final class AppModel: ObservableObject {
             pendingVoiceOffer = nil
             return .nothing
         }
-        guard live.weatherScored else { return .stillChecking }
+        guard live.weatherScored else {
+            // A check that gave up is started again, so "ask me again in a
+            // moment" has a check running to wait on; mid-drive nothing
+            // else would ever score it, and every yes said Still checking.
+            if weatherCheckGaveUp.contains(live.id) { retryWeatherCheck() }
+            return .stillChecking
+        }
         if let pick = tripOfferPick, pick.id != live.id,
            !filteredChoices.contains(where: { $0.id == live.id }) {
             pendingVoiceOffer = .trip(route: pick, name: name)
@@ -3759,9 +3780,14 @@ final class AppModel: ObservableObject {
                         self.landScore(await self.scoredChoice(r))
                     }
                 }
+                // A late score can hide the highlighted route (No flood
+                // risk, say): the map must not keep drawing a hidden card.
+                if choicesOnOffer { ensureHighlightValid() }
             }
-            // The ladder is spent: the cards still unchecked say so.
-            if mode == .choosing, !Task.isCancelled {
+            // The ladder is spent: the cards still unchecked say so, and
+            // choices held behind the drive screen remember it for the next
+            // yes (acceptTripOffer), which has no card to press Try again on.
+            if choicesOnOffer, !Task.isCancelled {
                 weatherCheckGaveUp = Set(routeChoices.filter { !$0.weatherScored }.map(\.id))
             }
         }
@@ -3783,6 +3809,9 @@ final class AppModel: ObservableObject {
             // Only the attributes here too: a Try again may have landed the
             // card's weather since `leg` was copied.
             routeChoices[i].takeAttributes(from: done)
+            // A low bridge or a steep grade found now can hide the
+            // highlighted card: the highlight moves to one still listed.
+            ensureHighlightValid()
         } else if var live = navigation.route, live.id == done.id {
             // Only the attributes: the live leg may have been scored (the
             // off-route replan) or repainted by the corridor watch since
@@ -4457,6 +4486,7 @@ final class AppModel: ObservableObject {
         tripStartedAt = Date()
         tripStartArea = location.coordinate.map(TrafficArea.init)
         tripDistanceMeters = route.distanceMeters
+        tripLearningErased = false
         mode = .navigating
         startLeg(route, resetsNeeds: !drivingOn)
         askForTripPermissionsIfNeeded()   // lock-screen warnings + crash reply, at the first GO
@@ -4629,36 +4659,51 @@ final class AppModel: ObservableObject {
         // complete window score back into the route's own metadata — the
         // same segment rule as plan time (a stretch takes the worse of its
         // two endpoint samples) — and bump the version the map keys on.
-        if score.complete, var live = navigation.route, !live.riskSamples.isEmpty {
-            var samples = live.riskSamples
+        // A leg with no check points yet (the way to an added stop, a replan
+        // before its score lands) takes the window's alerts and shapes all
+        // the same: it took neither, and "how's the road ahead" answered
+        // all-clear under a live warning whose outline was never drawn.
+        if score.complete, var live = navigation.route {
             // Every alert in the window, for "how's the road ahead": the
             // check points keep only their worst.
             var changed = live.watchedAlertEvents != score.events
             live.watchedAlertEvents = score.events
-            for (w, r) in zip(score.samples, sampleRisks) {
-                var bi = -1
-                var bd = 600.0   // a window sample belongs to the route sample within 600 m
-                for (i, s) in samples.enumerated() {
-                    let d = POIRanking.meters(s.coordinate, w.coordinate)
-                    if d < bd { bd = d; bi = i }
+            if !live.riskSamples.isEmpty {
+                var samples = live.riskSamples
+                var repainted = false
+                for (w, r) in zip(score.samples, sampleRisks) {
+                    var bi = -1
+                    var bd = 600.0   // a window sample belongs to the route sample within 600 m
+                    for (i, s) in samples.enumerated() {
+                        let d = POIRanking.meters(s.coordinate, w.coordinate)
+                        if d < bd { bd = d; bi = i }
+                    }
+                    guard bi >= 0 else { continue }
+                    let old = samples[bi]
+                    if abs(old.risk - r) > 0.02 || old.worstEvent != w.worstEvent
+                        || old.alertID != w.alertID {
+                        samples[bi] = RiskSample(coordinate: old.coordinate, risk: r,
+                                                 worstEvent: w.worstEvent, alertID: w.alertID)
+                        repainted = true
+                    }
                 }
-                guard bi >= 0 else { continue }
-                let old = samples[bi]
-                if abs(old.risk - r) > 0.02 || old.worstEvent != w.worstEvent
-                    || old.alertID != w.alertID {
-                    samples[bi] = RiskSample(coordinate: old.coordinate, risk: r,
-                                             worstEvent: w.worstEvent, alertID: w.alertID)
+                if repainted {
+                    live.riskSamples = samples
+                    let last = samples.count - 1
+                    live.riskSegments = live.riskSegments.enumerated().map { j, seg in
+                        RiskSegment(coordinates: seg.coordinates, risk: max(samples[min(j, last)].risk, samples[min(j + 1, last)].risk), lengthMeters: seg.lengthMeters)
+                    }
                     changed = true
                 }
             }
+            // Every pass, so a warning that ends leaves the map on time.
+            let polygons = WeatherAlertService.mergedPolygons(
+                live.alertPolygons, live: score.alertPolygons, now: Date())
+            if polygons.map(\.id) != live.alertPolygons.map(\.id) {
+                live.alertPolygons = polygons
+                changed = true
+            }
             if changed {
-                live.riskSamples = samples
-                let last = samples.count - 1
-                live.riskSegments = live.riskSegments.enumerated().map { j, seg in
-                    RiskSegment(coordinates: seg.coordinates, risk: max(samples[min(j, last)].risk, samples[min(j + 1, last)].risk), lengthMeters: seg.lengthMeters)
-                }
-                live.alertPolygons = WeatherAlertService.mergedPolygons(
-                    live.alertPolygons, live: score.alertPolygons, now: Date())
                 navigation.updateRouteMetadata(live)
                 routeMetadataVersion &+= 1
             }
@@ -4723,7 +4768,9 @@ final class AppModel: ObservableObject {
             .init(complete: score.complete, mean: risk, peak: peakR, peakAlertID: peakAlertID),
             state: escalationState)
         escalationState = next
-        if let trigger, notifyEscalation {
+        // Not while the driver's Reroute is planning: a failed plan puts the
+        // prompt back, and the next pass raises whatever is current.
+        if let trigger, notifyEscalation, escalationReroutesInFlight == 0 {
             let raised = Escalation(
                 newRisk: trigger.risk,
                 headline: score.headlines.first ?? "Conditions worsening along this route",
@@ -4738,17 +4785,16 @@ final class AppModel: ObservableObject {
                 || previous?.alertID != raised.alertID
                 || raised.newRisk > (previous?.newRisk ?? 0) + EscalationPolicy.dismissMargin
             if isNew {
-                if hapticAlerts { Haptics.warning() }   // felt once, like the notice
+                // The prompt was silent: a driver watching the road got no
+                // cue at all while a lesser faster-route offer was spoken
+                // and felt. Felt once per prompt, like the lock-screen notice.
+                if hapticAlerts { Haptics.warning() }
                 // No cause in the title: a road closure, a fire or an
                 // evacuation raises this as surely as a storm.
                 Self.noticeIfAway(
                     id: "escalation",
                     title: "Your route is getting riskier",
                     body: raised.headline + ". Open FLOWS to find a safer way or keep going.")
-                // The prompt was silent: a driver watching the road got no
-                // cue at all while a lesser faster-route offer was spoken
-                // and felt. Once per prompt, as the lock-screen notice.
-                if hapticAlerts { Haptics.warning() }
                 if voiceAlerts {
                     // A prompt it replaces stops being read.
                     VoiceAnnouncer.shared.cancel(topic: SpeechTopic.escalation)
@@ -4900,7 +4946,11 @@ final class AppModel: ObservableObject {
         // The prompt clears before the planning awaits: count the reroute so
         // no automatic faster-route switch lands in the middle of it.
         driverReroutesInFlight += 1
-        defer { driverReroutesInFlight -= 1 }
+        escalationReroutesInFlight += 1
+        defer {
+            driverReroutesInFlight -= 1
+            escalationReroutesInFlight -= 1
+        }
         escalation = nil
         let planned = await routes(like: leg, from: fix, fromName: "Current location",
                                    to: dest.coordinate, toName: dest.name)
@@ -5239,6 +5289,9 @@ final class AppModel: ObservableObject {
     /// Where the trip began — which neighbourhood's learning it belongs to.
     private var tripStartArea: TrafficArea?
     private var tripDistanceMeters: Double = 0
+    /// The driver erased what FLOWS learned during this trip: its arrival
+    /// records nothing about it (cleared at the next GO).
+    private var tripLearningErased = false
 
     /// The kind of road being driven right now, from the vehicle's own
     /// rolling average speed.
@@ -5757,7 +5810,9 @@ final class AppModel: ObservableObject {
                 legID: leg.id, route: route, line: check.line, divergeAlong: check.divergeAlong,
                 checkSpacing: check.checkSpacing,
                 offeredRisk: check.candidateRisk ?? route.weatherRisk, stagedAt: Date())
-            offerFasterRoute(minutes: minutes, riskier: true)
+            // Every caller is the driver's yes: asked again with the chips
+            // off too, as a weighed road's yes is.
+            offerFasterRoute(minutes: minutes, riskier: true, driverAsked: true)
             return .askedAgain
         }
         takeFasterRoute(route, feeds: check.feeds, automaticSaving: nil)
@@ -5998,8 +6053,9 @@ final class AppModel: ObservableObject {
         arrivedAt = finalDestination?.name ?? navigation.route?.destinationName
         // Learn from the completed trip: the plan-time prediction vs. the worst
         // risk actually encountered → the on-device seasonal model (frequency-
-        // gated, decaying, bucketed by week-of-year). Final destination only.
-        if let route = navigation.route,
+        // gated, decaying, bucketed by week-of-year). Final destination only,
+        // and not a trip that began before an erase.
+        if !tripLearningErased, let route = navigation.route,
            let origin = Self.firstCoordinate(of: route),
            let dest = finalDestination?.coordinate ?? Self.lastCoordinate(of: route) {
             let hubs = RouteService.corridorPartition(

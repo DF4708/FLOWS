@@ -258,15 +258,19 @@ final class CrashDetectionService: ObservableObject {
     /// After the last utterance, hand the audio session back — the check-in
     /// activates it with .duckOthers, and without an explicit deactivation
     /// the driver's music stays ducked for the rest of the drive. Not from
-    /// under another FLOWS voice mid-line.
+    /// under another FLOWS voice mid-line, a reply being listened for, or
+    /// FLOWS's own station or dispatch feed (End stopped a station on the
+    /// air while its play button still said playing).
     private func releaseAudioSessionWhenQuiet() {
         Task { @MainActor [weak self] in
             var waited = 0
             while self?.synthesizer.isSpeaking == true, waited < 100 {
                 try? await Task.sleep(for: .milliseconds(100)); waited += 1
             }
+            let announcer = VoiceAnnouncer.shared
             guard let self, self.state == .idle, self.audioEngine == nil,
-                  !VoiceAnnouncer.shared.isSpeaking, !DriveVoice.shared.isSpeaking
+                  !announcer.isSpeaking, !DriveVoice.shared.isSpeaking,
+                  !VoiceReply.shared.isListening, !announcer.ownAudioPlaying()
             else { return }
             try? AVAudioSession.sharedInstance().setActive(
                 false, options: .notifyOthersOnDeactivation)

@@ -145,6 +145,30 @@ final class MapDisplayTests: XCTestCase {
         XCTAssertFalse(BadgeClustering.isWarning("Special Weather Statement"))
     }
 
+    func testAWarningGivesWayOnlyToABadgeThatNamesIt() {
+        // The route's snow badge carries a Winter Storm Warning; the map's
+        // own snow badge nearby comes from forecast snow in the next zone.
+        let route = [item("snow", lat: 43.00, lon: -89.00, score: 0.6)]
+        let shown = [item("snow", lat: 43.05, lon: -89.00, score: 0.4)]
+        func left(route routeEvent: String?, shown shownEvent: String?) -> [String] {
+            BadgeClustering.unshown(
+                route, shown: shown, areas: [], mergeMeters: 20_000, minor: { _ in false },
+                sameHazard: { _, _ in
+                    BadgeClustering.sameHazard(badgeEvent: routeEvent, shownEvent: shownEvent)
+                }
+            ).map(\.kind)
+        }
+        XCTAssertEqual(left(route: "Winter Storm Warning", shown: nil), ["snow"],
+                       "a badge not naming the warning must not take its symbol")
+        XCTAssertEqual(left(route: "Winter Storm Warning", shown: "Winter Weather Advisory"),
+                       ["snow"])
+        XCTAssertEqual(left(route: "Winter Storm Warning", shown: "Winter Storm Warning"), [],
+                       "the same warning drawn twice is one symbol")
+        XCTAssertEqual(left(route: "Winter Weather Advisory", shown: nil), [],
+                       "an advisory's badge is one hazard with the map's own")
+        XCTAssertEqual(left(route: nil, shown: nil), [])
+    }
+
     func testNothingShownKeepsEveryRouteBadge() {
         let route = [item("hazard", lat: 43.0, lon: -89.0, score: 0.5),
                      item("flood", lat: 43.5, lon: -89.0, score: 0.7)]
@@ -198,13 +222,13 @@ final class MapDisplayTests: XCTestCase {
         let underLowBridge = route(clearancesFeet: [12])   // 11 ft + 2 ft margin fails
         let clear = route(clearancesFeet: [16])
         let offered = RouteFilter.offered([underLowBridge, clear],
-                                          filters: [.lowBridges], limits: tall)
+                                          judged: [.lowBridges], limits: tall)
         XCTAssertEqual(offered.map(\.id), [clear.id])
     }
 
     func testNoFiltersOfferEveryRoute() {
         let a = route(clearancesFeet: [12]), b = route(clearancesFeet: nil)
-        XCTAssertEqual(RouteFilter.offered([a, b], filters: [],
+        XCTAssertEqual(RouteFilter.offered([a, b], judged: [],
                                            limits: FilterLimits()).map(\.id),
                        [a.id, b.id])
     }
@@ -214,8 +238,54 @@ final class MapDisplayTests: XCTestCase {
         // must not empty out.
         let tall = FilterLimits(vehicleHeightMeters: 13.5 * 0.3048)
         let a = route(clearancesFeet: [12]), b = route(clearancesFeet: [14])
-        XCTAssertEqual(RouteFilter.offered([a, b], filters: [.lowBridges],
+        XCTAssertEqual(RouteFilter.offered([a, b], judged: [.lowBridges],
                                            limits: tall).map(\.id),
+                       [a.id, b.id])
+    }
+
+    /// A freeway (or not) of a set length, for Avoid traffic's ratio.
+    private final class Road: MKRoute {
+        private let meters: CLLocationDistance
+        private let highways: Bool
+        init(meters: CLLocationDistance, highways: Bool) {
+            self.meters = meters
+            self.highways = highways
+            super.init()
+        }
+        override var distance: CLLocationDistance { meters }
+        override var hasHighways: Bool { highways }
+    }
+
+    private func road(highways: Bool, congestion ratio: Double) -> PlannedRoute {
+        // Free flow is 29 m/s on a freeway, 17 m/s off one.
+        let meters = 29_000.0
+        var r = PlannedRoute(route: Road(meters: meters, highways: highways),
+                             sourceName: "A", destinationName: "B")
+        r.etaOverride = ratio * meters / (highways ? 29 : 17)
+        return r
+    }
+
+    func testAJamAvoidTrafficHidIsNotDrawn() {
+        // Avoid traffic (on by default) compares each road with its peers:
+        // judged alone every road passed, and the map drew the jammed
+        // freeway the list had hidden.
+        let calm = road(highways: true, congestion: 1.1)
+        let jammed = road(highways: true, congestion: 1.9)
+        let local = road(highways: false, congestion: 1.6)
+        XCTAssertEqual(RouteFilter.listed([jammed, calm, local], judged: [.avoidTraffic],
+                                          limits: FilterLimits()).map(\.id),
+                       [calm.id, local.id])
+        XCTAssertEqual(RouteFilter.offered([jammed, calm, local], judged: [.avoidTraffic],
+                                           limits: FilterLimits()).map(\.id),
+                       [calm.id, local.id])
+    }
+
+    func testOnFootOnlyNoHighwaysJudgesTheMap() {
+        // The cards judge a walk by No highways alone; the map follows them.
+        let tall = FilterLimits(vehicleHeightMeters: 13.5 * 0.3048)
+        let a = route(clearancesFeet: [12]), b = route(clearancesFeet: [16])
+        let judged = RouteFilter.judging([.lowBridges, .avoidTraffic], walking: true)
+        XCTAssertEqual(RouteFilter.offered([a, b], judged: judged, limits: tall).map(\.id),
                        [a.id, b.id])
     }
 
