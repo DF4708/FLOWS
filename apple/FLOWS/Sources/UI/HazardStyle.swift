@@ -18,9 +18,35 @@ import UIKit
 /// Symbol, and a semi-transparent STRIPED fill so overlapping hazard shapes
 /// visibly stack into combined risk (solid fills just mush together).
 struct HazardKind: Hashable {
+    /// The key into RiskAdvice and the Rust classifier's tables; what a
+    /// driver reads is `title`.
     let name: String
     let symbol: String
     let color: Color
+
+    /// The plain name on the map key and the tap card: "Earthquake", not
+    /// "Seismic".
+    var title: String {
+        switch name {
+        case "Tropical": return "Hurricane"
+        case "Seismic": return "Earthquake"
+        case "Volcanic": return "Volcano"
+        case "Air/Smoke": return "Bad air"
+        case "Radiation/UV": return "Strong sun"
+        default: return name
+        }
+    }
+
+    /// The tap card's heading: "Flood risk", but a name that is already a
+    /// condition stands alone ("Road closed", not "Road closed risk").
+    var cardTitle: String {
+        switch name {
+        case "Rain chance", "Road closed", "Air/Smoke", "Radiation/UV", "Hazard":
+            return title
+        default:
+            return "\(title) risk"
+        }
+    }
 }
 
 enum HazardStyle {
@@ -55,11 +81,18 @@ enum HazardStyle {
     static let volcanic = HazardKind(name: "Volcanic", symbol: "mountain.2.fill", color: Color(red: 0.55, green: 0.15, blue: 0.05))
     static let avalanche = HazardKind(name: "Avalanche", symbol: "snowflake.circle.fill", color: Color(red: 0.2, green: 0.55, blue: 0.8))
     static let tsunami = HazardKind(name: "Tsunami", symbol: "water.waves.and.arrow.up", color: Color(red: 0.0, green: 0.35, blue: 0.55))
-    static let generic = HazardKind(name: "Hazard", symbol: "exclamationmark.triangle.fill", color: Theme.riskYellow)
+    /// A neutral graphite, outside the band palette: this kind names risk no
+    /// single hazard explains, and in the Yellow band's own colour its areas
+    /// and badges claimed Yellow whatever their band.
+    static let generic = HazardKind(name: "Hazard", symbol: "exclamationmark.triangle.fill",
+                                    color: Color(red: 0.33, green: 0.35, blue: 0.40))
     static let closure = HazardKind(name: "Road closed", symbol: "road.lanes.curved.right", color: Color(red: 0.8, green: 0.15, blue: 0.15))
 
+    /// The kinds the map key explains: the everyday ones, with rain chance
+    /// (the most common badge) and road closures among them.
     static let legendKinds: [HazardKind] = [
-        tornado, storm, flood, snow, ice, wind, heat, cold, fire, fog, dust, air, radiation,
+        tornado, storm, flood, rain, snow, ice, wind, heat, cold, fire, fog, dust, air, radiation,
+        closure,
     ]
 
     /// Classify an NWS event name ("Tornado Warning", "Winter Storm Watch"…).
@@ -158,8 +191,10 @@ struct ScannerIncidentPin: View {
             Circle()
                 .fill(color)
                 .frame(width: 22, height: 22)
+            // Fixed: a glyph that grew with the text size spilled out of
+            // this fixed disc.
             Image(systemName: incident.kind.symbol)
-                .scaledFont(size: 10, weight: .bold)
+                .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(Theme.onDark)
         }
         .overlay(Circle().stroke(.white, lineWidth: 1.5).frame(width: 22, height: 22))

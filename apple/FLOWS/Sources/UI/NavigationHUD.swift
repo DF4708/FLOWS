@@ -110,7 +110,7 @@ struct NavigationHUD: View {
                     CollapsedPanelTray()
                 }
             }
-            if model.breadcrumbs.isOffline {
+            if OfflinePill.shows(model.breadcrumbs) {
                 OfflinePill()
                     .chromeRegion("top.offline-pill")
             }
@@ -176,7 +176,7 @@ struct NavigationHUD: View {
                         Label(model.workZonesAhead == 1
                               ? "Work zone ahead"
                                 + (model.workZoneRoad.map { " · \($0)" } ?? "")
-                              : "\(model.workZonesAhead) work zones ahead (state DOT)",
+                              : "\(model.workZonesAhead) work zones ahead",
                               systemImage: "cone.fill")
                             .scaledFont(.footnote, weight: .bold)
                             .padding(.horizontal, 12)
@@ -346,6 +346,9 @@ struct NavigationHUD: View {
                 }
             }
             .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            // Opaque cards: the radio card's station names once read
+            // straight through a towing card that slid over it.
+            .environment(\.solidCards, true)
             // One region: a card scrolled out of view covers nothing.
             .chromeRegion("bottom.cards")
             // The crash check-in is never below the fold of the cards'
@@ -1952,7 +1955,7 @@ struct NavigationHUD: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-        .help("Towing: your weights against your vehicle's max weights")
+        .help("Towing: check your weights against your vehicle's limits")
     }
 
     private var radioButton: some View {
@@ -2594,16 +2597,17 @@ struct NavigationHUD: View {
             .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
-    /// FMCSA §395.3 hours-of-service checkpoints (trucker mode).
+    /// FMCSA §395.3 hours-of-service checkpoints (trucker mode), in plain
+    /// words on the chip.
     private var hosChip: some View {
         let text: String
         switch model.hosStatus {
         case .breakSoon(let until):
-            text = String(format: "HOS: 30-min break due in %.0f min (FMCSA)", until / 60)
+            text = String(format: "Driving hours: 30-min break due in %.0f min", until / 60)
         case .breakDue:
-            text = "HOS: 8 h driving — 30-min break REQUIRED (FMCSA)"
+            text = "Driving hours: 8 h driven — take your 30-min break now"
         case .limitReached:
-            text = "HOS: 11 h limit reached — stop driving (FMCSA)"
+            text = "Driving hours: 11 h limit reached — stop driving"
         case .ok:
             text = ""
         }

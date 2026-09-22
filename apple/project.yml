@@ -294,6 +294,7 @@ targets:
       - path: FLOWS/Sources/Core/LatitudeBands.swift
       - path: FLOWS/Sources/Core/ClimateProfiles.swift
       - path: FLOWS/Sources/Core/BadgeClustering.swift
+      - path: FLOWS/Sources/Core/RiskAreaFallback.swift
       - path: FLOWS/Sources/Core/InternationalWeather.swift
       - path: FLOWS/Sources/Core/NWSForecastService.swift
       - path: FLOWS/Sources/Core/TripNeeds.swift

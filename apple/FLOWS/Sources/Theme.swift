@@ -50,6 +50,11 @@ enum Theme {
         light: Color.white.opacity(0.95),
         dark: Color(red: 0x14 / 255.0, green: 0x17 / 255.0,
                     blue: 0x1C / 255.0).opacity(0.95))
+    /// The same card with nothing reading through it, for the drive
+    /// screen's card column (`solidCards`).
+    static let cardBackgroundSolid = adaptive(
+        light: Color.white,
+        dark: Color(red: 0x14 / 255.0, green: 0x17 / 255.0, blue: 0x1C / 255.0))
     static let cardShadow = adaptive(light: Color.black.opacity(0.14),
                                      dark: Color.black.opacity(0.5))
 
@@ -107,14 +112,28 @@ struct PillCTAStyle: ButtonStyle {
     }
 }
 
+private struct SolidCardsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Floating cards draw fully opaque: the drive screen's card column
+    /// sets it, so no card's words ever read through another's.
+    var solidCards: Bool {
+        get { self[SolidCardsKey.self] }
+        set { self[SolidCardsKey.self] = newValue }
+    }
+}
+
 /// Floating card container matching .route-card / .notice-card.
 struct FloatingCard: ViewModifier {
     @Environment(\.golden) private var golden
+    @Environment(\.solidCards) private var solid
 
     func body(content: Content) -> some View {
         content
             .padding(golden.padCard)
-            .background(Theme.cardBackground)
+            .background(solid ? Theme.cardBackgroundSolid : Theme.cardBackground)
             .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .shadow(color: Theme.cardShadow, radius: 14, y: 5)
     }

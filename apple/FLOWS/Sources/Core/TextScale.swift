@@ -86,8 +86,13 @@ enum TextScale {
     }
 
     /// Where the system's current size sits on the slider (seed value when
-    /// the driver first touches it).
+    /// the driver first touches it). A size below the first step — the
+    /// phone at .xSmall, which follow-the-phone still draws — sits at the
+    /// small end: seeding it at Large put the thumb two steps from the text
+    /// on screen.
     static func index(of size: DynamicTypeSize) -> Int {
-        steps.firstIndex(of: size) ?? (steps.firstIndex(of: .large) ?? 0)
+        if let step = steps.firstIndex(of: size) { return step }
+        if let first = steps.first, size < first { return 0 }
+        return steps.firstIndex(of: .large) ?? 0
     }
 }

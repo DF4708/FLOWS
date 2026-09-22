@@ -422,7 +422,8 @@ struct GaugeDial: View {
 
 /// Towing card: two horizontal scales (vehicle weight, towed weight) checked
 /// live against the manufacturer's GVWR / tow capacity / GCWR — violations
-/// FLASH red with what actually goes wrong.
+/// FLASH red with what actually goes wrong. The card names those ratings in
+/// plain words; the acronyms mean nothing to most drivers.
 struct TowingCard: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
@@ -472,14 +473,13 @@ struct TowingCard: View {
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
             }
-            // Static ratings, flashing red where exceeded. Plain names, not
-            // GVWR / tow capacity / GCWR.
-            HStack(spacing: 12) {
-                ratingBadge("Vehicle max", ratings.gvwrLbs,
+            // Static ratings, flashing red where exceeded.
+            HStack(spacing: 8) {
+                ratingBadge("Max loaded weight", ratings.gvwrLbs,
                             violated: violations.contains { if case .overGVWR = $0 { return true } else { return false } })
-                ratingBadge("Tow max", ratings.towCapacityLbs,
+                ratingBadge("Max towing", ratings.towCapacityLbs,
                             violated: violations.contains { if case .overTowCapacity = $0 { return true } else { return false } })
-                ratingBadge("Total max", ratings.effectiveGCWR,
+                ratingBadge("Max vehicle + trailer", ratings.effectiveGCWR,
                             violated: violations.contains { if case .overGCWR = $0 { return true } else { return false } })
             }
             ForEach(Array(violations.enumerated()), id: \.offset) { _, v in
@@ -487,7 +487,9 @@ struct TowingCard: View {
                     Text(v.title)
                         .scaledFont(size: 13, weight: .heavy)
                         .foregroundStyle(Theme.riskRed)
-                        .opacity(flash || reduceMotion ? 1 : 0.35)
+                        .animation(reduceMotion ? nil : Self.pulse) {
+                            $0.opacity(flash || reduceMotion ? 1 : 0.35)
+                        }
                     Text(v.consequences)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
@@ -507,24 +509,37 @@ struct TowingCard: View {
         }
         .floatingCard()
         .frame(maxWidth: golden.cardMax)
-        // Scoped to THIS view — see the note on the escalation card: a
-        // repeatForever run through withAnimation catches every view in the
-        // transaction, not just the one being pulsed.
-        .animation(reduceMotion ? nil
-                   : .easeInOut(duration: 0.5).repeatForever(autoreverses: true),
-                   value: flash)
         .onAppear { flash = true }
     }
 
+    /// The flash, run on the flashing opacity ALONE. Put on the whole card
+    /// with `.animation(_:value:)`, it also animated the card's position when
+    /// the card appeared while the column around it was still settling, and
+    /// the card slid up and down over the radio card for as long as it was
+    /// open. (withAnimation is no better: it catches every view in the
+    /// transaction.)
+    private static let pulse = Animation.easeInOut(duration: 0.5)
+        .repeatForever(autoreverses: true)
+
     private func ratingBadge(_ label: String, _ value: Double?, violated: Bool) -> some View {
         VStack(spacing: 1) {
+            // Plain names are longer than the acronyms: they wrap onto a
+            // second line inside an equal share of the row.
             Text(label).scaledFont(size: 9, weight: .bold).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Text(value.map { String(format: "%.0f lb", $0) } ?? "—")
                 .scaledFont(size: 13, weight: .heavy).monospacedDigit()
                 .foregroundStyle(violated ? Theme.riskRed : .primary)
-                .opacity(violated && flash && !reduceMotion ? 0.35 : 1)
+                // A rating the rig stops exceeding settles (.default
+                // replaces the repeating run) instead of pulsing on; Reduce
+                // Motion holds it steady.
+                .animation(violated && !reduceMotion ? Self.pulse : .default) {
+                    $0.opacity(violated && flash && !reduceMotion ? 0.35 : 1)
+                }
         }
-        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 6)
         .padding(.vertical, 5)
         .background((violated ? Theme.riskRed.opacity(0.12) : Theme.fill(0.05)))
         .clipShape(RoundedRectangle(cornerRadius: 8))

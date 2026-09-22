@@ -135,3 +135,21 @@ struct FilterLimits {
             heightFeet, towing, trailerWeightLbs)
     }
 }
+
+/// The map re-checks its highlighted route whenever a slider behind these
+/// limits moves; equal limits hide the same routes.
+extension FilterLimits: Equatable {}
+
+extension RouteFilter {
+    /// The routes the choices list still offers under `filters`: the only
+    /// ones the map draws as gray alternates, since a route a filter hid
+    /// ("No tolls", "Low bridges") is not an option. When none passes, the
+    /// list falls back to its closest match among them, so all stay.
+    static func offered(_ routes: [PlannedRoute], filters: Set<RouteFilter>,
+                        limits: FilterLimits) -> [PlannedRoute] {
+        let passing = routes.filter { route in
+            filters.allSatisfy { $0.passes(route, limits: limits) }
+        }
+        return passing.isEmpty ? routes : passing
+    }
+}

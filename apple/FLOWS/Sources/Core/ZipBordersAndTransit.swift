@@ -35,9 +35,9 @@ actor ZCTAFetcher {
         let key = cellKey(point)
         if let hit = cache[key] { return hit }
         guard !inFlight.contains(key) else { return nil }
-        // US envelope only — TIGERweb has no Canada/Mexico coverage.
-        guard point.latitude > 24, point.latitude < 50,
-              point.longitude > -125, point.longitude < -66 else { return nil }
+        // US envelope only — TIGERweb has no Canada/Mexico coverage. The
+        // map's blob gate reads the same box, so the two never disagree.
+        guard RiskAreaFallback.inZIPBox(point) else { return nil }
         inFlight.insert(key)
         defer { inFlight.remove(key) }
         let url = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/"

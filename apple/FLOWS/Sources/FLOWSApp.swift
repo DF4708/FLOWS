@@ -368,7 +368,8 @@ final class AppModel: ObservableObject {
     /// The towing filters towing itself turned on (see TowingFilterHold).
     private var towingFilterHold = TowingFilterHold()
     @Published var showTowingCard = false
-    /// Bottom-bar re-center button (ContentView consumes + resets).
+    /// Re-center buttons, the drive bar's and the planning map's
+    /// (ContentView consumes + resets).
     @Published var recenterRequested = false
     /// Live state-DOT work zones (WZDx) near the corridor ahead.
     @Published private(set) var workZonesAhead = 0
@@ -3459,7 +3460,11 @@ final class AppModel: ObservableObject {
         // too early, while mode was still .planning.
         mode = .choosing
         highlightIsDriverChoice = false
-        highlightedRouteID = routes.first?.id
+        // The first route the filters leave on the list — at rush hour the
+        // fastest often fails Avoid traffic, and highlighting it framed and
+        // coloured a route no card showed. Nothing passing keeps the old
+        // first pick until scoring settles the list.
+        highlightedRouteID = filteredChoices.first?.id ?? routeChoices.first?.id
         if routeFilters.contains(.tourist) { refreshTouristCounts() }
         filterCardsHidden = false   // fresh choices bring the slider card back
         // A fresh plan invalidates any staged spoken yes. Without this, a

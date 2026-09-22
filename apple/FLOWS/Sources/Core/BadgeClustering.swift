@@ -114,4 +114,77 @@ enum BadgeClustering {
                         kind: seed.kind, score: seed.score)
         }
     }
+
+    /// The label each badge carries (the live warning that names it, for
+    /// its tap card), in `badges` order; nil where none reaches it.
+    ///
+    /// A badge sits at its members' weighted centroid — the map may then
+    /// snap it again to its ZIP's centre — so no labelled point lies exactly
+    /// under it, and a lookup by coordinate finds nothing. Instead each
+    /// labelled point joins the NEAREST badge of its own kind within
+    /// `radiusMeters`, and a badge takes the label of the worst point that
+    /// joined it (the first such point on a tie).
+    static func labels<Kind: Hashable>(
+        for badges: [Item<Kind>], from labelled: [(item: Item<Kind>, label: String)],
+        radiusMeters: CLLocationDistance
+    ) -> [String?] {
+        var best: [(score: Double, label: String)?] = Array(repeating: nil, count: badges.count)
+        for (item, label) in labelled {
+            var nearest: (index: Int, meters: CLLocationDistance)?
+            for (i, badge) in badges.enumerated() where badge.kind == item.kind {
+                let d = POIRanking.meters(badge.coordinate, item.coordinate)
+                if d < radiusMeters, d < (nearest?.meters ?? .infinity) { nearest = (i, d) }
+            }
+            guard let i = nearest?.index else { continue }
+            if item.score > (best[i]?.score ?? -.infinity) { best[i] = (item.score, label) }
+        }
+        return best.map { $0?.label }
+    }
+
+    /// A second layer's badges less those a first layer already shows, in
+    /// `badges` order (the chosen route's badges beside the planning map's
+    /// own). A badge goes when a shown badge of its kind sits within
+    /// `mergeMeters`: the same hazard drawn twice. A `minor` badge, one that
+    /// names nothing the shown symbols don't, also goes when ANY shown badge
+    /// sits that close or it lies inside one of the shown `areas`: two
+    /// symbols for one area. Any other badge stays, since different hazards
+    /// may share an area (the rule `cluster` keeps).
+    static func unshown<Kind: Hashable>(
+        _ badges: [Item<Kind>], shown: [Item<Kind>], areas: [[CLLocationCoordinate2D]],
+        mergeMeters: CLLocationDistance, minor: (Item<Kind>) -> Bool
+    ) -> [Item<Kind>] {
+        // This runs as the map draws: a ring's exact test only where its
+        // bounding box could hold the badge.
+        let boxes = areas.map(Box.init)
+        return badges.filter { badge in
+            let near = shown.filter {
+                POIRanking.meters($0.coordinate, badge.coordinate) < mergeMeters
+            }
+            if near.contains(where: { $0.kind == badge.kind }) { return false }
+            guard minor(badge) else { return true }
+            guard near.isEmpty else { return false }
+            return !zip(areas, boxes).contains { ring, box in
+                box.contains(badge.coordinate)
+                    && HazardFeedScores.pointInPolygon(badge.coordinate, ring)
+            }
+        }
+    }
+
+    /// A ring's latitude/longitude bounds.
+    private struct Box {
+        var minLat = Double.infinity, maxLat = -Double.infinity
+        var minLon = Double.infinity, maxLon = -Double.infinity
+
+        init(_ ring: [CLLocationCoordinate2D]) {
+            for c in ring {
+                minLat = min(minLat, c.latitude); maxLat = max(maxLat, c.latitude)
+                minLon = min(minLon, c.longitude); maxLon = max(maxLon, c.longitude)
+            }
+        }
+
+        func contains(_ c: CLLocationCoordinate2D) -> Bool {
+            c.latitude >= minLat && c.latitude <= maxLat
+                && c.longitude >= minLon && c.longitude <= maxLon
+        }
+    }
 }

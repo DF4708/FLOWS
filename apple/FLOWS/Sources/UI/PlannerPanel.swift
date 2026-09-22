@@ -493,7 +493,11 @@ struct PlannerPanel: View {
             Task {
                 isWorking = true
                 defer { isWorking = false }
-                if let planned = await model.planToFavorite(fav), let first = planned.first,
+                // The highlighted route, which the filters may have moved
+                // off the first.
+                if let planned = await model.planToFavorite(fav),
+                   let first = model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
+                    ?? planned.first,
                    let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect) {
                     withAnimation {
                         camera = .rect(Self.choicesCameraRect(
@@ -593,10 +597,12 @@ struct PlannerPanel: View {
                 from: from.0, fromName: from.1,
                 to: to.0, toName: to.1)
             model.present(routes: planned)
-            // Frame the full corridor while choosing.
+            // Frame the full corridor while choosing — the highlighted
+            // route's, which the filters may have moved off the first.
             // A null bounding rect (geometry not in yet) would frame the
             // camera on 0,0 — the Atlantic off Africa.
-            if let first = planned.first,
+            if let first = model.routeChoices.first(where: { $0.id == model.highlightedRouteID })
+                ?? planned.first,
                let rect = CameraZoom.usableRect(first.route.polyline.boundingMapRect) {
                 withAnimation {
                     camera = .rect(Self.choicesCameraRect(
