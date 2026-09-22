@@ -144,7 +144,12 @@ struct RouteChoicesView: View {
         async let w1 = transitWalk(ep.from, boardC)
         async let rideG = transitDrive(boardC, alightC)
         async let w3 = transitWalkIf(alight != nil, alightC, ep.to)
-        async let rentalsNearDest = transitRentals(near: ep.to)
+        // Rentals at the ARRIVAL STATION, not at the trip's destination: the
+        // traveller steps off the train there and the miles they read are
+        // the walk to the counter. Measured from the same point, so a "0.3
+        // mi" office is 0.3 mi from the platform. (The plane card already
+        // searched around its arrival airport.)
+        async let rentalsNearDest = transitRentals(near: alightC)
         let (w1poly, w1sec, w1steps, w1mi) = await w1
         let (ridePolyOpt, rideRoadMi, driveSec) = await rideG
         let last = await w3
@@ -551,6 +556,138 @@ struct RouteChoicesView: View {
         }
     }
 
+    /// The rental rows' heading, named for where their miles are measured
+    /// FROM — the stop the traveller steps off at. "At the destination" read
+    /// as miles from the trip's end, which is not what a traveller standing
+    /// on the platform needs.
+    /// What the drawn line is and is not, for an itinerary whose ride
+    /// geometry is a stand-in. The geometry claim must match what's drawn:
+    /// only claim the ride follows roads when MapKit actually road-routed
+    /// it; on the straight-connector fallback, say so. The time is scaled
+    /// from MapKit's measured drive time (distance ÷ speed only in the
+    /// no-road fallback), so it's an estimate — not a "distance estimate".
+    /// "Walk legs are exact" only holds when every walk leg actually routed:
+    /// a leg with no pedestrian route is a synthetic line.
+    private func geometryNote(_ itinerary: TransitItinerary) -> String {
+        let isRail = itinerary.mode == "Amtrak" || itinerary.mode == "Rail"
+        let walksExact = itinerary.legs
+            .filter { $0.kind == .walk }.allSatisfy { $0.polyline != nil }
+        let walkNote = walksExact
+            ? "Walk legs are exact."
+            : "One walk leg couldn't be routed and is shown as an estimate."
+        let rideNote: String
+        if !itinerary.rideGeometryIsReal {
+            rideNote = "Ride line couldn't be road-routed — drawn straight between "
+                + "stations; the time is an estimate. "
+        } else if isRail {
+            rideNote = "Ride line follows the highway as a stand-in and the time is "
+                + "a guess — real train lines and times come later. "
+        } else {
+            rideNote = "Ride line follows the roads the bus drives; the time is a "
+                + "guess — real bus times come later. "
+        }
+        return rideNote + walkNote
+    }
+
+    /// How long the first walk is when it DOMINATES the trip (over an hour,
+    /// and longer than the ride itself) — a "transit" option that is really
+    /// a hike to the station; nil when the access walk is ordinary.
+    private func dominatingAccessWalk(_ itinerary: TransitItinerary) -> TimeInterval? {
+        guard let firstWalk = itinerary.legs.first, firstWalk.kind == .walk,
+              let walkSec = firstWalk.seconds, walkSec > 3600,
+              let ride = itinerary.legs.first(where: { $0.kind == .ride }),
+              walkSec > (ride.seconds ?? 0)
+        else { return nil }
+        return walkSec
+    }
+
+    private func rentalHeading(_ itinerary: TransitItinerary) -> String {
+        let alight = itinerary.legs.last { $0.kind == .ride }?.toName
+        guard let alight, !alight.isEmpty else { return "Rental cars where you get off" }
+        return "Rental cars near \(alight)"
+    }
+
+    /// The open itinerary under a transit card: its legs, what the drawn
+    /// line is and is not, the ticket, and wheels at the far end. Its own
+    /// function because the card's body, with all of this inline, put the
+    /// type-checker past its limit.
+    @ViewBuilder
+    private func itineraryDetail(_ itin: TransitItinerary, _ t: TransitOption,
+                                 mode: TransitMode) -> some View {
+        // A "transit" option whose ACCESS WALK dominates (suburban
+        // start, downtown-only station) is technically correct but
+        // reads as a normal ride — call the walk out up front instead
+        // of letting a 5-hour hike hide inside a 6h47m total.
+        if let walkSec = dominatingAccessWalk(itin) {
+            Label("Mostly walking: the nearest stop is "
+                  + "\(TransitPlanning.fmt(walkSec)) on foot — "
+                  + "consider driving or a rideshare to the station",
+                  systemImage: "exclamationmark.triangle.fill")
+                .scaledFont(.caption2, weight: .bold)
+                .foregroundStyle(.orange)
+        }
+        ForEach(Array(itin.legs.enumerated()), id: \.offset) { i, leg in
+            transitLegRow(leg, isLast: i == itin.legs.count - 1,
+                          plane: mode == .plane)
+        }
+        if itin.mode == "Plane" {
+            // The flight's honesty note: an arc is not a filed flight
+            // path, and every time here includes the airport waiting.
+            Text("Flight drawn as a straight arc; times include airport "
+                 + "waiting and are estimates — airlines set schedules "
+                 + "and prices.")
+                .scaledFont(size: 9).foregroundStyle(.secondary)
+        } else if itin.rideGeometryIsApproximate {
+            Text(geometryNote(itin))
+                .scaledFont(size: 9).foregroundStyle(.secondary)
+        }
+        // The EXACT ticket for this ride — carrier booking page in-line;
+        // never a hand-off to Maps.
+        if let label = t.ticketLabel {
+            if let url = t.ticketURL {
+                Link(destination: url) {
+                    Label(label, systemImage: "ticket.fill")
+                        .scaledFont(.caption, weight: .bold)
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Color.purple.opacity(0.9))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+            } else {
+                Label("\(label) — pay on board / agency app",
+                      systemImage: "ticket")
+                    .scaledFont(.caption2, weight: .semibold)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        // Wheels at the far end: the traveller arrives WITHOUT a car
+        // (leg 3 is a walk by design). Nearest office per brand,
+        // biggest brands first — any operator MapKit knows, with the
+        // office's own page (or the brand's booking site) linked.
+        if !t.rentals.isEmpty {
+            Divider()
+            // Named for where the miles are measured FROM — the stop
+            // the traveller steps off at. "At the destination" read
+            // as miles from the trip's end, which is not what a
+            // traveller standing on the platform needs.
+            Label(rentalHeading(itin), systemImage: "car.2.fill")
+                .scaledFont(.caption2, weight: .bold)
+            ForEach(Array(t.rentals.enumerated()), id: \.offset) { _, office in
+                HStack(spacing: 4) {
+                    Text("\(office.name) · \(String(format: "%.1f mi", office.miles))")
+                        .scaledFont(size: 10)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let url = office.url {
+                        Link("Book", destination: url)
+                            .scaledFont(size: 10, weight: .bold)
+                    }
+                }
+            }
+        }
+    }
+
     private func transitCard(_ t: TransitOption, mode: TransitMode) -> some View {
         let symbol = switch mode {
         case .rail: "tram.fill"
@@ -600,99 +737,7 @@ struct RouteChoicesView: View {
             // In-app itinerary: every leg, with the ARRIVAL-station walk called
             // out — you took the train, so the last mile is on foot, not a drive.
             if let itin = t.itinerary {
-                // A "transit" option whose ACCESS WALK dominates (suburban
-                // start, downtown-only station) is technically correct but
-                // reads as a normal ride — call the walk out up front instead
-                // of letting a 5-hour hike hide inside a 6h47m total.
-                if let firstWalk = itin.legs.first, firstWalk.kind == .walk,
-                   let walkSec = firstWalk.seconds, walkSec > 3600,
-                   let ride = itin.legs.first(where: { $0.kind == .ride }),
-                   walkSec > (ride.seconds ?? 0) {
-                    Label("Mostly walking: the nearest stop is "
-                          + "\(TransitPlanning.fmt(walkSec)) on foot — "
-                          + "consider driving or a rideshare to the station",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .scaledFont(.caption2, weight: .bold)
-                        .foregroundStyle(.orange)
-                }
-                ForEach(Array(itin.legs.enumerated()), id: \.offset) { i, leg in
-                    transitLegRow(leg, isLast: i == itin.legs.count - 1,
-                                  plane: mode == .plane)
-                }
-                if itin.mode == "Plane" {
-                    // The flight's honesty note: an arc is not a filed flight
-                    // path, and every time here includes the airport waiting.
-                    Text("Flight drawn as a straight arc; times include airport "
-                         + "waiting and are estimates — airlines set schedules "
-                         + "and prices.")
-                        .scaledFont(size: 9).foregroundStyle(.secondary)
-                } else if itin.rideGeometryIsApproximate {
-                    let isRail = itin.mode == "Amtrak" || itin.mode == "Rail"
-                    // "Walk legs are exact" only holds when every walk leg actually
-                    // routed — a leg with no pedestrian route is a synthetic line.
-                    let walksExact = itin.legs
-                        .filter { $0.kind == .walk }.allSatisfy { $0.polyline != nil }
-                    let walkNote = walksExact
-                        ? "Walk legs are exact."
-                        : "One walk leg couldn't be routed and is shown as an estimate."
-                    // The geometry claim must match what's drawn: only claim the
-                    // ride follows roads when MapKit actually road-routed it; on the
-                    // straight-connector fallback, say so. The time is scaled from
-                    // MapKit's measured drive time (distance ÷ speed only in the
-                    // no-road fallback), so it's an estimate — not a "distance estimate".
-                    let rideNote: String = !itin.rideGeometryIsReal
-                        ? "Ride line couldn't be road-routed — drawn straight between "
-                          + "stations; the time is an estimate. "
-                        : (isRail
-                           ? "Ride line follows the highway as a stand-in and the time is "
-                             + "a guess — real train lines and times come later. "
-                           : "Ride line follows the roads the bus drives; the time is a "
-                             + "guess — real bus times come later. ")
-                    Text(rideNote + walkNote)
-                        .scaledFont(size: 9).foregroundStyle(.secondary)
-                }
-                // The EXACT ticket for this ride — carrier booking page in-line;
-                // never a hand-off to Maps.
-                if let label = t.ticketLabel {
-                    if let url = t.ticketURL {
-                        Link(destination: url) {
-                            Label(label, systemImage: "ticket.fill")
-                                .scaledFont(.caption, weight: .bold)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(Color.purple.opacity(0.9))
-                                .foregroundStyle(.white)
-                                .clipShape(Capsule())
-                        }
-                    } else {
-                        Label("\(label) — pay on board / agency app",
-                              systemImage: "ticket")
-                            .scaledFont(.caption2, weight: .semibold)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                // Wheels at the far end: the traveller arrives WITHOUT a car
-                // (leg 3 is a walk by design). Nearest office per brand,
-                // biggest brands first — any operator MapKit knows, with the
-                // office's own page (or the brand's booking site) linked.
-                if !t.rentals.isEmpty {
-                    Divider()
-                    Label("Rental cars at the destination",
-                          systemImage: "car.2.fill")
-                        .scaledFont(.caption2, weight: .bold)
-                    ForEach(Array(t.rentals.enumerated()), id: \.offset) { _, office in
-                        HStack(spacing: 4) {
-                            Text("\(office.name) · \(String(format: "%.1f mi", office.miles))")
-                                .scaledFont(size: 10)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            Spacer(minLength: 4)
-                            if let url = office.url {
-                                Link("Book", destination: url)
-                                    .scaledFont(size: 10, weight: .bold)
-                            }
-                        }
-                    }
-                }
+                itineraryDetail(itin, t, mode: mode)
             } else {
                 Text(t.detail).scaledFont(.caption).foregroundStyle(.secondary)
             }

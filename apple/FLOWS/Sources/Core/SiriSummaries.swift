@@ -149,8 +149,7 @@ enum SiriSummaries {
     /// call-911 line; weather warnings get the action FLOWS already took.
     static func emergencyAnnouncement(event: String, headline: String?,
                                       action: ImminentAlerts.Action) -> String {
-        let isAbduction = event.localizedCaseInsensitiveContains("child abduction")
-            || event.localizedCaseInsensitiveContains("amber")
+        let isAbduction = isChildAbduction(event)
         var out = (isAbduction ? "Emergency alert: " : "Weather alert on your route: ")
             + event + "."
         if let headline, !headline.isEmpty {
@@ -167,6 +166,37 @@ enum SiriSummaries {
             case .monitor: out += " Check the FLOWS screen when it's safe."
             }
         }
+        return out
+    }
+
+    /// A child-abduction (AMBER) alert by name.
+    static func isChildAbduction(_ event: String) -> Bool {
+        event.localizedCaseInsensitiveContains("child abduction")
+            || event.localizedCaseInsensitiveContains("amber")
+    }
+
+    /// What the VOICE says when a warning enters the corridor.
+    ///
+    /// A red warning (shelter or look-out) and a child-abduction alert are
+    /// read in full — their detail is the point of them. A yellow one is
+    /// said blunt: the hazard, when it reaches the driver, and the one thing
+    /// to do. Reading a whole official yellow headline aloud buried that in
+    /// a paragraph. The banner on screen and the lock-screen notice still
+    /// carry the official text, so nothing is lost, only unsaid.
+    static func spokenWarning(event: String, headline: String?,
+                              action: ImminentAlerts.Action,
+                              minutesAway: Int? = nil) -> String {
+        guard !isChildAbduction(event), !action.isRed else {
+            return emergencyAnnouncement(event: event, headline: headline, action: action)
+        }
+        var out = event
+        if let minutesAway, minutesAway > 0 {
+            out += " in about \(minutesAway) minute\(minutesAway == 1 ? "" : "s")"
+        } else {
+            out += " ahead"
+        }
+        out += "."
+        if action == .restArea { out += " Wait it out at a rest area." }
         return out
     }
 

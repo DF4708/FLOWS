@@ -336,6 +336,40 @@ final class RadioAndSpotifyTests: XCTestCase {
             .hasSuffix("when it's safe."))
     }
 
+    /// The voice says a yellow warning blunt — hazard, when, and the one
+    /// thing to do — while red alerts and AMBER are still read in full.
+    func testTheVoiceSaysAYellowWarningBluntly() {
+        XCTAssertEqual(
+            SiriSummaries.spokenWarning(
+                event: "Wind Advisory",
+                headline: "Southwest winds 20 to 30 mph with gusts up to 45 mph expected "
+                    + "this afternoon and evening across the region.",
+                action: .monitor, minutesAway: 6),
+            "Wind Advisory in about 6 minutes.")
+        XCTAssertEqual(
+            SiriSummaries.spokenWarning(
+                event: "High Wind Warning", headline: "A long official headline.",
+                action: .restArea, minutesAway: 1),
+            "High Wind Warning in about 1 minute. Wait it out at a rest area.")
+        XCTAssertEqual(
+            SiriSummaries.spokenWarning(event: "Dense Fog Advisory", headline: nil,
+                                        action: .monitor),
+            "Dense Fog Advisory ahead.")
+        // Red and AMBER keep every word.
+        let tornado = SiriSummaries.spokenWarning(
+            event: "Tornado Warning", headline: "Tornado Warning until 5 PM.",
+            action: .shelter, minutesAway: 4)
+        XCTAssertEqual(tornado, SiriSummaries.emergencyAnnouncement(
+            event: "Tornado Warning", headline: "Tornado Warning until 5 PM.",
+            action: .shelter))
+        XCTAssertTrue(tornado.contains("Tornado Warning until 5 PM."))
+        let amber = SiriSummaries.spokenWarning(
+            event: "Child Abduction Emergency",
+            headline: "AMBER Alert: red pickup northbound", action: .monitor, minutesAway: 3)
+        XCTAssertTrue(amber.contains("red pickup northbound"))
+        XCTAssertTrue(amber.hasSuffix("call 911 — do not approach."))
+    }
+
     func testOpenMHzLinkIsHTTPS() {
         XCTAssertEqual(ScannerLinks.openMHz.scheme, "https")
         XCTAssertEqual(ScannerLinks.openMHz.host, "openmhz.com")

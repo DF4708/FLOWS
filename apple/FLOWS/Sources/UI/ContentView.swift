@@ -640,9 +640,10 @@ struct ContentView: View {
             model.ensureHighlightValid()
         }
         // The height, grade and weight sliders hide routes too, not only
-        // the filter chips.
+        // the filter chips — and, like the chips, they look for a road that
+        // fits when they have hidden every one.
         .onChange(of: model.filterLimits) { _, _ in
-            model.ensureHighlightValid()
+            model.limitsChanged()
         }
         .onChange(of: model.recenterRequested) { _, requested in
             guard requested else { return }
@@ -1051,7 +1052,7 @@ struct ContentView: View {
                 let sp = flowsSignposter.beginInterval("badge-sweep")
                 clusteredBadgesCache = BadgeClustering.cluster(
                     viewportHazards.compactMap { hz in
-                        hz.realized >= model.riskDisplayFloor
+                        hz.realized >= model.riskIconFloor
                             ? BadgeClustering.Item(coordinate: hz.coordinate,
                                                    kind: hz.kind, score: hz.realized)
                             : nil
@@ -1863,9 +1864,15 @@ struct ContentView: View {
             MapPolygon(coordinates: poly.coordinates)
                 .foregroundStyle(kind.color.opacity(0.22))
                 .stroke(kind.color.opacity(0.85), lineWidth: 2)
+            // The shape always draws — it is the warning's footprint. Its
+            // SYMBOL follows the icon floor, so an advisory the two-tier
+            // model caps into the green band outlines its area without a
+            // warning icon standing on it.
             let center = Self.centroid(of: poly.coordinates)
-            Annotation("", coordinate: center) {
-                alertPolygonBadge(poly, kind: kind, at: center)
+            if Self.alertBadgeScore(poly) >= model.riskIconFloor {
+                Annotation("", coordinate: center) {
+                    alertPolygonBadge(poly, kind: kind, at: center)
+                }
             }
         }
     }
@@ -1873,15 +1880,19 @@ struct ContentView: View {
     /// An alert polygon's badge, which names its warning on the tap card.
     /// (Its own function: a four-argument badge call inside the map builder
     /// timed the compiler out.)
+    /// An alert polygon's banded score: through the two-tier model, never the
+    /// raw CAP number — a predictor-family advisory (wind, heat) at severity
+    /// 0.9 is capped below Red by the model, but banded raw it drew a red
+    /// badge the route itself would never show.
+    static func alertBadgeScore(_ poly: WeatherAlertService.AlertPolygon) -> Double {
+        RiskEquations.alertFamily(poly.event)
+            .map { RiskEquations.realizedRisk([$0: poly.severity]) } ?? poly.severity
+    }
+
     private func alertPolygonBadge(_ poly: WeatherAlertService.AlertPolygon,
                                    kind: HazardKind,
                                    at center: CLLocationCoordinate2D) -> some View {
-        // Through the two-tier model, never the raw CAP number: a
-        // predictor-family advisory (wind, heat) at severity 0.9 is
-        // capped below Red by the model, but banded raw it drew a
-        // red badge the route itself would never show.
-        let score = RiskEquations.alertFamily(poly.event)
-            .map { RiskEquations.realizedRisk([$0: poly.severity]) } ?? poly.severity
+        let score = Self.alertBadgeScore(poly)
         return hazardBadge(kind, at: center, score: score, event: poly.event)
     }
 
@@ -1893,7 +1904,10 @@ struct ContentView: View {
     private func corridorHazardShapes(_ route: PlannedRoute) -> some MapContent {
         // Display floor sits BELOW the green band cut: the driver asked to
         // SEE all weather along the route, not only what already scores.
+        // Symbols are held to the higher icon floor (nearly yellow), so a
+        // quiet green stretch draws its area without a warning over it.
         let risky = route.riskSamples.filter { $0.risk >= model.riskDisplayFloor }
+        let worthASymbol = risky.filter { $0.risk >= model.riskIconFloor }
         // REAL ZIP boundaries for the affected areas (fetched per route);
         // a circle only remains for samples whose ZCTA hasn't resolved.
         if corridorAreaRouteID == route.id {
@@ -1909,13 +1923,13 @@ struct ContentView: View {
         let clustered = corridorAreaRouteID == route.id
             ? corridorBadges
             : BadgeClustering.cluster(
-                risky.map { BadgeClustering.Item(coordinate: $0.coordinate,
-                                                 kind: corridorKind($0), score: $0.risk) },
+                worthASymbol.map { BadgeClustering.Item(coordinate: $0.coordinate,
+                                                        kind: corridorKind($0), score: $0.risk) },
                 minSeparationMeters: 80_000)
         // The live cluster's warnings too: which badges give way to the
         // sweep's depends on them.
         let events = corridorAreaRouteID == route.id
-            ? corridorBadgeEvents : corridorEvents(for: clustered, from: risky)
+            ? corridorBadgeEvents : corridorEvents(for: clustered, from: worthASymbol)
         let badges = corridorBadgesToDraw(clustered, events: events)
         ForEach(badges, id: \.stableID) { badge in
             Annotation("", coordinate: badge.coordinate) {
@@ -2134,11 +2148,14 @@ struct ContentView: View {
         corridorAreas = areas
         // Badge clustering moved OFF the render path: computed once per route
         // change here instead of inside mapContent on every frame.
+        // Symbols only for stretches at the icon floor (nearly yellow or
+        // worse); the areas above come from the lower display floor.
+        let worthASymbol = risky.filter { $0.risk >= model.riskIconFloor }
         corridorBadges = BadgeClustering.cluster(
-            risky.map { BadgeClustering.Item(coordinate: $0.coordinate,
-                                             kind: corridorKind($0), score: $0.risk) },
+            worthASymbol.map { BadgeClustering.Item(coordinate: $0.coordinate,
+                                                    kind: corridorKind($0), score: $0.risk) },
             minSeparationMeters: 80_000)
-        corridorBadgeEvents = corridorEvents(for: corridorBadges, from: risky)
+        corridorBadgeEvents = corridorEvents(for: corridorBadges, from: worthASymbol)
         corridorAreaRouteID = route.id
     }
 
@@ -2251,10 +2268,16 @@ struct ContentView: View {
         // the segments enough contrast on their own.
         if route.weatherScored && !route.riskSegments.isEmpty {
             // Continuous full-geometry understroke: at far zoom the separate
-            // segment polylines could expose straight-line seams — the
-            // same-color base line beneath them hides any artifact.
+            // segment polylines could expose straight-line seams — the base
+            // line beneath them hides any artifact. It is drawn in the
+            // route's CALMEST band, never the whole-route band: MapKit does
+            // not promise z-order between sibling polylines, and a
+            // whole-route red base showing through (or over) the segments
+            // painted quiet road red.
             MapPolyline(route.route.polyline)
-                .stroke(route.riskBand.color.opacity(0.9), lineWidth: 5)
+                .stroke(FlowsCore.riskBand(
+                    score: route.riskSegments.map(\.risk).min() ?? route.weatherRisk)
+                    .color.opacity(0.9), lineWidth: 5)
             ForEach(route.riskSegments) { seg in
                 MapPolyline(coordinates: seg.coordinates)
                     .stroke(FlowsCore.riskBand(score: seg.risk).color,
@@ -2474,10 +2497,12 @@ private struct PlanningChrome: View {
             // Up to a third of the window, like the drive screen's alerts:
             // sized first, it must still leave the planner room to type.
             ScrollWhenTight(maxHeight: golden.size.height / 3) {
-                if let warning = model.imminentWarning {
+                // Its X tucks it into the tray under the gear; the warning is
+                // still in force and comes back from there.
+                if let warning = model.imminentWarning, !model.imminentWarningTucked {
                     ImminentBannerView(
                         warning: warning, isCompact: isCompact,
-                        onDismiss: { model.dismissImminentWarning() },
+                        onDismiss: { model.tuckImminentWarning() },
                         onShelterDelay: nil, onFindRest: nil)
                 }
             }
@@ -2937,14 +2962,44 @@ extension FilterSlidersCard {
     }
 
     /// "I-90 E · 2.1° ✓ · 16'4" ✓" — measured attributes vs current limits.
+    ///
+    /// The row gains a check for every limit filter that is switched on, and
+    /// in one non-wrapping line all three crushed the text against the road
+    /// name. The name keeps its own line and the checks wrap under it when
+    /// they no longer fit.
     @ViewBuilder
     fileprivate func routeVerdictRow(_ r: PlannedRoute) -> some View {
-        let limits = model.filterLimits
-        HStack(spacing: 4) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(r.via.isEmpty ? "Route" : r.via)
                 .scaledFont(size: 9, weight: .semibold)
                 .lineLimit(1)
-            Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    gradeVerdict(r)
+                    clearanceVerdict(r)
+                    weightVerdict(r)
+                    Spacer(minLength: 0)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        gradeVerdict(r)
+                        clearanceVerdict(r)
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 6) {
+                        weightVerdict(r)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    fileprivate func gradeVerdict(_ r: PlannedRoute) -> some View {
+        let limits = model.filterLimits
+        Group {
             if model.routeFilters.contains(.mountainGrades) {
                 if let g = r.maxGradePercent {
                     let deg = atan(g / 100) * 180 / .pi
@@ -2957,6 +3012,15 @@ extension FilterSlidersCard {
                     Text("grade…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
             }
+        }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    fileprivate func clearanceVerdict(_ r: PlannedRoute) -> some View {
+        let limits = model.filterLimits
+        Group {
             if model.routeFilters.contains(.lowBridges) {
                 if let cl = r.clearancesMeters {
                     let worst = cl.min()
@@ -2974,6 +3038,15 @@ extension FilterSlidersCard {
                     Text("bridges…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
             }
+        }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    fileprivate func weightVerdict(_ r: PlannedRoute) -> some View {
+        let limits = model.filterLimits
+        Group {
             if model.routeFilters.contains(.bridgeWeight) {
                 if limits.rigWeightLbs == nil {
                     // No entered weight → nothing honest to check against.
@@ -2989,6 +3062,8 @@ extension FilterSlidersCard {
                 }
             }
         }
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
     }
 }
 
@@ -3084,6 +3159,9 @@ struct CollapsedPanelTray: View {
                    name: "Driving instruments"),
         // The stop list tucks with its own X; it had no icon to come back by.
         PanelBadge(id: "stops", symbol: "mappin.and.ellipse", name: "Stop list"),
+        // A warning closed with its X: still in force, waiting here.
+        PanelBadge(id: AppModel.warningPanelID, symbol: "exclamationmark.triangle.fill",
+                   name: "Warning"),
     ]
 
     /// A column under the gear, or a row beside it where a column will not
@@ -3104,7 +3182,8 @@ struct CollapsedPanelTray: View {
         return model.collapsedPanels.order.compactMap { id in
             panels.first {
                 $0.id == id && TuckedMenus.comesBack(id, on: screen, hasStops: hasStops,
-                                                     mapKeyComesBack: mapKeyComesBack)
+                                                     mapKeyComesBack: mapKeyComesBack,
+                                                     hasWarning: model.imminentWarning != nil)
             }
         }
     }

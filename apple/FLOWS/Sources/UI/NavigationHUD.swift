@@ -123,7 +123,7 @@ struct NavigationHUD: View {
             // the map beside a chip still pans.
             ScrollWhenTight(maxHeight: golden.size.height / 3) {
                 VStack {
-                    if let warning = model.imminentWarning {
+                    if let warning = model.imminentWarning, !model.imminentWarningTucked {
                         imminentBanner(warning)
                     }
                     if let escalation = model.escalation {
@@ -147,7 +147,11 @@ struct NavigationHUD: View {
             .layoutPriority(1)
             .chromeRegion("top.alerts")
             ScrollWhenTight(holdsNoState: true) {
-                VStack {
+                // Chips hug the leading edge instead of floating down the
+                // middle of the map: "Rest in 87 mi" sat centred over the
+                // road on every long trip, which is exactly where the driver
+                // is looking.
+                VStack(alignment: .leading, spacing: 6) {
                     // The one-line weather strip holds no state: it lies flat
                     // with the chips, so the map beside it still pans.
                     if model.escalation == nil, model.imminentWarning == nil,
@@ -294,7 +298,7 @@ struct NavigationHUD: View {
                     }
                 }
             }
-            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax, alignment: .leading)
             .chromeRegion("top.chips")
             // Empty map takes only what the rows leave: with an equal share
             // it left alerts and cards scrolling beside open map.
@@ -1498,7 +1502,9 @@ struct NavigationHUD: View {
     private func imminentBanner(_ warning: AppModel.ImminentWarning) -> some View {
         ImminentBannerView(
             warning: warning, isCompact: isCompact,
-            onDismiss: { model.dismissImminentWarning() },
+            // Its X tucks it into the tray with the other icons; the warning
+            // is still in force and a tap brings it back.
+            onDismiss: { model.tuckImminentWarning() },
             onShelterDelay: warning.action == .shelter ? {
                 model.beginShelter(for: warning)
                 // Only look for a place when a place is the answer — for a

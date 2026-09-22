@@ -169,7 +169,10 @@ final class DestinationSearch: NSObject, ObservableObject {
             case predicted    // where they usually go at this hour, from here
             case coordinate   // pasted lat/lon
         }
-        let id = UUID()
+        /// What the row IS, not when it was made. A fresh UUID per rebuild
+        /// gave every keystroke's rows new identities, so SwiftUI replaced
+        /// the row under the pointer and the click that picked it was lost.
+        var id: String { "\(title)|\(subtitle)|\(kind)" }
         /// "Publix Super Market" / "160 Convention Center Dr"
         let title: String
         /// "Augusta, GA" — locality context for disambiguation.

@@ -164,13 +164,16 @@ enum TuckedMenus {
     /// the column longer. The pile itself is unchanged: a hidden icon shows
     /// again where its menu lives.
     static func comesBack(_ id: String, on screen: ChromeScreen, hasStops: Bool,
-                          mapKeyComesBack: Bool) -> Bool {
+                          mapKeyComesBack: Bool, hasWarning: Bool = false) -> Bool {
         switch id {
         case "planner": return screen == .planning
         case "routes", "sliders": return screen == .choosing
         case "fuel": return screen == .driving
         case "stops": return screen == .driving && hasStops
         case "legend": return mapKeyComesBack
+        // A tucked warning keeps its icon on every screen for as long as the
+        // warning is in force, and goes when it clears.
+        case "warning": return hasWarning
         default: return true
         }
     }

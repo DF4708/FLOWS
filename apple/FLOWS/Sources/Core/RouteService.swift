@@ -29,6 +29,11 @@ struct RiskSegment: Identifiable {
     let coordinates: [CLLocationCoordinate2D]
     let risk: Double
     let lengthMeters: Double
+    /// Which check point coloured this piece. A span between two check
+    /// points is drawn as two halves, each taking the one it is nearer to,
+    /// so the live watch can repaint a piece without counting on how many
+    /// pieces there are.
+    var sampleIndex: Int = 0
 }
 
 /// Which planning strategy produced a route — the app's analog of the web
@@ -597,9 +602,17 @@ final class RouteService: ObservableObject {
 
         // Strategies in flight concurrently; local-roads and toll-free are
         // best-effort (a corridor may have no sane answer for them).
+        //
+        // A trip past the driver's everyday circle asks for the toll-free
+        // profile whether or not the chip is on: out there the router often
+        // answers one interstate and one local-roads crawl, and a driver
+        // crossing states deserves a third real road to compare. Near home
+        // the extra request is skipped — the roads there are the same few.
+        let beyondEveryday = POIRanking.meters(from, to)
+            > EverydayStore.defaultMiles * 1609.344
         async let standardResp = MKDirections(request: request(kind: .standard)).calculate()
         async let localResp = try? MKDirections(request: request(kind: .avoidHighways)).calculate()
-        async let tollFreeResp = includeTollFree
+        async let tollFreeResp = (includeTollFree || beyondEveryday)
             ? (try? MKDirections(request: request(kind: .tollFree)).calculate()) : nil
 
         let standard = try await standardResp
@@ -729,6 +742,38 @@ final class RouteService: ObservableObject {
     }
 
     /// Sample coordinates along a polyline roughly every `everyMeters`.
+    /// A path cut at its own halfway point by length: the first half, then
+    /// the second, meeting at an exact midpoint they both carry.
+    ///
+    /// The corridor is checked every 40 km, and a span used to be painted in
+    /// the WORSE of its two check points — so one red check point painted up
+    /// to 80 km of road red, and a short trip went red end to end. Each half
+    /// now takes the check point it is nearer to.
+    nonisolated static func halves(_ coords: [CLLocationCoordinate2D])
+        -> (first: [CLLocationCoordinate2D], second: [CLLocationCoordinate2D]) {
+        guard coords.count >= 2 else { return (coords, coords) }
+        var total = 0.0
+        for i in 1..<coords.count { total += POIRanking.meters(coords[i - 1], coords[i]) }
+        let half = total / 2
+        var walked = 0.0
+        for i in 1..<coords.count {
+            let hop = POIRanking.meters(coords[i - 1], coords[i])
+            if walked + hop >= half {
+                let t = hop > 0 ? (half - walked) / hop : 0
+                let mid = CLLocationCoordinate2D(
+                    latitude: coords[i - 1].latitude
+                        + (coords[i].latitude - coords[i - 1].latitude) * t,
+                    longitude: coords[i - 1].longitude
+                        + (coords[i].longitude - coords[i - 1].longitude) * t)
+                return (Array(coords[0..<i]) + [mid], [mid] + Array(coords[i...]))
+            }
+            walked += hop
+        }
+        // Every hop was zero length (a path standing still): halve the points.
+        let cut = coords.count / 2
+        return (Array(coords[0...cut]), Array(coords[cut...]))
+    }
+
     nonisolated static func samplePoints(
         of polyline: MKPolyline, everyMeters: CLLocationDistance
     ) -> [CLLocationCoordinate2D] {

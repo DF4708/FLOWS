@@ -41,8 +41,10 @@ struct PlannerPanel: View {
     @State private var isWorking = false
     @State private var errorMessage: String?
     @FocusState private var focusedField: Field?
-    /// The list the focus just left, held open long enough for a click.
-    @State private var listHold: Field?
+    /// Which field's suggestion list is up. Raised when that field takes
+    /// focus, lowered a beat after focus leaves — not by the focus change
+    /// itself, so a row survives the click that picks it.
+    @State private var listUp: Field?
 
     enum Field { case destination, source }
 
@@ -152,13 +154,19 @@ struct PlannerPanel: View {
                     // On the Mac, clicking a suggestion first moves focus
                     // OFF the field; the list was keyed on focus alone, so it
                     // vanished before the click could land and no suggestion
-                    // was ever selectable. Hold the list open briefly after
-                    // focus leaves; a pick clears the hold at once.
+                    // was ever selectable. The list is raised when a field
+                    // TAKES focus and lowered a moment after focus leaves —
+                    // never in the same pass as the click, which tore the row
+                    // out from under the pointer between its press and its
+                    // release and lost the very first pick after launch.
                     .onChange(of: focusedField) { previous, current in
-                        guard let previous, current != previous else { return }
-                        listHold = previous
+                        if let current {
+                            listUp = current
+                            return
+                        }
+                        let left = previous
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                            if focusedField != previous { listHold = nil }
+                            if focusedField == nil, listUp == left { listUp = nil }
                         }
                     }
                     // Place names are proper nouns — the system completion
@@ -217,7 +225,7 @@ struct PlannerPanel: View {
             // keystroke and the results that follow it the suggestions are
             // often empty, and a list that went away there lost the height
             // it had grown to.
-            if focusedField == .destination || listHold == .destination {
+            if listUp == .destination {
                 // As tall as its rows, up to a cap, and ONE copy of them.
                 // A plain ScrollView always grew to its cap, so one recent
                 // place sat on a tall empty box that pushed the cards above
@@ -237,7 +245,7 @@ struct PlannerPanel: View {
                         destSearch.accept()
                         model.plannerDestination = sug.searchText
                         model.plannerDestinationPick = sug.pick
-                        listHold = nil
+                        listUp = nil
                         focusedField = nil
                         Task { await plan() }
                     }
@@ -299,7 +307,7 @@ struct PlannerPanel: View {
                     .autocorrectionDisabled()
                     .onSubmit { Task { await plan() } }
                 // The start field completes like the destination does.
-                if focusedField == .source || listHold == .source {
+                if listUp == .source {
                     // Capped and scrolling like the destination's list: an
                     // uncapped list of eight rows ran Plan route off a small
                     // Mac window.
@@ -351,7 +359,10 @@ struct PlannerPanel: View {
             }
 
         }
-        .onAppear { focusedField = .destination }
+        .onAppear {
+            focusedField = .destination
+            listUp = .destination   // the focus change to a field raises it; this is the first one
+        }
         .collapsibleMenu("planner")
         .floatingCard()
     }
@@ -396,6 +407,13 @@ struct PlannerPanel: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // The same first-click rule as Plan route: while the field
+                // above is being edited, the Mac spends the click ending that
+                // edit and the row's action never fires — which is why the
+                // first pick after launch did nothing.
+                #if os(macOS)
+                .overlay { FirstClickCatcher { onPick(sug) } }
+                #endif
                 if sug.id != suggestions.last?.id {
                     Divider()
                 }

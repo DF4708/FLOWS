@@ -293,6 +293,11 @@ final class AppModel: ObservableObject {
             // time: re-running the off branch took away a No highways the
             // driver had chosen.
             guard walkingMode != oldValue else { return }
+            // The notice belongs to the mode that planned it ("Too far for
+            // walking directions…"), and it is only rewritten when the next
+            // plan lands — so it sat over the driving routes for the seconds
+            // that plan took. The mode changed: it is no longer true.
+            plannerNotice = nil
             // People must not walk on highways; buses may use them. Walking
             // takes back only the filter it added.
             if walkingMode {
@@ -321,6 +326,18 @@ final class AppModel: ObservableObject {
     /// the map shouting. Walking mode keeps a lower floor — pedestrians are
     /// exposed to weather a car shrugs off.
     var riskDisplayFloor: Double { walkingMode ? 0.30 : FlowsCore.riskGreenMin }
+
+    /// How far below yellow a green score may sit and still earn a symbol.
+    static let greenIconMargin = 0.05
+
+    /// A symbol says "look at this", so a GREEN score earns one only when it
+    /// is nearly yellow (0.65 of the 0.398–0.699 green band). Quieter green
+    /// weather still draws its area and its tint — the map shows it without
+    /// a warning icon standing over it. Yellow and above always get one:
+    /// they sit above this floor by definition.
+    var riskIconFloor: Double {
+        max(riskDisplayFloor, FlowsCore.riskYellowMin - Self.greenIconMargin)
+    }
 
     /// Yelp Fusion key (free: yelp.com/developers) → stars + $ tiers.
     /// Google Places API (New) key — the alternate ratings source (free
@@ -1690,15 +1707,25 @@ final class AppModel: ObservableObject {
             // Dismissing used to leave the whole message being read.
             if let old = oldValue, old.alertID != imminentWarning?.alertID {
                 VoiceAnnouncer.shared.cancel(topic: SpeechTopic.imminent(old.alertID))
+                // A tucked warning's icon belongs to THAT warning: a new one
+                // shows itself, and a warning that cleared takes its icon
+                // with it.
+                _ = collapsedPanels.remove(Self.warningPanelID)
             }
             guard let warning = imminentWarning,
                   warning.alertID != oldValue?.alertID else { return }
             if hapticAlerts { Haptics.warning() }
-            let spoken = SiriSummaries.emergencyAnnouncement(
+            // The notice is read at leisure, so it carries the official text;
+            // the voice says the blunt version of a yellow warning.
+            Self.noticeIfAway(
+                id: "imminent." + warning.alertID, title: warning.event,
+                body: SiriSummaries.emergencyAnnouncement(
+                    event: warning.event, headline: warning.headline,
+                    action: warning.action))
+            let spoken = SiriSummaries.spokenWarning(
                 event: warning.event, headline: warning.headline,
-                action: warning.action)
-            Self.noticeIfAway(id: "imminent." + warning.alertID,
-                              title: warning.event, body: spoken)
+                action: warning.action,
+                minutesAway: Int((warning.etaSeconds / 60).rounded()))
             guard voiceAlerts else { return }
             VoiceAnnouncer.shared.announce(spoken, topic: SpeechTopic.imminent(warning.alertID))
         }
@@ -2166,6 +2193,29 @@ final class AppModel: ObservableObject {
     /// (formulateConstrainedRoute, supplementTollFree): the empty-list text
     /// says "looking" only while one runs.
     @Published private(set) var routeSearchesInFlight = 0
+
+    /// The height, grade and weight sliders hide routes exactly as the chips
+    /// do, but only the chips ever looked for another route: moving a slider
+    /// until the shown road no longer fits left the driver with a card that
+    /// broke their own limit and nothing else offered. A slider now takes
+    /// the chips' path.
+    ///
+    /// Debounced: a slider sends a value for every pixel it is dragged, and
+    /// each one would otherwise start its own plan.
+    func limitsChanged() {
+        ensureHighlightValid()   // the highlight follows the cards at once
+        limitReplanTask?.cancel()
+        limitReplanTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard let self, !Task.isCancelled, self.mode == .choosing else { return }
+            self.ensureHighlightValid()
+            // Only when the limits have emptied the list: otherwise the
+            // driver still has roads that fit and a replan would just churn.
+            guard self.filteredChoices.isEmpty, let ep = self.lastPlanEndpoints else { return }
+            await self.formulateConstrainedRoute(ep)
+        }
+    }
+    private var limitReplanTask: Task<Void, Never>?
 
     /// Nothing passes → replan with every request-level preference the
     /// active filters imply, hydrate, and let the relative filters resolve.
@@ -4133,15 +4183,21 @@ final class AppModel: ObservableObject {
         r.alertPolygons = score.alertPolygons
         r.riskSamples = blended
 
-        // Segment i spans samples i → i+1; stroke it as the worse end.
+        // Segment j spans check points j → j+1, and each HALF of it is drawn
+        // in the risk of the check point it is nearer to. Painting the whole
+        // span in the worse end reddened up to 80 km of road for one red
+        // check point — a short trip went red end to end.
         var milesPerBand: [RiskBand: Double] = [:]
-        r.riskSegments = part.segments.enumerated().map { j, coords in
+        r.riskSegments = part.segments.enumerated().flatMap { j, coords -> [RiskSegment] in
             let a = blended.indices.contains(j) ? blended[j].risk : 0
             let b = blended.indices.contains(j + 1) ? blended[j + 1].risk : 0
-            let risk = max(a, b)
-            let meters = Self.pathLength(coords)
-            milesPerBand[FlowsCore.riskBand(score: risk), default: 0] += meters / 1609.344
-            return RiskSegment(coordinates: coords, risk: risk, lengthMeters: meters)
+            let (first, second) = RouteService.halves(coords)
+            return [(first, a, j), (second, b, j + 1)].map { piece, risk, sample in
+                let meters = Self.pathLength(piece)
+                milesPerBand[FlowsCore.riskBand(score: risk), default: 0] += meters / 1609.344
+                return RiskSegment(coordinates: piece, risk: risk,
+                                   lengthMeters: meters, sampleIndex: sample)
+            }
         }
 
         // R-parity summary numbers (build_route_summary): peak, avg,
@@ -4690,8 +4746,12 @@ final class AppModel: ObservableObject {
                 if repainted {
                     live.riskSamples = samples
                     let last = samples.count - 1
-                    live.riskSegments = live.riskSegments.enumerated().map { j, seg in
-                        RiskSegment(coordinates: seg.coordinates, risk: max(samples[min(j, last)].risk, samples[min(j + 1, last)].risk), lengthMeters: seg.lengthMeters)
+                    // Each piece keeps the check point that coloured it.
+                    live.riskSegments = live.riskSegments.map { seg in
+                        RiskSegment(coordinates: seg.coordinates,
+                                    risk: samples[min(seg.sampleIndex, last)].risk,
+                                    lengthMeters: seg.lengthMeters,
+                                    sampleIndex: seg.sampleIndex)
                     }
                     changed = true
                 }
@@ -4911,6 +4971,23 @@ final class AppModel: ObservableObject {
     func dismissImminentWarning() {
         if let w = imminentWarning { dismissedImminentIDs.insert(w.alertID) }
         imminentWarning = nil
+    }
+
+    /// The X on a warning banner tucks it into the tray under the gear, the
+    /// way a menu tucks — the warning is still in force, so it keeps an icon
+    /// there and comes back on a tap. Closing it used to throw it away, and
+    /// a driver who wanted the map back lost the warning with it.
+    func tuckImminentWarning() {
+        guard imminentWarning != nil else { return }
+        _ = collapsedPanels.insert(Self.warningPanelID)
+    }
+
+    /// The tray id a tucked warning takes.
+    static let warningPanelID = "warning"
+
+    /// Whether the warning banner is tucked away right now.
+    var imminentWarningTucked: Bool {
+        imminentWarning != nil && collapsedPanels.contains(Self.warningPanelID)
     }
 
     /// Driver tapped "Continue" — accept the new risk level, stop flashing,
