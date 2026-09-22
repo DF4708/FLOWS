@@ -163,17 +163,19 @@ enum VehicleShape: String, CaseIterable, Identifiable, Codable {
     /// 26,000 lb GVWR you are in a rig that needs a CDL, and past 10,000 lb
     /// you are in something box-shaped. Below that the model name is the
     /// only signal there is, so the common US body names are matched
-    /// directly and anything unrecognized stays a car.
+    /// directly and anything unrecognized stays a car. The exceptions are
+    /// the bodies weight cannot tell apart: a bus weighs what a semi does,
+    /// so a named bus (or motorcycle) is taken at its word before the ladder.
     static func matching(make: String?, model: String?,
                          gvwrLbs: Double?, isTrucker: Bool) -> VehicleShape {
-        if let gvwr = gvwrLbs {
-            if gvwr >= 26_000 { return .semi }
-            if gvwr >= 10_000 { return .box }
-        }
         let name = "\(make ?? "") \(model ?? "")".lowercased()
         func has(_ words: [String]) -> Bool { words.contains { name.contains($0) } }
         if has(["motorcycle", "harley", "ducati", "kawasaki ninja"]) { return .motorcycle }
         if has(["bus", "coach"]) { return .bus }
+        if let gvwr = gvwrLbs {
+            if gvwr >= 26_000 { return .semi }
+            if gvwr >= 10_000 { return .box }
+        }
         if has(["silverado", "f-150", "f150", "f-250", "f-350", "ram 1500",
                 "sierra", "tacoma", "tundra", "colorado", "ranger",
                 "ridgeline", "frontier", "titan", "canyon"]) { return .pickup }

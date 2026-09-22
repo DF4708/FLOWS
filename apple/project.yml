@@ -322,6 +322,7 @@ targets:
       - path: FLOWS/Sources/Core/TouristInfo.swift
       - path: FLOWS/Sources/Core/RiskFieldService.swift
       - path: FLOWS/Sources/Core/VehicleLink.swift
+      - path: FLOWS/Sources/Core/SmartcarLink.swift
       - path: FLOWS/Sources/Core/EPAVehicleDatabase.swift
       - path: FLOWS/Sources/Core/PrimarySources.swift
       - path: FLOWS/Sources/Core/WMOAlerts.swift

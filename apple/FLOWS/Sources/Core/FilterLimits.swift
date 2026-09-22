@@ -71,6 +71,31 @@ struct FilterLimits {
         }
     }
 
+    /// The vehicle's share of the rig weight: the weight the driver entered,
+    /// else — once a trailer weight is entered — the vehicle's max rating
+    /// (GVWR). A trailer alone is not the rig, and the max is the safe side.
+    /// Nothing entered stays 0, so no road is excluded on a guess.
+    static func rigVehicleLbs(entered: Double, towedLbs: Double,
+                              ratedMaxLbs: @autoclosure () -> Double?) -> Double {
+        if entered > 0 { return entered }
+        return towedLbs > 0 ? ratedMaxLbs() ?? 0 : 0
+    }
+
+    /// A height the way a clearance sign reads it: whole inches first, then
+    /// feet and inches. Truncating feet and then inches showed a posted
+    /// 13'6" (4.1148 m, 13.4999… ft) as 13'5", and rounding the inches alone
+    /// showed 14'0" as 13'12".
+    static func feetAndInches(meters: Double) -> String {
+        let inches = (meters / 0.0254).rounded()
+        guard inches.isFinite, abs(inches) < 1_000_000 else { return "—" }
+        let whole = Int(inches)
+        return "\(whole / 12)'\(whole % 12)\""
+    }
+
+    static func feetAndInches(feet: Double) -> String {
+        feetAndInches(meters: feet * 0.3048)
+    }
+
     /// The grade slider's DEFAULT, derived from the vehicle — informally,
     /// "the grade where a parking brake is highly encouraged." The driver can
     /// always slide past it; this only sets where the slider starts.

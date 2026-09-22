@@ -186,7 +186,10 @@ struct NavigationHUD: View {
                             .clipShape(Capsule())
                             .shadow(color: Theme.cardShadow, radius: 8, y: 3)
                     }
-                    if model.towingActive, let worst = model.towingViolations.first {
+                    // While the one-shot warning below is up it carries the
+                    // same words — one red chip, not two.
+                    if model.towingActive, model.towingWarning == nil,
+                       let worst = model.towingViolations.first {
                         Button { model.showTowingCard = true } label: {
                             Label(worst.title, systemImage: "exclamationmark.octagon.fill")
                                 .scaledFont(.footnote, weight: .heavy)
@@ -480,7 +483,8 @@ struct NavigationHUD: View {
     /// speed bar riding directly beneath them.
     private var fuelCluster: some View {
         let vehicle = model.vehicle
-        let fraction = min(max(vehicle.predictedFuelFraction ?? 0.5, 0), 1)
+        // Real fuel data when current — the same source as "mi left" beside it.
+        let fraction = min(max(vehicle.displayedFuelFraction ?? 0.5, 0), 1)
         let electric = vehicle.profile?.fuelType == .electric
         return VStack(spacing: 6) {
             // The readouts share the width EVENLY and span the same span as
@@ -696,7 +700,7 @@ struct NavigationHUD: View {
             vehicleWeightLbs: model.towVehicleWeightLbs > 0
                 ? model.towVehicleWeightLbs : ratings.gvwrLbs,
             towing: model.towingActive,
-            fuelFraction: model.vehicle.predictedFuelFraction))
+            fuelFraction: model.vehicle.displayedFuelFraction))
     }
 
     /// The limit the yellow and red lines are drawn from. The posted one
@@ -1948,7 +1952,7 @@ struct NavigationHUD: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-        .help("Towing mode: weights vs GVWR/tow capacity/GCWR")
+        .help("Towing: your weights against your vehicle's max weights")
     }
 
     private var radioButton: some View {

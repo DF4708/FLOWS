@@ -1526,17 +1526,19 @@ private struct RouteCard: View {
                     .lineLimit(2)
             }
 
-            // Explicit clearance confirmation on the trucker pick.
+            // Explicit clearance confirmation on the trucker pick — judged
+            // against YOUR height (the badge itself is picked for a 13'6"
+            // semi), so a taller rig sees the red verdict, not a green one.
             if isTrucker, model.routeFilters.contains(.lowBridges) {
                 if let cl = route.clearancesMeters {
-                    Label(cl.isEmpty
-                          ? "Clearance checked: no posted low bridges on this route"
-                          : String(format: "Clearance checked: lowest post %.0f'%.0f\" — clears your vehicle",
-                                   (cl.min()! / 0.3048).rounded(.down),
-                                   ((cl.min()! / 0.3048) - (cl.min()! / 0.3048).rounded(.down)) * 12),
-                          systemImage: "checkmark.seal.fill")
+                    let clears = model.filterLimits.passesClearances(cl)
+                    Label(cl.min().map {
+                        "Clearance checked: lowest post " + FilterLimits.feetAndInches(meters: $0)
+                            + (clears ? " — clears your vehicle" : " — too low for your vehicle")
+                    } ?? "Clearance checked: no posted low bridges on this route",
+                          systemImage: clears ? "checkmark.seal.fill" : "xmark.octagon.fill")
                         .scaledFont(.caption, weight: .bold)
-                        .foregroundStyle(Theme.riskGreen)
+                        .foregroundStyle(clears ? Theme.riskGreen : Theme.riskRed)
                 } else {
                     Label("Clearance check in progress…", systemImage: "clock")
                         .scaledFont(.caption)
@@ -1596,9 +1598,7 @@ private struct RouteCard: View {
         }
         if let clearances = route.clearancesMeters {
             if let worst = clearances.min() {
-                let feet = worst / 0.3048
-                var text = String(format: "Lowest clearance %d'%d\"",
-                                  Int(feet), Int((feet - Double(Int(feet))) * 12))
+                var text = "Lowest clearance " + FilterLimits.feetAndInches(meters: worst)
                 if model.routeFilters.contains(.lowBridges) {
                     text += limits.passesClearances(clearances)
                         ? " ✓" : " ✗ too low for your vehicle"

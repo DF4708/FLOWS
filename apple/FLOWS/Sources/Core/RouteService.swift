@@ -351,6 +351,50 @@ extension RouteFilter {
             return a.eta < b.eta
         }
     }
+
+    /// The towing card's line about the towing filters, built from the ones
+    /// actually on — the driver can switch any of them off on the choices
+    /// screen, and the card used to go on claiming all four.
+    static func towingSummary(active: Set<RouteFilter>) -> String {
+        let phrases: [(RouteFilter, String)] = [
+            (.mountainGrades, "steep grades"),
+            (.lowBridges, "low bridges"),
+            (.noHighWinds, "high winds"),
+            (.bridgeWeight, "roads with weight signs under your vehicle + towing weight"),
+        ]
+        let on = phrases.filter { active.contains($0.0) }.map(\.1)
+        switch on.count {
+        case 0: return "Towing route filters are off."
+        case 1: return "Route filters set: avoiding \(on[0])."
+        case 2: return "Route filters set: avoiding \(on[0]) and \(on[1])."
+        default:
+            return "Route filters set: avoiding \(on.dropLast().joined(separator: ", ")), "
+                + "and \(on[on.count - 1])."
+        }
+    }
+}
+
+/// Which towing filters towing itself switched on. Turning towing off takes
+/// back only those: it used to subtract all four, so a driver who had chosen
+/// Low bridges for a tall rig lost it on unhitching.
+struct TowingFilterHold: Equatable {
+    private(set) var added: Set<RouteFilter> = []
+
+    mutating func towingOn(_ filters: inout Set<RouteFilter>) {
+        added.formUnion(RouteFilter.towingSafety.subtracting(filters))
+        filters.formUnion(RouteFilter.towingSafety)
+    }
+
+    mutating func towingOff(_ filters: inout Set<RouteFilter>) {
+        filters.subtract(added)
+        added = []
+    }
+
+    /// The driver switched this filter by hand: it is theirs now, and
+    /// towing no longer takes it back.
+    mutating func driverChose(_ filter: RouteFilter) {
+        added.remove(filter)
+    }
 }
 
 

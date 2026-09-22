@@ -310,15 +310,17 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(towingActive, forKey: "flows.towingActive")
             vehicle.towingActive = towingActive
-            let safety = RouteFilter.towingSafety
             if towingActive {
-                routeFilters.formUnion(safety)
+                towingFilterHold.towingOn(&routeFilters)
             } else {
-                routeFilters.subtract(safety)
+                towingFilterHold.towingOff(&routeFilters)   // only what towing added
             }
             applyVehicleMaxGradeDefault()   // towing lowers the grade default
+            rebuildTripNeeds()   // fuel stops follow the towing range mid-trip
         }
     }
+    /// The towing filters towing itself turned on (see TowingFilterHold).
+    private var towingFilterHold = TowingFilterHold()
     @Published var showTowingCard = false
     /// Bottom-bar re-center button (ContentView consumes + resets).
     @Published var recenterRequested = false
@@ -633,7 +635,13 @@ final class AppModel: ObservableObject {
         // Bridge-weight check compares posted limits against the whole rig:
         // the towing card's vehicle weight + towed weight. 0 = not entered
         // → nil, and the filter never excludes on a weight nobody gave it.
-        let rig = towVehicleWeightLbs + towTrailerWeightLbs
+        // A trailer entered without the vehicle counts the vehicle at its
+        // max rating: the trailer alone passed a 10,000 lb bridge for a
+        // 13,000 lb rig.
+        let rig = FilterLimits.rigVehicleLbs(entered: towVehicleWeightLbs,
+                                             towedLbs: towTrailerWeightLbs,
+                                             ratedMaxLbs: towingRatings.gvwrLbs)
+            + towTrailerWeightLbs
         return FilterLimits(vehicleHeightMeters: vehicleHeightFeet * 0.3048,
                             maxGradePercent: FilterLimits.degreesToPercent(maxGradeDegrees),
                             rigWeightLbs: rig > 0 ? rig : nil)
@@ -1297,7 +1305,8 @@ final class AppModel: ObservableObject {
 
     /// TRUCKER MODE (top-left toggle, persisted): trucker-specific UI —
     /// showers / legal truck parking / truck-friendly motels / diesel-by-cost
-    /// buttons, the radio card, and the dedicated Trucker route designation.
+    /// buttons and the radio card. (The Trucker route is designated for
+    /// everyone — `truckerRouteID` — so it is not part of this mode.)
     @Published var truckerUI: Bool =
         UserDefaults.standard.bool(forKey: "flows.truckerUI") {
         didSet {
@@ -1883,8 +1892,17 @@ final class AppModel: ObservableObject {
         }
     }
     /// Manual fuel-interval override (miles); nil = derive from the vehicle.
-    @Published var tripFuelMilesOverride: Double? {
-        didSet { rebuildTripNeeds() }
+    /// Persisted like rest and food ("all sliders, all persisted").
+    @Published var tripFuelMilesOverride: Double? =
+        UserDefaults.standard.object(forKey: "flows.tripFuelMilesOverride") as? Double {
+        didSet {
+            if let miles = tripFuelMilesOverride {
+                UserDefaults.standard.set(miles, forKey: "flows.tripFuelMilesOverride")
+            } else {
+                UserDefaults.standard.removeObject(forKey: "flows.tripFuelMilesOverride")
+            }
+            rebuildTripNeeds()
+        }
     }
     @Published private(set) var tripNeedSchedule: [TripNeeds.Event] = []
     /// Miles driven since the last stop before the current leg began: the
@@ -1896,13 +1914,17 @@ final class AppModel: ObservableObject {
     /// The pace the time cadences turn into miles at, fixed at the stop.
     private var tripNeedsAvgMph: Double = 55
 
-    /// Fuel cadence from the vehicle: 75% of habit-adjusted range.
+    /// Fuel cadence from the vehicle: 75% of habit-adjusted range (of the
+    /// towing range while towing).
     var derivedFuelIntervalMiles: Double? {
         tripFuelMilesOverride
             ?? vehicle.profile.map { p in
-                0.75 * p.ratedRangeMiles * VehicleProfile.efficiencyFactor(
-                    averageSpeedMph: vehicle.averageSpeedMph,
-                    idleFraction: vehicle.idleFraction)
+                TripNeeds.fuelIntervalMiles(
+                    ratedRangeMiles: p.ratedRangeMiles,
+                    efficiencyFactor: VehicleProfile.efficiencyFactor(
+                        averageSpeedMph: vehicle.averageSpeedMph,
+                        idleFraction: vehicle.idleFraction),
+                    towing: towingActive)
             }
     }
 
@@ -1999,6 +2021,7 @@ final class AppModel: ObservableObject {
     /// (tollPreference = .avoid) — merely discarding tolled candidates
     /// collapsed the list to the local-roads route, which was wrong.
     func toggleFilter(_ filter: RouteFilter) {
+        towingFilterHold.driverChose(filter)   // towing-off no longer takes it back
         if routeFilters.contains(filter) {
             routeFilters.remove(filter)
             if filter == .tourist { poi.clearResults() }
@@ -2305,7 +2328,7 @@ final class AppModel: ObservableObject {
         // back with towing "on" and every towing route-safety filter off —
         // routed under a low bridge by an app that knew it was towing.
         if towingActive {
-            routeFilters.formUnion(RouteFilter.towingSafety)
+            towingFilterHold.towingOn(&routeFilters)
             applyVehicleMaxGradeDefault()
         }
         checkTowingSignal()   // and at app start
@@ -2429,6 +2452,7 @@ final class AppModel: ObservableObject {
                 self.recordRoadEfficiency(deltaMeters: min(delta, 500), fix: fix)
                 self.recordDailyDriving(deltaMeters: min(delta, 500))
                 self.maybeOfferTripShare()   // a long DAY can cross 200 mi mid-leg
+                self.refreshCloudFuelIfDue()
                 self.updateFuelRecommendation()
                 self.updateFuelWarning()   // last-chance matching-fuel stops
                 self.updatePostedSpeedLimit(fix)   // the HUD speed sign
@@ -2518,10 +2542,12 @@ final class AppModel: ObservableObject {
         }
         // Telemetry ladder: OEM cloud (Smartcar) → Bluetooth (OBD adapter /
         // TPMS caps) → nothing (odometer model carries on). Real fuel data
-        // silences the gauge check-ins automatically.
+        // silences the gauge check-ins automatically — while it is current:
+        // the fresher of the two readings, and neither once it has aged out.
         vehicle.telemetry = { [weak self] in
             guard let self else { return (nil, nil) }
-            let fuel = self.smartcar.fuelFraction ?? self.vehicleLink.obdFuelFraction
+            let fuel = FuelReading.freshest(
+                [self.smartcar.fuelReading, self.vehicleLink.obdFuelReading])?.fraction
             var tires = self.smartcar.tirePressuresPsi
             for (k, v) in self.vehicleLink.tirePressuresPsi { tires[k] = v }
             return (fuel, tires.isEmpty ? nil : tires.values.sorted())
@@ -2688,8 +2714,10 @@ final class AppModel: ObservableObject {
         // The trip's full plotted length: the leg being driven plus the
         // continuation leg behind an added stop (both are on the map).
         let routeMeters = route.distanceMeters + (upcomingLeg?.distanceMeters ?? 0)
+        // TODAY's miles: at GO no fix has rolled the log over yet.
         guard TripShareLogic.shouldOffer(routeMeters: routeMeters,
-                                         drivenTodayMeters: dailyDrive.meters) else { return }
+                                         drivenTodayMeters: dailyDrive.metersDriven(on: Date()))
+        else { return }
         tripShareOffered = true
         tripSharePrompt = true
     }
@@ -3029,6 +3057,17 @@ final class AppModel: ObservableObject {
     }
     private var fuelRecommendationDismissedAtRange: Double = 0
 
+    /// Cloud fuel was read at launch and on the Refresh button only, so on
+    /// the road it aged out (FuelReading.maxAgeSeconds). Every 5 minutes
+    /// while navigating keeps it current, with one missed read to spare.
+    private var lastCloudFuelRefresh = Date.distantPast
+    private func refreshCloudFuelIfDue(now: Date = Date()) {
+        guard smartcar.connected, now.timeIntervalSince(lastCloudFuelRefresh) >= 300 else { return }
+        lastCloudFuelRefresh = now
+        let car = smartcar
+        Task { await car.refreshData() }
+    }
+
     private func updateFuelRecommendation() {
         guard mode == .navigating, vehicle.profile != nil, notifyFuel,
               let range = vehicle.expectedRangeMiles else {
@@ -3088,7 +3127,7 @@ final class AppModel: ObservableObject {
 
     /// True while the tank is low enough that the gauge should blink red.
     var fuelGaugeAlarming: Bool {
-        guard let fraction = vehicle.predictedFuelFraction else { return false }
+        guard let fraction = vehicle.displayedFuelFraction else { return false }
         return FuelWarning.band(fraction: fraction) == .red
             || fuelWarningLevel != .none
     }

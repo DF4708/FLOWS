@@ -125,6 +125,16 @@ enum TripNeeds {
         stopped ? 0 : previous + max(meters, 0) / 1609.344
     }
 
+    /// Fuel cadence from the vehicle: 75% of the range the tank gives at the
+    /// driver's habits — and of the TOWING range while towing. Towing burns
+    /// fuel faster (TowingLimits.towingEconomyFactor), so a stop planned at
+    /// 75% of the untowed range lands on an empty tank.
+    static func fuelIntervalMiles(ratedRangeMiles: Double, efficiencyFactor: Double,
+                                  towing: Bool) -> Double {
+        0.75 * ratedRangeMiles * efficiencyFactor
+            * (towing ? TowingLimits.towingEconomyFactor : 1)
+    }
+
     /// ETA with unplanned stopped time folded in — e.g. sheltering from a
     /// storm for an hour pushes arrival out by that hour.
     static func adjustedRemainingSeconds(baseline: Double, stopDelaySeconds: Double) -> Double {

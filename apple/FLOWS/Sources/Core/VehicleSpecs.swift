@@ -116,4 +116,21 @@ enum VehicleSpecs {
     static var minimumHeightFeet: Double {
         flows_trip_vehicle_minimum_height_feet()
     }
+
+    /// The quarter-foot height sliders' floor: the table's lowest height,
+    /// snapped down to a quarter foot. A stepped slider only lands on
+    /// floor + n × step, so the 4.6 ft floor put 13'6" out of reach
+    /// (13.35, then 13.6).
+    static var heightSliderFloorFeet: Double {
+        (minimumHeightFeet * 4).rounded(.down) / 4
+    }
+
+    /// Whether a model name says big rig — RV, box truck, semi, bus,
+    /// motorhome, cutaway. Whole words only: "rv" is inside "Corvette".
+    static func soundsLikeBigRig(_ model: String) -> Bool {
+        let words = model.lowercased().split(whereSeparator: { !$0.isLetter })
+        let spaced = " " + words.joined(separator: " ") + " "
+        return ["semi", "box truck", "motorhome", "bus", "cutaway", "rv"]
+            .contains { spaced.contains(" \($0) ") }
+    }
 }

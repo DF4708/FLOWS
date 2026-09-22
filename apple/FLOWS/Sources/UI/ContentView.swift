@@ -427,7 +427,8 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $model.showVehicleEditor) {
-            VehicleEditorSheet()
+            VehicleEditorSheet(original: model.vehicle.profile,
+                               heightFeet: model.vehicleHeightFeet)
                 .environmentObject(model)
                 // Inside the sheet: it is presented into its own environment
                 // root, and a preferredColorScheme on the PRESENTER never
@@ -1302,7 +1303,7 @@ struct ContentView: View {
                 // blue circle is how far the remaining fuel can take you,
                 // shrinking toward the car as the tank approaches empty.
                 if model.mode == .navigating, !model.walkingMode,
-                   let frac = model.vehicle.predictedFuelFraction, frac <= 0.25,
+                   let frac = model.vehicle.displayedFuelFraction, frac <= 0.25,
                    let rangeMiles = model.vehicle.expectedRangeMiles, rangeMiles > 0 {
                     MapCircle(center: here, radius: rangeMiles * 1609.344)
                         .foregroundStyle(Color.blue.opacity(0.06))
@@ -2607,18 +2608,14 @@ struct FilterSlidersCard: View {
                 }
                 if model.routeFilters.contains(.lowBridges) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(String(format: "Vehicle height: %d'%d\"",
-                                    Int(model.vehicleHeightFeet),
-                                    Int((model.vehicleHeightFeet - Double(Int(model.vehicleHeightFeet))) * 12)))
+                        Text("Vehicle height: " + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet))
                             .scaledFont(.caption, weight: .semibold)
                         Slider(value: $model.vehicleHeightFeet,
-                               in: VehicleSpecs.minimumHeightFeet...16, step: 0.25)
+                               in: VehicleSpecs.heightSliderFloorFeet...16, step: 0.25)
                         // Spell out the effect: height + 2 ft margin.
-                        Text(String(format: "Avoiding posted clearances of %.0f'%.0f\" "
-                                    + "or lower (your height + 2 ft margin).",
-                                    (model.vehicleHeightFeet + 2).rounded(.down),
-                                    ((model.vehicleHeightFeet + 2)
-                                     - (model.vehicleHeightFeet + 2).rounded(.down)) * 12))
+                        Text("Avoiding posted clearances of "
+                             + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet + 2)
+                             + " or lower (your height + 2 ft margin).")
                             .scaledFont(size: 9)
                             .foregroundStyle(.secondary)
                     }
@@ -2631,7 +2628,7 @@ struct FilterSlidersCard: View {
                                     FilterLimits.degreesToPercent(model.maxGradeDegrees)))
                             .scaledFont(.caption, weight: .semibold)
                         Slider(value: $model.maxGradeDegrees, in: 2...15, step: 0.5)
-                        Text("USGS elevation profile must stay under this incline.")
+                        Text("Routes must stay flatter than this.")
                             .scaledFont(size: 9)
                             .foregroundStyle(.secondary)
                     }
@@ -2641,9 +2638,7 @@ struct FilterSlidersCard: View {
                         // The SAME weights the towing card uses — change
                         // either place and both follow.
                         HStack {
-                            Text(model.towVehicleWeightLbs > 0
-                                 ? String(format: "Vehicle weight: %.0f lb", model.towVehicleWeightLbs)
-                                 : "Vehicle weight: not set (no roads excluded)")
+                            Text(vehicleWeightLabel)
                                 .scaledFont(.caption, weight: .semibold)
                             if model.towVehicleWeightLbs > 0 {
                                 Button("Clear") { model.towVehicleWeightLbs = 0 }
@@ -2658,9 +2653,14 @@ struct FilterSlidersCard: View {
                         Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
                         // Spell out the effect: the whole rig vs posted limits.
                         if let rig = model.filterLimits.rigWeightLbs {
+                            // With no vehicle weight and no rating to stand
+                            // in, the rig is the trailer alone — say so.
+                            let vehicleCounted = model.towVehicleWeightLbs > 0
+                                || model.towingRatings.gvwrLbs != nil
                             Text(String(format: "Avoiding roads and bridges with "
-                                        + "weight signs under %.0f lb "
-                                        + "(your vehicle + what you tow).", rig))
+                                        + "weight signs under %.0f lb (%@).", rig,
+                                        vehicleCounted ? "your vehicle + what you tow"
+                                            : "what you tow — set your vehicle's weight too"))
                                 .scaledFont(size: 9)
                                 .foregroundStyle(.secondary)
                         } else {
@@ -2691,6 +2691,20 @@ struct FilterSlidersCard: View {
 }
 
 extension FilterSlidersCard {
+    /// "Not set" says what the check then does: nothing — or, once a
+    /// trailer weight is entered, count the vehicle at its max rating
+    /// (AppModel.filterLimits). "No roads excluded" was false by then.
+    fileprivate var vehicleWeightLabel: String {
+        if model.towVehicleWeightLbs > 0 {
+            return String(format: "Vehicle weight: %.0f lb", model.towVehicleWeightLbs)
+        }
+        guard model.towTrailerWeightLbs > 0 else {
+            return "Vehicle weight: not set (no roads excluded)"
+        }
+        guard let rated = model.towingRatings.gvwrLbs else { return "Vehicle weight: not set" }
+        return String(format: "Vehicle weight: not set — counting its max, %.0f lb", rated)
+    }
+
     /// "I-90 E · 2.1° ✓ · 16'4" ✓" — measured attributes vs current limits.
     @ViewBuilder
     fileprivate func routeVerdictRow(_ r: PlannedRoute) -> some View {
@@ -3128,12 +3142,11 @@ struct SettingsSheet: View {
             Text("Vehicle limits")
                 .scaledFont(size: 14, weight: .semibold)
             HStack {
-                Text(String(format: "Height %.0f'%.0f\"", model.vehicleHeightFeet.rounded(.down),
-                            (model.vehicleHeightFeet - model.vehicleHeightFeet.rounded(.down)) * 12))
+                Text("Height " + FilterLimits.feetAndInches(feet: model.vehicleHeightFeet))
                     .scaledFont(.caption)
                     .frame(width: 90, alignment: .leading)
                 Slider(value: $model.vehicleHeightFeet,
-                       in: VehicleSpecs.minimumHeightFeet...16, step: 0.25)
+                       in: VehicleSpecs.heightSliderFloorFeet...16, step: 0.25)
             }
             HStack {
                 Text(String(format: "Max grade %.1f°", model.maxGradeDegrees))
@@ -3317,8 +3330,9 @@ struct SettingsSheet: View {
                 Label("Trucker mode", systemImage: "truck.box.fill")
                     .scaledFont(size: 14, weight: .semibold)
             }
-            Text("Trucker route designation on the choices screen, plus showers, "
-                 + "legal truck parking, truck-friendly motels, and "
+            // The truck route badge shows for everyone (truckerRouteID), so it
+            // is not listed as something this switch adds.
+            Text("Adds showers, legal truck parking, truck-friendly motels, and "
                  + "diesel-by-cost. The drive-bar radio works for everyone — "
                  + "this just renames it trucker radio.")
                 .scaledFont(.caption)
@@ -3413,14 +3427,16 @@ struct SettingsSheet: View {
                     Slider(value: $model.tripRestMinutes, in: 60...240, step: 15)
                 }
                 HStack {
-                    Text(String(format: "Food every %.0f h", model.tripFoodMinutes / 60))
+                    // %g keeps the half hour: the 3.5 h default read "4 h".
+                    Text(String(format: "Food every %g h", model.tripFoodMinutes / 60))
                         .scaledFont(.caption)
                         .frame(width: 130, alignment: .leading)
                     Slider(value: $model.tripFoodMinutes, in: 90...360, step: 30)
                 }
                 HStack {
                     Text(model.derivedFuelIntervalMiles.map {
-                        String(format: "Fuel every ~%.0f mi", $0)
+                        String(format: model.vehicle.profile?.fuelType == .electric
+                               ? "Charge every ~%.0f mi" : "Fuel every ~%.0f mi", $0)
                     } ?? "Fuel: add a vehicle")
                         .scaledFont(.caption)
                         .frame(width: 130, alignment: .leading)
@@ -3432,12 +3448,21 @@ struct SettingsSheet: View {
                             in: 50...1200, step: 25)
                     }
                 }
+                // Once moved, the slider had no way back to the vehicle's
+                // own number — even after the vehicle changed.
+                if model.tripFuelMilesOverride != nil, model.vehicle.profile != nil {
+                    Button("Use my vehicle's number") { model.tripFuelMilesOverride = nil }
+                        .buttonStyle(.plain)
+                        .scaledFont(.caption2, weight: .bold)
+                        .foregroundStyle(.blue)
+                }
             }
-            Text("Defaults from published guidance: NHTSA/AAA — break every "
-                 + "~2 h or 100 mi (drowsy-driving prevention); FMCSA "
-                 + "hours-of-service — 30-min break by hour 8 (meal cadence "
-                 + "3.5 h keeps you ahead of it). Fuel derives from YOUR "
-                 + "vehicle: 75% of habit-adjusted range. All editable here.")
+            Text("Where these start: a rest stop about every 2 hours or 100 "
+                 + "miles keeps you alert, as road-safety experts advise. Food "
+                 + "about every 3½ hours stays ahead of the 30-minute break truck "
+                 + "drivers must take by hour 8. Fuel when about three-quarters "
+                 + "of your tank (or battery) is used, the way you drive — "
+                 + "sooner when towing. Change any of them here.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
@@ -3557,8 +3582,9 @@ struct SettingsSheet: View {
                 Text(model.smartcar.status).scaledFont(.caption2).foregroundStyle(.secondary)
             }
             Text("dashboard.smartcar.com → create app → redirect URI "
-                 + "flows://smartcar → paste ID + Secret → Connect. Real fuel "
-                 + "level and tire pressure then override the odometer model.")
+                 + "flows://smartcar → paste ID + Secret → Connect. Then FLOWS "
+                 + "uses your car's real fuel level and tire pressure instead "
+                 + "of its own estimate.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
@@ -3574,7 +3600,7 @@ struct SettingsSheet: View {
                     // one-time Bluetooth permission ask).
                     UserDefaults.standard.set($0, forKey: "flows.vehicleLinkScanning")
                 })) {
-                Text("Listen for TPMS caps + OBD-II adapters").scaledFont(.caption)
+                Text("Listen for tire sensors and plug-in car readers").scaledFont(.caption)
             }
             Text(model.vehicleLink.status).scaledFont(.caption2).foregroundStyle(.secondary)
             if !model.vehicleLink.tirePressuresPsi.isEmpty {
@@ -3584,9 +3610,10 @@ struct SettingsSheet: View {
                     .joined(separator: " · "))
                     .font(.caption.monospacedDigit())
             }
-            Text("BLE valve-cap TPMS kits broadcast pressures directly; ELM327 "
-                 + "OBD adapters (OBDLink/Veepeak) supply real fuel level "
-                 + "(SAE PID 2F).")
+            Text("Tire sensors that screw on in place of your valve caps send "
+                 + "their air pressure. A plug-in car reader (an OBD-II reader, "
+                 + "such as OBDLink or Veepeak, in the plug under the dashboard) "
+                 + "sends your real fuel level.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
@@ -4006,6 +4033,67 @@ struct VehicleEditorSheet: View {
     @State private var citySplit: (city: Double, highway: Double)?
     /// EPA class-typical ratings staged for save.
     @State private var pendingEPARatings: (gvwr: Double?, towCap: Double?)?
+    /// The driver picked a different make/model (by hand, or a model from
+    /// the EPA list loaded): Save builds a new profile instead of editing
+    /// the one on file.
+    @State private var pickedNewVehicle = false
+    /// "year|make|model" of the EPA pick whose details loaded, or failed to.
+    /// Save waits for the one on screen: an empty or unloaded pick used to
+    /// save a hidden Toyota Corolla.
+    @State private var appliedEPAKey = ""
+    @State private var failedEPAKey = ""
+    /// The EPA list could not be reached, so the sheet went to hand entry.
+    @State private var epaListUnreachable = false
+    /// "year|make|model" the driver chose from the Model menu — unlike the
+    /// first entries the list fills in by itself, or a model a later year or
+    /// make pick swapped in (both change `epaKey`).
+    @State private var chosenEPAKey = ""
+    /// Hand entry as the driver left it for the EPA list (for an edit, the
+    /// vehicle on file). Coming back without choosing a model there puts it
+    /// back: the list fills in its newest year's first make and model by
+    /// itself, and Save wrote that car, ~4.7 ft height included, over the
+    /// truck the driver only went looking for.
+    @State private var handEntryBeforeList: HandEntry?
+
+    /// The vehicle on file when editing, nil when adding. Save starts from
+    /// it, so what this sheet never shows — tow ratings, the city/highway
+    /// split, an EPA model's name — survives changing the tank.
+    private let original: VehicleProfile?
+    private let openedHeightFeet: Double
+
+    /// Editing opens on the vehicle on file, restored before the first
+    /// render. It used to open on the EPA pickers, which filled in the
+    /// newest year's first make and model by themselves — and Save wrote
+    /// that car, and its ~4.7 ft height, over the driver's truck.
+    init(original: VehicleProfile?, heightFeet: Double) {
+        self.original = original
+        openedHeightFeet = heightFeet
+        guard let v = original else { return }
+        _useEPADatabase = State(initialValue: false)
+        _fineTune = State(initialValue: true)
+        _vehicleYear = State(initialValue: v.year ?? "")
+        // The hand pickers list only the curated table; anything else shows
+        // as Custom and keeps its own name on Save (pickedNewVehicle).
+        if VehicleSpecs.spec(make: v.make, model: v.model) != nil {
+            _make = State(initialValue: v.make)
+            _specModel = State(initialValue: v.model)
+        }
+        _fuelType = State(initialValue: v.fuelType)
+        _tankUnits = State(initialValue: v.tankCapacityUnits)
+        _milesPerUnit = State(initialValue: v.ratedMilesPerUnit)
+        _heightFeet = State(initialValue: heightFeet)
+        if let city = v.cityMilesPerUnit, let highway = v.highwayMilesPerUnit {
+            _citySplit = State(initialValue: (city: city, highway: highway))
+        }
+    }
+
+    /// The EPA pick on screen, as `appliedEPAKey` records it.
+    private var epaKey: String { "\(epaYear)|\(epaMake)|\(epaModel)" }
+
+    /// On the EPA path, Save needs the details of the model on screen.
+    private var awaitingEPAPick: Bool {
+        useEPADatabase && (epaModel.isEmpty || appliedEPAKey != epaKey)
+    }
 
     var body: some View {
         // iOS sheets can be shorter than the form (landscape), so the form
@@ -4037,7 +4125,11 @@ struct VehicleEditorSheet: View {
             // entry is the no-internet/can't-find-it fallback.
             Text(useEPADatabase
                  ? "Pick the year, make, and model — FLOWS fills in the rest."
-                 : "Enter your vehicle by hand.")
+                 : epaListUnreachable
+                    ? "Can't reach the vehicle list right now — enter your vehicle by hand."
+                    : original != nil && !pickedNewVehicle
+                        ? "Your vehicle on file — change what you need, then save."
+                        : "Enter your vehicle by hand.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             if useEPADatabase {
@@ -4051,6 +4143,7 @@ struct VehicleEditorSheet: View {
                 }
                 .labelsHidden()
                 .onChange(of: make) { _, newMake in
+                    pickedNewVehicle = true
                     if let first = VehicleSpecs.models(make: newMake).first {
                         specModel = first.model
                         apply(first)
@@ -4071,6 +4164,7 @@ struct VehicleEditorSheet: View {
                     }
                     .labelsHidden()
                     .onChange(of: specModel) { _, newModel in
+                        pickedNewVehicle = true
                         if let spec = VehicleSpecs.spec(make: make, model: newModel) {
                             apply(spec)
                         }
@@ -4088,8 +4182,20 @@ struct VehicleEditorSheet: View {
             Button(useEPADatabase
                    ? "No internet, or can't find it? Enter it by hand"
                    : "Pick from every US vehicle since 1984 instead") {
-                useEPADatabase.toggle()
-                if !useEPADatabase { fineTune = true }
+                if useEPADatabase {
+                    startHandEntry()
+                } else {
+                    handEntryBeforeList = handEntry   // for coming back unchosen
+                    useEPADatabase = true
+                    // Back on the list: the model it shows is what Save
+                    // writes, so its numbers go back in (hand edits made
+                    // meanwhile would otherwise ride under its name).
+                    if !epaModel.isEmpty {
+                        appliedEPAKey = ""
+                        failedEPAKey = ""
+                        Task { await applyEPA(model: epaModel) }
+                    }
+                }
             }
             .buttonStyle(.plain)
             .scaledFont(.caption, weight: .semibold)
@@ -4129,7 +4235,7 @@ struct VehicleEditorSheet: View {
                 }
                 .padding(.top, 6)
             } label: {
-                Text("Fine-tune for your exact trim")
+                Text("Adjust the numbers for your exact vehicle")
                     .scaledFont(.caption, weight: .semibold)
             }
             .onAppear {
@@ -4154,40 +4260,55 @@ struct VehicleEditorSheet: View {
                 }
                 Spacer()
                 Button("Save vehicle") {
-                    let isSpec = make != Self.customMake
-                    var profile = VehicleProfile(
-                        make: isSpec ? make : "Custom",
-                        model: isSpec ? specModel : "vehicle",
-                        year: vehicleYear.isEmpty ? nil : vehicleYear,
-                        fuelType: fuelType,
-                        tankCapacityUnits: tankUnits, ratedMilesPerUnit: milesPerUnit)
+                    var profile: VehicleProfile
+                    let keepsOriginal = original != nil && !pickedNewVehicle
+                    if let original, keepsOriginal {
+                        // Editing: only what this sheet changes. Make, model,
+                        // tow ratings and the split stay the vehicle's own.
+                        profile = original
+                        profile.year = vehicleYear.isEmpty ? nil : vehicleYear
+                        profile.fuelType = fuelType
+                        profile.tankCapacityUnits = tankUnits
+                        profile.ratedMilesPerUnit = milesPerUnit
+                    } else {
+                        let isSpec = make != Self.customMake
+                        profile = VehicleProfile(
+                            make: isSpec ? make : "Custom",
+                            model: isSpec ? specModel : "vehicle",
+                            year: vehicleYear.isEmpty ? nil : vehicleYear,
+                            fuelType: fuelType,
+                            tankCapacityUnits: tankUnits, ratedMilesPerUnit: milesPerUnit)
+                        // Ratings ride the profile: curated spec first, EPA
+                        // class-typical otherwise — GVWR/tow alerts always work.
+                        if let spec = VehicleSpecs.spec(make: make, model: specModel) {
+                            profile.gvwrLbs = spec.gvwrLbs
+                            profile.towCapacityLbs = spec.towCapacityLbs
+                            profile.gcwrLbs = spec.gcwrLbs
+                        } else if let ratings = pendingEPARatings {
+                            profile.gvwrLbs = ratings.gvwr
+                            profile.towCapacityLbs = ratings.towCap
+                        }
+                    }
                     // Keep the city/highway split (speed-aware predictions);
                     // manual slider tweaks scale both figures proportionally.
-                    if let split = citySplit {
+                    // An edit that left the economy alone keeps it exactly —
+                    // re-rounding the scaled figures would drift each Save.
+                    if let split = citySplit,
+                       !(keepsOriginal && milesPerUnit == original?.ratedMilesPerUnit) {
                         let combined = 1 / (0.55 / split.city + 0.45 / split.highway)
                         let f = combined > 0 ? milesPerUnit / combined : 1
                         profile.cityMilesPerUnit = (split.city * f * 10).rounded() / 10
                         profile.highwayMilesPerUnit = (split.highway * f * 10).rounded() / 10
                     }
-                    // Ratings ride the profile: curated spec first, EPA
-                    // class-typical otherwise — GVWR/tow alerts always work.
-                    if let spec = VehicleSpecs.spec(make: make, model: specModel) {
-                        profile.gvwrLbs = spec.gvwrLbs
-                        profile.towCapacityLbs = spec.towCapacityLbs
-                        profile.gcwrLbs = spec.gcwrLbs
-                    } else if let ratings = pendingEPARatings {
-                        profile.gvwrLbs = ratings.gvwr
-                        profile.towCapacityLbs = ratings.towCap
-                    }
                     model.vehicle.profile = profile
-                    // The vehicle's height IS the route-planning height.
-                    model.vehicleHeightFeet = (heightFeet * 4).rounded() / 4
+                    // The vehicle's height IS the route-planning height. An
+                    // edit that left it alone leaves it exactly as it was.
+                    if original == nil || heightFeet != openedHeightFeet {
+                        model.vehicleHeightFeet = (heightFeet * 4).rounded() / 4
+                    }
                     // Big rigs get the trucker UI automatically: RVs, box
                     // trucks, semis, buses, cutaways — anything ≥ 9 ft tall.
-                    let bigWords = ["semi", "box truck", "motorhome", "bus",
-                                    "cutaway", "rv"]
-                    if heightFeet >= 9
-                        || bigWords.contains(where: { specModel.lowercased().contains($0) }) {
+                    if heightFeet >= 9 || VehicleSpecs.soundsLikeBigRig(profile.model) {
                         model.truckerUI = true
                     }
                     model.poi.fuelType = fuelType   // gas searches follow the vehicle
@@ -4195,29 +4316,33 @@ struct VehicleEditorSheet: View {
                 }
                 .buttonStyle(PillCTAStyle())
                 .frame(width: 160)
+                .disabled(awaitingEPAPick)
+                .opacity(awaitingEPAPick ? 0.45 : 1)   // the pill style doesn't dim itself
             }
         }
         .padding(20)
-        .onAppear {
-            if let v = model.vehicle.profile {
-                vehicleYear = v.year ?? ""
-                if VehicleSpecs.spec(make: v.make, model: v.model) != nil {
-                    make = v.make
-                    specModel = v.model
-                } else {
-                    make = Self.customMake
-                }
-                fuelType = v.fuelType
-                tankUnits = v.tankCapacityUnits
-                milesPerUnit = v.ratedMilesPerUnit
-                heightFeet = model.vehicleHeightFeet
-            } else if let first = VehicleSpecs.makes.first,
-                      let spec = VehicleSpecs.models(make: first).first {
-                make = first
-                specModel = spec.model
-                apply(spec)
-            }
+    }
+
+    /// Hand entry. Back from the EPA list without a model chosen there (and
+    /// loaded), it is as the driver left it — for an edit, the vehicle on
+    /// file. Adding a vehicle with nothing picked yet starts it on the
+    /// table's first vehicle — in plain view in the make/model pickers, where
+    /// it can be changed. (It used to be applied behind the EPA pickers too,
+    /// and saved from there unseen.)
+    private func startHandEntry() {
+        useEPADatabase = false
+        fineTune = true
+        let choseFromList = !epaModel.isEmpty && chosenEPAKey == epaKey && appliedEPAKey == epaKey
+        if let before = handEntryBeforeList, !choseFromList {
+            handEntry = before
+            return
         }
+        guard original == nil, make == Self.customMake,
+              let first = VehicleSpecs.makes.first,
+              let spec = VehicleSpecs.models(make: first).first else { return }
+        make = first
+        specModel = spec.model
+        apply(spec)
     }
 
     private func apply(_ spec: VehicleSpec) {
@@ -4226,6 +4351,41 @@ struct VehicleEditorSheet: View {
         milesPerUnit = (spec.combinedMPU * 10).rounded() / 10
         heightFeet = spec.heightFeet
         citySplit = (spec.cityMPU, spec.highwayMPU)
+    }
+
+    /// Everything hand entry shows or saves.
+    private struct HandEntry {
+        var make: String
+        var specModel: String
+        var vehicleYear: String
+        var fuelType: FuelType
+        var tankUnits: Double
+        var milesPerUnit: Double
+        var heightFeet: Double
+        var citySplit: (city: Double, highway: Double)?
+        var pendingEPARatings: (gvwr: Double?, towCap: Double?)?
+        var pickedNewVehicle: Bool
+    }
+
+    private var handEntry: HandEntry {
+        get {
+            HandEntry(make: make, specModel: specModel, vehicleYear: vehicleYear,
+                      fuelType: fuelType, tankUnits: tankUnits, milesPerUnit: milesPerUnit,
+                      heightFeet: heightFeet, citySplit: citySplit,
+                      pendingEPARatings: pendingEPARatings, pickedNewVehicle: pickedNewVehicle)
+        }
+        nonmutating set {
+            make = newValue.make
+            specModel = newValue.specModel
+            vehicleYear = newValue.vehicleYear
+            fuelType = newValue.fuelType
+            tankUnits = newValue.tankUnits
+            milesPerUnit = newValue.milesPerUnit
+            heightFeet = newValue.heightFeet
+            citySplit = newValue.citySplit
+            pendingEPARatings = newValue.pendingEPARatings
+            pickedNewVehicle = newValue.pickedNewVehicle
+        }
     }
 
     // MARK: EPA everything-path (live year/make/model menus)
@@ -4274,10 +4434,23 @@ struct VehicleEditorSheet: View {
                     let models = await EPAVehicleDatabase.shared.models(year: epaYear, make: m)
                     guard m == epaMake else { return }   // superseded by a newer tap
                     epaModels = models
-                    epaModel = models.first ?? ""
+                    let first = models.first ?? ""
+                    if first == epaModel {
+                        // onChange(of: epaModel) does not fire for the same
+                        // name under a new make — apply here, or Save waits
+                        // on a pick that never loads.
+                        await applyEPA(model: first)
+                    } else {
+                        epaModel = first
+                    }
                 }
             }
-            Picker("Model", selection: $epaModel) {
+            // Only the driver's own pick passes through this setter; the
+            // list's automatic first entries set the state directly.
+            Picker("Model", selection: Binding(get: { epaModel }, set: { picked in
+                chosenEPAKey = "\(epaYear)|\(epaMake)|\(picked)"
+                epaModel = picked
+            })) {
                 ForEach(epaModels, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden()
@@ -4288,12 +4461,23 @@ struct VehicleEditorSheet: View {
         .task {
             if epaYears.isEmpty {
                 epaYears = await EPAVehicleDatabase.shared.years()
+                guard !epaYears.isEmpty else {
+                    // No list (no signal): the pickers would sit empty. Hand
+                    // entry is the no-internet path — go there and say why.
+                    // (Cancelled = the driver already left for hand entry.)
+                    if !Task.isCancelled {
+                        epaListUnreachable = true
+                        startHandEntry()
+                    }
+                    return
+                }
+                epaListUnreachable = false
                 epaYear = epaYears.first ?? "2025"
                 epaMakes = await EPAVehicleDatabase.shared.makes(year: epaYear)
                 epaMake = epaMakes.first ?? ""
             }
         }
-        if !epaModel.isEmpty {
+        if !epaModel.isEmpty, appliedEPAKey == epaKey {
             // The proof the three answers were enough: everything that got
             // filled in, on one line.
             Text(String(format: "Filled in: %@ · %.0f %@ tank · %.1f mi/%@ "
@@ -4305,29 +4489,60 @@ struct VehicleEditorSheet: View {
                         pendingEPARatings?.gvwr != nil ? " · tow ratings" : ""))
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
+        } else if !epaModel.isEmpty, failedEPAKey == epaKey {
+            // Save waits for this pick; say why, and offer the retry the
+            // picker can't (choosing the same model again changes nothing).
+            HStack(spacing: 8) {
+                Text("Couldn't look up this model.")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Try again") {
+                    failedEPAKey = ""
+                    Task { await applyEPA(model: epaModel) }
+                }
+                .buttonStyle(.plain)
+                .scaledFont(.caption, weight: .semibold)
+                .foregroundStyle(.blue)
+            }
+        } else if !epaModel.isEmpty {
+            Text("Looking up this model…")
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
     private func applyEPA(model modelName: String) async {
-        guard let details = await EPAVehicleDatabase.shared.details(
-            year: epaYear, make: epaMake, model: modelName) else { return }
-        // The picker may have moved on during the await; a slower fetch for
-        // the PREVIOUS model must not land on top of the one now chosen.
-        guard modelName == epaModel else { return }
+        guard !modelName.isEmpty else { return }
+        // The pick this lookup is for. The pickers may move on during the
+        // await; a slower fetch for an EARLIER pick must not land on top of
+        // the one now chosen — nor on hand entry, if the driver left the list
+        // meanwhile (it overwrote the fields there, the make included).
+        let key = "\(epaYear)|\(epaMake)|\(modelName)"
+        let details = await EPAVehicleDatabase.shared.details(
+            year: epaYear, make: epaMake, model: modelName)
+        guard useEPADatabase, key == epaKey else { return }
+        guard let details else {
+            failedEPAKey = key
+            return
+        }
         let physical = EPAClassSpecs.physical(forVClass: details.vClass)
         pendingEPARatings = (physical.gvwr, physical.towCap)
-        citySplit = (details.cityMPU, details.highwayMPU)
+        // Economy in FLOWS units (an EV's MPGe becomes mi/kWh) and the tank —
+        // the class tank clamped for gas and diesel, EPA's own range for an EV.
+        let filled = EPAClassSpecs.filledIn(
+            cityEPA: details.cityMPU, highwayEPA: details.highwayMPU,
+            fuelType: details.fuelType, epaRangeMiles: details.rangeMiles,
+            classTank: physical.tank)
+        citySplit = (filled.city, filled.highway)
         fuelType = details.fuelType
-        let combined = 1 / (0.55 / details.cityMPU + 0.45 / details.highwayMPU)
-        // Keep the validatedTank clamp — a small car must not inherit a van-size
-        // tank implying >650 mi of range. The prior code immediately overwrote it
-        // with the raw physical.tank, making the clamp dead code (and letting the
-        // absurd EPA-EV range through, since MPGe is stored here as mi/unit).
-        tankUnits = EPAClassSpecs.validatedTank(physical.tank, combinedMPU: combined)
-        milesPerUnit = (combined * 10).rounded() / 10
+        tankUnits = filled.tank
+        milesPerUnit = (filled.combined * 10).rounded() / 10
         heightFeet = physical.height
         make = epaMake
         specModel = modelName
+        appliedEPAKey = key
+        failedEPAKey = ""
+        pickedNewVehicle = true
     }
 }
 

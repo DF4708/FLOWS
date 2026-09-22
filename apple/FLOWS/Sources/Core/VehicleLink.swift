@@ -37,9 +37,17 @@ final class VehicleLink: NSObject, ObservableObject {
     @Published private(set) var tirePressuresPsi: [String: Double] = [:]
     /// Latest OBD fuel level 0…1 (SAE PID 01 2F).
     @Published private(set) var obdFuelFraction: Double?
+    /// When `obdFuelFraction` arrived — only a current reading may stand in
+    /// for the odometer model (`FuelReading.freshest`).
+    private(set) var obdFuelReadAt: Date?
     @Published private(set) var status = "Off"
     @Published var scanning = false {
         didSet { scanning ? start() : stop() }
+    }
+
+    var obdFuelReading: FuelReading? {
+        guard let obdFuelFraction, let obdFuelReadAt else { return nil }
+        return FuelReading(fraction: obdFuelFraction, at: obdFuelReadAt)
     }
 
 
@@ -88,7 +96,7 @@ final class VehicleLink: NSObject, ObservableObject {
     // MARK: scanning lifecycle
 
     private func start() {
-        status = "Scanning for TPMS caps + OBD adapters…"
+        status = "Looking for tire sensors and car readers…"
         central = CBCentralManager(delegate: self, queue: .main)
         startMFiIfAvailable()
     }
@@ -118,7 +126,7 @@ final class VehicleLink: NSObject, ObservableObject {
             output.open()
             input.open()
             mfiSession = session
-            status = "MFi OBD adapter connected (\(accessory.name))"
+            status = "Car reader connected (\(accessory.name))"
             // ELM init + fuel poll over the accessory streams. Stored so
             // stop() can actually end it — the Task.isCancelled guard was
             // dead code while nothing held the handle.
@@ -166,7 +174,8 @@ final class VehicleLink: NSObject, ObservableObject {
         guard n > 0, let text = String(bytes: buffer[0..<n], encoding: .ascii) else { return }
         if let fuel = Self.parseFuelReply(text) {
             obdFuelFraction = fuel
-            status = String(format: "MFi OBD fuel: %.0f%%", fuel * 100)
+            obdFuelReadAt = Date()
+            status = String(format: "Car reader fuel: %.0f%%", fuel * 100)
         }
     }
     #else
@@ -181,9 +190,31 @@ final class VehicleLink: NSObject, ObservableObject {
         central?.stopScan()
         if let p = obdPeripheral { central?.cancelPeripheralConnection(p) }
         obdPeripheral = nil
+        obdWrite = nil
         central = nil
         obdBuffer = ""
+        // Nothing is listening now, so nothing here is current: a kept fuel
+        // level froze the range, and kept pressures sat in Settings.
+        obdFuelFraction = nil
+        obdFuelReadAt = nil
+        tirePressuresPsi = [:]
         status = "Off"
+    }
+
+    /// The reader went away (engine off at a stop, unplugged, out of range).
+    /// Forget it and its last reading: scanning connects only while no reader
+    /// is held, so a kept one was never found again, and its last fuel level
+    /// stood in for the tank for the rest of the drive.
+    private func dropOBDAdapter(_ id: UUID) {
+        guard obdPeripheral?.identifier == id else { return }
+        obdPollTask?.cancel()
+        obdPollTask = nil
+        obdPeripheral = nil
+        obdWrite = nil
+        obdBuffer = ""
+        obdFuelFraction = nil
+        obdFuelReadAt = nil
+        if scanning { status = "Car reader disconnected — listening again" }
     }
 }
 
@@ -192,7 +223,7 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         Task { @MainActor in
             switch central.state {
             case .poweredOn:
-                self.status = "Listening (TPMS broadcasts + OBD adapters)"
+                self.status = "Listening for tire sensors and car readers"
                 central.scanForPeripherals(withServices: nil,
                                            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
             case .unauthorized:
@@ -224,13 +255,29 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 self.obdPeripheral = peripheral
                 peripheral.delegate = self
                 central.connect(peripheral)
-                self.status = "Connecting to \(name ?? "OBD adapter")…"
+                self.status = "Connecting to \(name ?? "car reader")…"
             }
         }
     }
 
     nonisolated func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         peripheral.discoverServices(Self.uartServices)
+    }
+
+    nonisolated func centralManager(
+        _ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral,
+        error: Error?
+    ) {
+        let id = peripheral.identifier
+        Task { @MainActor in self.dropOBDAdapter(id) }
+    }
+
+    nonisolated func centralManager(
+        _ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral,
+        error: Error?
+    ) {
+        let id = peripheral.identifier
+        Task { @MainActor in self.dropOBDAdapter(id) }
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
@@ -267,7 +314,8 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             if self.obdBuffer.contains(">") {   // ELM327 prompt = reply complete
                 if let fuel = Self.parseFuelReply(self.obdBuffer) {
                     self.obdFuelFraction = fuel
-                    self.status = String(format: "OBD fuel: %.0f%%", fuel * 100)
+                    self.obdFuelReadAt = Date()
+                    self.status = String(format: "Car reader fuel: %.0f%%", fuel * 100)
                 }
                 self.obdBuffer = ""
             } else if self.obdBuffer.count > 4096 {
@@ -283,7 +331,7 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     /// ELM327 init + a fuel-level poll every 30 s.
     private func beginOBDPolling(_ peripheral: CBPeripheral) {
         guard obdPollTask == nil else { return }
-        status = "OBD adapter connected"
+        status = "Car reader connected"
         obdPollTask = Task { [weak self] in
             let setup = ["ATZ", "ATE0", "ATSP0"]
             for cmd in setup {

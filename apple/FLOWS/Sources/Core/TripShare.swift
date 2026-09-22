@@ -130,6 +130,13 @@ struct DailyDriveLog: Codable, Equatable {
         day = Date(timeIntervalSinceReferenceDate: next.day)
         meters = next.meters
     }
+
+    /// Meters driven on `date`'s calendar day. The log only rolls over when
+    /// a fix is added, so read on its own it still held yesterday's miles
+    /// at GO — and a 200-mile Monday offered a share on Tuesday's errand.
+    func metersDriven(on date: Date = Date(), calendar: Calendar = .current) -> Double {
+        calendar.startOfDay(for: date) == day ? meters : 0
+    }
 }
 
 /// One person the driver has shared a route with, and when.

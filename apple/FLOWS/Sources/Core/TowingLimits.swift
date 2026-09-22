@@ -65,14 +65,16 @@ enum TowingLimits {
         case overTowCapacity(by: Double)
         case overGCWR(by: Double)
 
+        /// Named like the towing card's badges (Vehicle / Tow / Total max),
+        /// not GVWR / GCWR.
         var title: String {
             switch self {
             case .overGVWR(let by):
-                return String(format: "OVER GVWR by %.0f lb", by)
+                return String(format: "OVER VEHICLE MAX by %.0f lb", by)
             case .overTowCapacity(let by):
-                return String(format: "OVER TOW CAPACITY by %.0f lb", by)
+                return String(format: "OVER TOW MAX by %.0f lb", by)
             case .overGCWR(let by):
-                return String(format: "OVER GCWR by %.0f lb", by)
+                return String(format: "OVER TOTAL MAX by %.0f lb", by)
             }
         }
 

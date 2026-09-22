@@ -8,6 +8,24 @@
 
 import Foundation
 
+/// What Smartcar's token endpoint said to a token request. Only a refusal
+/// says anything about the grant: no signal, the host breaker, a server
+/// error or rate limiting are not a "no".
+enum SmartcarTokenReply: Equatable {
+    case granted, refused, tryLater
+
+    /// OAuth refuses a dead or revoked grant with 400 (invalid_grant) and
+    /// bad client credentials with 401. `statusCode` is nil when nothing
+    /// came back.
+    init(statusCode: Int?, hasAccessToken: Bool) {
+        switch statusCode {
+        case 200 where hasAccessToken: self = .granted
+        case 400, 401: self = .refused
+        default: self = .tryLater
+        }
+    }
+}
+
 /// OEM cloud telemetry via Smartcar (aggregates ~30 brands — Ford, GM,
 /// Toyota, Nissan, Hyundai, BMW, VW… — behind one OAuth): real FUEL LEVEL
 /// and TIRE PRESSURE straight from the automaker's cloud.
@@ -19,8 +37,9 @@ import Foundation
 /// shipped app would proxy the token exchange through a server.)
 ///
 /// Tokens persist in UserDefaults; refresh is automatic; fuel + tires poll
-/// on demand and feed VehicleStore.telemetry — real data overrides the
-/// odometer model everywhere.
+/// at launch, on demand, and every few minutes while navigating, and feed
+/// VehicleStore.telemetry — real data overrides the odometer model
+/// everywhere while it is current.
 @MainActor
 final class SmartcarLink: ObservableObject {
     @Published var clientID: String = UserDefaults.standard.string(forKey: "flows.smartcar.id") ?? "" {
@@ -37,7 +56,15 @@ final class SmartcarLink: ObservableObject {
         SecureStore.get("smartcar.refresh") != nil
     @Published private(set) var status = ""
     @Published private(set) var fuelFraction: Double?
+    /// When `fuelFraction` was fetched — the app refreshes it while driving,
+    /// and an old one stops standing in for the tank (`FuelReading.freshest`).
+    private(set) var fuelReadAt: Date?
     @Published private(set) var tirePressuresPsi: [String: Double] = [:]
+
+    var fuelReading: FuelReading? {
+        guard let fuelFraction, let fuelReadAt else { return nil }
+        return FuelReading(fraction: fuelFraction, at: fuelReadAt)
+    }
 
     private var accessToken: String?
     private var refreshToken: String? = {
@@ -90,21 +117,32 @@ final class SmartcarLink: ObservableObject {
         if connected { await refreshData() }
     }
 
-    private func exchange(body: String) async {
+    @discardableResult
+    private func exchange(body: String) async -> SmartcarTokenReply {
         guard !clientID.isEmpty, !clientSecret.isEmpty,
-              let url = URL(string: "https://auth.smartcar.com/oauth/token") else { return }
+              let url = URL(string: "https://auth.smartcar.com/oauth/token") else {
+            status = "Enter the Client ID and Secret first."
+            return .tryLater   // nothing was asked, so nothing was refused
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         let credentials = Data("\(clientID):\(clientSecret)".utf8).base64EncodedString()
         request.setValue("Basic \(credentials)", forHTTPHeaderField: "Authorization")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = body.data(using: .utf8)
-        guard let (data, resp) = try? await ThrottledNet.fetch(request),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let access = json["access_token"] as? String else {
-            status = "Token exchange failed — check Client ID/Secret."
-            return
+        let response = try? await ThrottledNet.fetch(request)
+        let json = response.flatMap {
+            try? JSONSerialization.jsonObject(with: $0.0) as? [String: Any]
+        }
+        let access = json?["access_token"] as? String
+        let reply = SmartcarTokenReply(
+            statusCode: (response?.1 as? HTTPURLResponse)?.statusCode,
+            hasAccessToken: access != nil)
+        guard reply == .granted, let json, let access else {
+            status = reply == .refused
+                ? "Token exchange failed — check Client ID/Secret."
+                : "Can't reach Smartcar right now."
+            return reply
         }
         accessToken = access
         if let refresh = json["refresh_token"] as? String {
@@ -113,24 +151,41 @@ final class SmartcarLink: ObservableObject {
         }
         connected = true
         status = "Connected."
+        return .granted
     }
+
+    /// A refresh is under way. Refreshes run at launch, every few minutes
+    /// while navigating and on the Refresh button; overlapping ones posted
+    /// the same refresh token twice.
+    private var refreshing = false
 
     /// Pull fresh fuel + tires (auto-refreshing the token when expired).
     func refreshData() async {
+        guard !refreshing else { return }
+        refreshing = true
+        defer { refreshing = false }
         if accessToken == nil, let refresh = refreshToken {
-            await exchange(body: "grant_type=refresh_token&refresh_token=\(refresh)")
-            // Refresh failed (grant revoked/expired) → tear down the stale session
-            // instead of leaving it "Connected" forever with dead data and a dead
-            // token that every refresh keeps re-posting.
-            if accessToken == nil {
+            let reply = await exchange(body: "grant_type=refresh_token&refresh_token=\(refresh)")
+            // Smartcar refused the grant (revoked/expired) → tear down the stale
+            // session instead of leaving it "Connected" forever with dead data
+            // and a dead token that every refresh keeps re-posting. No signal is
+            // not a refusal: this runs on the road, and one dead zone after the
+            // 2-hour access token lapsed signed the driver out for good. (A grant
+            // a reconnect replaced meanwhile is not the one refused.)
+            if reply == .refused, refreshToken == refresh {
                 disconnect()
                 status = "Sign-in expired — reconnect Smartcar."
                 return
             }
         }
-        guard let token = accessToken else { return }
-        guard let ids = await get("https://api.smartcar.com/v2.0/vehicles", token: token),
-              let vehicles = ids["vehicles"] as? [String], let first = vehicles.first else {
+        guard let token = accessToken else { return }   // not connected, or the exchange said why
+        guard let ids = await get("https://api.smartcar.com/v2.0/vehicles", token: token) else {
+            // No answer (or an expired token, renewed next time) is not an
+            // empty account — and on the road this runs in dead zones.
+            status = "Can't reach Smartcar right now."
+            return
+        }
+        guard let vehicles = ids["vehicles"] as? [String], let first = vehicles.first else {
             status = "No vehicles on the account."
             return
         }
@@ -138,6 +193,7 @@ final class SmartcarLink: ObservableObject {
                                 token: token),
            let percent = fuel["percentRemaining"] as? Double {
             fuelFraction = percent
+            fuelReadAt = Date()
         }
         if let tires = await get("https://api.smartcar.com/v2.0/vehicles/\(first)/tires/pressure",
                                  token: token) {
@@ -160,6 +216,7 @@ final class SmartcarLink: ObservableObject {
         accessToken = nil
         refreshToken = nil
         fuelFraction = nil
+        fuelReadAt = nil
         tirePressuresPsi = [:]
         connected = false
         SecureStore.set(nil, for: "smartcar.refresh")

@@ -41,6 +41,35 @@ enum EPAClassSpecs {
     static func fuelType(forEPA fuel: String) -> FuelType {
         FuelType(rustCode: flows_trip_vehicle_epa_fuel_type_code(fuel)) ?? .gas
     }
+
+    /// EPA rates an electric car in MPGe: miles per 33.705 kWh, the energy
+    /// in a gallon of gas.
+    static let kWhPerGallonEquivalent = 33.705
+
+    /// Battery assumed for an electric car EPA lists no range for.
+    static let typicalPackKWh = 60.0
+
+    /// The editor's filled-in numbers from an EPA record, in FLOWS units:
+    /// economy per gallon, or per kWh for an electric car, and the tank. An
+    /// EV's MPGe used to be stored as mi/kWh, and the gas class tank clamped
+    /// to match gave every EPA EV about 600 mi of range; its battery now
+    /// comes from EPA's own rated range.
+    static func filledIn(cityEPA: Double, highwayEPA: Double, fuelType: FuelType,
+                         epaRangeMiles: Double?, classTank: Double)
+        -> (city: Double, highway: Double, combined: Double, tank: Double) {
+        let perUnit = fuelType == .electric ? kWhPerGallonEquivalent : 1
+        let city = cityEPA / perUnit
+        let highway = highwayEPA / perUnit
+        let combined = 1 / (0.55 / city + 0.45 / highway)
+        guard fuelType == .electric else {
+            // A small car must not inherit a van-size tank implying >650 mi.
+            return (city, highway, combined, validatedTank(classTank, combinedMPU: combined))
+        }
+        guard let range = epaRangeMiles, range > 0, combined > 0 else {
+            return (city, highway, combined, typicalPackKWh)
+        }
+        return (city, highway, combined, (range / combined * 10).rounded() / 10)
+    }
 }
 
 /// Live menus + vehicle details from fueleconomy.gov (tiny XML responses).
@@ -65,10 +94,14 @@ actor EPAVehicleDatabase {
     }
 
     struct Details {
+        /// EPA's figures as published: mpg, or MPGe for an electric car
+        /// (`EPAClassSpecs.filledIn` converts).
         let cityMPU: Double
         let highwayMPU: Double
         let vClass: String
         let fuelType: FuelType
+        /// EPA's rated range on the main fuel (0 or absent except for EVs).
+        let rangeMiles: Double?
     }
 
     /// First trim's economy + class for a year/make/model.
@@ -85,7 +118,8 @@ actor EPAVehicleDatabase {
         let vclass = firstTag("VClass", in: xml) ?? "Midsize Cars"
         let fuel = firstTag("fuelType1", in: xml) ?? "Regular Gasoline"
         return Details(cityMPU: city, highwayMPU: highway, vClass: vclass,
-                       fuelType: EPAClassSpecs.fuelType(forEPA: fuel))
+                       fuelType: EPAClassSpecs.fuelType(forEPA: fuel),
+                       rangeMiles: firstTag("range", in: xml).flatMap(Double.init))
     }
 
     private func menu(_ url: String) async -> [String] {

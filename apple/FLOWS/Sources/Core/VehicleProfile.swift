@@ -119,6 +119,25 @@ struct VehicleProfile: Codable, Equatable {
     }
 }
 
+/// One real fuel reading (Smartcar cloud, or a plug-in car reader) and when
+/// it arrived.
+struct FuelReading: Equatable {
+    var fraction: Double
+    var at: Date
+
+    /// How long a real reading may stand in for the odometer model. The cloud
+    /// was read once at launch and a reader's last value outlived the reader,
+    /// so an hours-old tank froze the range and kept every fuel warning quiet.
+    static let maxAgeSeconds: TimeInterval = 10 * 60
+
+    /// The freshest reading still young enough to trust, or nil.
+    static func freshest(_ readings: [FuelReading?], now: Date = Date()) -> FuelReading? {
+        readings.compactMap { $0 }
+            .filter { now.timeIntervalSince($0.at) <= maxAgeSeconds }
+            .max { $0.at < $1.at }
+    }
+}
+
 /// Persisted vehicle + live driving-habit tracking (rolling average speed and
 /// idle fraction from GPS fixes while navigating) + tank odometer.
 @MainActor
@@ -172,8 +191,9 @@ final class VehicleStore: ObservableObject {
     /// VEHICLE TELEMETRY hook: when a source exists (OEM cloud API such as
     /// FordPass/Tesla Fleet, a Smartcar-style aggregator, or a Bluetooth
     /// OBD-II reader), it supplies real fuel fraction + tire pressures and
-    /// overrides the odometer estimate. CarPlay itself never provides these
-    /// to third-party apps.
+    /// overrides the odometer estimate — while the reading is current
+    /// (`FuelReading.freshest`). CarPlay itself never provides these to
+    /// third-party apps.
     var telemetry: () -> (fuelFraction: Double?, tirePressuresPsi: [Double]?) = { (nil, nil) }
 
     /// Trailer/towing signal ladder: OEM cloud (FordPass-class trailer
@@ -204,6 +224,15 @@ final class VehicleStore: ObservableObject {
         profile?.fuelFractionAfter(milesSinceFill: milesSinceFill,
                                    averageSpeedMph: averageSpeedMph,
                                    idleFraction: idleFraction)
+    }
+
+    /// The tank as the driver sees it: a current real reading when there is
+    /// one, the odometer model otherwise — the same source the range beside
+    /// the gauge uses. Real data also stops the refuel check-ins that reset
+    /// the model, so the model alone sank to E beside a healthy range.
+    var displayedFuelFraction: Double? {
+        guard profile != nil else { return nil }
+        return telemetry().fuelFraction ?? predictedFuelFraction
     }
 
     /// Analog-gauge answer: the driver says where the needle was BEFORE

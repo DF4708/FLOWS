@@ -439,7 +439,8 @@ struct TowingCard: View {
                 Label("Towing", systemImage: "link.circle.fill")
                     .scaledFont(size: 15, weight: .bold)
                 Spacer()
-                Toggle("", isOn: $model.towingActive)
+                // Named even with the label hidden: VoiceOver reads it.
+                Toggle("Towing", isOn: $model.towingActive)
                     .labelsHidden()
                     .toggleStyle(.switch)
                 Button { model.showTowingCard = false } label: {
@@ -448,15 +449,19 @@ struct TowingCard: View {
                 .buttonStyle(.plain)
             }
             if model.towingActive {
-                Text("Route filters set: avoiding steep grades, low bridges, "
-                     + "high winds, and roads with weight signs under your "
-                     + "vehicle + towing weight. Fuel prediction switched to the "
+                // The filters actually on — the driver can switch any off.
+                Text(RouteFilter.towingSummary(active: model.routeFilters)
+                     + " Fuel prediction switched to the "
                      + "towing pattern (kept separate from your normal pattern).")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
             HStack {
-                Text(String(format: "Vehicle: %.0f lb", model.towVehicleWeightLbs))
+                // 0 is "not set" (the slider starts at 2,000 lb), as on the
+                // Bridge weight card.
+                Text(model.towVehicleWeightLbs > 0
+                     ? String(format: "Vehicle: %.0f lb", model.towVehicleWeightLbs)
+                     : "Vehicle: not set")
                     .scaledFont(.caption, weight: .semibold)
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $model.towVehicleWeightLbs, in: 2000...40000, step: 100)
@@ -467,13 +472,14 @@ struct TowingCard: View {
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
             }
-            // Static ratings, flashing red where exceeded.
+            // Static ratings, flashing red where exceeded. Plain names, not
+            // GVWR / tow capacity / GCWR.
             HStack(spacing: 12) {
-                ratingBadge("GVWR", ratings.gvwrLbs,
+                ratingBadge("Vehicle max", ratings.gvwrLbs,
                             violated: violations.contains { if case .overGVWR = $0 { return true } else { return false } })
-                ratingBadge("Tow cap", ratings.towCapacityLbs,
+                ratingBadge("Tow max", ratings.towCapacityLbs,
                             violated: violations.contains { if case .overTowCapacity = $0 { return true } else { return false } })
-                ratingBadge("GCWR", ratings.effectiveGCWR,
+                ratingBadge("Total max", ratings.effectiveGCWR,
                             violated: violations.contains { if case .overGCWR = $0 { return true } else { return false } })
             }
             ForEach(Array(violations.enumerated()), id: \.offset) { _, v in
