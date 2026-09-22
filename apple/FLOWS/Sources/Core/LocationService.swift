@@ -17,6 +17,9 @@ import Foundation
 final class LocationService: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var latest: CLLocation?
     @Published private(set) var authorized = false
+    /// The driver (or a device policy) turned location off for FLOWS — not
+    /// "no GPS": the planner says so and points to Settings.
+    @Published private(set) var denied = false
 
     /// Speed in m/s, clamped to >= 0 (CoreLocation reports -1 when unknown).
     var speed: Double { max(latest?.speed ?? 0, 0) }
@@ -86,6 +89,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
             #else
             self.authorized = status == .authorizedWhenInUse || status == .authorizedAlways
             #endif
+            self.denied = status == .denied || status == .restricted
             if self.authorized { self.beginPlanningUpdates() }
         }
     }

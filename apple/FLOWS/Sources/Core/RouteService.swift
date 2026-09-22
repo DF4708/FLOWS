@@ -115,7 +115,7 @@ struct PlannedRoute: Identifiable {
     /// weight for the Bridge weight filter.
     var weightLimitsLbs: [Double]?
     /// True when EVERY Overpass endpoint failed (clearances and weight
-    /// limits ride one query) — the card says "no OSM data" instead of
+    /// limits ride one query) — the card says "no map data" instead of
     /// spinning on "checking…" forever.
     var clearanceDataUnavailable = false
     /// Fraction of sampled corridor points inside FEMA A*/V* flood zones.
@@ -130,8 +130,9 @@ struct PlannedRoute: Identifiable {
     var attributesScored = false
 
     /// Congestion proxy: traffic-aware ETA vs a free-flow baseline for the
-    /// road class. > ~1.35 means the corridor commonly crawls. (Real per-road
-    /// congestion history needs data Apple doesn't expose; documented approx.)
+    /// road class. Only meaningful next to other routes on the same kind of
+    /// road (RouteFilter.avoidsTraffic). (Real per-road congestion history
+    /// needs data Apple doesn't expose; documented approx.)
     var congestionRatio: Double {
         let freeFlowSpeed = hasHighways ? 29.0 : 17.0   // m/s ≈ 65 / 38 mph
         let freeFlow = distanceMeters / freeFlowSpeed
@@ -142,6 +143,9 @@ struct PlannedRoute: Identifiable {
     /// geometry follows local roads (avoid-highways) and the ETA is computed
     /// at walking pace — honest routing information instead of "too far".
     var isWalkingEstimate = false
+    /// A walk: Apple's pedestrian route or the long-walk estimate. Walks
+    /// neither take the learned driving pace nor teach it.
+    var isWalk: Bool { route.transportType == .walking || isWalkingEstimate }
     var etaOverride: TimeInterval?
     var eta: TimeInterval { etaOverride ?? route.expectedTravelTime }   // traffic-aware unless overridden
     var distanceMeters: Double { route.distance }
@@ -262,6 +266,22 @@ struct PlannedRoute: Identifiable {
         }
         return events
     }
+
+    /// This weather pass's result (`AppModel.scored`) as it lands on `card`,
+    /// the same road's choice card now. The card keeps its physical
+    /// attributes: a Try again scores while the first pass's bridge and hill
+    /// checks land, and the copy it scored predates them. An INCOMPLETE
+    /// score keeps the card's provisional picture instead of blanking back
+    /// to a bare spinner.
+    func landing(on card: PlannedRoute) -> PlannedRoute {
+        var out = self
+        if !weatherScored {
+            out.scoringProgress = card.scoringProgress
+            out.provisionalSamples = card.provisionalSamples
+        }
+        out.takeAttributes(from: card)
+        return out
+    }
 }
 
 /// Route filters for the choices screen.
@@ -274,22 +294,28 @@ struct PlannedRoute: Identifiable {
 ///     excludes a route.
 ///   ("Low weather risk" used to live here as a relative best-plus-near-ties
 ///   filter — removed as redundant with the map's and cards' risk colors.)
+///   The raw values are the chip labels, named for what the chip keeps
+///   away ("No steep hills"), like "No tolls" beside them: a chip named
+///   for the hazard ("Mountain grades") read, when lit, as "show me them".
 enum RouteFilter: String, CaseIterable, Identifiable {
     case noTolls = "No tolls"
     case noHighways = "No highways"
-    case bridgeWeight = "Bridge weight"
+    case bridgeWeight = "No weak bridges"
     case noHighWinds = "No high winds"
     case noFloodRisk = "No flood risk"
     case avoidTraffic = "Avoid traffic"
-    case lowBridges = "Low bridges"
-    case mountainGrades = "Mountain grades"
+    case lowBridges = "No low bridges"
+    case mountainGrades = "No steep hills"
     case tourist = "Tourist stops"
     // ("Trucker" is NOT a filter — it's a dedicated route designation; see
     // AppModel.truckerRouteID.)
 
     var id: String { rawValue }
 
-    func passes(_ route: PlannedRoute, limits: FilterLimits = FilterLimits()) -> Bool {
+    /// `routes` are what Avoid traffic compares a route with (see
+    /// `avoidsTraffic`); no others means nothing to avoid.
+    func passes(_ route: PlannedRoute, limits: FilterLimits = FilterLimits(),
+                among routes: [PlannedRoute] = []) -> Bool {
         switch self {
         case .noTolls:
             return !route.hasTolls
@@ -316,7 +342,9 @@ enum RouteFilter: String, CaseIterable, Identifiable {
             let femaOK = (route.femaFloodFraction ?? 0) < 0.15
             return liveOK && alertOK && femaOK
         case .avoidTraffic:
-            return route.congestionRatio < 1.35
+            return Self.avoidsTraffic(
+                ratio: route.congestionRatio, highways: route.hasHighways,
+                among: routes.map { (ratio: $0.congestionRatio, highways: $0.hasHighways) })
         case .lowBridges:
             return limits.passesClearances(route.clearancesMeters)
         case .mountainGrades:
@@ -371,6 +399,40 @@ extension RouteFilter {
             return "Route filters set: avoiding \(on.dropLast().joined(separator: ", ")), "
                 + "and \(on[on.count - 1])."
         }
+    }
+
+    /// The filters that judge a route. On foot only No highways does: the
+    /// chips are hidden while walking, and a driving filter left on (Avoid
+    /// traffic is on by default and times a walk against car speeds) threw
+    /// out every walk with nothing on screen to turn it off.
+    static func judging(_ filters: Set<RouteFilter>, walking: Bool) -> Set<RouteFilter> {
+        walking ? filters.intersection([.noHighways]) : filters
+    }
+
+    /// A mode that forces filters on (walking, towing) adds only the ones
+    /// the driver hadn't picked, and `added` is all it may take away again:
+    /// a No highways or No low bridges the driver chose stays theirs.
+    static func forcing(_ forced: Set<RouteFilter>, onto filters: Set<RouteFilter>)
+        -> (filters: Set<RouteFilter>, added: Set<RouteFilter>) {
+        (filters.union(forced), forced.subtracting(filters))
+    }
+
+    /// How far a route's congestion ratio may sit above the calmest route
+    /// on the same kind of road and still pass Avoid traffic.
+    static let trafficAllowance = 0.3
+
+    /// Avoid traffic, judged against the other routes on offer. The ratio
+    /// sets the live-traffic time against a free-flow guess for the road
+    /// class, which can't tell a slow street from a jammed one: as a fixed
+    /// 1.35 cutoff it threw out every in-town route at 2 am, Local roads
+    /// with them, and could empty the list. So a route fails only when it
+    /// crawls clearly worse than the calmest route on the same kind of road
+    /// (highways or not); the calmest of each kind always passes. Pure,
+    /// pinned by tests.
+    static func avoidsTraffic(ratio: Double, highways: Bool,
+                              among others: [(ratio: Double, highways: Bool)]) -> Bool {
+        let calmest = others.filter { $0.highways == highways }.map(\.ratio).min() ?? ratio
+        return ratio <= min(calmest, ratio) + trafficAllowance
     }
 }
 
@@ -586,13 +648,15 @@ final class RouteService: ObservableObject {
     /// Scale routing ETAs by the driver's learned pace (DrivingProfile). A
     /// multiplier of 1 — not yet earned, or a driver who matches the router
     /// — returns the routes untouched, and a route that already carries an
-    /// `etaOverride` (the long-walk estimate) keeps its own number.
+    /// `etaOverride` (the long-walk estimate) keeps its own number. A walk
+    /// keeps the pedestrian router's time: the pace is how this person
+    /// DRIVES.
     nonisolated static func applyPersonalPace(
         _ routes: [PlannedRoute], multiplier: Double
     ) -> [PlannedRoute] {
         guard multiplier != 1, multiplier.isFinite, multiplier > 0 else { return routes }
         return routes.map { r in
-            guard r.etaOverride == nil, !r.isWalkingEstimate else { return r }
+            guard r.etaOverride == nil, !r.isWalk else { return r }
             var out = r
             out.etaOverride = r.route.expectedTravelTime * multiplier
             return out
@@ -702,12 +766,69 @@ final class RouteService: ObservableObject {
 enum RouteError: LocalizedError {
     case notFound(String)
     case noRoute
+    /// No fix, no typed start and nothing known to start from.
+    case noStart
 
     var errorDescription: String? {
         switch self {
         case .notFound(let q): return "Couldn't find “\(q)”. Try a ZIP, city, or county."
         case .noRoute: return "No drivable route found between those points."
+        case .noStart: return "No starting point yet. Type where you're starting from."
         }
+    }
+
+    /// Plain words for any planning failure — never a raw framework error
+    /// ("kCLErrorDomain error 8"), and "try again" only where trying again
+    /// can help: a route that doesn't exist won't appear on a retry.
+    static func plainMessage(for error: Error) -> String {
+        if let routeError = error as? RouteError, let text = routeError.errorDescription {
+            return text
+        }
+        if (error as? MKError)?.code == .directionsNotFound {
+            return "No drivable route found between those places."
+        }
+        let ns = error as NSError
+        if ns.domain == kCLErrorDomain {
+            switch ns.code {
+            case 8: return "Couldn't find that place. Check the spelling or add a city or state."
+            case 2: return "No internet right now — try again when you're back in coverage."
+            default: return "Couldn't look that up right now. Try again in a moment."
+            }
+        }
+        if (error as? URLError) != nil {
+            return "No internet right now — try again when you're back in coverage."
+        }
+        return "Couldn't plan that route. Try again in a moment."
+    }
+}
+
+/// Which route earns the "Cheapest" chip. Fuel is the only cost FLOWS can
+/// price, and every route burns it at one price and one mileage, so on fuel
+/// alone "Cheapest" always went to the shortest road — tolls and all, the
+/// same card as "Efficient". A toll is money the estimate can't see, so a
+/// tolled route gives the chip up to a toll-free one that costs no more
+/// than `tollAllowanceUSD` extra in fuel. Pure, pinned by tests.
+enum CheapestRoute {
+    struct Candidate: Equatable {
+        let id: UUID
+        let fuelUSD: Double
+        let hasTolls: Bool
+    }
+
+    static let tollAllowanceUSD = 5.0
+
+    /// Lowest fuel, ties to toll-free; nil for no candidates.
+    static func pick(_ candidates: [Candidate]) -> UUID? {
+        func cheaper(_ a: Candidate, _ b: Candidate) -> Bool {
+            if abs(a.fuelUSD - b.fuelUSD) > 0.01 { return a.fuelUSD < b.fuelUSD }
+            return !a.hasTolls && b.hasTolls
+        }
+        guard let lowest = candidates.min(by: cheaper) else { return nil }
+        guard lowest.hasTolls,
+              let tollFree = candidates.filter({ !$0.hasTolls }).min(by: cheaper),
+              tollFree.fuelUSD - lowest.fuelUSD <= tollAllowanceUSD
+        else { return lowest.id }
+        return tollFree.id
     }
 }
 

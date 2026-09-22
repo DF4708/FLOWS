@@ -648,9 +648,13 @@ struct StartTripIntent: AppIntent {
         guard let model = AppModel.shared else {
             return .result(dialog: "Open FLOWS first.")
         }
-        guard let from = model.effectivePosition else {
+        // No fix → the planner's own fallback start (Home, or the usual
+        // area), as the "From:" row shows it.
+        guard let start = model.effectivePosition.map({ (coordinate: $0, label: "Current location") })
+                ?? model.bestKnownPosition else {
             return .result(dialog: "I need a location fix first — open FLOWS.")
         }
+        let from = start.coordinate
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = destination
         request.region = MKCoordinateRegion(
@@ -672,7 +676,7 @@ struct StartTripIntent: AppIntent {
         }
         let name = place.name ?? destination
         guard let routes = try? await model.plan(
-                from: from, fromName: "Current location",
+                from: from, fromName: start.label,
                 to: place.placemark.coordinate, toName: name),
               !routes.isEmpty else {
             return .result(dialog: IntentDialog("No route found to \(name)."))
@@ -698,8 +702,12 @@ struct StartTripIntent: AppIntent {
         guard let staged = model.stageTripOffer(name: name) else {
             return .result(dialog: IntentDialog("No route found to \(name)."))
         }
+        // A start that isn't here is said out loud: miles and time from Home
+        // read as if from here, and "go ahead" starts that route.
+        let startNote = start.label == "Current location" ? ""
+            : " from " + (start.label == "Home" ? "Home" : start.label.lowercased())
         let summary = SiriSummaries.tripOffer(
-            name: name, meters: staged.distanceMeters, seconds: staged.eta,
+            name: name + startNote, meters: staged.distanceMeters, seconds: staged.eta,
             whileDriving: model.tripUnderway)
         return .result(dialog: IntentDialog("\(summary)"))
     }

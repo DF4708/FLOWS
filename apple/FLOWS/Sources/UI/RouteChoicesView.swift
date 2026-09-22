@@ -429,8 +429,10 @@ struct RouteChoicesView: View {
         guard key != model.hybridOptionKey else { return }
         model.hybridOptionKey = key
         model.hybridOption = nil
+        // Every walk, not the filtered cards: an empty filtered list must not
+        // cancel the offer.
         guard model.walkingMode, let ep = model.lastPlanEndpointsPublic,
-              let walkRoute = choices.min(by: { $0.eta < $1.eta })
+              let walkRoute = model.routeChoices.min(by: { $0.eta < $1.eta })
         else { return }
         let walkAlone = walkRoute.eta
         let (drivePolyOpt, driveMiOpt, driveSecOpt) = await transitDrive(ep.from, ep.to)
@@ -574,12 +576,12 @@ struct RouteChoicesView: View {
                             .foregroundStyle(.white).clipShape(Capsule())
                     }
                     if mode != .plane {
-                        Text("CO₂-efficient")
+                        Text("Less pollution")
                             .scaledFont(size: 10, weight: .heavy)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Color.mint.opacity(0.9))
                             .foregroundStyle(.white).clipShape(Capsule())
-                            .help("Mass transit emits far less CO₂ per passenger-mile than driving")
+                            .help("A train or bus makes far less pollution per rider than a car")
                     }
                 }
                 Spacer()
@@ -642,10 +644,10 @@ struct RouteChoicesView: View {
                         ? "Ride line couldn't be road-routed — drawn straight between "
                           + "stations; the time is an estimate. "
                         : (isRail
-                           ? "Ride line follows the highway corridor as a proxy and the time "
-                             + "is an estimate — exact rail geometry & schedule arrive with GTFS. "
-                           : "Ride line follows the roads the coach drives; the time is an "
-                             + "estimate — exact schedule arrives with GTFS. ")
+                           ? "Ride line follows the highway as a stand-in and the time is "
+                             + "a guess — real train lines and times come later. "
+                           : "Ride line follows the roads the bus drives; the time is a "
+                             + "guess — real bus times come later. ")
                     Text(rideNote + walkNote)
                         .scaledFont(size: 9).foregroundStyle(.secondary)
                 }
@@ -812,16 +814,15 @@ struct RouteChoicesView: View {
             pricePerUnit: price) ?? 0
     }
 
-    /// "Cheapest" = lowest estimated fuel cost, ties to fewer tolls. Decided
-    /// once all routes are scored so the banner doesn't jump mid-hydration.
+    /// "Cheapest" = lowest estimated fuel cost, with a toll counted against
+    /// a route (CheapestRoute). Decided once all routes are scored so the
+    /// banner doesn't jump mid-hydration.
     private func cheapestID(in choices: [PlannedRoute]) -> UUID? {
         let scored = choices.filter(\.weatherScored)
         guard scored.count == choices.count, scored.count > 1 else { return nil }
-        return scored.min(by: {
-            let (a, b) = (fuelCost($0), fuelCost($1))
-            if abs(a - b) > 0.01 { return a < b }
-            return ($0.hasTolls ? 1 : 0) < ($1.hasTolls ? 1 : 0)
-        })?.id
+        return CheapestRoute.pick(scored.map {
+            CheapestRoute.Candidate(id: $0.id, fuelUSD: fuelCost($0), hasTolls: $0.hasTolls)
+        })
     }
 
     /// "Efficient" = least fuel burned (car) — with one vehicle the shortest
@@ -843,16 +844,22 @@ struct RouteChoicesView: View {
     /// Walk ↔ drive, then rail, bus and plane.
     @ViewBuilder
     private var modeToggles: some View {
-        // Walk ↔ drive toggle: walking uses Apple's pedestrian
-        // network (sidewalks/crossings where mapped, real pace).
-        Toggle(isOn: Binding(
+        // Drive | Walk: walking uses Apple's pedestrian network
+        // (sidewalks/crossings where mapped, real pace). Two named choices —
+        // an on/off switch read "off" for driving.
+        Picker("Travel by", selection: Binding(
             get: { model.walkingMode },
-            set: { model.walkingMode = $0; Task { await replanForMode() } })) {
-            Image(systemName: model.walkingMode ? "figure.walk" : "car.fill")
-                .scaledFont(size: 12, weight: .bold)
+            set: { walking in
+                guard walking != model.walkingMode else { return }
+                model.walkingMode = walking
+                Task { await replanForMode() }
+            })) {
+            Text("Drive").tag(false)
+            Text("Walk").tag(true)
         }
-        .toggleStyle(.switch)
-        .controlSize(.mini)
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .controlSize(.small)
         .fixedSize()
         // Rail/bus/plane are TOGGLES: tinted while active, tap again
         // to turn off (back to drive-only choices).
@@ -938,18 +945,31 @@ struct RouteChoicesView: View {
                     // computes the filtered list once instead of ~50 times
                     // per render. Their transit-cards-inside-the-scroll fix
                     // and that snapshot are independent wins; keep both.
-                    if ctx.choices.isEmpty {
+                    // Only when there ARE routes: with none at all (a walk
+                    // with no path) the notice above says why, and filter
+                    // text under it blamed the filters.
+                    if ctx.choices.isEmpty, !model.routeChoices.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("No route satisfies every active filter — searching for one…")
+                            // "Looking" only while a search really runs;
+                            // it used to say so forever.
+                            Text(model.routeSearchesInFlight > 0
+                                 ? "No route fits every filter — looking for one…"
+                                 : "No route fits every filter.")
                                 .scaledFont(.footnote)
                                 .foregroundStyle(.secondary)
                             if let closest = closestMatch {
-                                Text("Closest match (violates \(model.violationCount(closest)) filter\(model.violationCount(closest) == 1 ? "" : "s")):")
+                                // Named before its GO: a count hid WHICH one
+                                // (a low bridge, a weight limit, high wind).
+                                Text("Closest match — it doesn't fit: "
+                                     + model.brokenFilters(closest).map(\.rawValue)
+                                        .joined(separator: ", "))
                                     .scaledFont(.caption, weight: .semibold)
                                 RouteCard(
                                     route: closest,
                                     keyPoints: keyPoints(for: closest, ctx: ctx),
-                                    fastestETA: closest.eta,
+                                    // Against every route: its own ETA made
+                                    // it "Fastest" even when it was slowest.
+                                    fastestETA: model.routeChoices.map(\.eta).min() ?? closest.eta,
                                     isSafest: false,
                                     isCheapest: false,
                                     isEfficient: false,
@@ -996,7 +1016,7 @@ struct RouteChoicesView: View {
 
     /// Plan identity for the walk+ride offer: the walking toggle + lead route.
     private var hybridKey: String {
-        "\(model.walkingMode)|\(choices.first?.id.uuidString ?? "-")"
+        "\(model.walkingMode)|\(model.routeChoices.first?.id.uuidString ?? "-")"
     }
 
     /// The walk + paid-ride card (walking mode only). Plain words, the saving
@@ -1095,10 +1115,18 @@ struct RouteChoicesView: View {
     /// from the per-render CardContext instead of recomputing them per card.
     private func keyPoints(for route: PlannedRoute, ctx: CardContext) -> [(text: String, good: Bool)] {
         var points: [(String, Bool)] = []
+        // An electric car's range gap leads on EVERY card — a lone route and
+        // the closest match too — and is never cut by the cap below: it is
+        // the only warning that the car may not get there, and it used to
+        // sit inside the collapsed Risk details, under a GO on the card face.
+        if let gap = route.evChargingGapMiles {
+            points.append((String(format: "No charger found near mile %.0f — check your range", gap),
+                           false))
+        }
         let choices = ctx.choices
         let fastestETA = ctx.fastestETA
         let others = choices.filter { $0.id != route.id }
-        guard !others.isEmpty else { return [] }
+        guard !others.isEmpty else { return points }
 
         if route.eta > fastestETA + 60 {
             points.append(("+\(Int((route.eta - fastestETA) / 60)) min vs fastest", false))
@@ -1113,15 +1141,13 @@ struct RouteChoicesView: View {
                                       peakBand.rawValue, miles), false))
             }
         }
-        // Tourist filter on → each card counts the pinned attractions within a
+        // Tourist filter on → each card counts the attractions within a
         // worthwhile detour of ITS corridor, so scenic options impact choice.
-        // (model.touristCount — the same scan the tourist sort uses, deduped;
-        // this had a byte-for-byte copy of that distance loop inline.)
-        if model.routeFilters.contains(.tourist), !model.poi.results.isEmpty {
-            let near = model.touristCount(for: route)
-            if near > 0 {
-                points.append(("\(near) tourist stop\(near == 1 ? "" : "s") along this route", true))
-            }
+        // (model.touristCounts — the same per-route sweep the tourist sort
+        // uses.)
+        if model.routeFilters.contains(.tourist), let near = model.touristCounts[route.id],
+           near > 0 {
+            points.append(("\(near) tourist stop\(near == 1 ? "" : "s") along this route", true))
         }
         if let shortest = choices.map(\.distanceMeters).min(),
            route.distanceMeters <= shortest {
@@ -1147,17 +1173,20 @@ struct RouteChoicesView: View {
         if route.planKind == .avoidHighways {
             points.append(("Back roads — slower but steadier", true))
         }
-        if route.congestionRatio >= 1.35 {
-            points.append(("Traffic-prone corridor at this hour", false))
+        // The same judgment as the Avoid traffic chip: slower in traffic than
+        // the calmest card on the same kind of road. (Traffic is no walk's
+        // concern.)
+        if !route.isWalk, !RouteFilter.avoidTraffic.passes(route, among: choices) {
+            points.append(("More traffic than a similar route right now", false))
         }
         if (route.familyPeaks["wind"] ?? 0) >= FlowsCore.riskYellowMin {
-            points.append(("Elevated wind exposure — high-profile caution", false))
+            points.append(("Strong winds — take care in a tall vehicle", false))
         }
         return Array(points.prefix(4))
     }
 
     private func highlight(_ route: PlannedRoute) {
-        model.highlightedRouteID = route.id
+        model.highlightChosen(route.id)
         // Same framing rule as the first plan: grow the rect on whichever
         // side the panel covers, so the route lands in the map the driver
         // can actually see (PlannerPanel.choicesCameraRect).
@@ -1263,6 +1292,11 @@ private struct RouteCard: View {
     /// fold on every card; the strip + key points carry the summary.
     @State private var showDetails = false
 
+    /// The weather retries ran out on this still-unchecked route.
+    private var weatherCheckGaveUp: Bool {
+        !route.weatherScored && model.weatherCheckGaveUp.contains(route.id)
+    }
+
     var body: some View {
         // Not a Button: the GO Button nests inside, and nested buttons double-
         // fire on macOS. Tap anywhere else on the card to highlight.
@@ -1333,11 +1367,8 @@ private struct RouteCard: View {
                             .scaledFont(.caption2, weight: .semibold)
                             .foregroundStyle(.secondary)
                     }
-                    if route.hasHighways {
-                        Image(systemName: "road.lanes")
-                            .scaledFont(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                    // (No bare highway icon here: nothing said what it meant,
+                    // and the "via" road already names the highway.)
                 }
                 // Key points — the at-a-glance pros/cons for this option.
                 if !keyPoints.isEmpty {
@@ -1374,6 +1405,10 @@ private struct RouteCard: View {
                                 .foregroundStyle(.blue)
                         }
                         .buttonStyle(.plain)
+                    } else if weatherCheckGaveUp {
+                        Text("Couldn't check the weather on this route")
+                            .scaledFont(.caption, weight: .semibold)
+                            .foregroundStyle(.secondary)
                     } else {
                         Text(isHighlighted ? "Shown on map" : "Tap to view on map")
                             .scaledFont(.caption2)
@@ -1392,24 +1427,42 @@ private struct RouteCard: View {
                             .background(Theme.cta)
                             .foregroundStyle(Theme.onCTA)
                             .clipShape(Capsule())
+                    } else if weatherCheckGaveUp {
+                        // The retries ran out: an outcome and a way to try
+                        // again, not a spinner that never stops. GO stays
+                        // locked.
+                        Button {
+                            model.retryWeatherCheck()
+                        } label: {
+                            Label("Try again", systemImage: "arrow.clockwise")
+                                .scaledFont(.caption, weight: .bold)
+                                .frame(minWidth: 92)
+                                .frame(height: 36)
+                                .padding(.horizontal, 8)
+                                .background(Theme.fill(0.06))
+                                .clipShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help("GO unlocks when the weather check is done")
                     } else {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
                             // Percent of corridor cells already checked — the
                             // driver sees scoring MOVE on a slow connection.
                             Text(route.scoringProgress > 0
-                                 ? "Scoring… \(Int((route.scoringProgress * 100).rounded()))%"
-                                 : "Scoring…")
+                                 ? "Checking weather… \(Int((route.scoringProgress * 100).rounded()))%"
+                                 : "Checking weather…")
                                 .scaledFont(.caption, weight: .semibold)
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
+                                .lineLimit(1)
                         }
                         .frame(minWidth: 92)
                         .frame(height: 36)
                         .padding(.horizontal, 8)
                         .background(Theme.fill(0.06))
                         .clipShape(Capsule())
-                        .help("GO unlocks when weather risk scoring completes")
+                        .help("GO unlocks when the weather check is done")
                     }
                 }
             }
@@ -1572,7 +1625,7 @@ private struct RouteCard: View {
                 // A green peak is normal driving weather — don't call it
                 // "elevated" (green sits above clear, below yellow).
                 Text(route.peakRisk >= FlowsCore.riskYellowMin
-                     ? "No active alerts — elevated by forecast conditions along the corridor."
+                     ? "No active alerts — the forecast raises the risk along this route."
                      : "All clear — no active alerts or elevated conditions.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
@@ -1606,7 +1659,7 @@ private struct RouteCard: View {
                 parts.append(text)
             } else { parts.append("No posted low clearances") }
         } else if route.clearanceDataUnavailable {
-            parts.append("Bridges: no OSM data")
+            parts.append("Bridge heights: no map data")
         } else { parts.append("Bridges: checking…") }
         if let weightLimits = route.weightLimitsLbs {
             if let lowest = weightLimits.min() {
@@ -1621,11 +1674,11 @@ private struct RouteCard: View {
             } else { parts.append("No posted weight limits") }
         } else if !route.clearanceDataUnavailable {
             // Weight limits ride the same Overpass fetch as the clearances —
-            // "no OSM data" above already covers the failure case.
+            // "no map data" above already covers the failure case.
             parts.append("Weight limits: checking…")
         }
         if let f = route.femaFloodFraction {
-            parts.append(String(format: "FEMA flood %.0f%%", f * 100))
+            parts.append(String(format: "Flood zone %.0f%%", f * 100))
         } else {
             parts.append(route.attributesScored
                          ? "Floodplain: no data" : "Floodplain: checking…")
@@ -1687,7 +1740,8 @@ private struct RouteCard: View {
                 // GO stays locked until the full verdict.
                 let band = FlowsCore.riskBand(score: worst)
                 HStack(spacing: 5) {
-                    ProgressView().controlSize(.mini)
+                    // No spinner once the check has given up.
+                    if !weatherCheckGaveUp { ProgressView().controlSize(.mini) }
                     Text(band == .clear ? "Clear so far" : "\(band.rawValue) so far")
                 }
                 .scaledFont(.caption, weight: .semibold)
@@ -1701,8 +1755,8 @@ private struct RouteCard: View {
                 // Routes render before their corridor weather has been scored;
                 // the badge hydrates in place a few seconds later.
                 HStack(spacing: 5) {
-                    ProgressView().controlSize(.mini)
-                    Text("Weather…")
+                    if !weatherCheckGaveUp { ProgressView().controlSize(.mini) }
+                    Text(weatherCheckGaveUp ? "Weather unknown" : "Weather…")
                 }
                 .scaledFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
@@ -1713,8 +1767,9 @@ private struct RouteCard: View {
             }
         } else {
             // Labeled so it can't be misread against the peak line: this is
-            // the whole-route normalized band, peaks can be worse.
-            Text(route.riskBand == .clear ? "No risk overall" : "Overall \(route.riskBand.rawValue)")
+            // the whole-route normalized band, peaks can be worse. Named as
+            // the map key names it ("Clear"): "No risk" promised too much.
+            Text("Overall \(route.riskBand.rawValue)")
                 .scaledFont(.caption, weight: .bold)
                 .lineLimit(1)
                 .fixedSize()

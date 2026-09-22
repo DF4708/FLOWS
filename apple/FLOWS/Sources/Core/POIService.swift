@@ -315,9 +315,7 @@ final class POIService: ObservableObject {
         case .tourist:
             // Notable stops along the way: parks, monuments, museums —
             // Mammoth Cave shows up on the Louisville→Nashville corridor.
-            await search(kind, queries: ["national park monument",
-                                         "tourist attraction landmark museum"],
-                         aheadOf: position)
+            await search(kind, queries: Self.touristQueries, aheadOf: position)
         case .gas:
             activeKind = kind
             if let fuel = fuelType {
@@ -369,6 +367,56 @@ final class POIService: ObservableObject {
             await search(kind, queries: ["weigh station", "truck scales CAT scale"],
                          aheadOf: position)
         }
+    }
+
+    /// The tourist button's queries — also the per-route count's.
+    private static let touristQueries = ["national park monument",
+                                         "tourist attraction landmark museum"]
+
+    /// Attractions near ONE route's own road, for the tourist order on the
+    /// choice cards: the tourist button's queries, box and spread of search
+    /// points, run along that route WITHOUT touching the results card. The
+    /// pins follow the highlighted route, and counting them handed the
+    /// tapped card the most stops, so it jumped to the top of the list.
+    func touristCount(along route: PlannedRoute) async -> Int {
+        let samples = RouteService.corridorPartition(
+            of: route.route.polyline, everyMeters: 30_000).samples
+        let centerCap = Int(flows_places_search_center_cap(Int64(Self.touristQueries.count)))
+        let centers = POIRanking.centerPicks(count: samples.count, cap: centerCap)
+            .map { samples[$0] }
+        let policy = Kind.tourist.policy
+        var found: [MKMapItem] = []
+        for center in centers {
+            for query in Self.touristQueries {
+                let request = MKLocalSearch.Request()
+                request.naturalLanguageQuery = query
+                request.resultTypes = .pointOfInterest
+                request.pointOfInterestFilter = Self.poiFilter(for: .tourist, fuel: nil)
+                request.region = MKCoordinateRegion(
+                    center: center,
+                    latitudinalMeters: policy.region_meters,
+                    longitudinalMeters: policy.region_meters)
+                found.append(contentsOf: await Self.pacedLocalSearch(request))
+                if Task.isCancelled { return 0 }
+            }
+        }
+        // The same offline supplement the button's sweep merges in.
+        if let groups = Self.shardGroups(for: .tourist) {
+            for center in centers {
+                for p in await PlacesStore.shared.places(
+                    near: center, groups: groups, radiusMeters: policy.region_meters) {
+                    let item = MKMapItem(placemark: MKPlacemark(coordinate: p.coordinate))
+                    item.name = p.name
+                    found.append(item)
+                }
+            }
+        }
+        let places = dedupIndices(found, locationOnly: policy.location_dedup)
+            .map { found[$0].placemark.coordinate }
+        // Within a worthwhile detour (40 km) of the route.
+        return places.filter { place in
+            samples.contains { POIRanking.meters($0, place) < 40_000 }
+        }.count
     }
 
     /// Siri's add-a-stop search: the same corridor sweep as the buttons,

@@ -32,6 +32,23 @@ enum CoordinateInput {
     }
 }
 
+/// A planner field filled from a row that carries its own place (recent,
+/// predicted, map point, favorite): planning goes straight to that point
+/// while the field still holds `text`. Planning re-geocoded the row's text
+/// instead — "Map point 43.0731, -89.4012" is no address, and a recent
+/// saved under its town name landed in the town's centre.
+struct PlannerPick {
+    let text: String
+    let coordinate: CLLocationCoordinate2D
+    let name: String
+
+    /// The pick stands until the driver changes the field (spaces at the
+    /// ends aside).
+    func stands(for fieldText: String) -> Bool {
+        fieldText.trimmingCharacters(in: .whitespaces) == text.trimmingCharacters(in: .whitespaces)
+    }
+}
+
 /// Recently planned destinations: one tap re-plans, instantly and OFFLINE —
 /// the places a driver actually goes are a dozen names, not a search index.
 /// Small persisted list, ranked by frequency-decayed recency.
@@ -175,6 +192,12 @@ final class DestinationSearch: NSObject, ObservableObject {
         var searchText: String {
             guard kind == .completion, !subtitle.isEmpty else { return title }
             return "\(title), \(subtitle)"
+        }
+
+        /// A row with its own coordinate plans there directly, named by its
+        /// title; a completion (no coordinate) is looked up.
+        var pick: PlannerPick? {
+            coordinate.map { PlannerPick(text: searchText, coordinate: $0, name: title) }
         }
 
         static func == (lhs: Suggestion, rhs: Suggestion) -> Bool {

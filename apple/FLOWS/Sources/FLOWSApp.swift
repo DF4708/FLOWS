@@ -56,12 +56,25 @@ final class AppModel: ObservableObject {
     @Published var highlightedRouteID: UUID? {
         didSet {
             // Tourist filter follows the highlight: attractions re-search along
-            // the newly-highlighted route so each card's pins/counts are ITS own.
+            // the newly-highlighted route so the map pins ITS stops. (Each
+            // card's count comes from its own sweep: touristCounts.)
             if routeFilters.contains(.tourist), mode == .choosing,
                oldValue != highlightedRouteID {
                 refreshTouristSpots()
             }
         }
+    }
+
+    /// The driver tapped the highlighted card. Until then the highlight is
+    /// the app's own pick and follows the top card when the list changes —
+    /// it stayed on a route a filter had picked after that filter went off,
+    /// under a different top card. A tapped route stays while it is listed.
+    private var highlightIsDriverChoice = false
+
+    /// A card tap: highlight that route and keep it (ensureHighlightValid).
+    func highlightChosen(_ id: UUID) {
+        highlightIsDriverChoice = true
+        highlightedRouteID = id
     }
 
     /// (Re)pin attractions along the highlighted route (tourist filter).
@@ -73,14 +86,30 @@ final class AppModel: ObservableObject {
         Task { await poi.request(.tourist, aheadOf: origin) }
     }
 
-    /// Attractions within a worthwhile detour of THIS route's corridor.
-    func touristCount(for route: PlannedRoute) -> Int {
-        guard !poi.results.isEmpty, !route.riskSamples.isEmpty else { return 0 }
-        return poi.results.filter { r in
-            route.riskSamples.contains {
-                POIRanking.meters($0.coordinate, r.item.placemark.coordinate) < 40_000
+    /// Each route's own count of attractions near ITS road, from a sweep
+    /// along that route (POIService.touristCount) — what the tourist order
+    /// and the cards' counts read. Counting the pins, which follow the
+    /// highlight, gave the tapped card the most and moved it to the top.
+    @Published private(set) var touristCounts: [UUID: Int] = [:]
+    private var touristCountTask: Task<Void, Never>?
+
+    /// Count the routes that have no count yet, one at a time, then let an
+    /// untapped highlight follow the top card the new order may bring.
+    func refreshTouristCounts() {
+        touristCountTask?.cancel()
+        let pending = routeChoices.filter { touristCounts[$0.id] == nil }
+        guard !pending.isEmpty else { return }
+        touristCountTask = Task { [weak self] in
+            for route in pending {
+                // A plan left for Edit or GO needs no more counts.
+                guard let self, self.mode == .choosing else { return }
+                let count = await self.poi.touristCount(along: route)
+                guard !Task.isCancelled else { return }
+                self.touristCounts[route.id] = count
             }
-        }.count
+            guard let self, self.mode == .choosing else { return }
+            self.ensureHighlightValid()
+        }
     }
 
     let location = LocationService()
@@ -257,14 +286,25 @@ final class AppModel: ObservableObject {
     /// sidewalks/crossings where mapped, real walking pace).
     @Published var walkingMode = false {
         didSet {
-            // People must not walk on highways; buses may use them.
+            // didSet runs on every assignment, and Edit writes false each
+            // time: re-running the off branch took away a No highways the
+            // driver had chosen.
+            guard walkingMode != oldValue else { return }
+            // People must not walk on highways; buses may use them. Walking
+            // takes back only the filter it added.
             if walkingMode {
-                routeFilters.insert(.noHighways)
+                let forced = RouteFilter.forcing([.noHighways], onto: routeFilters)
+                walkingAddedFilters = forced.added
+                routeFilters = forced.filters
             } else {
-                routeFilters.remove(.noHighways)
+                routeFilters.subtract(walkingAddedFilters)
+                walkingAddedFilters = []
             }
         }
     }
+    /// The filters walking switched on itself — the only ones it switches
+    /// off again (towing keeps its own in `towingFilterHold`).
+    private var walkingAddedFilters: Set<RouteFilter> = []
     /// Corridor risk display floor: pedestrians are exposed — walking mode
     /// raises weather sensitivity (lower floor = lighter weather shows).
     /// Score floor for the LOUD map layers (badges + striped ZCTA areas).
@@ -310,10 +350,15 @@ final class AppModel: ObservableObject {
         didSet {
             UserDefaults.standard.set(towingActive, forKey: "flows.towingActive")
             vehicle.towingActive = towingActive
-            if towingActive {
-                towingFilterHold.towingOn(&routeFilters)
-            } else {
-                towingFilterHold.towingOff(&routeFilters)   // only what towing added
+            // Only on a real change, and taking back only what towing added:
+            // a No low bridges picked before towing (or by hand since)
+            // outlives it.
+            if towingActive != oldValue {
+                if towingActive {
+                    towingFilterHold.towingOn(&routeFilters)
+                } else {
+                    towingFilterHold.towingOff(&routeFilters)
+                }
             }
             applyVehicleMaxGradeDefault()   // towing lowers the grade default
             rebuildTripNeeds()   // fuel stops follow the towing range mid-trip
@@ -1414,6 +1459,10 @@ final class AppModel: ObservableObject {
     /// (choosing → Edit → planning) without losing what was typed.
     @Published var plannerSource = ""
     @Published var plannerDestination = ""
+    /// The rows each field was filled from, when they carry their own place
+    /// (PlannerPick) — kept here with the text so Edit round-trips them too.
+    var plannerSourcePick: PlannerPick?
+    var plannerDestinationPick: PlannerPick?
 
     /// Set when the final destination is reached; HUD shows the arrived
     /// banner until the driver dismisses it.
@@ -1996,24 +2045,40 @@ final class AppModel: ObservableObject {
     /// pass and its ARC traffic ~50× per render).
     var filteredChoices: [PlannedRoute] {
         let limits = filterLimits
-        var out = routeChoices.filter { r in
-            routeFilters.allSatisfy { $0.passes(r, limits: limits) }
+        let judged = judgingFilters
+        let peers = trafficPeers(judged, limits: limits)
+        var out = peers.filter {
+            !judged.contains(.avoidTraffic) || RouteFilter.avoidTraffic.passes($0, among: peers)
         }
         // Tourist filter CHANGES the ordering: the route with more attractions
         // within reach leads (ties fall back to ETA) — scenic beats fast while
-        // the driver is explicitly asking for tourist stops. Counts are
-        // decorated ONCE before the sort: touristCount is an O(POIs × samples)
-        // distance scan, and running it inside the comparator repeated it 4×
-        // per comparison.
-        if routeFilters.contains(.tourist), !poi.results.isEmpty {
-            let counts = Dictionary(uniqueKeysWithValues: out.map { ($0.id, touristCount(for: $0)) })
-            out.sort {
-                let (a, b) = (counts[$0.id] ?? 0, counts[$1.id] ?? 0)
-                if a != b { return a > b }
-                return $0.eta < $1.eta
+        // the driver is explicitly asking for tourist stops. Only once every
+        // card has its own count: half-counted routes can't be compared.
+        if routeFilters.contains(.tourist) {
+            let counts = out.compactMap { touristCounts[$0.id] }
+            if counts.count == out.count, counts.contains(where: { $0 > 0 }) {
+                out.sort {
+                    let (a, b) = (touristCounts[$0.id] ?? 0, touristCounts[$1.id] ?? 0)
+                    if a != b { return a > b }
+                    return $0.eta < $1.eta
+                }
             }
         }
         return out
+    }
+
+    /// The filters that judge the cards right now (RouteFilter.judging).
+    var judgingFilters: Set<RouteFilter> {
+        RouteFilter.judging(routeFilters, walking: walkingMode)
+    }
+
+    /// The routes every judged filter but Avoid traffic lets through — what
+    /// Avoid traffic compares a route with, so it thins the list the other
+    /// filters leave and can never empty it.
+    private func trafficPeers(_ judged: Set<RouteFilter>, limits: FilterLimits) -> [PlannedRoute] {
+        routeChoices.filter { r in
+            judged.allSatisfy { $0 == .avoidTraffic || $0.passes(r, limits: limits) }
+        }
     }
 
     /// Filter toggles route through here so request-level filters can
@@ -2024,14 +2089,20 @@ final class AppModel: ObservableObject {
         towingFilterHold.driverChose(filter)   // towing-off no longer takes it back
         if routeFilters.contains(filter) {
             routeFilters.remove(filter)
-            if filter == .tourist { poi.clearResults() }
+            if filter == .tourist {
+                poi.clearResults()
+                touristCountTask?.cancel()
+            }
         } else {
             routeFilters.insert(filter)
             // Tourist stops: pin parks/monuments/museums along the corridor
             // the moment the filter lights up — the map immediately shows what
             // the trip could include (Mammoth Cave on a Louisville→Nashville
             // run), and cards gain per-route attraction counts.
-            if filter == .tourist, mode == .choosing { refreshTouristSpots() }
+            if filter == .tourist, mode == .choosing {
+                refreshTouristSpots()
+                refreshTouristCounts()
+            }
             if filter == .noTolls, mode == .choosing,
                !routeChoices.contains(where: { !$0.hasTolls && $0.planKind != .avoidHighways }),
                let ep = lastPlanEndpoints {
@@ -2050,9 +2121,24 @@ final class AppModel: ObservableObject {
     /// How many active filters a route violates — powers the "closest match"
     /// fallback card when nothing satisfies everything.
     func violationCount(_ route: PlannedRoute) -> Int {
-        let limits = filterLimits
-        return routeFilters.filter { !$0.passes(route, limits: limits) }.count
+        brokenFilters(route).count
     }
+
+    /// The active filters a route breaks, in chip order: the closest-match
+    /// card names them above its GO — a count alone hid a low bridge.
+    func brokenFilters(_ route: PlannedRoute) -> [RouteFilter] {
+        let limits = filterLimits
+        let judged = judgingFilters
+        let peers = trafficPeers(judged, limits: limits)
+        return RouteFilter.allCases.filter {
+            judged.contains($0) && !$0.passes(route, limits: limits, among: peers)
+        }
+    }
+
+    /// Searches for a route that fits the filters now in flight
+    /// (formulateConstrainedRoute, supplementTollFree): the empty-list text
+    /// says "looking" only while one runs.
+    @Published private(set) var routeSearchesInFlight = 0
 
     /// Nothing passes → replan with every request-level preference the
     /// active filters imply, hydrate, and let the relative filters resolve.
@@ -2060,6 +2146,8 @@ final class AppModel: ObservableObject {
         _ ep: (from: CLLocationCoordinate2D, fromName: String,
                to: CLLocationCoordinate2D, toName: String)
     ) async {
+        routeSearchesInFlight += 1
+        defer { routeSearchesInFlight -= 1 }
         guard let raw = try? await router.planRoutes(
             from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
             includeTollFree: routeFilters.contains(.noTolls)) else { return }
@@ -2082,14 +2170,16 @@ final class AppModel: ObservableObject {
         // Through the tracked task, cancelling the previous loop: an
         // untracked Task here stacked a second retry ladder that present()
         // could not cancel, re-scoring every route against NWS again.
-        riskHydrationTask?.cancel()
-        riskHydrationTask = Task { await hydrateRouteRisk() }
+        restartRiskHydration()
+        if routeFilters.contains(.tourist) { refreshTouristCounts() }   // new cards need theirs
     }
 
     private func supplementTollFree(
         _ ep: (from: CLLocationCoordinate2D, fromName: String,
                to: CLLocationCoordinate2D, toName: String)
     ) async {
+        routeSearchesInFlight += 1
+        defer { routeSearchesInFlight -= 1 }
         guard let raw = try? await router.planRoutes(
             from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
             includeTollFree: true) else { return }
@@ -2111,8 +2201,8 @@ final class AppModel: ObservableObject {
         // Through the tracked task, cancelling the previous loop: an
         // untracked Task here stacked a second retry ladder that present()
         // could not cancel, re-scoring every route against NWS again.
-        riskHydrationTask?.cancel()
-        riskHydrationTask = Task { await hydrateRouteRisk() }
+        restartRiskHydration()
+        if routeFilters.contains(.tourist) { refreshTouristCounts() }   // new cards need theirs
     }
 
     /// Endpoints of the last plan — lets filter toggles replan variants.
@@ -2177,12 +2267,12 @@ final class AppModel: ObservableObject {
                 plannerNotice = "No walking route found here."
             } else {
                 plannerNotice = anyHighway
-                    ? "Beyond the pedestrian router's range — walking estimate at "
-                        + "3.1 mph. No fully highway-free route exists here; a segment "
-                        + "may follow a highway — verify a legal walking path before setting out."
-                    : "Beyond the pedestrian router's range — walking estimate along "
-                        + "local roads only (3.1 mph pace): verify sidewalk/shoulder "
-                        + "availability before setting out."
+                    ? "Too far for walking directions — this is a walking guess at "
+                        + "3.1 mph. No route here stays off highways the whole way; part "
+                        + "may follow one. Make sure there is a safe, legal path before you go."
+                    : "Too far for walking directions — this is a walking guess along "
+                        + "local roads at 3.1 mph. Check for sidewalks or shoulders "
+                        + "before you go."
                 lastPlanEndpoints = (from, fromName, to, toName)
                 recents.record(name: toName, coordinate: to)
             }
@@ -3278,12 +3368,19 @@ final class AppModel: ObservableObject {
     /// One press on a favorite: plan from the current GPS fix to it and show
     /// the choices. Returns the planned routes so the caller can frame the
     /// camera (nil when planning failed or there's no position).
+    /// No fix → the same start the planner falls back to (Home, or the
+    /// usual area): a Mac without location showed "From: Home (no GPS)"
+    /// and still refused every favorite chip.
     @discardableResult
     func planToFavorite(_ fav: FavoriteAddress) async -> [PlannedRoute]? {
-        guard let here = effectivePosition ?? location.coordinate else { return nil }
+        guard let start = effectivePosition.map({ (coordinate: $0, label: "Current location") })
+                ?? bestKnownPosition else { return nil }
         plannerDestination = fav.name
+        // Edit and plan again goes back to the saved point, not a lookup.
+        plannerDestinationPick = PlannerPick(text: fav.name, coordinate: fav.coordinate,
+                                             name: fav.name)
         guard let planned = try? await plan(
-            from: here, fromName: "Current location",
+            from: start.coordinate, fromName: start.label,
             to: fav.coordinate, toName: fav.name), !planned.isEmpty else { return nil }
         present(routes: planned)
         return planned
@@ -3327,12 +3424,16 @@ final class AppModel: ObservableObject {
         transitOptions = [:]
         activeTransitModes = []
         hybridOption = nil
+        touristCountTask?.cancel()   // counts belong to the routes they swept
+        touristCounts = [:]
         restoreTransientPanels()   // fresh choices bring the trip menus back
         // mode BEFORE the highlight: highlightedRouteID's didSet re-searches
         // tourist stops only while .choosing, and it used to run one line
         // too early, while mode was still .planning.
         mode = .choosing
+        highlightIsDriverChoice = false
         highlightedRouteID = routes.first?.id
+        if routeFilters.contains(.tourist) { refreshTouristCounts() }
         filterCardsHidden = false   // fresh choices bring the slider card back
         // A fresh plan invalidates any staged spoken yes. Without this, a
         // driver who asks Siri for one destination, dislikes it and plans
@@ -3343,23 +3444,20 @@ final class AppModel: ObservableObject {
         // routeChoices, so a replan while still .choosing would otherwise
         // stack a second (then third…) loop re-scoring the same routes —
         // multiplied NWS rounds against the polite-API doctrine.
-        riskHydrationTask?.cancel()
-        riskHydrationTask = Task { await hydrateRouteRisk() }
+        restartRiskHydration()
     }
 
     /// Land a finished score on its (possibly re-sorted) card. If the user
     /// already picked a route (choices cleared), the index lookup fails and
-    /// the late score is dropped harmlessly. An INCOMPLETE score keeps the
-    /// provisional picture the card already shows — the retry pass refreshes
-    /// it — instead of blanking back to a bare spinner.
+    /// the late score is dropped harmlessly. The card keeps its attributes,
+    /// and an incomplete score its provisional picture — the retry pass
+    /// refreshes it (PlannedRoute.landing). A cancelled pass lands nothing:
+    /// the pass that superseded it scores these cards, and its cut-short
+    /// fetches could land after that pass's verdict and lock GO again.
     private func landScore(_ done: PlannedRoute) {
-        guard let i = routeChoices.firstIndex(where: { $0.id == done.id }) else { return }
-        var done = done
-        if !done.weatherScored {
-            done.scoringProgress = routeChoices[i].scoringProgress
-            done.provisionalSamples = routeChoices[i].provisionalSamples
-        }
-        routeChoices[i] = done
+        guard !Task.isCancelled,
+              let i = routeChoices.firstIndex(where: { $0.id == done.id }) else { return }
+        routeChoices[i] = done.landing(on: routeChoices[i])
     }
 
     /// Progress sink for one route CARD: patches the choices entry's
@@ -3481,27 +3579,75 @@ final class AppModel: ObservableObject {
     func declineTripOffer() {
         if case .trip? = pendingVoiceOffer { pendingVoiceOffer = nil }
         guard tripUnderway else { return }
+        weatherRetryTask?.cancel()
         riskHydrationTask?.cancel()
         routeChoices = []
         heldChoiceFeeds = [:]
     }
 
+    /// Weather checks the retry ladder gave up on: those cards say so and
+    /// offer Try again instead of a spinner that never stops (GO stays
+    /// locked). Cleared whenever a scoring pass starts.
+    @Published private(set) var weatherCheckGaveUp: Set<UUID> = []
+
+    /// A card's Try again: re-score only the routes still unchecked — a
+    /// re-score of a checked one on a bad connection could take its
+    /// verdict away — with a fresh retry ladder. In its own task, weather
+    /// only: the button shows just as riskHydrationTask starts the bridge
+    /// and hill checks, and cancelling them there landed every route's as
+    /// "no map data", marked done and never fetched again.
+    func retryWeatherCheck() {
+        weatherRetryTask?.cancel()
+        weatherRetryTask = Task { await scoreRouteWeather(onlyUnscored: true) }
+    }
+    private var weatherRetryTask: Task<Void, Never>?
+
+    /// A fresh scoring pass over every card, superseding the one still
+    /// running and any Try again.
+    private func restartRiskHydration() {
+        weatherRetryTask?.cancel()
+        riskHydrationTask?.cancel()
+        riskHydrationTask = Task { await hydrateRouteRisk() }
+    }
+
     private func hydrateRouteRisk() async {
+        await scoreRouteWeather(onlyUnscored: false)
+        // PHASE 2 — physical attributes (grades / clearances / FEMA / EV
+        // gaps): slow public fetches that hydrate AFTER the safety verdict.
+        // Runs even if the driver already hit GO — the finished attributes
+        // patch the live leg instead of the (cleared) choice cards.
+        let pending = routeChoices.isEmpty
+            ? [navigation.route].compactMap { $0 } : routeChoices
+        await withTaskGroup(of: Void.self) { group in
+            for r in pending {
+                group.addTask { await self.hydrateAttributes(r) }
+            }
+        }
+    }
+
+    /// PHASE 1 — the weather verdict GO waits on, then the retry ladder for
+    /// the routes whose fetches came back incomplete.
+    private func scoreRouteWeather(onlyUnscored: Bool) async {
+        weatherCheckGaveUp = []
         // The driver just asked for these routes and is watching the cards —
         // the whole phase-1 pass rides the planning-burst lane (elevated
         // in-flight ceiling, same bounded request set).
         await RequestGate.shared.withPlanningBurst {
+            let targets = onlyUnscored
+                ? self.routeChoices.filter { !$0.weatherScored } : self.routeChoices
             // FASTEST ROUTE FIRST: routeChoices arrive ETA-sorted, so the top
             // card — the one most drivers take — gets the entire burst lane to
             // itself and its GO unlocks in a few seconds; the alternates then
             // score concurrently, and cheaper than they look (they share most
             // of their corridor cells with the leader through the TTL cache).
-            let leadID = self.routeChoices.first?.id
-            if let lead = self.routeChoices.first {
+            // scoredChoice: a card fills in as its cells land; choices held
+            // behind the drive screen keep their feeds for themselves.
+            let leadID = targets.first?.id
+            if let lead = targets.first {
                 self.landScore(await self.scoredChoice(lead))
             }
             await withTaskGroup(of: PlannedRoute.self) { group in
-                for r in self.routeChoices where r.id != leadID {
+                for r in targets where r.id != leadID {
                     group.addTask { await self.scoredChoice(r) }
                 }
                 for await done in group { self.landScore(done) }
@@ -3543,16 +3689,9 @@ final class AppModel: ObservableObject {
                     }
                 }
             }
-        }
-        // PHASE 2 — physical attributes (grades / clearances / FEMA / EV
-        // gaps): slow public fetches that hydrate AFTER the safety verdict.
-        // Runs even if the driver already hit GO — the finished attributes
-        // patch the live leg instead of the (cleared) choice cards.
-        let pending = routeChoices.isEmpty
-            ? [navigation.route].compactMap { $0 } : routeChoices
-        await withTaskGroup(of: Void.self) { group in
-            for r in pending {
-                group.addTask { await self.hydrateAttributes(r) }
+            // The ladder is spent: the cards still unchecked say so.
+            if mode == .choosing, !Task.isCancelled {
+                weatherCheckGaveUp = Set(routeChoices.filter { !$0.weatherScored }.map(\.id))
             }
         }
     }
@@ -3570,7 +3709,9 @@ final class AppModel: ObservableObject {
         defer { attributeHydrationInFlight.remove(leg.id) }
         let done = await attributeScored(leg)
         if let i = routeChoices.firstIndex(where: { $0.id == done.id }) {
-            routeChoices[i] = done
+            // Only the attributes here too: a Try again may have landed the
+            // card's weather since `leg` was copied.
+            routeChoices[i].takeAttributes(from: done)
         } else if var live = navigation.route, live.id == done.id {
             // Only the attributes: the live leg may have been scored (the
             // off-route replan) or repainted by the corridor watch since
@@ -3580,11 +3721,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Keep the map's highlighted route consistent with the (filtered) list.
+    /// Keep the map's highlighted route consistent with the (filtered) list:
+    /// a route the driver tapped stays while it is listed; otherwise the
+    /// highlight is the top card.
     func ensureHighlightValid() {
         let visible = filteredChoices
-        if let hl = highlightedRouteID, visible.contains(where: { $0.id == hl }) { return }
-        highlightedRouteID = visible.first?.id
+        if highlightIsDriverChoice, let hl = highlightedRouteID,
+           visible.contains(where: { $0.id == hl }) { return }
+        highlightIsDriverChoice = false
+        if highlightedRouteID != visible.first?.id { highlightedRouteID = visible.first?.id }
     }
 
     /// Full FLOWS scoring for ONE route — alerts, field blend, segments,
@@ -3954,7 +4099,7 @@ final class AppModel: ObservableObject {
         r.hazardSummaries = summaries
         // GO is gated on this flag: a corridor whose NWS fetches FAILED must
         // not present as confidently clear (score.complete's documented
-        // contract). Incomplete routes keep "Scoring…" and hydrate retries.
+        // contract). Incomplete routes keep "Checking weather…" and hydrate retries.
         r.weatherScored = score.complete
         return (r, feeds)
     }
@@ -4236,7 +4381,8 @@ final class AppModel: ObservableObject {
         // is already on disk. Short in-town hops aren't stored.
         recordOfflineCorridor(for: route)
         // Start the delay model's training pair: what we promised, and when.
-        tripPredictedSeconds = route.eta
+        // Not for a walk: it would file a 3 mph trip as a crawling drive.
+        tripPredictedSeconds = route.isWalk ? nil : route.eta
         tripStartedAt = Date()
         tripStartArea = location.coordinate.map(TrafficArea.init)
         tripDistanceMeters = route.distanceMeters
@@ -5797,8 +5943,10 @@ final class AppModel: ObservableObject {
         }
         // PERSONAL ETA CORRECTION: what the app promised vs what the drive
         // actually took, with chosen stops discounted. The app knew both
-        // numbers and compared them nowhere.
-        if let started = legStartedAt, legPredictedSeconds > 0 {
+        // numbers and compared them nowhere. A walk teaches nothing about
+        // how this person drives.
+        if let started = legStartedAt, legPredictedSeconds > 0,
+           navigation.route?.isWalk != true {
             DrivingProfileStore.shared.recordArrival(
                 predicted: legPredictedSeconds,
                 actual: Date().timeIntervalSince(started),

@@ -17,6 +17,7 @@ import SwiftUI
 struct PlannerPanel: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
+    @Environment(\.openURL) private var openURL
     @Binding var camera: MapCameraPosition
     /// Compact layouts stack the choices panel ACROSS THE TOP, so a framed
     /// route has to sit in the map ABOVE it — the top of the screen is the
@@ -166,8 +167,9 @@ struct PlannerPanel: View {
                     .autocorrectionDisabled()
                     .onSubmit {
                         // Return walks to the start field when one is still
-                        // needed (no GPS); otherwise it plans.
-                        if showSourceField,
+                        // needed (no GPS and nothing to fall back on, or the
+                        // driver asked to type one); otherwise it plans.
+                        if showSourceField, !usingFallbackStart,
                            model.plannerSource.trimmingCharacters(in: .whitespaces).isEmpty {
                             focusedField = .source
                         } else {
@@ -234,6 +236,7 @@ struct PlannerPanel: View {
                     suggestionList(destSearch.suggestions) { sug in
                         destSearch.accept()
                         model.plannerDestination = sug.searchText
+                        model.plannerDestinationPick = sug.pick
                         listHold = nil
                         focusedField = nil
                         Task { await plan() }
@@ -273,6 +276,12 @@ struct PlannerPanel: View {
                     .scaledFont(.caption2, weight: .semibold)
                     .buttonStyle(.plain)
                     .foregroundStyle(.blue)
+                } else if model.location.denied, let url = locationSettingsURL {
+                    // The one way back to the permission after "Don't Allow".
+                    Button("Open Settings") { openURL(url) }
+                        .scaledFont(.caption2, weight: .semibold)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
                 }
             }
             if showSourceField {
@@ -298,6 +307,7 @@ struct PlannerPanel: View {
                         suggestionList(sourceSearch.suggestions) { sug in
                             sourceSearch.accept()
                             model.plannerSource = sug.searchText
+                            model.plannerSourcePick = sug.pick
                             // A filled start + a filled destination = ready; jump
                             // straight to planning. Otherwise walk to Where to?.
                             if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -416,7 +426,8 @@ struct PlannerPanel: View {
     /// click-swallow fallback gesture must always agree.
     private var planEnabled: Bool {
         !isWorking && !model.plannerDestination.isEmpty
-            && (hasGPS || !source.trimmingCharacters(in: .whitespaces).isEmpty)
+            && (hasGPS || usingFallbackStart
+                || !source.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     private func search() async {
@@ -448,20 +459,27 @@ struct PlannerPanel: View {
     }
 
     /// Plain-words error text — never surface raw framework errors like
-    /// "kCLErrorDomain error 8" (geocoder found nothing) to the driver.
+    /// "kCLErrorDomain error 8" (geocoder found nothing) to the driver
+    /// (RouteError.plainMessage, pinned by tests).
     private static func friendlyError(_ error: Error) -> String {
-        let ns = error as NSError
-        if ns.domain == kCLErrorDomain {
-            switch ns.code {
-            case 8: return "Couldn't find that place. Check the spelling or add a city or state."
-            case 2: return "No internet right now — try again when you're back in coverage."
-            default: return "Couldn't look that up right now. Try again in a moment."
-            }
-        }
-        if (error as? URLError) != nil {
-            return "No internet right now — try again when you're back in coverage."
-        }
-        return "Couldn't plan that route. Try again in a moment."
+        RouteError.plainMessage(for: error)
+    }
+
+    /// The system page where FLOWS's location switch lives.
+    private var locationSettingsURL: URL? {
+        #if os(iOS)
+        URL(string: UIApplication.openSettingsURLString)
+        #else
+        URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices")
+        #endif
+    }
+
+    /// Where a field's text plans to: the picked row's own point while the
+    /// field still holds its text, else a geocoder lookup.
+    private func resolve(_ text: String, pick: PlannerPick?) async throws
+        -> (CLLocationCoordinate2D, String) {
+        if let pick, pick.stands(for: text) { return (pick.coordinate, pick.name) }
+        return try await model.router.geocode(text, near: model.location.coordinate)
     }
 
     // MARK: favorites
@@ -513,11 +531,12 @@ struct PlannerPanel: View {
         guard !text.isEmpty else { return }
         errorMessage = nil
         do {
-            let (coord, name) = try await model.router.geocode(
-                text, near: model.location.coordinate)
-            model.favorites.add(FavoriteAddress(
-                name: name, symbol: symbol,
-                latitude: coord.latitude, longitude: coord.longitude))
+            // Named for what the driver typed, not the lookup's name
+            // (FavoriteAddress.typed).
+            let (coord, _) = try await resolve(text, pick: model.plannerDestinationPick)
+            if let favorite = FavoriteAddress.typed(text, symbol: symbol, at: coord) {
+                model.favorites.add(favorite)
+            }
         } catch {
             errorMessage = Self.friendlyError(error)
         }
@@ -525,7 +544,13 @@ struct PlannerPanel: View {
 
     private var sourceRowText: String {
         if usingGPSSource { return "From: Current Location" }
-        if usingFallbackStart, let p = model.bestKnownPosition { return "From: \(p.label) (no GPS)" }
+        // Location turned off for FLOWS is not "no GPS": say which, so the
+        // driver knows it can be turned back on.
+        let off = model.location.denied
+        if usingFallbackStart, let p = model.bestKnownPosition {
+            return "From: \(p.label) (\(off ? "location is off" : "no GPS"))"
+        }
+        if off { return "From: (location is off for FLOWS — turn it on, or enter a start)" }
         if !hasGPS { return "From: (no GPS on this device — enter a start)" }
         return "From:"
     }
@@ -546,18 +571,16 @@ struct PlannerPanel: View {
             let from: (CLLocationCoordinate2D, String)
             let to: (CLLocationCoordinate2D, String)
             FlowsDiag.log(.info, "plan", "start: source=\(usingGPSSource ? "gps" : usingFallbackStart ? "fallback" : "typed")")
+            // A field filled from a row with its own place (recent, map
+            // point, prediction) plans to that point with no lookup.
             if usingGPSSource || usingFallbackStart {
-                guard let start = model.bestKnownPosition else {
-                    throw RouteError.notFound("current location (no GPS fix yet)")
-                }
+                guard let start = model.bestKnownPosition else { throw RouteError.noStart }
                 from = (start.coordinate, start.label)
-                to = try await model.router.geocode(
-                    model.plannerDestination, near: model.location.coordinate)
+                to = try await resolve(model.plannerDestination, pick: model.plannerDestinationPick)
                 FlowsDiag.log(.info, "plan", "geocoded destination")
             } else {
-                async let fromF = model.router.geocode(source, near: model.location.coordinate)
-                to = try await model.router.geocode(
-                    model.plannerDestination, near: model.location.coordinate)
+                async let fromF = resolve(source, pick: model.plannerSourcePick)
+                to = try await resolve(model.plannerDestination, pick: model.plannerDestinationPick)
                 from = try await fromF
                 FlowsDiag.log(.info, "plan", "geocoded start and destination")
             }

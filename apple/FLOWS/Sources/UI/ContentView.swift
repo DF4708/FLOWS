@@ -3845,6 +3845,9 @@ private struct TripSummaryPill: View {
                 if model.navigation.route != nil { model.endNavigation() }
                 model.routeChoices = []
                 model.highlightedRouteID = nil
+                // The discarded plan's pins go with it: a tapped star still
+                // reported a detour off the route that no longer exists.
+                model.poi.reset()
                 // Walking is a per-choice mode, not a persistent setting:
                 // leaving it set made the NEXT plan silently request a
                 // pedestrian route (which can fail at driving distances),

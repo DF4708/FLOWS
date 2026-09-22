@@ -42,6 +42,19 @@ struct FavoriteAddress: Codable, Identifiable, Equatable {
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
+
+    /// A favorite starred in the planner, named for what the driver typed.
+    /// It took the lookup's name, which is the town for most addresses, so
+    /// two favorites in one town shared a name and the second replaced the
+    /// first — and the star, matching the typed text, never filled. nil for
+    /// a blank field.
+    static func typed(_ text: String, symbol: Symbol,
+                      at coordinate: CLLocationCoordinate2D) -> FavoriteAddress? {
+        let name = text.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return nil }
+        return FavoriteAddress(name: name, symbol: symbol,
+                               latitude: coordinate.latitude, longitude: coordinate.longitude)
+    }
 }
 
 /// Persisted favorites — sealed on disk under their OWN key.
