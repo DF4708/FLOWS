@@ -96,7 +96,7 @@ final class VehicleLink: NSObject, ObservableObject {
     // MARK: scanning lifecycle
 
     private func start() {
-        status = "Looking for tire sensors and car readers…"
+        status = "Looking for tire sensors and car plug-ins…"
         central = CBCentralManager(delegate: self, queue: .main)
         startMFiIfAvailable()
     }
@@ -126,7 +126,7 @@ final class VehicleLink: NSObject, ObservableObject {
             output.open()
             input.open()
             mfiSession = session
-            status = "Car reader connected (\(accessory.name))"
+            status = "Car plug-in connected (\(accessory.name))"
             // ELM init + fuel poll over the accessory streams. Stored so
             // stop() can actually end it — the Task.isCancelled guard was
             // dead code while nothing held the handle.
@@ -175,7 +175,7 @@ final class VehicleLink: NSObject, ObservableObject {
         if let fuel = Self.parseFuelReply(text) {
             obdFuelFraction = fuel
             obdFuelReadAt = Date()
-            status = String(format: "Car reader fuel: %.0f%%", fuel * 100)
+            status = String(format: "Fuel from the car plug-in: %.0f%%", fuel * 100)
         }
     }
     #else
@@ -214,7 +214,7 @@ final class VehicleLink: NSObject, ObservableObject {
         obdBuffer = ""
         obdFuelFraction = nil
         obdFuelReadAt = nil
-        if scanning { status = "Car reader disconnected — listening again" }
+        if scanning { status = "Car plug-in disconnected — listening again" }
     }
 }
 
@@ -223,7 +223,7 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         Task { @MainActor in
             switch central.state {
             case .poweredOn:
-                self.status = "Listening for tire sensors and car readers"
+                self.status = "Listening for tire sensors and car plug-ins"
                 central.scanForPeripherals(withServices: nil,
                                            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
             case .unauthorized:
@@ -255,7 +255,7 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 self.obdPeripheral = peripheral
                 peripheral.delegate = self
                 central.connect(peripheral)
-                self.status = "Connecting to \(name ?? "car reader")…"
+                self.status = "Connecting to \(name ?? "the car plug-in")…"
             }
         }
     }
@@ -315,7 +315,7 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 if let fuel = Self.parseFuelReply(self.obdBuffer) {
                     self.obdFuelFraction = fuel
                     self.obdFuelReadAt = Date()
-                    self.status = String(format: "Car reader fuel: %.0f%%", fuel * 100)
+                    self.status = String(format: "Fuel from the car plug-in: %.0f%%", fuel * 100)
                 }
                 self.obdBuffer = ""
             } else if self.obdBuffer.count > 4096 {
@@ -331,7 +331,7 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     /// ELM327 init + a fuel-level poll every 30 s.
     private func beginOBDPolling(_ peripheral: CBPeripheral) {
         guard obdPollTask == nil else { return }
-        status = "Car reader connected"
+        status = "Car plug-in connected"
         obdPollTask = Task { [weak self] in
             let setup = ["ATZ", "ATE0", "ATSP0"]
             for cmd in setup {

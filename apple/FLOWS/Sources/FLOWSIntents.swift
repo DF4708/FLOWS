@@ -453,10 +453,13 @@ struct RouteAheadIntent: AppIntent {
         let alerts = [model.imminentWarning?.event].compactMap { $0 }
             + (model.navigation.route?.alertEventsAhead(alongMeters: guidance.alongMeters) ?? [])
             + (model.upcomingLeg?.alertEventsAhead(alongMeters: 0) ?? [])
+        // Until the way on from an added stop is planned, the numbers and
+        // alerts reach only the stop, and the reply says so.
         var summary = SiriSummaries.roadAhead(
             remainingMeters: remaining.meters,
             remainingSeconds: remaining.seconds,
-            alertEvents: alerts)
+            alertEvents: alerts,
+            toStop: remaining.toStop ? model.pendingStopName : nil)
         // Trucker mode: the FMCSA break clock rides along once it matters.
         if model.truckerUI, let hos = SiriSummaries.hosLine(model.hosStatus) {
             summary += " " + hos

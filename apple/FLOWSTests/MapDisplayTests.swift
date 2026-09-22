@@ -132,6 +132,19 @@ final class MapDisplayTests: XCTestCase {
                        "a named warning keeps its symbol inside the area")
     }
 
+    /// A warning's badge is never minor: a zone warning has no outline, so
+    /// the route's badge is its only symbol. Watches and advisories may give
+    /// way to a badge nearby.
+    func testAWarningNeverGivesWayButAWatchMay() {
+        XCTAssertTrue(BadgeClustering.isWarning("Winter Storm Warning"))
+        XCTAssertTrue(BadgeClustering.isWarning("High Wind Warning"))
+        XCTAssertTrue(BadgeClustering.isWarning("Red Flag Warning"))
+        XCTAssertTrue(BadgeClustering.isWarning("Tornado Emergency"))
+        XCTAssertFalse(BadgeClustering.isWarning("Winter Storm Watch"))
+        XCTAssertFalse(BadgeClustering.isWarning("Wind Advisory"))
+        XCTAssertFalse(BadgeClustering.isWarning("Special Weather Statement"))
+    }
+
     func testNothingShownKeepsEveryRouteBadge() {
         let route = [item("hazard", lat: 43.0, lon: -89.0, score: 0.5),
                      item("flood", lat: 43.5, lon: -89.0, score: 0.7)]

@@ -57,6 +57,12 @@ struct PlannedRoute: Identifiable {
     var alertCoverage: Double = 0
     var alertHeadlines: [String] = []
     var alertEvents: [String] = []
+    /// Every alert the live watch found in its window of road ahead at its
+    /// last full pass — all of them, not only each check point's worst (a
+    /// Flood Warning inside a Severe Thunderstorm stretch is never the worst
+    /// anywhere, so the check points alone never name it). Empty until the
+    /// watch has run on this leg.
+    var watchedAlertEvents: [String] = []
     var alertPolygons: [WeatherAlertService.AlertPolygon] = []
     var weatherScored = false
     /// 0…1 fraction of this route's corridor alert cells already resolved —
@@ -239,12 +245,13 @@ struct PlannedRoute: Identifiable {
         attributesScored = hydrated.attributesScored
     }
 
-    /// The alerts on the road still ahead, worst first and each once: every
-    /// check point's worst alert, from the one the vehicle last passed (it
-    /// is inside that stretch) to the end, `alongMeters` into the route. The
-    /// live watch repaints the check points it covers, so an alert issued
-    /// mid-drive is named and one that has ended is not; `alertEvents` is
-    /// fixed at plan time. A route with no check points yet has only that.
+    /// The alerts on the road still ahead, each once: every alert the live
+    /// watch saw in its window (worst first), then every check point's worst
+    /// alert from the one the vehicle last passed (it is inside that
+    /// stretch) to the end, `alongMeters` into the route. The live watch
+    /// repaints the check points it covers, so an alert issued mid-drive is
+    /// named and one that has ended is not; `alertEvents` is fixed at plan
+    /// time. A route with no check points yet has only that.
     func alertEventsAhead(alongMeters: Double) -> [String] {
         guard !riskSamples.isEmpty else { return alertEvents }
         var start = 0
@@ -261,6 +268,7 @@ struct PlannedRoute: Identifiable {
                     ? $0.element.risk > $1.element.risk : $0.offset < $1.offset
             }
         var events: [String] = []
+        for event in watchedAlertEvents where !events.contains(event) { events.append(event) }
         for s in ahead {
             if let event = s.element.worstEvent, !events.contains(event) { events.append(event) }
         }

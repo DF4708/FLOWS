@@ -188,16 +188,21 @@ enum SiriSummaries {
 
     /// Reply for "how's the road ahead": distance + time left, then the
     /// weather alerts crossing the route — or an all-clear.
+    /// `toStop`: an added stop whose way on isn't planned yet — the numbers
+    /// and the alerts reach only as far as the stop, and the reply says so.
     static func roadAhead(remainingMeters: Double, remainingSeconds: Double,
-                          alertEvents: [String]) -> String {
+                          alertEvents: [String], toStop: String? = nil) -> String {
         var out = "About \(spokenMiles(meters: remainingMeters)) and "
-            + "\(spokenTime(seconds: remainingSeconds)) to go."
+            + "\(spokenTime(seconds: remainingSeconds)) "
+            + (toStop.map { "to \($0). The way on from there is still being planned." }
+                ?? "to go.")
         // One alert reads naturally; several get counted then named.
         let unique = alertEvents.reduce(into: [String]()) {
             if !$0.contains($1) { $0.append($1) }
         }
         if unique.isEmpty {
-            out += " No weather alerts on the route."
+            out += toStop == nil ? " No weather alerts on the route."
+                                 : " No weather alerts on the way there."
         } else if unique.count == 1 {
             out += " One weather alert ahead: \(unique[0])."
         } else {

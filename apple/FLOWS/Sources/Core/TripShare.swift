@@ -42,14 +42,22 @@ enum TripShareLogic {
     /// unambiguously everywhere. The map link opens Apple Maps on Apple
     /// devices and a browser map elsewhere; a missing destination coordinate
     /// simply drops the line rather than pointing at 0,0 in the Atlantic.
+    /// `firstStop`: an added stop whose way on isn't planned yet — `arrival`
+    /// is the time at the stop, so the text says it is, and still names the
+    /// trip's true end.
     static func shareMessage(destination: String, arrival: Date,
-                             latitude: Double?, longitude: Double?) -> String {
+                             latitude: Double?, longitude: Double?,
+                             firstStop: String? = nil) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "h:mm a"
-        var lines = [
+        let time = formatter.string(from: arrival)
+        var lines = firstStop.map { stop in
+            ["On my way to \(destination), stopping at \(stop) first.",
+             "I should get to \(stop) around \(time)."]
+        } ?? [
             "On my way to \(destination).",
-            "I should get there around \(formatter.string(from: arrival)).",
+            "I should get there around \(time).",
         ]
         if let latitude, let longitude {
             lines.append(String(format: "Map: https://maps.apple.com/?daddr=%.5f,%.5f",

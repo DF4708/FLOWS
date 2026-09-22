@@ -410,6 +410,14 @@ final class RadioAndSpotifyTests: XCTestCase {
                                     alertEvents: ["Flood Warning", "High Wind Warning"]),
             "About 8 miles and 12 minutes to go. "
             + "2 weather alerts ahead: Flood Warning, High Wind Warning.")
+        // The way on from an added stop not planned yet: the numbers and the
+        // alert check reach only the stop, and the reply says so.
+        XCTAssertEqual(
+            SiriSummaries.roadAhead(remainingMeters: 5 * 1609.344,
+                                    remainingSeconds: 6 * 60,
+                                    alertEvents: [], toStop: "Kwik Trip"),
+            "About 5 miles and 6 minutes to Kwik Trip. The way on from there is "
+            + "still being planned. No weather alerts on the way there.")
     }
 
     // MARK: Siri add-a-stop name matching

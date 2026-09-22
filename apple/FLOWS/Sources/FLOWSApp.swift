@@ -835,37 +835,39 @@ final class AppModel: ObservableObject {
         return await playGenreRadio(term, announce: false)
     }
 
-    func playMusicAsk(_ term: String) {
+    /// `announce`: say what is playing. A driver's own ask always does; the
+    /// switch-back after a lost signal passes the voice setting — an
+    /// unasked-for line.
+    func playMusicAsk(_ term: String, announce: Bool = true) {
         // A driver-initiated ask outranks any pending switch-back. (The
         // restore clears that state before calling here, so its own call
         // is a no-op.)
         cancelOfflineHandoff()
         lastMusicAsk = term
+        let say: (String) -> Void = { if announce { VoiceAnnouncer.shared.announce($0) } }
         // No streaming service: free public radio IS the music service.
         if musicProvider == .radio {
-            Task { await playGenreRadio(term) }
+            Task { await playGenreRadio(term, announce: announce) }
             return
         }
         if musicProvider == .appleMusic {
             MusicController.shared.playSearchOrGenre(term)
-            VoiceAnnouncer.shared.announce("Playing \(term).")
+            say("Playing \(term).")
             return
         }
         if musicProvider == .spotify, SpotifyRemote.shared.linked {
             Task { [weak self] in
                 if await SpotifyRemote.shared.playSearch(term) {
-                    VoiceAnnouncer.shared.announce("Playing \(term) on Spotify.")
+                    say("Playing \(term) on Spotify.")
                 } else if let self {
                     self.musicProvider.openSearch(query: term)
-                    VoiceAnnouncer.shared.announce(
-                        "Opening Spotify's search for \(term).")
+                    say("Opening Spotify's search for \(term).")
                 }
             }
             return
         }
         musicProvider.openSearch(query: term)
-        VoiceAnnouncer.shared.announce(
-            "Opening \(musicProvider.displayName) — \(term).")
+        say("Opening \(musicProvider.displayName) — \(term).")
     }
 
     /// One spoken radio ask: "weather" tunes the nearest NOAA relay;
@@ -951,7 +953,7 @@ final class AppModel: ObservableObject {
                 PlaybackFallback.restoreLine(service: previous.displayName))
         }
         if let ask = lastMusicAsk {
-            playMusicAsk(ask)
+            playMusicAsk(ask, announce: voiceAlerts)   // unasked-for, like the line above
         } else {
             MusicController.shared.resumeRecent()
         }
@@ -1236,7 +1238,9 @@ final class AppModel: ObservableObject {
                                 label: preStagedLabel.isEmpty ? genre : preStagedLabel)
                 preStagedStations = []
             } else {
-                Task { await playGenreRadio(genre) }
+                // Unasked-for: the voice setting decides whether it's said.
+                let say = voiceAlerts
+                Task { await playGenreRadio(genre, announce: say) }
             }
         case .nothingAvailable, .keepPlaying:
             break
@@ -2655,7 +2659,7 @@ final class AppModel: ObservableObject {
         // (VoiceAnnouncer.releaseSessionWhenQuiet), never from under the
         // crash check-in or FLOWS's own sound.
         VoiceAnnouncer.shared.checkInHoldsSession = { [weak self] in
-            self.map { $0.crash.state != .idle } ?? false
+            self.map { $0.crash.state != .idle || $0.crash.isSpeaking } ?? false
         }
         VoiceAnnouncer.shared.ownAudioPlaying = { [weak self] in
             guard let self else { return false }
@@ -2898,23 +2902,18 @@ final class AppModel: ObservableObject {
     /// The prefilled text for the CURRENT trip: true endpoint (not an added
     /// stop), live arrival estimate (shelter delay and the way on from an
     /// added stop included), map link. Until the way on is planned, the stop
-    /// is the one arrival FLOWS can stand behind, so the text names it.
+    /// is the one arrival FLOWS can stand behind, so the time is given for
+    /// the stop and the text says so.
     func tripShareBody() -> String {
         let remaining = tripRemaining
         let legEnd = navigation.route.flatMap { Self.lastCoordinate(of: $0) }
-        let destination: String
-        let coordinate: CLLocationCoordinate2D?
-        if remaining?.toStop == true, let stop = pendingStopName {
-            destination = stop
-            coordinate = legEnd
-        } else {
-            destination = finalDestination?.name ?? navigation.route?.destinationName ?? "my stop"
-            coordinate = finalDestination?.coordinate ?? legEnd
-        }
+        let destination = finalDestination?.name ?? navigation.route?.destinationName ?? "my stop"
+        let coordinate = finalDestination?.coordinate ?? legEnd
         return TripShareLogic.shareMessage(
             destination: destination,
             arrival: Date().addingTimeInterval(remaining?.seconds ?? adjustedRemainingTime(0)),
-            latitude: coordinate?.latitude, longitude: coordinate?.longitude)
+            latitude: coordinate?.latitude, longitude: coordinate?.longitude,
+            firstStop: remaining?.toStop == true ? pendingStopName : nil)
     }
 
     /// Messages URL for this trip to `phone` — the view opens it (openURL
@@ -4632,7 +4631,10 @@ final class AppModel: ObservableObject {
         // two endpoint samples) — and bump the version the map keys on.
         if score.complete, var live = navigation.route, !live.riskSamples.isEmpty {
             var samples = live.riskSamples
-            var changed = false
+            // Every alert in the window, for "how's the road ahead": the
+            // check points keep only their worst.
+            var changed = live.watchedAlertEvents != score.events
+            live.watchedAlertEvents = score.events
             for (w, r) in zip(score.samples, sampleRisks) {
                 var bi = -1
                 var bd = 600.0   // a window sample belongs to the route sample within 600 m
@@ -5553,8 +5555,11 @@ final class AppModel: ObservableObject {
         trafficOfferBlocked = false
         trafficOfferRiskier = riskier
         guard notifyTraffic || driverAsked else { return }
-        pendingVoiceOffer = .fasterRoute
         if hapticAlerts { Haptics.offer() }   // chip just appeared
+        // A trip planned mid-drive is waiting for its spoken yes: "go ahead"
+        // stays that trip's, and the faster road is offered on the chip only.
+        if case .trip? = pendingVoiceOffer { return }
+        pendingVoiceOffer = .fasterRoute
         guard voiceAlerts else { return }
         VoiceAnnouncer.shared.announce(
             SiriSummaries.fasterRouteOffer(minutes: minutes, riskier: riskier),
@@ -5675,8 +5680,7 @@ final class AppModel: ObservableObject {
         let staged = stagedFasterRoute
         let minutes = trafficDelayMinutes
         trafficDelayMinutes = nil
-        clearTrafficOffer()
-        pendingVoiceOffer = nil
+        clearTrafficOffer()   // drops the traffic yes; a trip waiting for its yes keeps it
         // The yes is to the road FLOWS weighed and offered: that one (to the
         // end of this leg, a stop kept, the driver's road choices kept), while
         // it is fresh and the car can still reach its turn-off.

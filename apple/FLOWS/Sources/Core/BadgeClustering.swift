@@ -149,6 +149,17 @@ enum BadgeClustering {
     /// sits that close or it lies inside one of the shown `areas`: two
     /// symbols for one area. Any other badge stays, since different hazards
     /// may share an area (the rule `cluster` keeps).
+    /// Whether an alert event is a warning (or an emergency) — never a
+    /// `minor` badge. Winter storms, high wind, extreme heat and cold and red
+    /// flags are zone warnings with no outline on the map: the route's badge
+    /// is their only symbol, and giving way to a nearby badge of another
+    /// kind took them off the map. Watches, advisories and statements can
+    /// give way.
+    static func isWarning(_ event: String) -> Bool {
+        let lower = event.lowercased()
+        return lower.contains("warning") || lower.contains("emergency")
+    }
+
     static func unshown<Kind: Hashable>(
         _ badges: [Item<Kind>], shown: [Item<Kind>], areas: [[CLLocationCoordinate2D]],
         mergeMeters: CLLocationDistance, minor: (Item<Kind>) -> Bool

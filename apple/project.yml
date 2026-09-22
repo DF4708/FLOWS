@@ -361,7 +361,6 @@ targets:
       # centred panel — which the chrome-fit tests pin.
       - path: FLOWS/Sources/Core/GoldenScale.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
-      - path: FLOWS/Sources/Core/SmartcarLink.swift
       - path: FLOWS/Sources/Core/TruckerRadio.swift
       - path: FLOWS/Sources/Core/RadioBrowser.swift
       - path: FLOWS/Sources/Core/MusicController.swift

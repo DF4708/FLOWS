@@ -1955,6 +1955,7 @@ struct ContentView: View {
                 guard let event = events[badge.stableID] else {
                     return badge.kind == HazardStyle.generic
                 }
+                if BadgeClustering.isWarning(event) { return false }
                 return RiskEquations.alertFamily(event)
                     .map { RiskEquations.secondaryFamilies.contains($0) } ?? false
             })

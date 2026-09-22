@@ -250,16 +250,24 @@ final class CrashDetectionService: ObservableObject {
         releaseAudioSessionWhenQuiet()
     }
 
+    /// The check-in's own voice is still talking ("Okay. Glad you're safe."
+    /// plays after the state is back to idle): FLOWS's other voices must not
+    /// hand the audio session back from under it.
+    var isSpeaking: Bool { synthesizer.isSpeaking }
+
     /// After the last utterance, hand the audio session back — the check-in
     /// activates it with .duckOthers, and without an explicit deactivation
-    /// the driver's music stays ducked for the rest of the drive.
+    /// the driver's music stays ducked for the rest of the drive. Not from
+    /// under another FLOWS voice mid-line.
     private func releaseAudioSessionWhenQuiet() {
         Task { @MainActor [weak self] in
             var waited = 0
             while self?.synthesizer.isSpeaking == true, waited < 100 {
                 try? await Task.sleep(for: .milliseconds(100)); waited += 1
             }
-            guard let self, self.state == .idle, self.audioEngine == nil else { return }
+            guard let self, self.state == .idle, self.audioEngine == nil,
+                  !VoiceAnnouncer.shared.isSpeaking, !DriveVoice.shared.isSpeaking
+            else { return }
             try? AVAudioSession.sharedInstance().setActive(
                 false, options: .notifyOthersOnDeactivation)
         }
@@ -450,6 +458,7 @@ final class CrashDetectionService: ObservableObject {
     func stopWatching() {}
     func requestAssistance() {}
     func standDown() {}
+    var isSpeaking: Bool { false }
     func resolveAddress() {}
     func emergencyReport() -> String { "" }
     #endif

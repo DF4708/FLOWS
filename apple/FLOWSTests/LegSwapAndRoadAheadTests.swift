@@ -155,6 +155,25 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
                                                   filters: towing, limits: FilterLimits(),
                                                   calmest: true)?.id,
                        calmRed.id)
+        // A grade is no wall: a rig climbs 6.3%, slowly. A steep Clear road
+        // beats a gentle Red one in a Tornado Warning.
+        var steepClear = scored(0.2)
+        steepClear.maxGradePercent = 6.3
+        var gentleRed = scored(0.9)
+        gentleRed.maxGradePercent = 5.5
+        XCTAssertEqual(FasterRoutePolicy.swapPick([gentleRed, steepClear], leg: leg,
+                                                  filters: towing, limits: FilterLimits(),
+                                                  calmest: true)?.id,
+                       steepClear.id)
+        // Between two roads at one level, the grade still counts.
+        var steepGreen = scored(0.5)
+        steepGreen.maxGradePercent = 6.3
+        var gentleGreen = scored(0.55)
+        gentleGreen.maxGradePercent = 5.5
+        XCTAssertEqual(FasterRoutePolicy.swapPick([steepGreen, gentleGreen], leg: leg,
+                                                  filters: towing, limits: FilterLimits(),
+                                                  calmest: true)?.id,
+                       gentleGreen.id)
     }
 
     /// The level a reroute escapes by: Clear and Green are one low level.
@@ -242,6 +261,13 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         var unscored = route()
         unscored.alertEvents = ["Flood Warning"]
         XCTAssertEqual(unscored.alertEventsAhead(alongMeters: 0), ["Flood Warning"])
+        // An alert that is never the worst at any check point (a Flood
+        // Warning inside a Tornado Warning stretch) is still named once the
+        // live watch has seen it; the watch's list leads, each alert once.
+        var watched = scoredLeg()
+        watched.watchedAlertEvents = ["Tornado Warning", "Flash Flood Warning"]
+        XCTAssertEqual(watched.alertEventsAhead(alongMeters: 15_000),
+                       ["Tornado Warning", "Flash Flood Warning", "Wind Advisory"])
     }
 
     // MARK: warning shapes on the driven route

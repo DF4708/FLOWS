@@ -185,9 +185,12 @@ enum FasterRoutePolicy {
     static let safetyFilters: Set<RouteFilter> =
         [.lowBridges, .bridgeWeight, .mountainGrades, .noFloodRisk, .noHighWinds]
 
-    /// The safety filters about the rig fitting the road — its bridges,
-    /// weights and grades — rather than the weather on it.
-    static let rigFilters: Set<RouteFilter> = [.lowBridges, .bridgeWeight, .mountainGrades]
+    /// The safety filters about the rig physically fitting the road — a
+    /// bridge it can't pass under or a weight sign it's over — rather than
+    /// the weather on it: a road like that is no way out of anything.
+    /// Grades aren't here: a rig can climb a 6% grade, slowly, and a steep
+    /// Clear road is a better escape than a gentle Red one.
+    static let rigFilters: Set<RouteFilter> = [.lowBridges, .bridgeWeight]
 
     /// The risk level a reroute away from risk escapes by: Red above Yellow
     /// above the rest. The owner counts Clear and Green as one low level
@@ -209,11 +212,12 @@ enum FasterRoutePolicy {
     /// scored, its attributes not loaded) passes, as it does on the route
     /// cards. nil when there is no candidate.
     ///
-    /// `calmest`: a reroute away from risk. Only the rig's own limits come
-    /// before the risk level (a road the rig can't pass is no way out); then
-    /// the weather filters, the road choices, and the lowest risk, ties to
-    /// the sooner arrival. A toll or a crosswind filter must never hold the
-    /// driver on a riskier road than one that is there to take.
+    /// `calmest`: a reroute away from risk. Only the rig's own bridges and
+    /// weight signs come before the risk level (a road the rig can't pass is
+    /// no way out); then the other safety filters (grades, wind, flood), the
+    /// road choices, and the lowest risk, ties to the sooner arrival. A toll,
+    /// a crosswind or a grade filter must never hold the driver on a riskier
+    /// road than one that is there to take.
     static func swapPick(_ candidates: [PlannedRoute], leg: PlannedRoute,
                          filters: Set<RouteFilter>, limits: FilterLimits,
                          calmest: Bool) -> PlannedRoute? {

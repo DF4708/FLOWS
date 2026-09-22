@@ -105,6 +105,22 @@ final class TripShareTests: XCTestCase {
             """)
     }
 
+    /// An added stop whose way on isn't planned yet: the time is the stop's,
+    /// and the text says so while still naming the trip's true end.
+    func testShareMessageSaysTheTimeIsForTheStop() {
+        let arrival = Date(timeIntervalSince1970: 1_772_750_400)
+        let clock = DateFormatter()
+        clock.locale = Locale(identifier: "en_US_POSIX")
+        clock.dateFormat = "h:mm a"
+        let message = TripShareLogic.shareMessage(
+            destination: "Denver, CO", arrival: arrival,
+            latitude: nil, longitude: nil, firstStop: "Kwik Trip")
+        XCTAssertEqual(message, """
+            On my way to Denver, CO, stopping at Kwik Trip first.
+            I should get to Kwik Trip around \(clock.string(from: arrival)).
+            """)
+    }
+
     func testShareMessageDropsTheMapLineWithoutACoordinate() {
         let message = TripShareLogic.shareMessage(
             destination: "Home", arrival: Date(timeIntervalSince1970: 1_772_750_400),

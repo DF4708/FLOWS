@@ -92,7 +92,7 @@ final class SmartcarLink: ObservableObject {
         let returnedState = items?.first(where: { $0.name == "state" })?.value
         guard let expected = oauthState, returnedState == expected else {
             oauthState = nil
-            status = "Connection rejected (state mismatch)."
+            status = "That sign-in didn't match this app — tap Connect to try again."
             return
         }
         oauthState = nil
@@ -100,7 +100,7 @@ final class SmartcarLink: ObservableObject {
             status = "Connection cancelled."
             return
         }
-        status = "Exchanging tokens…"
+        status = "Finishing sign-in…"
         await exchange(body: "grant_type=authorization_code&code=\(code)"
                        + "&redirect_uri=\(Self.redirectURI)")
         if connected { await refreshData() }
@@ -153,7 +153,7 @@ final class SmartcarLink: ObservableObject {
             hasAccessToken: access != nil)
         guard outcome == .ok, let access else {
             status = outcome == .rejected
-                ? "Token exchange failed — check Client ID/Secret."
+                ? "Smartcar said no — check the Client ID and Secret."
                 : "Can't reach Smartcar right now."
             return outcome
         }
@@ -226,8 +226,8 @@ final class SmartcarLink: ObservableObject {
             }
             if !out.isEmpty { tirePressuresPsi = out }
         }
-        status = fuelFraction.map { String(format: "Cloud fuel: %.0f%%", $0 * 100) }
-            ?? "Connected (no fuel endpoint on this model)."
+        status = fuelFraction.map { String(format: "Fuel from your car: %.0f%%", $0 * 100) }
+            ?? "Connected — this car doesn't share its fuel level."
     }
 
     func disconnect() {
