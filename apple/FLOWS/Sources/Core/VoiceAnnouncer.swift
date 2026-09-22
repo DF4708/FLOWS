@@ -49,9 +49,18 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     #if os(iOS)
     /// The user's own Personal Voice (Settings → Accessibility), used for
     /// FLOWS's speech when the toggle is on and the system granted access.
-    /// nil = the default system voice.
-    private var personalVoice: AVSpeechSynthesisVoice?
+    /// nil = the default system voice. DriveVoice's advisories read it too.
+    private(set) var personalVoice: AVSpeechSynthesisVoice?
+    /// A pending hand-back of the audio session (releaseSessionWhenQuiet).
+    private var releaseTask: Task<Void, Never>?
     #endif
+
+    /// Set by AppModel: the crash check-in holds the audio session — it
+    /// speaks, then listens, and hands the session back itself.
+    var checkInHoldsSession: () -> Bool = { false }
+    /// Set by AppModel: FLOWS's own sound is playing (a station on the air,
+    /// the dispatch feed). Handing the session back would stop it.
+    var ownAudioPlaying: () -> Bool = { false }
 
     /// The reply listener waits for this before opening the microphone —
     /// otherwise it would transcribe FLOWS's own question. Lines still
@@ -84,11 +93,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// no close should cut (a turn direction, a music reply).
     func announce(_ text: String, topic: String? = nil) {
         guard !text.isEmpty else { return }
-        #if os(iOS)
-        try? AVAudioSession.sharedInstance().setCategory(
-            .playback, mode: .spokenAudio, options: [.duckOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
-        #endif
+        activateSpokenSession()
         // A line whose finish report never came must not hold up every
         // later one, turn directions included.
         if queue.isBusy, !synthesizer.isSpeaking,
@@ -120,6 +125,37 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         synthesizer.stopSpeaking(at: .immediate)
     }
 
+    /// The session every spoken line plays in: plain playback (lines never
+    /// listen), with the driver's music and radio ducked under it.
+    func activateSpokenSession() {
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setCategory(
+            .playback, mode: .spokenAudio, options: [.duckOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+        #endif
+    }
+
+    /// Hand the audio session back once FLOWS has nothing left to say or
+    /// hear, so music ducked under a line comes back up. Nothing did: the
+    /// driver's music stayed ducked for the rest of the drive after the
+    /// first turn direction (the crash voice learned this first). Not from
+    /// under FLOWS's own sound or the crash check-in, which still need it.
+    func releaseSessionWhenQuiet() {
+        #if os(iOS)
+        releaseTask?.cancel()
+        releaseTask = Task { [weak self] in
+            // A beat for the synthesizer to let go of the output, and for a
+            // line queued right behind this one to start.
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self, !Task.isCancelled, !self.isSpeaking,
+                  !DriveVoice.shared.isSpeaking, !VoiceReply.shared.isListening,
+                  !self.checkInHoldsSession(), !self.ownAudioPlaying() else { return }
+            try? AVAudioSession.sharedInstance().setActive(
+                false, options: .notifyOthersOnDeactivation)
+        }
+        #endif
+    }
+
     private func start(_ entry: SpeechLineQueue<String>.Entry) {
         let utterance = AVSpeechUtterance(string: entry.line)
         utterance.rate = 0.5
@@ -135,7 +171,11 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     private func lineEnded(_ id: ObjectIdentifier) {
         guard let current = playing, ObjectIdentifier(current.utterance) == id else { return }
         playing = nil
-        if let next = queue.finished(serial: current.serial) { start(next) }
+        if let next = queue.finished(serial: current.serial) {
+            start(next)
+        } else {
+            releaseSessionWhenQuiet()
+        }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,

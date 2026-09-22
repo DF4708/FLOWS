@@ -193,6 +193,21 @@ enum CrashLogic {
         lines.append("Driver may need assistance — please check on them.")
         return lines.joined(separator: "\n")
     }
+
+    /// What the help card tells the driver to do. Sending the report and
+    /// calling the contact are steps only when a contact's number is saved:
+    /// the card has no button for either otherwise, and the voice already
+    /// leaves them out then.
+    static func assistSteps(contactName: String, hasContactPhone: Bool) -> String {
+        guard hasContactPhone else {
+            return "Call 911 — one tap. The report below is read out loud "
+                + "so you can tell the operator."
+        }
+        let contact = contactName.isEmpty ? "your contact" : contactName
+        return "Step 1 — call 911 (one tap; the report below is read out loud "
+            + "so you can tell the operator). Step 2 — send the report to "
+            + "\(contact). Step 3 — call them."
+    }
 }
 
 /// FMCSA §395.3 hours-of-service checkpoints for the trucker HUD timer:

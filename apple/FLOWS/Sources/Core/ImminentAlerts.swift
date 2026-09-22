@@ -44,6 +44,10 @@ enum ImminentAlerts {
         case restArea
         /// Elevated but not actionable — banner only.
         case monitor
+
+        /// The red pair. A red card stays until the driver presses it, is
+        /// never cut short on screen, and sits above every convenience card.
+        var isRed: Bool { self == .shelter || self == .lookout }
     }
 
     /// Is this a life-safety event by name — the vocabulary above?

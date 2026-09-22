@@ -78,12 +78,32 @@ final class DriveVoice: NSObject {
     /// same advisory can be spoken again on a later trip.
     func reset() { lastSpoken = nil }
 
+    /// A line is playing or queued (VoiceAnnouncer waits for quiet before
+    /// handing the audio session back).
+    var isSpeaking: Bool { queue.isBusy }
+
     private func start(_ entry: SpeechLineQueue<String>.Entry) {
         #if canImport(AVFoundation)
         // Duck rather than stop: navigation prompts and music share this
-        // road, and an advisory should not kill either outright.
+        // road, and an advisory should not kill either outright. It set no
+        // session at all, so a line spoken first stopped the music (and the
+        // silent switch muted it). The crash check-in's session and a reply
+        // being listened for are left alone: switching either to playback
+        // would shut its microphone (a yes to a faster road was lost under
+        // a camera line).
+        let announcer = VoiceAnnouncer.shared
+        #if os(iOS)
+        let listening = announcer.checkInHoldsSession() || VoiceReply.shared.isListening
+        #else
+        let listening = announcer.checkInHoldsSession()
+        #endif
+        if !listening { announcer.activateSpokenSession() }
         let utterance = AVSpeechUtterance(string: entry.line)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        #if os(iOS)
+        // The driver's Personal Voice, like every other FLOWS line.
+        if let voice = announcer.personalVoice { utterance.voice = voice }
+        #endif
         playing = (entry.serial, utterance, .now)
         synthesizer.speak(utterance)
         #endif
@@ -93,7 +113,11 @@ final class DriveVoice: NSObject {
     private func lineEnded(_ id: ObjectIdentifier) {
         guard let current = playing, ObjectIdentifier(current.utterance) == id else { return }
         playing = nil
-        if let next = queue.finished(serial: current.serial) { start(next) }
+        if let next = queue.finished(serial: current.serial) {
+            start(next)
+        } else {
+            VoiceAnnouncer.shared.releaseSessionWhenQuiet()
+        }
     }
     #endif
 }

@@ -2233,6 +2233,12 @@ private struct PlanningChrome: View {
         }
     }
 
+    /// A red alert is up. It sits above every convenience card: it is sized
+    /// before the planner and the route list, and the vehicle nag waits.
+    private var redAlertUp: Bool {
+        model.imminentWarning?.action.isRed == true
+    }
+
     /// What arrives at the top while planning: the offline pill and a red
     /// alert (a red alert matters while planning too — the HUD's banner).
     /// The pill lies flat; the alert scrolls in its own region when the
@@ -2244,7 +2250,9 @@ private struct PlanningChrome: View {
                 OfflinePill()
                     .chromeRegion("offline-pill")
             }
-            ScrollWhenTight {
+            // Up to a third of the window, like the drive screen's alerts:
+            // sized first, it must still leave the planner room to type.
+            ScrollWhenTight(maxHeight: golden.size.height / 3) {
                 if let warning = model.imminentWarning {
                     ImminentBannerView(
                         warning: warning, isCompact: isCompact,
@@ -2307,6 +2315,10 @@ private struct PlanningChrome: View {
                         .frame(maxWidth: .infinity)
                     compactGearCorner
                 }
+                // A red alert is sized before the planner and the route
+                // list; with the keyboard up it lost its last lines and its
+                // Official alert row to them.
+                .layoutPriority(redAlertUp ? 2 : 0)
                 // EVERYTHING ELSE HANGS FROM THE BOTTOM. The top of a
                 // phone screen is the most valuable map there is — it is
                 // the road ahead — so no card is allowed to sit up there
@@ -2329,9 +2341,11 @@ private struct PlanningChrome: View {
                 } else {
                     // The vehicle nag waits while a card the driver just
                     // opened needs the room (a phone with the keyboard up
-                    // cannot fit both above the planner).
+                    // cannot fit both above the planner), and while a red
+                    // alert is up: it sat over the alert's Official alert row.
                     cardsAbovePlanner(
-                        showsNag: model.needsVehicleOnboarding && detailCards == nil,
+                        showsNag: model.needsVehicleOnboarding && detailCards == nil
+                            && !redAlertUp,
                         nagWidth: nil)
                     PlannerPanel(camera: $camera)     // planner bottom-center
                         // The planner the driver is typing into gets its room
@@ -2392,13 +2406,17 @@ private struct PlanningChrome: View {
                                 .frame(width: columnWidth, alignment: .trailing)
                         }
                     }
+                    // A red alert is sized before the planner (see the
+                    // phone layout above).
+                    .layoutPriority(redAlertUp ? 2 : 0)
                     // Empty map takes only what the rows leave.
                     Spacer(minLength: 0)
                         .layoutPriority(-1)
                     // Planner bottom-center, with the vehicle nag stacked
                     // directly above it rather than floating on a
                     // phone-tuned padding that lands mid-map on a tablet.
-                    cardsAbovePlanner(showsNag: model.needsVehicleOnboarding,
+                    // The nag waits while a red alert is up.
+                    cardsAbovePlanner(showsNag: model.needsVehicleOnboarding && !redAlertUp,
                                       nagWidth: golden.sidePanel)
                     PlannerPanel(camera: $camera)
                         .frame(width: golden.sidePanel)
@@ -2901,7 +2919,9 @@ struct WelcomeCard: View {
                               "Music library — the first time you press play")
                 permissionRow("mic.fill",
                               "Microphone and speech — the first time you "
-                              + "answer FLOWS by voice")
+                              + "answer FLOWS by voice, or on iPhone at your "
+                              + "first trip, so FLOWS can hear you if it asks "
+                              + "after a crash")
                 Button {
                     model.completeOnboarding()
                 } label: {
@@ -3052,21 +3072,22 @@ struct SettingsSheet: View {
                     get: { model.scanner.enabled },
                     set: { model.scanner.enabled = $0 }))
                     .scaledFont(.caption)
-                Text("Local dispatch is transcribed ON THIS PHONE — the audio "
-                     + "is never uploaded, saved, or played. Calls show as "
-                     + "small pins near you and along your route, and fade "
-                     + "out on their own. Heard on a radio, so treat them as "
-                     + "a heads-up, not a fact.")
+                Text("FLOWS listens to local police and fire radio and turns "
+                     + "it into words ON THIS PHONE — the sound is never sent "
+                     + "anywhere, saved, or played. Calls show as small pins "
+                     + "near you and along your route, and fade out on their "
+                     + "own. They were heard on a radio, so treat them as a "
+                     + "heads-up, not a fact.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 if let status = model.scanner.status {
                     Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
                 }
             } else {
-                Text("No feed list is set up on this device, so there is "
-                     + "nothing to listen to. Feeds come from whoever holds "
-                     + "the listening agreement — drop a scanner_feeds.json "
-                     + "into the app's Application Support folder.")
+                // How a feed list is installed is setup work, written up
+                // for whoever sets it up (docs/ARCHITECTURE.md).
+                Text("No police or fire radio is set up on this device yet, "
+                     + "so there is nothing to listen to.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -3139,14 +3160,19 @@ struct SettingsSheet: View {
             Text("Notifications")
                 .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.notifyImminent) {
-                Text("Imminent weather + emergency broadcasts").scaledFont(.caption)
+                Text("Storm and emergency warnings just ahead").scaledFont(.caption)
             }
             Toggle(isOn: $model.notifyEscalation) {
-                Text("Rising-risk reroute prompts").scaledFont(.caption)
+                Text("Warn me when my route gets riskier").scaledFont(.caption)
             }
             Toggle(isOn: $model.notifyTraffic) {
-                Text("Traffic delay chips").scaledFont(.caption)
+                Text("Show traffic jams and road work").scaledFont(.caption)
             }
+            Text("Off hides them, and FLOWS stops asking about faster roads. "
+                 + "It still takes a faster road on its own when it is just "
+                 + "as safe.")
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
             Toggle(isOn: $model.voiceAlerts) {
                 Text("Speak alerts and faster-route offers out loud "
                      + "(answer with a plain yes or no)").scaledFont(.caption)
@@ -3155,17 +3181,21 @@ struct SettingsSheet: View {
                 Text("Turn-by-turn voice directions").scaledFont(.caption)
             }
             Toggle(isOn: $model.notifyFuel) {
-                Text("Fuel range reminders + refuel check-ins").scaledFont(.caption)
+                Text("Remind me when to get fuel").scaledFont(.caption)
             }
             Toggle(isOn: $model.crashDetectionEnabled) {
-                Text("Crash detection (iPhone: impact → voice check-in)").scaledFont(.caption)
+                Text("Ask if I'm OK after a crash (iPhone)").scaledFont(.caption)
             }
             Toggle(isOn: $model.radioAutoSwitch) {
                 Text("Trucker radio auto-retunes to the nearest station").scaledFont(.caption)
             }
+            // Part of the fuel reminders: with those off it asks nothing,
+            // so it greys out rather than show an ON that does nothing.
             Toggle(isOn: $model.refuelCheckInsEnabled) {
-                Text("Refuel gauge check-ins (train range prediction to 80%+)").scaledFont(.caption)
+                Text("After I fill up, ask where the gauge was (helps FLOWS "
+                     + "guess my range)").scaledFont(.caption)
             }
+            .disabled(!model.notifyFuel)
 
             Divider()
             Text("Text size")
@@ -3203,15 +3233,18 @@ struct SettingsSheet: View {
             Text("Accessibility")
                 .scaledFont(size: 14, weight: .semibold)
             Toggle(isOn: $model.wordFindingHelp) {
-                Text("Word-finding help (on-device)").scaledFont(.caption)
+                Text("Word-finding help (stays on the phone)").scaledFont(.caption)
             }
             Text("When FLOWS can't make out an answer, the phone's own "
-                 + "on-device helper matches your words to the choices — "
+                 + "helper matches your words to the choices — "
                  + "\"the one with the tacos\" finds Taco Bell. Nothing you "
                  + "say leaves the phone. Needs a phone with Apple "
                  + "Intelligence; off or unsupported, FLOWS just asks again.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
+            #if os(iOS)
+            // iPhone only: the Mac never switched voices, so its switch
+            // turned on and changed nothing.
             Toggle(isOn: $model.personalVoiceAnnouncements) {
                 Text("Speak with your Personal Voice").scaledFont(.caption)
             }
@@ -3221,6 +3254,7 @@ struct SettingsSheet: View {
                  + "permission.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
+            #endif
             Toggle(isOn: $model.hapticAlerts) {
                 Text("Vibration tap with every spoken alert").scaledFont(.caption)
             }
@@ -3231,8 +3265,8 @@ struct SettingsSheet: View {
                 .foregroundStyle(.secondary)
             Text("More help from the phone itself: Vocal Shortcuts (phone "
                  + "Settings → Accessibility) can trigger any FLOWS Siri "
-                 + "command with any sound you can make — built for speech "
-                 + "impediments. Type to Siri types those same commands. "
+                 + "command with any sound you can make — made for people "
+                 + "who find talking hard. Type to Siri types those same commands. "
                  + "Live Speech can speak a typed reply out loud when FLOWS "
                  + "asks a question.")
                 .scaledFont(.caption2)
@@ -3264,15 +3298,17 @@ struct SettingsSheet: View {
                 .foregroundStyle(.blue)
                 #endif
             }
-            TextField("Medical notes for responders (allergies, conditions)",
+            TextField("Medical notes for the ambulance crew (allergies, health problems)",
                       text: $model.medicalNotes)
                 .textFieldStyle(.roundedBorder)
-            Text("After a detected crash FLOWS asks aloud if you need help and "
-                 + "keeps asking until you answer or dismiss. On yes: one-tap "
-                 + "911 (iOS never lets apps dial silently), a prefilled report "
-                 + "text to your contact (GPS, address, time, vehicle, notes), "
-                 + "then a call to them. Apple Health Medical ID is not "
-                 + "readable by apps — notes here ride the report instead.")
+            Text("After a crash FLOWS asks out loud if you need help, and "
+                 + "keeps asking until you answer or close it. If you say "
+                 + "yes: one tap calls 911 (a phone never lets an app call "
+                 + "on its own). With a contact's phone number saved, a "
+                 + "ready-to-send text tells them where you are (map spot, "
+                 + "address, time, vehicle, notes), and one more tap calls "
+                 + "them. Apps can't read the Medical ID in the Health app, "
+                 + "so the notes here go in the text instead.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
@@ -4319,10 +4355,9 @@ struct CrashCheckInCard: View {
                             .scaledFont(.footnote)
                     } else {
                         #if os(iOS)
-                        Text("Step 1 — call 911 (one tap; the report below is read "
-                             + "aloud so you can relay it). Step 2 — send the report "
-                             + "to \(model.emergencyContactName.isEmpty ? "your contact" : model.emergencyContactName). "
-                             + "Step 3 — call them.")
+                        Text(CrashLogic.assistSteps(
+                            contactName: model.emergencyContactName,
+                            hasContactPhone: !model.emergencyContactPhone.isEmpty))
                             .scaledFont(.footnote)
                         Text(model.crash.emergencyReport())
                             .font(.caption.monospaced())

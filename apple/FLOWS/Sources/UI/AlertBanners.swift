@@ -45,9 +45,7 @@ struct ImminentBannerView: View {
 
     /// Both of these carry full red weight — a child abduction is as
     /// urgent as a tornado. They differ only in what you DO about it.
-    private var isRed: Bool {
-        warning.action == .shelter || warning.action == .lookout
-    }
+    private var isRed: Bool { warning.action.isRed }
 
     /// Only a hazard you can take cover from gets shelter wording.
     private var offersShelter: Bool { warning.action == .shelter }
@@ -72,10 +70,13 @@ struct ImminentBannerView: View {
                 // say WHAT rather than repeat how bad.
                 Image(systemName: HazardStyle.kind(forEvent: warning.event).symbol)
                     .scaledFont(size: 26)
+                // A red alert's words are never cut short: "call 911 — do
+                // not approach" lost its last words to a line limit on the
+                // map. It grows, and its region scrolls when it must.
                 VStack(alignment: .leading, spacing: 2) {
                     Text(warning.event)
                         .scaledFont(size: 16, weight: .heavy)
-                        .lineLimit(1)
+                        .lineLimit(isRed ? nil : 1)
                     if warning.vehicleEntity != nil || warning.personEntity != nil {
                         HStack(spacing: 10) {
                             if let v = warning.vehicleEntity {
@@ -106,7 +107,7 @@ struct ImminentBannerView: View {
                     }
                     Text(warning.headline)
                         .scaledFont(size: 13, weight: .semibold)
-                        .lineLimit(2)
+                        .lineLimit(isRed ? nil : 2)
                     if offersShelter {
                         // One plain line saying what to actually do — an
                         // ordinary building for weather you wait out inside,
@@ -114,13 +115,12 @@ struct ImminentBannerView: View {
                         // vehicle when the danger is to driving.
                         Text(shelterKind.advice)
                             .scaledFont(size: 12, weight: .bold)
-                            .lineLimit(2)
                     }
                     if let detail = warning.detail {
                         Text(detail)
                             .scaledFont(.caption)
                             .opacity(0.85)
-                            .lineLimit(3)
+                            .lineLimit(isRed ? nil : 3)
                     }
                 }
                 Spacer()
@@ -131,56 +131,21 @@ struct ImminentBannerView: View {
                 }
                 .buttonStyle(.plain)
             }
-            HStack(spacing: 8) {
-                if let url = warning.sourceURL {
-                    Button {
-                        openURL(url)
-                    } label: {
-                        Label("Official alert", systemImage: "link")
-                            .scaledFont(size: 13, weight: .bold)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 34)
-                    .background(Color.white.opacity(0.25))
-                    .clipShape(Capsule())
+            // One row when everything fits on it whole; otherwise the
+            // official link takes a line of its own. "Official alert" used
+            // to break in two beside the storm's rest-area question. Plain
+            // buttons: laying the row out twice to measure is safe.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    officialLink
+                    Spacer()
+                    actions
                 }
-                Spacer()
-                switch warning.action {
-                case .lookout:
-                    // Nothing to press: the description above is the whole
-                    // point, and the official link is already on this row.
-                    EmptyView()
-                case .shelter:
-                    if let onShelterDelay {
-                        // Pressing this means "read, and I'm stopping" — it
-                        // closes the card and starts one timer for as long as
-                        // the alert is actually in force. It does NOT stack
-                        // another hour on every press.
-                        Button(shelterButtonTitle) { onShelterDelay() }
-                            .scaledFont(size: 14, weight: .heavy)
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: Theme.tapMinimum)
-                            .background(Color.white)
-                            .foregroundStyle(Theme.riskRed)
-                            .clipShape(Capsule())
+                VStack(alignment: .leading, spacing: 8) {
+                    officialLink
+                    HStack(spacing: 8) {
+                        actions
                     }
-                case .restArea:
-                    Text("Passes in 1–2 h — wait it out?")
-                        .scaledFont(.footnote, weight: .semibold)
-                    if let onFindRest {
-                        Button("Find rest area") { onFindRest() }
-                            .scaledFont(size: 14, weight: .heavy)
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: Theme.tapMinimum)
-                            .background(Color.white)
-                            .foregroundStyle(.black)
-                            .clipShape(Capsule())
-                    }
-                case .monitor:
-                    EmptyView()
                 }
             }
         }
@@ -190,6 +155,68 @@ struct ImminentBannerView: View {
         .foregroundStyle(isRed ? .white : .black)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 14, y: 5)
+    }
+
+    /// The issuing source, one tap away — its label always on one line.
+    @ViewBuilder
+    private var officialLink: some View {
+        if let url = warning.sourceURL {
+            Button {
+                openURL(url)
+            } label: {
+                Label("Official alert", systemImage: "link")
+                    .scaledFont(size: 13, weight: .bold)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 34)
+            .background(Color.white.opacity(0.25))
+            .clipShape(Capsule())
+            .fixedSize()
+        }
+    }
+
+    /// What this warning asks the driver to do, if anything.
+    @ViewBuilder
+    private var actions: some View {
+        switch warning.action {
+        case .lookout:
+            // Nothing to press: the description above is the whole
+            // point, and the official link is already on this row.
+            EmptyView()
+        case .shelter:
+            if let onShelterDelay {
+                // Pressing this means "read, and I'm stopping" — it
+                // closes the card and starts one timer for as long as
+                // the alert is actually in force. It does NOT stack
+                // another hour on every press.
+                Button(shelterButtonTitle) { onShelterDelay() }
+                    .scaledFont(size: 14, weight: .heavy)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: Theme.tapMinimum)
+                    .background(Color.white)
+                    .foregroundStyle(Theme.riskRed)
+                    .clipShape(Capsule())
+                    .fixedSize()
+            }
+        case .restArea:
+            Text("Passes in 1–2 h — wait it out?")
+                .scaledFont(.footnote, weight: .semibold)
+            if let onFindRest {
+                Button("Find rest area") { onFindRest() }
+                    .scaledFont(size: 14, weight: .heavy)
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: Theme.tapMinimum)
+                    .background(Color.white)
+                    .foregroundStyle(.black)
+                    .clipShape(Capsule())
+                    .fixedSize()
+            }
+        case .monitor:
+            EmptyView()
+        }
     }
 }
 
@@ -286,6 +313,8 @@ struct GaugeDial: View {
     /// The big refuel dial labels its quartiles; the small HUD one doesn't.
     var showsQuartileLabels = true
     @State private var alarmPulse = false
+    /// Reduce Motion (and photosensitivity) holds the alarm arc steady.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var levelColor: Color {
         switch FuelWarning.band(fraction: fraction) {
@@ -354,8 +383,9 @@ struct GaugeDial: View {
             .onChange(of: alarming, initial: true) { _, on in
                 // Pulse only while the tank actually demands action, and
                 // stop cleanly when it doesn't (a forever-animation left
-                // running costs a redraw every frame for nothing).
-                if on {
+                // running costs a redraw every frame for nothing). Reduce
+                // Motion keeps the arc at its full strength instead.
+                if on, !reduceMotion {
                     withAnimation(.easeInOut(duration: 0.6)
                         .repeatForever(autoreverses: true)) {
                         alarmPulse = true
@@ -397,6 +427,9 @@ struct TowingCard: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
     @State private var flash = false
+    /// Reduce Motion (and photosensitivity) holds the warnings steady at
+    /// full strength instead of flashing them.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let ratings = model.towingRatings
@@ -448,7 +481,7 @@ struct TowingCard: View {
                     Text(v.title)
                         .scaledFont(size: 13, weight: .heavy)
                         .foregroundStyle(Theme.riskRed)
-                        .opacity(flash ? 1 : 0.35)
+                        .opacity(flash || reduceMotion ? 1 : 0.35)
                     Text(v.consequences)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
@@ -471,7 +504,8 @@ struct TowingCard: View {
         // Scoped to THIS view — see the note on the escalation card: a
         // repeatForever run through withAnimation catches every view in the
         // transaction, not just the one being pulsed.
-        .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true),
+        .animation(reduceMotion ? nil
+                   : .easeInOut(duration: 0.5).repeatForever(autoreverses: true),
                    value: flash)
         .onAppear { flash = true }
     }
@@ -482,7 +516,7 @@ struct TowingCard: View {
             Text(value.map { String(format: "%.0f lb", $0) } ?? "—")
                 .scaledFont(size: 13, weight: .heavy).monospacedDigit()
                 .foregroundStyle(violated ? Theme.riskRed : .primary)
-                .opacity(violated && flash ? 0.35 : 1)
+                .opacity(violated && flash && !reduceMotion ? 0.35 : 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -531,28 +565,33 @@ struct DemoAlertsView: View {
                         .buttonStyle(.plain)
                         .foregroundStyle(.blue)
                 }
-                Text("Sample data — exactly what each alert looks like in use.")
+                Text("Made-up examples — just what each warning looks like "
+                     + "on the road.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
 
-                Text("RED emergency broadcast (press-to-dismiss)")
+                Text("Red emergency alert (stays until you close it)")
                     .scaledFont(.caption, weight: .bold)
                 ImminentBannerView(warning: sampleAmber, isCompact: true,
                                    onDismiss: {}, onShelterDelay: {}, onFindRest: nil)
-                Text("Transient storm → rest-area recommendation")
+                Text("Storm passing soon — offers a rest stop to wait it out")
                     .scaledFont(.caption, weight: .bold)
                 ImminentBannerView(warning: sampleStorm, isCompact: true,
                                    onDismiss: {}, onShelterDelay: nil, onFindRest: {})
 
-                Text("Refuel gauge (analog needle — drag it)")
+                Text("Fuel gauge check-in (drag the needle)")
                     .scaledFont(.caption, weight: .bold)
                     .id("cards")
                 GasGaugeCard(predictedFraction: 0.35, accuracy: 0.62,
                              onConfirm: { _ in }, onNoRefuel: {}, onDismiss: {})
 
-                Text("Towing card (weights vs manufacturer ratings)")
+                Text("Towing card (your own numbers — look only here)")
                     .scaledFont(.caption, weight: .bold)
+                // Locked: the live card's switch and sliders ARE the towing
+                // settings. Touching the preview turned towing on or off
+                // for real, route filters and all, and it stayed that way.
                 TowingCard()
+                    .disabled(true)
 
                 Button {
                     dismiss()
@@ -561,7 +600,7 @@ struct DemoAlertsView: View {
                         ?? .init(latitude: 43.0731, longitude: -89.4012)
                     model.demoRedAlert(near: center)
                 } label: {
-                    Label("Demo red alert on the map (symbol + reach circle)",
+                    Label("Show a practice red alert on the map",
                           systemImage: "exclamationmark.octagon.fill")
                         .scaledFont(size: 14, weight: .heavy)
                         .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)

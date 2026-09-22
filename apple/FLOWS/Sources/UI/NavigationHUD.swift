@@ -249,7 +249,9 @@ struct NavigationHUD: View {
                         .clipShape(Capsule())
                         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
                     }
-                    if let delay = model.trafficDelayMinutes {
+                    // The traffic switch hides the chip at once; FLOWS still
+                    // weighs the jam and takes a road that adds no risk.
+                    if model.notifyTraffic, let delay = model.trafficDelayMinutes {
                         HStack(spacing: 8) {
                             Image(systemName: "car.rear.waves.up.fill")
                             Text("Traffic ahead — +\(delay) min")
@@ -595,7 +597,8 @@ struct NavigationHUD: View {
             minimizeButton("fuel", help: "Tuck the driving instruments away")
                 .padding(3)
         }
-        .animation(model.fuelReachabilityTight
+        // Reduce Motion holds the tank at full strength instead.
+        .animation(model.fuelReachabilityTight && !reduceMotion
                    ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
                    : .default,
                    value: tankPulse)
@@ -790,8 +793,10 @@ struct NavigationHUD: View {
         // The pulse is animated ON THIS VIEW ONLY. Driving a repeatForever
         // through withAnimation put every view updated in that transaction
         // into the same repeating animation — which is why unrelated menus
-        // (the music picker's green rows) were seen blinking.
-        .animation(over ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
+        // (the music picker's green rows) were seen blinking. Reduce Motion
+        // holds the glow at full strength instead.
+        .animation(over && !reduceMotion
+                        ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
                         : .default,
                    value: overGlow)
         .onChange(of: over, initial: true) { _, isOver in
@@ -2056,7 +2061,9 @@ struct NavigationHUD: View {
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 10, y: 4)
-        .animation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true),
+        // Reduce Motion holds it at its strong red, like the escalation card.
+        .animation(reduceMotion ? nil
+                   : .easeInOut(duration: 0.55).repeatForever(autoreverses: true),
                    value: escalationPulse)
         .onAppear { escalationPulse = true }
     }

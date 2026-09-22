@@ -399,14 +399,35 @@ final class AppModel: ObservableObject {
 
     // MARK: notification toggles (gear settings) — every alert type is
     // individually switchable.
+    // Switched off mid-trip, a type's message already on screen goes with
+    // it: the switches only gated the next update, so a banner stayed up
+    // until X or End.
     @Published var notifyImminent = UserDefaults.standard.object(forKey: "flows.notifyImminent") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(notifyImminent, forKey: "flows.notifyImminent") }
+        didSet {
+            UserDefaults.standard.set(notifyImminent, forKey: "flows.notifyImminent")
+            // Red stays: a red card leaves only when the driver presses it.
+            if !notifyImminent, imminentWarning?.action.isRed == false { imminentWarning = nil }
+        }
     }
     @Published var notifyEscalation = UserDefaults.standard.object(forKey: "flows.notifyEscalation") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(notifyEscalation, forKey: "flows.notifyEscalation") }
+        didSet {
+            UserDefaults.standard.set(notifyEscalation, forKey: "flows.notifyEscalation")
+            if !notifyEscalation { escalation = nil }
+        }
     }
+    /// The traffic chip, the offer on it and the work-zone chip. FLOWS
+    /// weighs a jam whatever this says, and takes a faster road that adds
+    /// no risk on its own (owner item 9); only an offer needs the chip.
     @Published var notifyTraffic = UserDefaults.standard.object(forKey: "flows.notifyTraffic") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(notifyTraffic, forKey: "flows.notifyTraffic") }
+        didSet {
+            UserDefaults.standard.set(notifyTraffic, forKey: "flows.notifyTraffic")
+            // The chip hides at once (the HUD reads this); its offer, the
+            // spoken ask and the yes it waits for, is withdrawn with it.
+            if !notifyTraffic {
+                VoiceAnnouncer.shared.cancel(topic: SpeechTopic.trafficOffer)
+                if case .fasterRoute? = pendingVoiceOffer { pendingVoiceOffer = nil }
+            }
+        }
     }
 
     /// Speak faster-route offers and corridor warnings out loud — the
@@ -509,7 +530,24 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(notifyFuel, forKey: "flows.notifyFuel") }
     }
     @Published var crashDetectionEnabled = UserDefaults.standard.object(forKey: "flows.crashDetection") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(crashDetectionEnabled, forKey: "flows.crashDetection") }
+        didSet {
+            UserDefaults.standard.set(crashDetectionEnabled, forKey: "flows.crashDetection")
+            guard CrashDetectionService.isAvailable else { return }
+            // Switched on is its first use: the check-in's speech and
+            // microphone are asked now, never after an impact.
+            if crashDetectionEnabled {
+                Task { await CrashDetectionService.askReplyPermissionsIfNeeded() }
+            }
+            // Mid-trip the switch works now, not at the next GO: on starts
+            // watching for an impact, off stops watching (and a check-in
+            // question with it; a help card already asked for stays up).
+            guard mode == .navigating else { return }
+            if crashDetectionEnabled {
+                crash.begin()
+            } else {
+                crash.stopWatching()
+            }
+        }
     }
 
     /// Emergency contact + medical notes for the crash flow (Medical ID is
@@ -817,13 +855,18 @@ final class AppModel: ObservableObject {
         FlowsDiag.log(.info, "audio",
                       "signal held — returning to \(previous.rawValue) "
                       + "(controllable=\(musicControllable))")
+        // Unasked-for lines, so the voice switch decides: off = screen-only.
         guard musicControllable else {
-            VoiceAnnouncer.shared.announce(
-                "Signal's back — \(previous.displayName) is ready when you are.")
+            if voiceAlerts {
+                VoiceAnnouncer.shared.announce(
+                    "Signal's back — \(previous.displayName) is ready when you are.")
+            }
             return
         }
-        VoiceAnnouncer.shared.announce(
-            PlaybackFallback.restoreLine(service: previous.displayName))
+        if voiceAlerts {
+            VoiceAnnouncer.shared.announce(
+                PlaybackFallback.restoreLine(service: previous.displayName))
+        }
         if let ask = lastMusicAsk {
             playMusicAsk(ask)
         } else {
@@ -1080,7 +1123,8 @@ final class AppModel: ObservableObject {
                       "offline handoff: \(source.logName) (was \(musicProvider.rawValue), "
                       + "localMusic=\(music.hasLocalMusic), "
                       + "preStaged=\(preStagedStations.count) stations)")
-        if let line = PlaybackFallback.spokenLine(for: source) {
+        // Nobody asked for this line: the voice switch decides.
+        if voiceAlerts, let line = PlaybackFallback.spokenLine(for: source) {
             VoiceAnnouncer.shared.announce(line)
         }
         switch source {
@@ -1598,14 +1642,21 @@ final class AppModel: ObservableObject {
     }
 
     /// Asked once, the first time a trip starts with a warning switch on —
-    /// not at launch, when the question has no context.
-    private func askForNoticesIfNeeded() {
-        guard notifyImminent || notifyEscalation else { return }
+    /// not at launch, when the question has no context. Then, one dialog at
+    /// a time, the crash check-in's speech and microphone while crash
+    /// detection is on: asked only after an impact, the system's dialogs
+    /// covered "Do you need assistance?".
+    private func askForTripPermissionsIfNeeded() {
+        let notices = notifyImminent || notifyEscalation
+        let crashReply = crashDetectionEnabled && CrashDetectionService.isAvailable
+        guard notices || crashReply else { return }
         Task {
             let center = UNUserNotificationCenter.current()
-            guard await center.notificationSettings().authorizationStatus == .notDetermined
-            else { return }
-            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            if notices,
+               await center.notificationSettings().authorizationStatus == .notDetermined {
+                _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            }
+            if crashReply { await CrashDetectionService.askReplyPermissionsIfNeeded() }
         }
     }
 
@@ -2445,6 +2496,26 @@ final class AppModel: ObservableObject {
         crash.hasEmergencyContact = { [weak self] in
             self?.emergencyContactPhone.isEmpty == false
         }
+        // Each time the crash question is asked it also lands as a tap: for
+        // a driver who can't hear it, the tap is the question (Haptics).
+        crash.$state
+            .removeDuplicates()
+            .sink { [weak self] state in
+                guard let self, self.hapticAlerts, case .checkingIn = state else { return }
+                Haptics.warning()
+            }
+            .store(in: &serviceSubscriptions)
+        // Spoken lines hand the audio session back when FLOWS falls quiet
+        // (VoiceAnnouncer.releaseSessionWhenQuiet), never from under the
+        // crash check-in or FLOWS's own sound.
+        VoiceAnnouncer.shared.checkInHoldsSession = { [weak self] in
+            self.map { $0.crash.state != .idle } ?? false
+        }
+        VoiceAnnouncer.shared.ownAudioPlaying = { [weak self] in
+            guard let self else { return false }
+            return (self.radio.playingChannelID != nil && !self.radio.isPaused)
+                || self.scanner.isListening
+        }
         // Telemetry ladder: OEM cloud (Smartcar) → Bluetooth (OBD adapter /
         // TPMS caps) → nothing (odometer model carries on). Real fuel data
         // silences the gauge check-ins automatically.
@@ -2888,7 +2959,10 @@ final class AppModel: ObservableObject {
                 announcedCameras.removeFirst(
                     announcedCameras.count - Self.announcedCameraMemory)
             }
-            DriveVoice.shared.speak(next.camera.kind.title + " ahead")
+            // The tap is the hearing-parity half, voice or not; the voice
+            // follows its own switch (off = the chip alone).
+            if hapticAlerts { Haptics.warning() }
+            if voiceAlerts { DriveVoice.shared.speak(next.camera.kind.title + " ahead") }
         }
     }
 
@@ -3066,7 +3140,12 @@ final class AppModel: ObservableObject {
             if level != .none, level != self.dismissedFuelWarningLevel,
                let spoken = FuelWarning.spokenAdvice(
                    fuel: fuel, level: level, station: cheapest, rangeMiles: range) {
-                DriveVoice.shared.speak(spoken, topic: SpeechTopic.fuelLastChance)
+                // The tap lands voice or not; the voice follows its switch
+                // (off = the red banner alone).
+                if self.hapticAlerts { Haptics.warning() }
+                if self.voiceAlerts {
+                    DriveVoice.shared.speak(spoken, topic: SpeechTopic.fuelLastChance)
+                }
                 self.dismissedFuelWarningLevel = level
             }
         }
@@ -4124,7 +4203,7 @@ final class AppModel: ObservableObject {
         tripDistanceMeters = route.distanceMeters
         mode = .navigating
         startLeg(route, resetsNeeds: !drivingOn)
-        askForNoticesIfNeeded()   // lock-screen warnings, asked at the first GO
+        askForTripPermissionsIfNeeded()   // lock-screen warnings + crash reply, at the first GO
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
         checkTowingSignal()   // trailer signal checked at trip start, not per tick
         if crashDetectionEnabled, CrashDetectionService.isAvailable {
@@ -4400,6 +4479,7 @@ final class AppModel: ObservableObject {
                 || previous?.alertID != raised.alertID
                 || raised.newRisk > (previous?.newRisk ?? 0) + EscalationPolicy.dismissMargin
             if isNew {
+                if hapticAlerts { Haptics.warning() }   // felt once, like the notice
                 // No cause in the title: a road closure, a fire or an
                 // evacuation raises this as surely as a storm.
                 Self.noticeIfAway(
@@ -4800,8 +4880,11 @@ final class AppModel: ObservableObject {
                     roadClass: self.currentRoadClass,
                     weather: self.currentTrafficWeather))
                 let delay = max(liveDelay, learned)
-                let newDelay = (delay >= 8 && self.notifyTraffic)
-                    ? Int(delay.rounded()) : nil
+                // Weighed whatever the traffic switch says: it hides the
+                // chip and its offer, not the faster road FLOWS takes on its
+                // own (owner item 9). Gating it here left a driver who hid
+                // the chips sitting in a jam with an equally safe way round.
+                let newDelay = delay >= 8 ? Int(delay.rounded()) : nil
                 // A FRESH jam is weighed once (not every re-measure of the
                 // same jam): a faster road is taken, offered or refused, and
                 // an offer is spoken once. A jam with nothing to take, an
@@ -5128,13 +5211,16 @@ final class AppModel: ObservableObject {
             if fresh { offerPlainFasterRoute(minutes: minutes) }
             return .settled
         }
+        // The "nothing to take" line speaks for the chip: none with the
+        // chips off.
+        let saysWhy = fresh && notifyTraffic
         guard let route = check.route else {
-            blockFasterRoute(saying: fresh ? SiriSummaries.trafficNoFasterRoute(minutes: minutes) : nil)
+            blockFasterRoute(saying: saysWhy ? SiriSummaries.trafficNoFasterRoute(minutes: minutes) : nil)
             return .settled
         }
         if check.candidateRed {
             // A yes could never be carried out: say so instead of asking.
-            blockFasterRoute(saying: fresh ? SiriSummaries.fasterRouteRefusedRed(minutes: minutes) : nil)
+            blockFasterRoute(saying: saysWhy ? SiriSummaries.fasterRouteRefusedRed(minutes: minutes) : nil)
             return .settled
         }
         // The road was planned from where the car was before it was scored:
@@ -5144,7 +5230,7 @@ final class AppModel: ObservableObject {
                                              divergeAlong: check.divergeAlong,
                                              position: here, speedMps: location.speed)
         else {
-            blockFasterRoute(saying: fresh ? SiriSummaries.trafficNoFasterRoute(minutes: minutes) : nil)
+            blockFasterRoute(saying: saysWhy ? SiriSummaries.trafficNoFasterRoute(minutes: minutes) : nil)
             return .settled
         }
         if check.verdict == .switchNow, let saved = check.savedMinutes,
@@ -5202,10 +5288,14 @@ final class AppModel: ObservableObject {
     /// Put the faster-route offer up: the chip's button, a haptic, the spoken
     /// ask, and a listen for the plain yes or no right after it. No clear
     /// answer = the chip stays on screen; nothing is guessed. A no stands for
-    /// the jam: FLOWS stops weighing it and never switches on its own.
-    private func offerFasterRoute(minutes: Int, riskier: Bool) {
+    /// the jam: FLOWS stops weighing it and never switches on its own. The
+    /// offer lives on the traffic chip, so with the chips off FLOWS makes
+    /// none of its own; `driverAsked`: a yes the driver gave that has to be
+    /// asked again, answered either way.
+    private func offerFasterRoute(minutes: Int, riskier: Bool, driverAsked: Bool = false) {
         trafficOfferBlocked = false
         trafficOfferRiskier = riskier
+        guard notifyTraffic || driverAsked else { return }
         pendingVoiceOffer = .fasterRoute
         if hapticAlerts { Haptics.offer() }   // chip just appeared
         guard voiceAlerts else { return }
@@ -5310,7 +5400,7 @@ final class AppModel: ObservableObject {
                 legID: staged.legID, route: route, line: staged.line,
                 divergeAlong: staged.divergeAlong, checkSpacing: staged.checkSpacing,
                 offeredRisk: risk, stagedAt: Date())
-            offerFasterRoute(minutes: minutes, riskier: true)
+            offerFasterRoute(minutes: minutes, riskier: true, driverAsked: true)
             return .askedAgain
         }
         takeFasterRoute(route, feeds: feeds, automaticSaving: nil)

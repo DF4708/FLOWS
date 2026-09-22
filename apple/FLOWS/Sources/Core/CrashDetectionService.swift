@@ -143,6 +143,33 @@ final class CrashDetectionService: ObservableObject {
         releaseAudioSessionWhenQuiet()
     }
 
+    /// The Settings switch went off mid-trip: no new impact is sensed, and
+    /// a check-in question stops with it. A help card the driver already
+    /// asked for stays up until they close it. Only a check-in goes through
+    /// end(): between crashes there is no crash voice to stop, and end()'s
+    /// hand-back of the audio session cut a station on the air or a line
+    /// being read.
+    func stopWatching() {
+        if case .checkingIn = state { end(); return }
+        motion.stopAccelerometerUpdates()
+        monitorGeneration += 1   // an impact hop still in flight is dropped
+    }
+
+    /// Speech and microphone for the spoken reply, asked ahead of any crash:
+    /// AppModel calls this at the first GO with crash detection on. Asked
+    /// only after an impact, the system's two dialogs landed on top of "Do
+    /// you need assistance?". Each is asked only while still undecided.
+    static func askReplyPermissionsIfNeeded() async {
+        if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                SFSpeechRecognizer.requestAuthorization { _ in done.resume() }
+            }
+        }
+        if AVAudioApplication.shared.recordPermission == .undetermined {
+            _ = await AVAudioApplication.requestRecordPermission()
+        }
+    }
+
     /// The g-force only opened the question. A crash also means a road-speed
     /// vehicle ON A ROAD suddenly stopped (CrashLogic.isCrash), and GPS cannot
     /// say "stopped" at the instant of the bang: its latest fix is up to a
@@ -417,8 +444,10 @@ final class CrashDetectionService: ObservableObject {
     #else
     // macOS: no accelerometer — crash detection is an iPhone/CarPlay feature.
     static let isAvailable = false
+    static func askReplyPermissionsIfNeeded() async {}
     func begin() {}
     func end() {}
+    func stopWatching() {}
     func requestAssistance() {}
     func standDown() {}
     func resolveAddress() {}

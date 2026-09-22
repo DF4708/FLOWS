@@ -139,20 +139,34 @@ final class VoiceReply {
     /// interpreting yes/no; the transcript is delivered at window end.
     private var onTranscript: ((String?) -> Void)?
     private var lastHeard = ""
+    /// Listens asked for whose microphone hasn't opened yet (waiting on
+    /// permission, or on FLOWS's own question to end).
+    private var waitingToListen = 0
+
+    /// From the ask until the microphone closes. The spoken lines don't
+    /// hand the audio session back meanwhile: the music would come up
+    /// between the question and the listening.
+    var isListening: Bool { waitingToListen > 0 || audioEngine != nil }
 
     /// Wait for the announcement to finish, then listen ~`seconds` for a
     /// yes/no. Calls back exactly once on the main actor; nil = no clear
     /// answer (the on-screen chip stays, nothing is guessed).
     func listenAfterSpeech(seconds: Double = 6.0,
                            onAnswer: @escaping (Bool?) -> Void) {
+        waitingToListen += 1
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
             Task { @MainActor in
                 guard let self else { return }
-                guard auth == .authorized else { onAnswer(nil); return }
+                guard auth == .authorized else {
+                    self.waitingToListen -= 1
+                    onAnswer(nil)
+                    return
+                }
                 var waited = 0
                 while VoiceAnnouncer.shared.isSpeaking, waited < 100 {
                     try? await Task.sleep(for: .milliseconds(100)); waited += 1
                 }
+                self.waitingToListen -= 1
                 self.begin(seconds: seconds, onAnswer: onAnswer)
             }
         }
@@ -163,9 +177,11 @@ final class VoiceReply {
     /// window closes first. nil = permission refused or nothing heard.
     func listenForDictation(seconds: Double = 5.0,
                             onTranscript: @escaping (String?) -> Void) {
+        waitingToListen += 1
         SFSpeechRecognizer.requestAuthorization { [weak self] auth in
             Task { @MainActor in
                 guard let self else { return }
+                self.waitingToListen -= 1
                 guard auth == .authorized else { onTranscript(nil); return }
                 self.begin(seconds: seconds, onAnswer: nil,
                            onTranscript: onTranscript)
@@ -249,6 +265,9 @@ final class VoiceReply {
         teardown()
         yesNo?(answer)
         dictation?(heard.isEmpty ? nil : heard)
+        // After the answer is acted on, so music it just started (a music
+        // ask) comes up from under the listening session too.
+        VoiceAnnouncer.shared.releaseSessionWhenQuiet()
     }
 
     private func teardown() {
