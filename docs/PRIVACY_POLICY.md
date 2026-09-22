@@ -67,32 +67,46 @@ device and stored only on your device:
   memory, only while the app is using them, and are never uploaded — FLOWS
   has no server to upload them to.
 
+  On a Mac the key is kept in your login keychain instead, which Time
+  Machine does back up (locked with your Mac password). So on a Mac the
+  encrypted files themselves are kept out of backups: a backup never holds
+  both the files and the key.
+
   The risk model that learns from this is refined **on your device**; no
   training data and no learned model ever leaves it.
 
   Settings → **"What FLOWS has learned about you"** shows exactly what is
-  stored and erases all of it in one press. Erasing also destroys the
-  encryption key, so any copy that escaped stays unreadable.
+  stored and erases all of it in one press, after asking once to be sure.
+  Erasing also destroys the encryption key, so any copy that escaped stays
+  unreadable. The same press also clears the people you have shared a
+  trip with, the truck stops you reported as having no showers, today's
+  mile count, and the app health log.
 
-  "All of it" is meant literally, and is now enforced rather than
-  asserted: every file in this list is written through one store, and
-  the erase button walks that same list. An earlier build failed this —
-  the four items covering where you have physically driven were written
-  as plain text and had no eraser at all, so the most sensitive data
-  here outlived the button that promises otherwise. Anything a driver
-  can be told is erased must be erased by code that cannot be
-  forgotten when a new store is added.
-- **Medical notes and connected-account secrets** — stored in the device
-  Keychain (never synced, never included in backups). Medical notes appear
-  only in the crash-report message YOU send.
+  "All of it" is meant literally. Every file in this list is written
+  through one encrypted store, and the erase button runs one list of
+  erasers, kept in the app beside those stores, with the key destroyed
+  last. That list is maintained by hand — nothing in the code yet forces
+  a new store onto it — so each new store is added to it when it is
+  written. An earlier build failed this: the four items covering where
+  you have physically driven were written as plain text and had no eraser
+  at all, so the most sensitive data here outlived the button that
+  promises otherwise.
+- **Medical notes, trip-share contacts and connected-account secrets** —
+  stored in the device Keychain (never synced; on an iPhone never included
+  in backups — on a Mac the login keychain is part of a Time Machine
+  backup, locked with your Mac password). Medical notes appear only in the
+  crash-report message YOU send.
 - **Bluetooth tire/fuel data** — read from your own sensors/adapter,
   processed on device, never transmitted.
 - **Connected-vehicle accounts (Smartcar or OEM)** — optional. OAuth tokens
   are stored on your device; vehicle data (fuel level, tire pressure) is
   fetched directly from that provider to your device under their privacy
   terms. FLOWS never sees your car-account password.
-- **Optional API keys you provide** (e.g., Yelp) — stored locally, used
-  only to query that provider for the data shown next to results.
+- **Optional API keys you provide** (e.g., Yelp) — stored in the device
+  Keychain, used only to query that provider for the data shown next to
+  results. Earlier builds kept them in the app's preferences; on first
+  launch of this build they are moved to the Keychain and the old copy is
+  removed.
 
 ## What FLOWS does not do
 

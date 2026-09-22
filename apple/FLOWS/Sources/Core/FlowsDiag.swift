@@ -115,8 +115,26 @@ actor FlowsDiag {
         return Array(ring.suffix(n))
     }
 
-    /// Both journal files, newest first (share/export).
-    nonisolated var fileURLs: [URL] { [fileURL, rolledURL] }
+    /// The journal files that exist, newest first (share/export). The
+    /// rollover appears only after the first 128 KB, and Caches can be
+    /// purged, so a share sheet handed both paths got a missing file.
+    nonisolated var fileURLs: [URL] {
+        [fileURL, rolledURL].filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    /// Empty the journal — memory and both files — then note why, in the
+    /// same turn so the note is the first line after it. "Erase everything
+    /// FLOWS has learned" uses this: the journal is plain text, and lines
+    /// from before the erase (learned values, and places an older build
+    /// wrote) should not outlive it. A cleared journal is not a loss.
+    func clear(leaving note: String) {
+        ring.removeAll()
+        lastEmit.removeAll()
+        try? FileManager.default.removeItem(at: fileURL)
+        try? FileManager.default.removeItem(at: rolledURL)
+        fileSize = 0
+        append(.info, "privacy", note)
+    }
 
     private func write(_ text: String) {
         guard let data = text.data(using: .utf8) else { return }

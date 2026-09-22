@@ -58,6 +58,32 @@ final class DiagAndRedundancyTests: XCTestCase {
         XCTAssertEqual(recent.count, 2)   // one per key inside the interval
     }
 
+    /// "Send full log" is handed only files that exist: the rollover appears
+    /// after the first 128 KB, and a fresh install had neither file yet.
+    func testShareListNamesOnlyJournalFilesThatExist() async {
+        let dir = tempDir()
+        let diag = FlowsDiag(directory: dir, ringCap: 50, fileCap: 1 << 20)
+        XCTAssertTrue(diag.fileURLs.isEmpty)
+        await diag.append(.info, "test", "first line")
+        XCTAssertEqual(diag.fileURLs.map(\.lastPathComponent), ["flows_diag.log"])
+    }
+
+    /// Erasing what FLOWS learned clears the plaintext journal too, leaving
+    /// one line that says so — memory, the file and a cold reload agree.
+    func testClearLeavesOnlyItsNote() async throws {
+        let dir = tempDir()
+        let diag = FlowsDiag(directory: dir, ringCap: 100, fileCap: 200)
+        for i in 0..<20 { await diag.append(.info, "old", "learned value \(i)") }
+        await diag.clear(leaving: "journal cleared")
+        let recent = await diag.recent(50)
+        XCTAssertEqual(recent.count, 1)
+        XCTAssertTrue(recent[0].hasSuffix("[privacy] journal cleared"))
+        XCTAssertEqual(diag.fileURLs.map(\.lastPathComponent), ["flows_diag.log"])
+        let onDisk = try String(contentsOf: dir.appendingPathComponent("flows_diag.log"),
+                                encoding: .utf8)
+        XCTAssertFalse(onDisk.contains("learned value"))
+    }
+
     // MARK: Open-Meteo forecast parsing (NWS forecast redundancy)
 
     func testOpenMeteoConditionsParsing() {

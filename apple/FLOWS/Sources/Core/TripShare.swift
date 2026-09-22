@@ -228,6 +228,14 @@ final class ShareHistoryStore: ObservableObject {
         TripShareLogic.ranked(recipients, now: now)
     }
 
+    /// "Erase everything FLOWS has learned" reaches this too: who the driver
+    /// shared trips with, and when, is what the ranking learned from.
+    func erase() {
+        recipients = []
+        defaults.removeObject(forKey: Self.key)
+        if useKeychain { SecureStore.set(nil, for: Self.keychainKey) }
+    }
+
     private func persist() {
         do {
             let data = try JSONEncoder().encode(recipients)

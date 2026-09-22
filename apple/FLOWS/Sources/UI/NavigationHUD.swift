@@ -1050,15 +1050,17 @@ struct NavigationHUD: View {
                 .buttonStyle(.plain)
                 .help("Tuck the stop list away")
             }
-            if model.yelpAPIKey.isEmpty,
+            // Either key supplies stars (Google is asked first), so the
+            // hint is for a driver with neither. Yelp is no longer free,
+            // and its old developer page moved; Settings says where to go.
+            if model.yelpAPIKey.isEmpty, model.googlePlacesAPIKey.isEmpty,
                model.poi.activeKind == .food || model.poi.activeKind == .hotel {
                 HStack(spacing: 6) {
-                    Text("Stars, $ tiers, and hours need a free Yelp key:")
+                    Text("Stars and hours need a Google Places or Yelp key:")
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
-                    Link("get one →", destination: URL(string: "https://www.yelp.com/developers")!)
-                        .scaledFont(.caption, weight: .bold)
-                    Button("paste in ⚙") { model.showSettings = true }
+                    // Named the way Settings heads the key fields.
+                    Button("add in ⚙ → Keys for extra info") { model.showSettings = true }
                         .buttonStyle(.plain)
                         .scaledFont(.caption, weight: .bold)
                         .foregroundStyle(.blue)
@@ -1171,7 +1173,8 @@ struct NavigationHUD: View {
                 if ranked.rating != nil || ranked.costTier != nil {
                     StarsAndBucks(stars: ranked.rating, costTier: ranked.costTier,
                                   currency: model.costCountry.currencySymbol,
-                                  url: ranked.businessURL)
+                                  url: ranked.businessURL,
+                                  credit: ranked.ratingCredit)
                 }
             }
             Spacer()
@@ -2919,8 +2922,8 @@ struct NavigationHUD: View {
                 }
             }
             Text("Apple Music plays right here in FLOWS. Spotify can too — "
-                 + "on iPhone add a Spotify token (⚙ Settings → Data "
-                 + "sources). No other music service lets outside apps "
+                 + "on iPhone add a Spotify token (⚙ Settings → Keys "
+                 + "for extra info). No other music service lets outside apps "
                  + "control it, so the rest open in their own app. Change "
                  + "your pick anytime under ⚙ Settings.")
                 .scaledFont(.caption)

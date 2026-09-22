@@ -8,35 +8,17 @@
 
 import Foundation
 
-/// What Smartcar's token endpoint said to a token request. Only a refusal
-/// says anything about the grant: no signal, the host breaker, a server
-/// error or rate limiting are not a "no".
-enum SmartcarTokenReply: Equatable {
-    case granted, refused, tryLater
-
-    /// OAuth refuses a dead or revoked grant with 400 (invalid_grant) and
-    /// bad client credentials with 401. `statusCode` is nil when nothing
-    /// came back.
-    init(statusCode: Int?, hasAccessToken: Bool) {
-        switch statusCode {
-        case 200 where hasAccessToken: self = .granted
-        case 400, 401: self = .refused
-        default: self = .tryLater
-        }
-    }
-}
-
 /// OEM cloud telemetry via Smartcar (aggregates ~30 brands — Ford, GM,
 /// Toyota, Nissan, Hyundai, BMW, VW… — behind one OAuth): real FUEL LEVEL
 /// and TIRE PRESSURE straight from the automaker's cloud.
 ///
 /// Setup (once, free): dashboard.smartcar.com → create an application →
 /// redirect URI `flows://smartcar` → paste Client ID + Secret into
-/// Settings → Data sources → tap Connect vehicle → sign into the car brand
-/// → done. (Storing the secret on-device is a personal-build pattern; a
-/// shipped app would proxy the token exchange through a server.)
+/// Settings → Connected vehicle → tap Connect vehicle → sign into the car
+/// brand → done. (Storing the secret on-device is a personal-build pattern;
+/// a shipped app would proxy the token exchange through a server.)
 ///
-/// Tokens persist in UserDefaults; refresh is automatic; fuel + tires poll
+/// Tokens persist in the Keychain; refresh is automatic; fuel + tires poll
 /// at launch, on demand, and every few minutes while navigating, and feed
 /// VehicleStore.telemetry — real data overrides the odometer model
 /// everywhere while it is current.
@@ -80,10 +62,17 @@ final class SmartcarLink: ObservableObject {
     /// no/incorrect state can't connect the app to an attacker's grant.
     private var oauthState: String?
 
+    /// The ID and secret as sent: a pasted value often carries a stray
+    /// space or line break, which Smartcar would reject as a wrong ID.
+    private var sentID: String { clientID.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var sentSecret: String { clientSecret.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     /// The OAuth page to open in the browser (test mode works without a
-    /// real car: mode=simulated).
+    /// real car: mode=simulated). Both halves are needed: offering Connect
+    /// with no secret sent the driver through the whole sign-in only to
+    /// stall at the token exchange.
     var connectURL: URL? {
-        guard !clientID.isEmpty else { return nil }
+        guard !sentID.isEmpty, !sentSecret.isEmpty else { return nil }
         if oauthState == nil { oauthState = UUID().uuidString }
         let state = oauthState!
         let scope = "read_fuel read_tires read_battery read_vehicle_info"
@@ -91,7 +80,7 @@ final class SmartcarLink: ObservableObject {
         let redirect = Self.redirectURI
             .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
         return URL(string: "https://connect.smartcar.com/oauth/authorize?response_type=code"
-                   + "&client_id=\(clientID)&redirect_uri=\(redirect)&scope=\(scope)"
+                   + "&client_id=\(sentID)&redirect_uri=\(redirect)&scope=\(scope)"
                    + "&state=\(state)&mode=live")
     }
 
@@ -117,41 +106,65 @@ final class SmartcarLink: ObservableObject {
         if connected { await refreshData() }
     }
 
+    /// How a token exchange ended. Only `rejected` — Smartcar's token server
+    /// itself saying no — may end a sign-in; no signal, a timeout or a
+    /// server error says nothing about the grant.
+    enum ExchangeOutcome: Equatable {
+        case ok, rejected, unreachable, notSetUp
+    }
+
+    /// Reads one token answer. `statusCode` is nil when no answer came back.
+    /// 400 is OAuth's invalid_grant (revoked or expired) and 401 a client
+    /// the server refuses; anything else — 5xx, 429, a 200 without a token —
+    /// is the server having a bad moment.
+    nonisolated static func exchangeOutcome(statusCode: Int?,
+                                            hasAccessToken: Bool) -> ExchangeOutcome {
+        switch statusCode {
+        case 200? where hasAccessToken: return .ok
+        case 400?, 401?: return .rejected
+        default: return .unreachable
+        }
+    }
+
     @discardableResult
-    private func exchange(body: String) async -> SmartcarTokenReply {
-        guard !clientID.isEmpty, !clientSecret.isEmpty,
-              let url = URL(string: "https://auth.smartcar.com/oauth/token") else {
-            status = "Enter the Client ID and Secret first."
-            return .tryLater   // nothing was asked, so nothing was refused
+    private func exchange(body: String) async -> ExchangeOutcome {
+        guard !sentID.isEmpty, !sentSecret.isEmpty else {
+            // Said, not swallowed: this used to return in silence and leave
+            // "Exchanging tokens…" up for good.
+            status = "Add the Client ID and Secret, then connect again."
+            return .notSetUp
+        }
+        guard let url = URL(string: "https://auth.smartcar.com/oauth/token") else {
+            return .unreachable
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        let credentials = Data("\(clientID):\(clientSecret)".utf8).base64EncodedString()
+        let credentials = Data("\(sentID):\(sentSecret)".utf8).base64EncodedString()
         request.setValue("Basic \(credentials)", forHTTPHeaderField: "Authorization")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = body.data(using: .utf8)
-        let response = try? await ThrottledNet.fetch(request)
-        let json = response.flatMap {
+        let answer = try? await ThrottledNet.fetch(request)
+        let json = answer.flatMap {
             try? JSONSerialization.jsonObject(with: $0.0) as? [String: Any]
         }
         let access = json?["access_token"] as? String
-        let reply = SmartcarTokenReply(
-            statusCode: (response?.1 as? HTTPURLResponse)?.statusCode,
+        let outcome = Self.exchangeOutcome(
+            statusCode: (answer?.1 as? HTTPURLResponse)?.statusCode,
             hasAccessToken: access != nil)
-        guard reply == .granted, let json, let access else {
-            status = reply == .refused
+        guard outcome == .ok, let access else {
+            status = outcome == .rejected
                 ? "Token exchange failed — check Client ID/Secret."
                 : "Can't reach Smartcar right now."
-            return reply
+            return outcome
         }
         accessToken = access
-        if let refresh = json["refresh_token"] as? String {
+        if let refresh = json?["refresh_token"] as? String {
             refreshToken = refresh
             SecureStore.set(refresh, for: "smartcar.refresh")
         }
         connected = true
         status = "Connected."
-        return .granted
+        return .ok
     }
 
     /// A refresh is under way. Refreshes run at launch, every few minutes
@@ -165,16 +178,21 @@ final class SmartcarLink: ObservableObject {
         refreshing = true
         defer { refreshing = false }
         if accessToken == nil, let refresh = refreshToken {
-            let reply = await exchange(body: "grant_type=refresh_token&refresh_token=\(refresh)")
-            // Smartcar refused the grant (revoked/expired) → tear down the stale
+            // Refresh REFUSED (grant revoked/expired) → tear down the stale
             // session instead of leaving it "Connected" forever with dead data
-            // and a dead token that every refresh keeps re-posting. No signal is
-            // not a refusal: this runs on the road, and one dead zone after the
-            // 2-hour access token lapsed signed the driver out for good. (A grant
-            // a reconnect replaced meanwhile is not the one refused.)
-            if reply == .refused, refreshToken == refresh {
+            // and a dead token that every refresh keeps re-posting. Anything
+            // else keeps the sign-in: a launch in a parking garage used to
+            // delete the refresh token and demand the whole sign-in again.
+            switch await exchange(body: "grant_type=refresh_token&refresh_token=\(refresh)") {
+            case .ok:
+                break
+            case .rejected:
+                // A grant a reconnect replaced meanwhile is not the one refused.
+                guard refreshToken == refresh else { return }
                 disconnect()
                 status = "Sign-in expired — reconnect Smartcar."
+                return
+            case .unreachable, .notSetUp:
                 return
             }
         }

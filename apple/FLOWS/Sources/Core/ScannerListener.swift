@@ -185,13 +185,21 @@ final class ScannerListener: ObservableObject {
         #endif
     }
 
+    /// A feed as the journal names it: its place in the configured list,
+    /// never its name. Feeds are local and the nearest one is followed, so
+    /// names in the plaintext journal would trace the drive.
+    private func journalName(_ feed: ScannerFeed) -> String {
+        let number = feeds.firstIndex { $0.id == feed.id }.map { $0 + 1 } ?? 0
+        return "feed \(number) of \(feeds.count)"
+    }
+
     private func start(_ feed: ScannerFeed) {
         stop()
         guard let url = feed.streamURL else {
-            FlowsDiag.log(.warn, "scanner", "feed \(feed.name): unusable URL")
+            FlowsDiag.log(.warn, "scanner", "\(journalName(feed)): unusable URL")
             return
         }
-        FlowsDiag.log(.info, "scanner", "feed \(feed.name): requesting speech authorization")
+        FlowsDiag.log(.info, "scanner", "\(journalName(feed)): requesting speech authorization")
         currentFeed = feed
         starting = true
         #if canImport(Speech)
@@ -205,7 +213,7 @@ final class ScannerListener: ObservableObject {
                     FlowsDiag.log(.warn, "scanner", "speech recognition not authorized — feed idle")
                     return
                 }
-                FlowsDiag.log(.info, "scanner", "listening: \(feed.name)")
+                FlowsDiag.log(.info, "scanner", "listening: \(self.journalName(feed))")
                 self.beginRecognition(url: url, feed: feed)
             }
         }
@@ -249,7 +257,7 @@ final class ScannerListener: ObservableObject {
             forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                FlowsDiag.log(.info, "scanner", "feed \(feed.name): ended — finalizing")
+                FlowsDiag.log(.info, "scanner", "\(self.journalName(feed)): ended — finalizing")
                 self.request?.endAudio()
             }
         }

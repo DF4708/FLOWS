@@ -173,18 +173,7 @@ final class VehicleSettingsTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
     }
 
-    func testOnlySmartcarSayingNoSignsTheDriverOut() {
-        XCTAssertEqual(SmartcarTokenReply(statusCode: 200, hasAccessToken: true), .granted)
-        // The grant is dead or revoked, or the credentials are wrong.
-        XCTAssertEqual(SmartcarTokenReply(statusCode: 400, hasAccessToken: false), .refused)
-        XCTAssertEqual(SmartcarTokenReply(statusCode: 401, hasAccessToken: false), .refused)
-        // No signal (or the host breaker) is not a refusal: the cloud refresh
-        // runs on the road, and a dead zone used to end the session for good.
-        XCTAssertEqual(SmartcarTokenReply(statusCode: nil, hasAccessToken: false), .tryLater)
-        XCTAssertEqual(SmartcarTokenReply(statusCode: 503, hasAccessToken: false), .tryLater)
-        XCTAssertEqual(SmartcarTokenReply(statusCode: 429, hasAccessToken: false), .tryLater)
-        XCTAssertEqual(SmartcarTokenReply(statusCode: 200, hasAccessToken: false), .tryLater)
-    }
+    // Which token answers end a Smartcar sign-in: SmartcarExchangeTests.
 
     // MARK: shapes and big rigs
 

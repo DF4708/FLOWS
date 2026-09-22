@@ -10,15 +10,17 @@ import Foundation
 import Security
 
 /// Keychain-backed string storage for the app's few genuinely-sensitive
-/// values — an OAuth client secret and the driver's medical notes. These were
-/// in `UserDefaults`, which is an unencrypted plist that is included in device
-/// backups (and readable off a jailbroken or unlocked device); a credential
-/// and health data do not belong there.
+/// values — an OAuth client secret, the driver's own API keys and their
+/// medical notes. These were in `UserDefaults`, which is an unencrypted plist
+/// that is included in device backups (and readable off a jailbroken or
+/// unlocked device); a credential and health data do not belong there.
 ///
 /// Items use `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`: readable in
 /// the background after the first unlock (so the crash-report flow can include
 /// medical notes without the screen being active), never synced to iCloud, and
-/// never copied to another device in a backup.
+/// never copied to another device in a backup. On a Mac they land in the
+/// login keychain, which ignores that class and which Time Machine backs up
+/// locked with the login password — the privacy policy says so.
 enum SecureStore {
     static let service = "com.flows.app.secure"
 
@@ -55,12 +57,15 @@ enum SecureStore {
     /// One-time migration of a value that used to live in UserDefaults: move it
     /// into the Keychain and scrub the plaintext copy. Returns the resolved
     /// value (Keychain first, else the migrated default).
-    static func migrateFromDefaults(key: String, defaultsKey: String) -> String {
+    static func migrateFromDefaults(key: String, defaultsKey: String,
+                                    defaults: UserDefaults = .standard) -> String {
         if let secure = get(key) { return secure }
-        let legacy = UserDefaults.standard.string(forKey: defaultsKey) ?? ""
+        let legacy = defaults.string(forKey: defaultsKey) ?? ""
         if !legacy.isEmpty {
             set(legacy, for: key)
-            UserDefaults.standard.removeObject(forKey: defaultsKey)  // scrub plaintext
+            // Scrub the plaintext only once the Keychain copy reads back — a
+            // failed write must not cost the driver the value itself.
+            if get(key) == legacy { defaults.removeObject(forKey: defaultsKey) }
         }
         return legacy
     }

@@ -660,6 +660,9 @@ struct StarsAndBucks: View {
     /// The rating's business page. Yelp's terms require their rating to
     /// link to it; tapping the stars opens it.
     var url: URL? = nil
+    /// Whoever supplied these stars or $ (`RatingsProvider.credit`); nil
+    /// when nothing here came from a provider.
+    var credit: String? = nil
     @Environment(\.openURL) private var openURL
     @State private var shimmerPhase: CGFloat = -1
 
@@ -722,8 +725,7 @@ struct StarsAndBucks: View {
             // their data to be attributed wherever it is shown, and FLOWS
             // shows it over an Apple map — there is no provider chrome to
             // carry it, so it goes here, beside the stars it describes.
-            if stars != nil || costTier != nil,
-               let credit = RatingsProvider.creditLine {
+            if stars != nil || costTier != nil, let credit {
                 Text(credit)
                     .scaledFont(size: 8, weight: .medium)
                     .foregroundStyle(.secondary)

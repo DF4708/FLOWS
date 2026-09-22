@@ -195,6 +195,11 @@ final class RoadEfficiencyModel: ObservableObject {
     /// encrypted in the first place.
     func erase() {
         store = RoadEfficiencyStore()
+        // A stretch driven before the erase must not be committed after it.
+        pendingMiles = 0
+        pendingUnits = 0
+        pendingArea = nil
+        pendingClass = nil
         SecureBehaviorStore.shred(url)
     }
 }

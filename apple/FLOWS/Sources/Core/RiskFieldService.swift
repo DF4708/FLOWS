@@ -55,6 +55,21 @@ final class RiskFieldService: ObservableObject {
     @Published private(set) var families: [String] = []
     @Published private(set) var generatedUTC: String?
 
+    /// The bundle's build stamp ("2026-07-04T11:39:45Z") as Settings shows
+    /// it — "July 4, 2026" — or nil when it does not parse. The raw stamp
+    /// read like a timestamp on live data.
+    nonisolated static func builtDate(_ generatedUTC: String, locale: Locale = .current,
+                                      timeZone: TimeZone = .current) -> String? {
+        let parser = ISO8601DateFormatter()
+        guard let date = parser.date(from: generatedUTC) else { return nil }
+        let out = DateFormatter()
+        out.locale = locale
+        out.timeZone = timeZone
+        out.dateStyle = .long
+        out.timeStyle = .none
+        return out.string(from: date)
+    }
+
     /// The loaded field; nil until `load()` has parsed a bundle.
     private var field: RiskField?
 

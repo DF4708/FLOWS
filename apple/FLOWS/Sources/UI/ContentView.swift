@@ -3168,15 +3168,20 @@ struct WelcomeCard: View {
                     .scaledFont(size: 18, weight: .bold)
                 Text("One permission runs the whole app: your location. It "
                      + "powers navigation, the weather-risk map around you, "
-                     + "and stops ahead. The phone asks right after this.")
+                     + "and stops ahead. FLOWS asks for it right after this.")
                     .scaledFont(.callout)
                 Text("Nothing else is asked up front — each of these asks "
                      + "only the first time you use it:")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
+                // Every later ask is listed, each named the way Settings
+                // names its switch, so none arrives unannounced.
+                permissionRow("bell.fill",
+                              "Notifications — the first time you start a trip, "
+                              + "so warnings can reach you outside the app")
                 permissionRow("dot.radiowaves.right",
-                              "Bluetooth — when you turn on the tire-sensor "
-                              + "link in Settings")
+                              "Bluetooth — when you turn on “Listen for "
+                              + "tire sensors and car plug-ins” in Settings")
                 permissionRow("music.note",
                               "Music library — the first time you press play")
                 permissionRow("mic.fill",
@@ -3184,6 +3189,11 @@ struct WelcomeCard: View {
                               + "answer FLOWS by voice, or on iPhone at your "
                               + "first trip, so FLOWS can hear you if it asks "
                               + "after a crash")
+                #if os(iOS)
+                permissionRow("person.wave.2.fill",
+                              "Personal Voice — only if you turn on “Speak "
+                              + "with your Personal Voice” in Settings")
+                #endif
                 Button {
                     model.completeOnboarding()
                 } label: {
@@ -3258,6 +3268,13 @@ struct SettingsSheet: View {
     @State private var healthLines: [String] = []
     /// Shown after the driver erases what the app has learned.
     @State private var erasedConfirmation = false
+    /// The one "are you sure?" before that erase.
+    @State private var confirmingErase = false
+
+    /// The name above one key field under "Keys for extra info".
+    private func keyLabel(_ text: String) -> some View {
+        Text(text).scaledFont(.caption2, weight: .semibold)
+    }
 
     /// One "label … value" line in the learned-about-you section.
     private func learnedRow(_ label: String, _ value: String) -> some View {
@@ -3321,9 +3338,9 @@ struct SettingsSheet: View {
                  + "radio plays right here in FLOWS — no account needed. "
                  + "Apple Music plays here too, and so does Spotify: on a "
                  + "Mac right away, on iPhone once a Spotify token is added "
-                 + "under Data sources. No other music service lets outside "
-                 + "apps control it, so the rest open in their own app. The "
-                 + "same rule drives the Siri and CarPlay buttons.")
+                 + "under “Keys for extra info”. No other music service lets "
+                 + "outside apps control it, so the rest open in their own "
+                 + "app. The same rule drives the Siri and CarPlay buttons.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
 
@@ -3747,15 +3764,18 @@ struct SettingsSheet: View {
             }
 
             Divider()
-            Text("Data sources")
+            Text("Keys for extra info")
                 .scaledFont(size: 14, weight: .semibold)
-            SecureField("Google Places API key (free monthly quota: console.cloud.google.com) — stars + $",
-                      text: $model.googlePlacesAPIKey)
+            // Each key is named above its field: a filled field shows only
+            // dots, and a long placeholder was cut off before it was filled.
+            keyLabel("Google Places key (free monthly amount at "
+                     + "console.cloud.google.com) — stars, $ and open hours")
+            SecureField("Paste key", text: $model.googlePlacesAPIKey)
                 .textFieldStyle(.roundedBorder)
                 .scaledFont(.caption)
+            keyLabel("Yelp key (free for 30 days, then paid) — stars and $")
             HStack(spacing: 6) {
-                SecureField("Yelp Places API key (30-day free trial, then paid) — stars + $",
-                          text: $model.yelpAPIKey)
+                SecureField("Paste key", text: $model.yelpAPIKey)
                     .textFieldStyle(.roundedBorder)
                     .scaledFont(.caption)
                 Menu {
@@ -3774,18 +3794,21 @@ struct SettingsSheet: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
             }
-            SecureField("TomTom API key (free tier: developer.tomtom.com) — live gas prices",
-                      text: $model.tomtomAPIKey)
+            keyLabel("TomTom key (free plan at developer.tomtom.com) — live gas prices")
+            SecureField("Paste key", text: $model.tomtomAPIKey)
                 .textFieldStyle(.roundedBorder)
                 .scaledFont(.caption)
-            Text("With a key, hotels/food show review stars (yellow→gold) and "
-                 + "$ tiers (income-anchored: $ = minimum-wage affordable, "
-                 + "$$$$$ = top 1–3%). Without one, stars/$ stay hidden.")
+            // Big chains carry a known $ level with no key at all
+            // (BrandKnowledge), so "hidden without one" was not true.
+            Text("With a Google Places or Yelp key, hotels and food show "
+                 + "review stars (yellow→gold) and $ price levels ($ = easy "
+                 + "on a small budget, $$$$$ = the priciest). Without one, "
+                 + "only big chains show $.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
+            keyLabel("Spotify token (optional) — play, pause and skip Spotify in FLOWS")
             HStack(spacing: 6) {
-                SecureField("Spotify token (optional) — play/pause/skip Spotify in FLOWS",
-                          text: $model.spotifyWebToken)
+                SecureField("Paste token", text: $model.spotifyWebToken)
                     .textFieldStyle(.roundedBorder)
                     .scaledFont(.caption)
                 Menu {
@@ -3815,10 +3838,16 @@ struct SettingsSheet: View {
             Text("Connected vehicle (cloud — Smartcar)")
                 .scaledFont(size: 14, weight: .semibold)
             HStack(spacing: 8) {
+                // An ID is stored exactly as typed: the default sentence
+                // capitals and autocorrect would change a hand-typed one.
                 TextField("Client ID", text: Binding(
                     get: { model.smartcar.clientID },
                     set: { model.smartcar.clientID = $0 }))
                     .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
                 SecureField("Client Secret", text: Binding(
                     get: { model.smartcar.clientSecret },
                     set: { model.smartcar.clientSecret = $0 }))
@@ -3833,14 +3862,20 @@ struct SettingsSheet: View {
                 } else if let url = model.smartcar.connectURL {
                     Link("Connect vehicle →", destination: url)
                         .scaledFont(.caption, weight: .bold)
+                } else {
+                    // Connect needs both halves; say so rather than just
+                    // leave the link out.
+                    Text("Paste the Client ID and Secret to connect.")
+                        .scaledFont(.caption2)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 Text(model.smartcar.status).scaledFont(.caption2).foregroundStyle(.secondary)
             }
-            Text("dashboard.smartcar.com → create app → redirect URI "
-                 + "flows://smartcar → paste ID + Secret → Connect. Then FLOWS "
-                 + "uses your car's real fuel level and tire pressure instead "
-                 + "of its own estimate.")
+            Text("Set up once at dashboard.smartcar.com: make an app, set its "
+                 + "redirect address to flows://smartcar, paste its Client ID "
+                 + "and Secret here, then tap Connect. Your car's real fuel "
+                 + "level and tire pressures then replace FLOWS's own guess.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
@@ -3856,7 +3891,7 @@ struct SettingsSheet: View {
                     // one-time Bluetooth permission ask).
                     UserDefaults.standard.set($0, forKey: "flows.vehicleLinkScanning")
                 })) {
-                Text("Listen for tire sensors and plug-in car readers").scaledFont(.caption)
+                Text("Listen for tire sensors and car plug-ins").scaledFont(.caption)
             }
             Text(model.vehicleLink.status).scaledFont(.caption2).foregroundStyle(.secondary)
             if !model.vehicleLink.tirePressuresPsi.isEmpty {
@@ -3866,31 +3901,36 @@ struct SettingsSheet: View {
                     .joined(separator: " · "))
                     .font(.caption.monospacedDigit())
             }
-            Text("Tire sensors that screw on in place of your valve caps send "
-                 + "their air pressure. A plug-in car reader (an OBD-II reader, "
-                 + "such as OBDLink or Veepeak, in the plug under the dashboard) "
-                 + "sends your real fuel level.")
+            Text("Bluetooth tire-pressure caps send each tire's pressure. A "
+                 + "Bluetooth reader plugged in under the dashboard (such as "
+                 + "OBDLink or Veepeak) sends the real fuel level.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
             Divider()
             Text("Data sources & refresh")
                 .scaledFont(size: 14, weight: .semibold)
-            Text("Weather alerts: NWS api.weather.gov — live, re-checked every "
-                 + "4 min while driving. Risk field: FLOWS 20-year NOAA Storm "
-                 + "Events climatology baseline. "
-                 + "Elevation/grades: USGS EPQS, fetched per plan, cached. Low "
-                 + "bridges: OpenStreetMap maxheight via Overpass, per plan. "
-                 + "Floodplain: FEMA NFHL zones, per plan. "
-                 + "Unknown data never excludes a route.")
+            Text("Weather alerts: the National Weather Service, checked "
+                 + "every 4 minutes while you drive. Risk map: 20 years of "
+                 + "storm records from the national weather agency (NOAA). "
+                 + "Hills: height data from the U.S. map agency (USGS), "
+                 + "looked up for each trip. Low bridges: OpenStreetMap, "
+                 + "looked up for each trip. Flood areas: flood maps from "
+                 + "the national disaster agency (FEMA), looked up for each "
+                 + "trip. Missing data never rules out a route.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
             // The risk map's vintage. The text above used to point at a
             // "generated time in Map Filter" that nothing ever displayed —
-            // the value was published and never read. A stale climatology is
-            // worth knowing about, so it says so here.
-            if let generated = model.riskField.generatedUTC {
-                Text("Risk field generated \(generated).")
+            // the value was published and never read. It was then shown as
+            // the raw stamp ("2026-07-04T11:39:45Z"), which read like stale
+            // live data; it is a long-term pattern, and says so.
+            if let built = model.riskField.generatedUTC.flatMap({
+                RiskFieldService.builtDate($0)
+            }) {
+                Text("Risk map built \(built) from 20 years of storm records — "
+                     + "a long-term pattern, not live weather. Live warnings "
+                     + "come from the Weather Service.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -3937,14 +3977,23 @@ struct SettingsSheet: View {
             DisclosureGroup("What FLOWS has learned about you") {
                 let summary = SeasonalRiskModel.shared.learningSummary
                 VStack(alignment: .leading, spacing: 4) {
+                    // "A key that never leaves it" was not true on a Mac,
+                    // whose login keychain rides Time Machine.
                     Text("All of this is stored on this device only, encrypted "
-                         + "with a key that never leaves it. None of it is sent anywhere.")
+                         + "with a key made on it. None of it is sent anywhere.")
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                     learnedRow("Trips remembered", "\(summary.trips)")
                     learnedRow("Routes recognized", "\(summary.routes)")
+                    // Until enough trips are in, the radius is the starting
+                    // default — shown as learned, it made a fresh install
+                    // (or a just-erased list) look like it knew something.
                     learnedRow("Everyday area",
-                               String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles))
+                               EverydayPlaces.shared.radiusLearned
+                                   ? String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles)
+                                   : "Not learned yet")
+                    learnedRow("Home area learned",
+                               EverydayPlaces.shared.homeAnchor == nil ? "No" : "Yes")
                     learnedRow("Places remembered", "\(EverydayPlaces.shared.allPlaces.count)")
                     learnedRow("Destinations kept", "\(model.recents.entries.count)")
                     learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
@@ -3956,43 +4005,41 @@ struct SettingsSheet: View {
                     learnedRow("Roads saved for no signal", "\(model.corridors.corridors.count)")
                     learnedRow("Traffic times learned", "\(model.trafficModel.store.cells.count)")
                     learnedRow("Fuel use learned", "\(model.roadEfficiency.store.cells.count)")
+                    learnedRow("People you shared trips with",
+                               "\(model.shareHistory.recipients.count)")
                     if let cal = summary.calibration {
-                        learnedRow("Risk prediction error",
-                                   String(format: "%.3f typical", cal))
+                        // An error on the 0–1 risk scale, as a percentage.
+                        learnedRow("How far off risk guesses were",
+                                   "about \(Int((cal * 100).rounded()))%")
                     }
                     if summary.tuned {
                         Text("The risk model has been fine-tuned on your own trips.")
                             .scaledFont(.caption).foregroundStyle(.secondary)
                     }
+                    // One press, but not one stray tap: nothing brings it back.
                     Button(role: .destructive) {
-                        SeasonalRiskModel.shared.eraseLearnedHistory()
-                        EverydayPlaces.shared.erase()
-                        model.recents.erase()
-                        ChoiceLogStore.shared.erase()
-                        DrivingProfileStore.shared.erase()
-                        // Where the driver has actually BEEN. These four were
-                        // missing: the breadcrumb trail, the saved offline
-                        // corridors, and the two learned models are all
-                        // location history, and none of them was reached by
-                        // this button — nor helped by destroying the key,
-                        // since all four were written as plaintext.
-                        model.breadcrumbs.erase()
-                        model.corridors.erase()
-                        model.trafficModel.erase()
-                        model.roadEfficiency.erase()
-                        // Last: drop the key. Each store shreds its own
-                        // plaintext above, but until the key goes with it an
-                        // escaped ciphertext is still readable — and this
-                        // button promises the app is "back to knowing
-                        // nothing".
-                        SecureBehaviorStore.destroyKey()
-                        erasedConfirmation = true
+                        confirmingErase = true
                     } label: {
                         Label("Erase everything FLOWS has learned",
                               systemImage: "trash")
                     }
                     .scaledFont(.caption, weight: .semibold)
                     .padding(.top, 4)
+                    .alert("Erase everything FLOWS has learned?",
+                           isPresented: $confirmingErase) {
+                        Button("Erase", role: .destructive) {
+                            Task {
+                                // The list itself lives in AppModel, beside
+                                // the stores, so a new one is added there.
+                                await model.eraseEverythingLearned()
+                                erasedConfirmation = true
+                                healthLines = await FlowsDiag.shared.recent(120)
+                            }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This can't be undone.")
+                    }
                     if erasedConfirmation {
                         Text("Erased. The app is back to knowing nothing about your travel.")
                             .scaledFont(.caption)
@@ -4030,9 +4077,13 @@ struct SettingsSheet: View {
                     }
                     .scaledFont(.caption)
                     // The visible tail is a preview; a trip review wants
-                    // the WHOLE journal, so the files themselves ship out.
-                    ShareLink(items: FlowsDiag.shared.fileURLs) {
-                        Text("Send full log").scaledFont(.caption)
+                    // the WHOLE journal, so the files themselves ship out —
+                    // only the ones that exist.
+                    let logFiles = FlowsDiag.shared.fileURLs
+                    if !logFiles.isEmpty {
+                        ShareLink(items: logFiles) {
+                            Text("Send full log").scaledFont(.caption)
+                        }
                     }
                 }
                 Text("After a drive, send the full log to have the music "

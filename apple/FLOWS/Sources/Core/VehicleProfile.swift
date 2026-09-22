@@ -175,6 +175,15 @@ final class VehicleStore: ObservableObject {
         self.idleFraction = flows_trip_vehicle_restore_driving_idle(idleFraction)
     }
 
+    /// Back to the untrained starting shape. "Erase everything FLOWS has
+    /// learned" calls this before erasing the driving profile: these copies
+    /// were loaded from it, and the next navigation fix wrote them straight
+    /// back into the freshly erased file.
+    func resetDrivingHabits() {
+        averageSpeedMph = 55
+        idleFraction = 0
+    }
+
     /// TOWING: separate consumption pattern — the multiplier applies at
     /// read time so towing miles never contaminate normal-pattern learning.
     @Published var towingActive = false

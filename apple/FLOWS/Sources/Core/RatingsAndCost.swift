@@ -21,7 +21,7 @@ import Foundation
 ///   $$$$   ≤ $120  — high income
 ///   $$$$$  > $120  — top 1–3% territory
 /// Live per-business data plugs in via the Yelp Fusion key (free tier,
-/// Settings → Data sources): Yelp's $–$$$$ maps into tiers 1–4/5.
+/// Settings → Keys for extra info): Yelp's $–$$$$ maps into tiers 1–4/5.
 ///
 /// The country boxes, the tier edges and the shower ladder are computed in
 /// rust/flows-core (places_text.rs) and called through rust/flows-bridge;
@@ -129,7 +129,7 @@ enum RatingsAndCost {
 }
 
 /// Optional Yelp Fusion source (free key: https://www.yelp.com/developers —
-/// create an app, paste the API key into Settings → Data sources). Supplies
+/// create an app, paste the API key into Settings → Keys for extra info).
 /// rating + price for hotels/food; absent a key, the UI simply omits
 /// stars/$ rather than inventing them.
 actor YelpLink {
@@ -149,6 +149,12 @@ actor YelpLink {
         /// The business page, when the provider requires linking to it
         /// (Yelp's display terms do; Google's are met by the credit line).
         var url: URL? = nil
+        /// Who answered — the credit under the stars names them.
+        var source: Source? = nil
+
+        enum Source {
+            case google, yelp
+        }
     }
 
     private var cache: [String: BusinessInfo] = [:]
@@ -175,7 +181,8 @@ actor YelpLink {
         let info = BusinessInfo(rating: first["rating"] as? Double,
                                 price: first["price"] as? String,
                                 isOpenNow: hoursBlock?["is_open_now"] as? Bool,
-                                url: (first["url"] as? String).flatMap(URL.init))
+                                url: (first["url"] as? String).flatMap(URL.init),
+                                source: .yelp)
         cache[key] = info
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
@@ -243,7 +250,7 @@ actor GooglePlacesLink {
             as? [String]
         let info = YelpLink.BusinessInfo(rating: first["rating"] as? Double,
                                          price: price, isOpenNow: openNow,
-                                         hours: hours)
+                                         hours: hours, source: .google)
         cache[key] = info
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
@@ -264,23 +271,22 @@ enum RatingsProvider {
             name: name, latitude: latitude, longitude: longitude)
     }
 
-    /// Who supplied the rating currently on screen, or nil when no provider
-    /// is configured and the app shows only its own data.
+    /// Who supplied the stars or $ on one row, or nil when nothing on it
+    /// came from a provider.
     ///
     /// Google's Places terms require their content to be credited wherever
     /// it appears. FLOWS draws on an Apple map, so the credit has to travel
-    /// with the stars rather than live in a Google map's own chrome. This
-    /// mirrors the same key ladder `info(name:latitude:longitude:)` uses —
-    /// read straight from defaults so a SwiftUI body can call it.
-    @MainActor static var creditLine: String? {
-        let d = UserDefaults.standard
-        if !(d.string(forKey: "flows.googlePlacesKey") ?? "").isEmpty {
-            return "Powered by Google"
+    /// with the stars rather than live in a Google map's own chrome. It is
+    /// read from the ANSWER, not from which keys are saved: the ladder falls
+    /// back to Yelp per business, and a brand-table $ is FLOWS's own data —
+    /// choosing by saved key credited Google for both.
+    static func credit(for info: YelpLink.BusinessInfo?) -> String? {
+        guard let info, info.rating != nil || info.price != nil else { return nil }
+        switch info.source {
+        case .google: return "Powered by Google"
+        case .yelp: return "Ratings by Yelp"
+        case nil: return nil
         }
-        if !(d.string(forKey: "flows.yelpKey") ?? "").isEmpty {
-            return "Ratings by Yelp"
-        }
-        return nil
     }
 }
 
@@ -417,6 +423,12 @@ enum ShowerAvailability: String {
     static func isDisproved(lat: Double, lon: Double) -> Bool {
         (UserDefaults.standard.stringArray(forKey: disprovedKey) ?? [])
             .contains(locationKey(lat: lat, lon: lon))
+    }
+
+    /// Each report is a truck stop the driver stood in, so "Erase everything
+    /// FLOWS has learned" drops them with the rest.
+    static func eraseReports() {
+        UserDefaults.standard.removeObject(forKey: disprovedKey)
     }
 
     /// Full resolution ladder: driver report → explicit table tag → brand.

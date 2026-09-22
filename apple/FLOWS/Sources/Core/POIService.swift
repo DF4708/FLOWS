@@ -157,6 +157,9 @@ final class POIService: ObservableObject {
         var isOpenNow: Bool? = nil
         /// The provider's business page (Yelp requires the link).
         var businessURL: URL? = nil
+        /// Who supplied the stars or $ (`RatingsProvider.credit`) — nil
+        /// when they are FLOWS's own brand-table tier.
+        var ratingCredit: String? = nil
         /// Parking only: true = costs money, false = free, nil = unknown.
         var parkingFee: Bool? = nil
         /// Shelter only: plain-words type ("Storm shelter", "Flood shelter",
@@ -624,15 +627,17 @@ final class POIService: ObservableObject {
         var liveIDs = Set<ObjectIdentifier>()
         var openFlags: [Bool?] = unique.map { _ in nil }
         var businessURLs: [URL?] = unique.map { _ in nil }
+        var credits: [String?] = unique.map { _ in nil }
         if policy.ratings_lookup {
             // Public reviews + cost: Yelp Fusion when a key is configured
-            // (Settings → Data sources); stars/$ hide otherwise. Gyms and
-            // shelters ride along for the open-now hours the same lookup
-            // carries.
+            // (Settings → Keys for extra info); stars/$ hide otherwise.
+            // Gyms and shelters ride along for the open-now hours the same
+            // lookup carries.
             var r: [Double?] = []
             var t: [Int?] = []
             var open: [Bool?] = []
             var urls: [URL?] = []
+            var credit: [String?] = []
             for item in unique {
                 let c = item.placemark.coordinate
                 // Provider ladder: Google Places (bigger free quota) → Yelp.
@@ -644,17 +649,20 @@ final class POIService: ObservableObject {
                     })
                     open.append(info.isOpenNow)
                     urls.append(info.url)
+                    credit.append(RatingsProvider.credit(for: info))
                 } else {
                     r.append(nil)
                     t.append(nil)
                     open.append(nil)
                     urls.append(nil)
+                    credit.append(nil)
                 }
             }
             ratings = r
             costTiers = t
             openFlags = open
             businessURLs = urls
+            credits = credit
             prices = kind == .hotel
                 ? unique.map { self.hotelInfoProvider($0).nightly }
                 : unique.map { _ in nil }
@@ -688,11 +696,14 @@ final class POIService: ObservableObject {
             zip(unique.map { ObjectIdentifier($0) }, openFlags))
         let urlByName = Dictionary(uniqueKeysWithValues:
             zip(unique.map { ObjectIdentifier($0) }, businessURLs))
+        let creditByName = Dictionary(uniqueKeysWithValues:
+            zip(unique.map { ObjectIdentifier($0) }, credits))
         ranked = ranked.map { row in
             var r = row
             r.costTier = tierByName[ObjectIdentifier(row.item)] ?? nil
             r.isOpenNow = openByName[ObjectIdentifier(row.item)] ?? nil
             r.businessURL = urlByName[ObjectIdentifier(row.item)] ?? nil
+            r.ratingCredit = creditByName[ObjectIdentifier(row.item)] ?? nil
             r.isLivePrice = liveIDs.contains(ObjectIdentifier(row.item))
             let poiName = row.item.name ?? ""
             // Brand-table prefill: with no ratings key (or no provider

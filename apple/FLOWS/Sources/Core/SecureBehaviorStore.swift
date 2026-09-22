@@ -22,6 +22,8 @@ import Security
 /// home, work, doctor, church, the shelter they visited — so it gets its own
 /// envelope: AES-GCM with a 256-bit key that lives ONLY in the Keychain, is
 /// marked device-only, and is never synced to iCloud or copied into a backup.
+/// (A Mac's login keychain can land in a backup; there the sealed files are
+/// kept out of it instead — `keepOutOfBackups`.)
 /// Without the key the files are noise.
 ///
 /// Sealed with AES-GCM (authenticated): tampering is detected, not silently
@@ -106,10 +108,25 @@ enum SecureBehaviorStore {
             try? FileManager.default.setAttributes(
                 [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
                 ofItemAtPath: url.path)
+            keepOutOfBackups(url)
             return true
         } catch {
             return false
         }
+    }
+
+    /// A Mac keeps the key in the login keychain, which ignores the
+    /// device-only class and which Time Machine backs up — so there the
+    /// sealed files stay out of backups instead, and no backup holds both.
+    /// Applied on every write (the atomic replace drops the flag) and every
+    /// read (files sealed before this existed).
+    private static func keepOutOfBackups(_ url: URL) {
+        #if os(macOS)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var target = url
+        try? target.setResourceValues(values)
+        #endif
     }
 
     /// Read and open the envelope. nil = absent, unreadable, wrong key, or
@@ -118,13 +135,24 @@ enum SecureBehaviorStore {
     static func read(_ url: URL, keyspace: Keyspace = .behavior) -> Data? {
         guard let raw = try? Data(contentsOf: url), !raw.isEmpty else { return nil }
         guard let key = key(keyspace) else { return nil }
-        guard let box = try? AES.GCM.SealedBox(combined: raw),
-              let opened = try? AES.GCM.open(box, using: key) else {
-            FlowsDiag.log(.warn, "privacy",
-                          "behavior file did not authenticate — ignoring \(url.lastPathComponent)")
+        guard let opened = open(raw, with: key) else {
+            logUnauthenticated(url)
             return nil
         }
+        keepOutOfBackups(url)
         return opened
+    }
+
+    /// The envelope's contents, or nil — silently, so the plaintext upgrade
+    /// can try it before anything is called tampered.
+    private static func open(_ raw: Data, with key: SymmetricKey) -> Data? {
+        guard let box = try? AES.GCM.SealedBox(combined: raw) else { return nil }
+        return try? AES.GCM.open(box, using: key)
+    }
+
+    private static func logUnauthenticated(_ url: URL) {
+        FlowsDiag.log(.warn, "privacy",
+                      "behavior file did not authenticate — ignoring \(url.lastPathComponent)")
     }
 
     /// Codable convenience.
@@ -147,10 +175,22 @@ enum SecureBehaviorStore {
     /// plaintext is overwritten before being replaced. A driver who updates
     /// keeps their history and stops leaving it in the clear, with no action
     /// and no data loss.
+    ///
+    /// The plaintext is expected here, so it is not reported: this used to
+    /// go through `read`, which logged every old file as one that "did not
+    /// authenticate" before upgrading it. Only bytes that are neither
+    /// sealed nor JSON still earn that warning.
     static func readMigrating(_ url: URL) -> Data? {
-        if let opened = read(url) { return opened }
-        guard let raw = try? Data(contentsOf: url), !raw.isEmpty,
-              (try? JSONSerialization.jsonObject(with: raw)) != nil else { return nil }
+        guard let raw = try? Data(contentsOf: url), !raw.isEmpty else { return nil }
+        let dataKey = key()
+        if let dataKey, let opened = open(raw, with: dataKey) {
+            keepOutOfBackups(url)
+            return opened
+        }
+        guard (try? JSONSerialization.jsonObject(with: raw)) != nil else {
+            if dataKey != nil { logUnauthenticated(url) }
+            return nil
+        }
         // Overwrite the plaintext bytes in place, THEN write the sealed copy.
         var noise = Data(count: raw.count)
         _ = noise.withUnsafeMutableBytes { buf in

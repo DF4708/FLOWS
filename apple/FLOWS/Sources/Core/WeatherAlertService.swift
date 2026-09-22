@@ -515,9 +515,11 @@ final class WeatherAlertService: ObservableObject {
             }
         }
         if !failedStates.isEmpty {
+            // A count, not the states: the journal is plain text, and the
+            // states asked about are where the driver is or is going.
             FlowsDiag.logThrottled(
                 key: "alerts.stateFail", .warn, "alerts",
-                "state alert list(s) failed \(failedStates.sorted()) — affected cells using per-point queries")
+                "state alert list(s) failed: \(failedStates.count) state(s) — affected cells using per-point queries")
         }
         var joinable: [(String, CLLocationCoordinate2D)] = []
         for (key, pt, states) in candidates {

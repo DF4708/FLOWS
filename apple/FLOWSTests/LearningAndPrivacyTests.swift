@@ -69,6 +69,39 @@ final class LearningAndPrivacyTests: XCTestCase {
                        legacy)
     }
 
+    /// The upgrade is expected, so it is not reported as tampering: every
+    /// old file used to log "did not authenticate" just before the line
+    /// saying it had been upgraded.
+    func testThePlaintextUpgradeDoesNotWarnAboutTampering() async throws {
+        let name = "legacy-\(UUID().uuidString).json"
+        let url = tempDir().appendingPathComponent(name)
+        try Data(#"{"a":1}"#.utf8).write(to: url)
+        XCTAssertNotNil(SecureBehaviorStore.readMigrating(url))
+
+        // The journal is fed by fire-and-forget tasks: wait for the upgrade
+        // line, then check nothing called the same file tampered.
+        var lines: [String] = []
+        for _ in 0..<50 {
+            lines = await FlowsDiag.shared.recent(400)
+            if lines.contains(where: { $0.contains("upgraded \(name)") }) { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(lines.contains { $0.contains("upgraded \(name)") })
+        XCTAssertFalse(lines.contains { $0.contains("did not authenticate — ignoring \(name)") })
+    }
+
+    #if os(macOS)
+    /// A Mac's login keychain ignores the device-only class and rides Time
+    /// Machine, so the sealed files stay out of backups: a backup must never
+    /// hold both the key and the data.
+    func testSealedFilesStayOutOfMacBackups() throws {
+        let url = tempDir().appendingPathComponent("sealed.json")
+        XCTAssertTrue(SecureBehaviorStore.write(Data("{}".utf8), to: url))
+        let values = try url.resourceValues(forKeys: [.isExcludedFromBackupKey])
+        XCTAssertEqual(values.isExcludedFromBackup, true)
+    }
+    #endif
+
     // MARK: personal ETA correction
 
     func testETACorrectionLearnsAndClamps() {
@@ -289,6 +322,69 @@ final class LearningAndPrivacyTests: XCTestCase {
             .disproven)
     }
 
+    /// Each report is a truck stop the driver stood in; erasing what FLOWS
+    /// learned left the list behind.
+    func testErasingDropsTheShowerReports() {
+        let lat = 41.2345, lon = -95.5432
+        let reportsKey = "flows.showersDisproved"
+        UserDefaults.standard.removeObject(forKey: reportsKey)
+        defer { UserDefaults.standard.removeObject(forKey: reportsKey) }
+        ShowerAvailability.disprove(lat: lat, lon: lon)
+        XCTAssertTrue(ShowerAvailability.isDisproved(lat: lat, lon: lon))
+        ShowerAvailability.eraseReports()
+        XCTAssertFalse(ShowerAvailability.isDisproved(lat: lat, lon: lon))
+        XCTAssertNil(UserDefaults.standard.object(forKey: reportsKey))
+    }
+
+    // MARK: erase reaches the in-memory copies
+
+    /// The erased driving profile was sealed again within a minute: the
+    /// vehicle kept the learned speed and idle it had been seeded with, and
+    /// the next navigation fix wrote them back. The erase resets them first.
+    @MainActor
+    func testDrivingHabitsResetToTheUntrainedShape() throws {
+        let suite = "flows.tests.habits.reset"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let vehicle = VehicleStore(defaults: defaults)
+        let untrained = (vehicle.averageSpeedMph, vehicle.idleFraction)
+
+        vehicle.restoreDriving(averageSpeedMph: 31, idleFraction: 0.2)
+        XCTAssertEqual(vehicle.averageSpeedMph, 31, accuracy: 1e-9)
+
+        vehicle.resetDrivingHabits()
+        XCTAssertEqual(vehicle.averageSpeedMph, untrained.0, accuracy: 1e-9)
+        XCTAssertEqual(vehicle.idleFraction, untrained.1, accuracy: 1e-9)
+    }
+
+    // MARK: credentials move out of plaintext preferences
+
+    /// The ratings and fuel-price keys were plain preferences, which ride
+    /// every backup. One launch moves each into the Keychain and removes
+    /// the preference copy — only once the Keychain copy reads back.
+    func testAPlaintextKeyMovesToTheKeychainAndLeavesThePreferences() throws {
+        let suite = "flows.tests.securestore.migrate"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let account = "tests.migrate.\(UUID().uuidString)"
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            SecureStore.set(nil, for: account)
+        }
+        defaults.set("abc123", forKey: "flows.someKey")
+
+        let moved = SecureStore.migrateFromDefaults(key: account, defaultsKey: "flows.someKey",
+                                                    defaults: defaults)
+        XCTAssertEqual(moved, "abc123")
+        XCTAssertEqual(SecureStore.get(account), "abc123")
+        XCTAssertNil(defaults.object(forKey: "flows.someKey"))
+
+        // The next launch reads the Keychain copy; nothing is left to move.
+        XCTAssertEqual(SecureStore.migrateFromDefaults(key: account, defaultsKey: "flows.someKey",
+                                                       defaults: defaults), "abc123")
+    }
+
     // MARK: on-device fine-tune
 
     private func flatHead() -> LearnedHead {
@@ -354,5 +450,45 @@ final class LearningAndPrivacyTests: XCTestCase {
                                             supportFileCount: 1))
         XCTAssertEqual(Set(FreshInstall.keychainServices),
                        ["com.flows.app.secure", "com.flows.app.behavior"])
+    }
+}
+
+/// A connected car's sign-in survives anything short of Smartcar refusing
+/// it. Every failed refresh — no signal in a parking garage, a timeout, a
+/// server error — used to delete the refresh token and demand the whole
+/// sign-in again.
+final class SmartcarExchangeTests: XCTestCase {
+    func testOnlyTheTokenServerSayingNoEndsTheSignIn() {
+        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 200, hasAccessToken: true), .ok)
+        // invalid_grant (revoked or expired) and a refused client.
+        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 400, hasAccessToken: false),
+                       .rejected)
+        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 401, hasAccessToken: false),
+                       .rejected)
+    }
+
+    func testNoAnswerOrAServerHiccupKeepsTheSignIn() {
+        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: nil, hasAccessToken: false),
+                       .unreachable)
+        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 503, hasAccessToken: false),
+                       .unreachable)
+        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 429, hasAccessToken: false),
+                       .unreachable)
+        // A 200 with no token in it says nothing about the grant either.
+        XCTAssertEqual(SmartcarLink.exchangeOutcome(statusCode: 200, hasAccessToken: false),
+                       .unreachable)
+    }
+}
+
+/// Settings named the risk map's age with the raw bundle stamp, which read
+/// like a timestamp on live data.
+final class RiskMapDateTests: XCTestCase {
+    func testTheBuildStampReadsAsAPlainDate() throws {
+        let utc = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let usEnglish = Locale(identifier: "en_US")
+        XCTAssertEqual(RiskFieldService.builtDate("2026-07-04T11:39:45Z",
+                                                  locale: usEnglish, timeZone: utc),
+                       "July 4, 2026")
+        XCTAssertNil(RiskFieldService.builtDate("not a date", locale: usEnglish, timeZone: utc))
     }
 }

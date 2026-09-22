@@ -91,6 +91,18 @@ final class EverydayRadiusTests: XCTestCase {
         XCTAssertLessThan(t.radiusMiles, 5.0)
     }
 
+    /// Settings lists the radius under "What FLOWS has learned". Until the
+    /// gate it is the starting default, and a fresh install (or a list just
+    /// erased) showed that default as if it had been learned.
+    func testTheRadiusCountsAsLearnedOnlyPastTheGate() {
+        XCTAssertFalse(EverydayStore().radiusLearned)
+        let s = store(trips: Array(repeating: 4.0, count: EverydayStore.minTripsForRadius - 1))
+        XCTAssertFalse(s.radiusLearned)
+        var t = s
+        t.recordTrip(miles: 4.0)
+        XCTAssertTrue(t.radiusLearned)
+    }
+
     /// REPLACES `testRadiusNeverGrowsPastTheCap`, which pinned the old
     /// shrink-only rule: the circle was capped at its own 20-mile default,
     /// so a long-range driver could never earn a bigger one and simply never

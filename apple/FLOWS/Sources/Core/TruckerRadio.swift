@@ -393,9 +393,11 @@ final class TruckerRadio: ObservableObject {
                 case .failed:
                     // Raw AVFoundation error text is jargon — the driver
                     // only needs to know the station can't be reached. The
-                    // journal keeps the detail for a post-trip look.
+                    // journal keeps the detail for a post-trip look, but not
+                    // the station: the tuner follows the nearest transmitter,
+                    // so its names in a plaintext log would trace the drive.
                     FlowsDiag.log(.fail, "radio",
-                                  "stream failed: \(channel.name) — "
+                                  "stream failed (current station) — "
                                   + "\(item.error?.localizedDescription ?? "no detail")")
                     self?.status = "Station is offline right now."
                     self?.playingChannelID = nil
@@ -411,7 +413,7 @@ final class TruckerRadio: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 FlowsDiag.logThrottled(key: "radio.stall", interval: 60, .warn,
-                                       "radio", "stream stalled: \(channel.name)")
+                                       "radio", "stream stalled (current station)")
                 self?.onStall?()
             }
         }

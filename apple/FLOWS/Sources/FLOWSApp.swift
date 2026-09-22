@@ -273,11 +273,13 @@ final class AppModel: ObservableObject {
     }
 
     /// TomTom key (free tier: developer.tomtom.com) → live station fuel
-    /// prices where licensed; state estimates otherwise.
+    /// prices where licensed; state estimates otherwise. A key is a
+    /// credential, so it lives in the Keychain like the Spotify token —
+    /// moved out of the plaintext preferences on first launch.
     @Published var tomtomAPIKey: String =
-        UserDefaults.standard.string(forKey: "flows.tomtomKey") ?? "" {
+        SecureStore.migrateFromDefaults(key: "tomtom.key", defaultsKey: "flows.tomtomKey") {
         didSet {
-            UserDefaults.standard.set(tomtomAPIKey, forKey: "flows.tomtomKey")
+            SecureStore.set(tomtomAPIKey, for: "tomtom.key")
             let key = tomtomAPIKey
             Task { await TomTomFuel.shared.setKey(key) }
         }
@@ -323,19 +325,20 @@ final class AppModel: ObservableObject {
     /// Yelp Fusion key (free: yelp.com/developers) → stars + $ tiers.
     /// Google Places API (New) key — the alternate ratings source (free
     /// monthly quota; Yelp Fusion went paid). Either key lights up stars/$.
+    /// Both are credentials: Keychain, migrated like the TomTom key.
     @Published var googlePlacesAPIKey: String =
-        UserDefaults.standard.string(forKey: "flows.googlePlacesKey") ?? "" {
+        SecureStore.migrateFromDefaults(key: "googlePlaces.key", defaultsKey: "flows.googlePlacesKey") {
         didSet {
-            UserDefaults.standard.set(googlePlacesAPIKey, forKey: "flows.googlePlacesKey")
+            SecureStore.set(googlePlacesAPIKey, for: "googlePlaces.key")
             let key = googlePlacesAPIKey
             Task { await GooglePlacesLink.shared.setKey(key) }
         }
     }
 
     @Published var yelpAPIKey: String =
-        UserDefaults.standard.string(forKey: "flows.yelpKey") ?? "" {
+        SecureStore.migrateFromDefaults(key: "yelp.key", defaultsKey: "flows.yelpKey") {
         didSet {
-            UserDefaults.standard.set(yelpAPIKey, forKey: "flows.yelpKey")
+            SecureStore.set(yelpAPIKey, for: "yelp.key")
             let key = yelpAPIKey
             Task { await YelpLink.shared.setKey(key) }
         }
@@ -761,9 +764,10 @@ final class AppModel: ObservableObject {
     /// First play press: the "what do you play music with?" card.
     @Published var showMusicProviderPrompt = false
 
-    /// OPTIONAL Spotify Web API token (Settings → Data sources) — in-app
-    /// play/pause/skip for Spotify on iOS. A bearer token is a credential,
-    /// so it lives in the Keychain (SecureStore), never UserDefaults.
+    /// OPTIONAL Spotify Web API token (Settings → Keys for extra info) —
+    /// in-app play/pause/skip for Spotify on iOS. A bearer token is a
+    /// credential, so it lives in the Keychain (SecureStore), never
+    /// UserDefaults.
     @Published var spotifyWebToken: String =
         SecureStore.get(SpotifyRemote.keychainKey) ?? "" {
         didSet { SpotifyRemote.shared.setToken(spotifyWebToken) }
@@ -2820,6 +2824,42 @@ final class AppModel: ObservableObject {
                 UserDefaults.standard.set(data, forKey: "flows.dailyDrive")
             }
         }
+    }
+
+    // MARK: erase — "Erase everything FLOWS has learned"
+
+    /// Every store the Settings button reaches, in ONE place, the key last.
+    ///
+    /// The list lived in the button and was missed each time a store was
+    /// added: the share history (who, and when), the shower reports (stops
+    /// the driver stood in) and today's mile count survived it, and the
+    /// vehicle's in-memory speed and idle copies wrote the erased driving
+    /// profile straight back on the next fix. A new store goes here.
+    func eraseEverythingLearned() async {
+        SeasonalRiskModel.shared.eraseLearnedHistory()
+        EverydayPlaces.shared.erase()
+        recents.erase()
+        ChoiceLogStore.shared.erase()
+        vehicle.resetDrivingHabits()   // before the profile they were loaded from
+        DrivingProfileStore.shared.erase()
+        // Where the driver has actually BEEN: the breadcrumb trail, the
+        // saved offline corridors and the two learned road models.
+        breadcrumbs.erase()
+        corridors.erase()
+        trafficModel.erase()
+        roadEfficiency.erase()
+        shareHistory.erase()
+        ShowerAvailability.eraseReports()
+        dailyDrive = DailyDriveLog.empty()
+        dailyDrivePersistedMeters = 0
+        UserDefaults.standard.removeObject(forKey: "flows.dailyDrive")
+        // Last: drop the key. Each store shreds its own file above, but
+        // until the key goes with it an escaped ciphertext is still
+        // readable — and the button promises the app is "back to knowing
+        // nothing".
+        SecureBehaviorStore.destroyKey()
+        await FlowsDiag.shared.clear(
+            leaving: "journal cleared: the driver erased what FLOWS had learned")
     }
 
     /// One banner per trip, the moment either trigger is true: at GO for a

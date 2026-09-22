@@ -168,4 +168,26 @@ final class TripShareTests: XCTestCase {
             .first?.name, "Dana")
         defaults.removePersistentDomain(forName: suite)
     }
+
+    /// "Erase everything FLOWS has learned" never reached this store, so the
+    /// share chooser still ranked Mom first, from her dated shares, after
+    /// the driver erased.
+    @MainActor
+    func testEraseForgetsEveryRecipientForGood() throws {
+        let suite = "flows.tests.tripshare.erase"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = ShareHistoryStore(defaults: defaults)
+        store.recordShare(name: "Mom", phone: "5550102030",
+                          at: Date(timeIntervalSince1970: 1_750_000_000))
+        XCTAssertEqual(store.recipients.count, 1)
+
+        store.erase()
+        XCTAssertTrue(store.recipients.isEmpty)
+        XCTAssertTrue(store.suggestions().isEmpty)
+        // Gone from storage too: the next launch starts empty.
+        XCTAssertTrue(ShareHistoryStore(defaults: defaults).recipients.isEmpty)
+    }
 }

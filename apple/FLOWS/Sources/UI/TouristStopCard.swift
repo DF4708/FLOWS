@@ -60,7 +60,8 @@ struct TouristStopCard: View {
 
             if let stars = info?.rating {
                 sectionHeader("Stars")
-                StarsAndBucks(stars: stars, costTier: nil)
+                StarsAndBucks(stars: stars, costTier: nil, url: info?.url,
+                              credit: RatingsProvider.credit(for: info))
             }
 
             if hoursToday != nil || info?.isOpenNow != nil {

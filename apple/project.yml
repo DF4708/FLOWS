@@ -96,12 +96,10 @@ targets:
           Understands short spoken answers ("yes", "no", "I'm okay") and
           asks ("classic country", "the weather radio") to crash check-ins,
           route questions, and the music and radio mic buttons. If you turn
-          on emergency-radio pins, it also reads local dispatch calls ON
-          THIS PHONE to mark them on the map — that audio is never uploaded,
-          saved, or played aloud.
-          If you turn on a dispatch feed in Settings, that feed is also
-          transcribed on this device (never sent anywhere) to mark crashes
-          and closures on the map; nothing is heard from the microphone for it.
+          on "Show calls heard nearby" in Settings, local dispatch calls are
+          also turned into text ON THIS PHONE to mark crashes and closures
+          on the map — that audio is never uploaded, saved, or played aloud,
+          and nothing is heard from the microphone for it.
         NSMotionUsageDescription: >-
           Crash detection watches for sudden impacts while navigating.
         NSBluetoothAlwaysUsageDescription: >-
@@ -224,10 +222,11 @@ targets:
         NSSpeechRecognitionUsageDescription: >-
           Understands short spoken answers ("yes", "no", "I'm okay") and asks
           ("classic country", "the weather radio") to crash check-ins, route
-          questions, and the music and radio mic buttons. If you turn on a
-          dispatch feed in Settings, that feed is also transcribed on this
-          Mac (never sent anywhere) to mark crashes and closures on the map;
-          nothing is heard from the microphone for it.
+          questions, and the music and radio mic buttons. If you turn on
+          "Show calls heard nearby" in Settings, local dispatch calls are
+          also turned into text on this Mac (never sent anywhere) to mark
+          crashes and closures on the map; nothing is heard from the
+          microphone for it.
         NSMicrophoneUsageDescription: >-
           Hears your spoken answer after a crash check-in or a route offer,
           and your music and radio asks — only while FLOWS is listening for
@@ -362,6 +361,7 @@ targets:
       # centred panel — which the chrome-fit tests pin.
       - path: FLOWS/Sources/Core/GoldenScale.swift
       - path: FLOWS/Sources/Core/ThrottledNet.swift
+      - path: FLOWS/Sources/Core/SmartcarLink.swift
       - path: FLOWS/Sources/Core/TruckerRadio.swift
       - path: FLOWS/Sources/Core/RadioBrowser.swift
       - path: FLOWS/Sources/Core/MusicController.swift

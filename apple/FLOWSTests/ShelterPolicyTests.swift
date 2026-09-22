@@ -273,58 +273,43 @@ final class TowingFilterTests: XCTestCase {
     }
 }
 
-/// Google's content must be credited wherever it is shown.
-@MainActor
+/// Google's content must be credited wherever it is shown — and only there.
+/// The credit is read from each answer: it used to follow the saved keys,
+/// so with both keys set a Yelp-rated diner and a chain's brand-table $
+/// were both captioned "Powered by Google".
 final class RatingsCreditTests: XCTestCase {
-    private let gKey = "flows.googlePlacesKey"
-    private let yKey = "flows.yelpKey"
-    private var savedG: String?
-    private var savedY: String?
+    private typealias Info = YelpLink.BusinessInfo
 
-    override func setUp() {
-        savedG = UserDefaults.standard.string(forKey: gKey)
-        savedY = UserDefaults.standard.string(forKey: yKey)
-        UserDefaults.standard.removeObject(forKey: gKey)
-        UserDefaults.standard.removeObject(forKey: yKey)
-    }
-
-    override func tearDown() {
-        UserDefaults.standard.set(savedG, forKey: gKey)
-        UserDefaults.standard.set(savedY, forKey: yKey)
-    }
-
-    func testNoProviderConfiguredCreditsNobody() {
+    func testNoAnswerCreditsNobody() {
         // FLOWS shows only its own data — inventing a credit would be worse
-        // than none.
-        XCTAssertNil(RatingsProvider.creditLine)
+        // than none. A brand-table $ has no provider answer behind it.
+        XCTAssertNil(RatingsProvider.credit(for: nil))
     }
 
-    func testAGoogleKeyCreditsGoogle() {
+    func testAGoogleAnswerCreditsGoogle() {
         // The stars are drawn over an APPLE map, so there is no Google
         // chrome to carry the attribution their terms require. It has to
         // travel with the content.
-        UserDefaults.standard.set("k", forKey: gKey)
-        XCTAssertEqual(RatingsProvider.creditLine, "Powered by Google")
+        let info = Info(rating: 4.5, price: nil, source: .google)
+        XCTAssertEqual(RatingsProvider.credit(for: info), "Powered by Google")
     }
 
-    func testGoogleWinsWhenBothKeysArePresent() {
-        // The credit must name whoever actually answered, and the fetch
-        // ladder tries Google first.
-        UserDefaults.standard.set("k", forKey: gKey)
-        UserDefaults.standard.set("y", forKey: yKey)
-        XCTAssertEqual(RatingsProvider.creditLine, "Powered by Google")
+    func testAYelpFallbackCreditsYelpEvenWithAGoogleKey() {
+        // The ladder falls back to Yelp per business; that row's stars are
+        // Yelp's, whatever else is configured.
+        let info = Info(rating: 4.0, price: "$$", source: .yelp)
+        XCTAssertEqual(RatingsProvider.credit(for: info), "Ratings by Yelp")
     }
 
-    func testYelpAloneCreditsYelp() {
-        UserDefaults.standard.set("y", forKey: yKey)
-        XCTAssertEqual(RatingsProvider.creditLine, "Ratings by Yelp")
+    func testAPriceAloneStillCreditsItsProvider() {
+        let info = Info(rating: nil, price: "$", source: .google)
+        XCTAssertEqual(RatingsProvider.credit(for: info), "Powered by Google")
     }
 
-    func testAnEmptyKeyIsNotAConfiguredProvider() {
-        // The settings field writes "" when cleared, not nil.
-        UserDefaults.standard.set("", forKey: gKey)
-        UserDefaults.standard.set("", forKey: yKey)
-        XCTAssertNil(RatingsProvider.creditLine)
+    func testAnAnswerWithNothingShownCreditsNobody() {
+        // Open-now alone draws no stars or $, so there is nothing to caption.
+        let info = Info(rating: nil, price: nil, isOpenNow: true, source: .google)
+        XCTAssertNil(RatingsProvider.credit(for: info))
     }
 }
 

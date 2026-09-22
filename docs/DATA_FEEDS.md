@@ -665,7 +665,7 @@ edge. −1 = follow the system; pure range math pinned by tests.
 
 True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client
 key — a dependency this repo doesn't take. Instead (`SpotifyRemote.swift`):
-a **user-supplied Web API token** (Settings → Data sources, Keychain-stored
+a **user-supplied Web API token** (Settings → Keys for extra info, Keychain-stored
 via SecureStore — a bearer token is a credential) lights up play / pause /
 skip / shuffle against `api.spotify.com/v1/me/player/*` on the user's active
 Spotify device. Needs Premium; tokens expire ~hourly — every failure mode
@@ -972,7 +972,7 @@ key. Gap-filling sources adopted under this rule:
 3. "Credentials" → "Create credentials" → API key; restrict it to Places API (New).
 4. Billing account required for activation, but the per-SKU free monthly tier
    (thousands of Text Search calls) covers per-search app use without charges.
-5. Paste into FLOWS → Settings → Data sources → Google Places key.
+5. Paste into FLOWS → Settings → Keys for extra info → Google Places key.
 
 **EIA (fuel-price series, stabler than scraping)** — api.eia.gov:
 1. https://www.eia.gov/opendata/register.php → email → key arrives instantly.

@@ -422,9 +422,14 @@ the map, the route scorer, and the live corridor monitor):
   `TrafficLearning`, `RoadEfficiencyLearning`. Those four shipped as
   plain text with no eraser for several builds, because a new store
   could be added without anything forcing a look at the erase path.
-  **Adding a store means adding an `erase()` and calling it from the
-  erase button.** Nothing enforces this at compile time yet; until
+  **Adding a store means adding an `erase()` and calling it from
+  `AppModel.eraseEverythingLearned()`** — the one list the Settings
+  button runs, which also clears the share history, the shower reports,
+  today's mile count, the vehicle's in-memory speed/idle copies and the
+  health journal. Nothing enforces this at compile time yet; until
   something does, it is the first thing to check when a store appears.
+  On a Mac the key sits in the login keychain, which Time Machine backs
+  up, so there the sealed files are excluded from backups instead.
 
   Two keys, not one (`SecureBehaviorStore.Keyspace`). `.behavior` seals
   everything the app LEARNS and is what the erase button destroys.

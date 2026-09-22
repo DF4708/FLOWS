@@ -175,6 +175,10 @@ struct EverydayStore: Codable, Equatable {
         return tripMiles.withUnsafeBufferPointer { flows_learning_everyday_radius_miles($0) }
     }
 
+    /// Whether `radiusMiles` is learned rather than the starting default —
+    /// the same trip count the radius itself waits for.
+    var radiusLearned: Bool { tripMiles.count >= Self.minTripsForRadius }
+
     /// Inclusive-rank quantile over the trip-length window. Pure, tested.
     static func quantile(_ values: [Double], _ q: Double) -> Double? {
         guard !values.isEmpty else { return nil }
@@ -380,6 +384,9 @@ final class EverydayPlaces: ObservableObject {
     /// The circle's current radius (miles) — Settings surfaces it as
     /// "Your everyday area".
     var radiusMiles: Double { store.radiusMiles }
+    /// False while the radius is still the starting default, so Settings
+    /// does not list a default as something learned.
+    var radiusLearned: Bool { store.radiusLearned }
     /// The learned home anchor — the centre of the driver's everyday area —
     /// for a starting point or a map centre when there is no GPS fix.
     var homeAnchor: CLLocationCoordinate2D? {
