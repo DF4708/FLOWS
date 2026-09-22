@@ -1746,6 +1746,27 @@ public func flows_modes_local_minutes(_ reference_seconds: Double, _ longitude: 
 public func flows_modes_traffic_constants() -> RustVec<Double> {
     RustVec(ptr: __swift_bridge__$flows_modes_traffic_constants())
 }
+public func flows_modes_keeps_road_choice(_ leg_kind: UInt8, _ leg_has_tolls: Bool, _ candidate_kind: UInt8, _ candidate_has_tolls: Bool, _ candidate_has_highways: Bool, _ no_tolls: Bool, _ no_highways: Bool) -> Bool {
+    __swift_bridge__$flows_modes_keeps_road_choice(leg_kind, leg_has_tolls, candidate_kind, candidate_has_tolls, candidate_has_highways, no_tolls, no_highways)
+}
+public func flows_modes_faster_saves_enough(_ current_seconds: Double, _ candidate_seconds: Double, _ tolerance_seconds: Double) -> Bool {
+    __swift_bridge__$flows_modes_faster_saves_enough(current_seconds, candidate_seconds, tolerance_seconds)
+}
+public func flows_modes_off_line_spans(_ candidate_lats: UnsafeBufferPointer<Double>, _ candidate_lons: UnsafeBufferPointer<Double>, _ road_lats: UnsafeBufferPointer<Double>, _ road_lons: UnsafeBufferPointer<Double>) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_off_line_spans(candidate_lats.toFfiSlice(), candidate_lons.toFfiSlice(), road_lats.toFfiSlice(), road_lons.toFfiSlice()))
+}
+public func flows_modes_detour_check_spacing(_ spans: UnsafeBufferPointer<Double>, _ candidate_meters: Double) -> Double {
+    __swift_bridge__$flows_modes_detour_check_spacing(spans.toFfiSlice(), candidate_meters)
+}
+public func flows_modes_spans_checked(_ spans: UnsafeBufferPointer<Double>, _ check_alongs: UnsafeBufferPointer<Double>) -> Bool {
+    __swift_bridge__$flows_modes_spans_checked(spans.toFfiSlice(), check_alongs.toFfiSlice())
+}
+public func flows_modes_nearest_on_line(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_modes_nearest_on_line(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon))
+}
+public func flows_modes_faster_risk_verdict(_ candidate_complete: Bool, _ candidate_risk: Double, _ ahead_known: Bool, _ ahead_risk: Double, _ limits_unchecked: Bool) -> UInt8 {
+    __swift_bridge__$flows_modes_faster_risk_verdict(candidate_complete, candidate_risk, ahead_known, ahead_risk, limits_unchecked)
+}
 public func flows_modes_risk_clusters(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ adjacency_meters: Double) -> RustVec<Int64> {
     RustVec(ptr: __swift_bridge__$flows_modes_risk_clusters(lats.toFfiSlice(), lons.toFfiSlice(), adjacency_meters))
 }
@@ -2946,6 +2967,9 @@ public func flows_dominant_family_position<GenericToRustStr: ToRustStr>(_ names:
 }
 public func flows_displayed_band(_ weighted: Double, _ peak: Double) -> Double {
     __swift_bridge__$flows_displayed_band(weighted, peak)
+}
+public func flows_ahead_display_risk(_ sample_risks: UnsafeBufferPointer<Double>, _ seg_lengths: UnsafeBufferPointer<Double>, _ along_meters: Double) -> Double {
+    __swift_bridge__$flows_ahead_display_risk(sample_risks.toFfiSlice(), seg_lengths.toFfiSlice(), along_meters)
 }
 public func flows_decode_polyline_lonlat(_ bytes: UnsafeBufferPointer<UInt8>) -> RustVec<Double> {
     RustVec(ptr: __swift_bridge__$flows_decode_polyline_lonlat(bytes.toFfiSlice()))

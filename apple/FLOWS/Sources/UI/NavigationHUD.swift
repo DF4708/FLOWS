@@ -234,21 +234,39 @@ struct NavigationHUD: View {
                             .clipShape(Capsule())
                             .shadow(color: Theme.cardShadow, radius: 8, y: 3)
                     }
+                    if let saved = model.fasterRouteSavedMinutes {
+                        // FLOWS took a faster road on its own (owner item 9):
+                        // nothing to answer, gone in a few seconds.
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.triangle.branch")
+                            Text("Took a faster route — saves \(saved) min")
+                                .scaledFont(.footnote, weight: .bold)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Theme.riskGreen.opacity(0.92))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
                     if let delay = model.trafficDelayMinutes {
                         HStack(spacing: 8) {
                             Image(systemName: "car.rear.waves.up.fill")
                             Text("Traffic ahead — +\(delay) min")
                                 .scaledFont(.footnote, weight: .bold)
-                            Button("Faster route") {
-                                Task { await model.rerouteForTraffic() }
+                            // Nothing to take: red, no faster road, or past the turn.
+                            if !model.trafficOfferBlocked {
+                                Button(model.trafficOfferRiskier ? "Faster, more risk" : "Faster route") {
+                                    Task { await model.rerouteForTraffic() }
+                                }
+                                .scaledFont(.footnote, weight: .heavy)
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 32)
+                                .background(Color.white)
+                                .foregroundStyle(.orange)
+                                .clipShape(Capsule())
                             }
-                            .scaledFont(.footnote, weight: .heavy)
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, 12)
-                            .frame(minHeight: 32)
-                            .background(Color.white)
-                            .foregroundStyle(.orange)
-                            .clipShape(Capsule())
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)

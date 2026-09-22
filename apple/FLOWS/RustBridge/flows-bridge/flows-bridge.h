@@ -364,6 +364,13 @@ void* __swift_bridge__$flows_modes_air_constants(void);
 bool __swift_bridge__$flows_modes_is_peak(int64_t local_minutes);
 struct __swift_bridge__$FlowsModesMinutes __swift_bridge__$flows_modes_local_minutes(double reference_seconds, double longitude);
 void* __swift_bridge__$flows_modes_traffic_constants(void);
+bool __swift_bridge__$flows_modes_keeps_road_choice(uint8_t leg_kind, bool leg_has_tolls, uint8_t candidate_kind, bool candidate_has_tolls, bool candidate_has_highways, bool no_tolls, bool no_highways);
+bool __swift_bridge__$flows_modes_faster_saves_enough(double current_seconds, double candidate_seconds, double tolerance_seconds);
+void* __swift_bridge__$flows_modes_off_line_spans(struct __private__FfiSlice candidate_lats, struct __private__FfiSlice candidate_lons, struct __private__FfiSlice road_lats, struct __private__FfiSlice road_lons);
+double __swift_bridge__$flows_modes_detour_check_spacing(struct __private__FfiSlice spans, double candidate_meters);
+bool __swift_bridge__$flows_modes_spans_checked(struct __private__FfiSlice spans, struct __private__FfiSlice check_alongs);
+void* __swift_bridge__$flows_modes_nearest_on_line(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
+uint8_t __swift_bridge__$flows_modes_faster_risk_verdict(bool candidate_complete, double candidate_risk, bool ahead_known, double ahead_risk, bool limits_unchecked);
 void* __swift_bridge__$flows_modes_risk_clusters(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double adjacency_meters);
 void* __swift_bridge__$flows_modes_risk_hull(struct __private__FfiSlice lats, struct __private__FfiSlice lons, int64_t count, double pad_meters);
 double __swift_bridge__$flows_modes_amtrak_fare(double miles);
@@ -551,6 +558,7 @@ int32_t __swift_bridge__$flows_alert_family_index(struct RustStr event);
 int32_t __swift_bridge__$flows_peak_family_position(struct RustStr names, struct __private__FfiSlice scores, double floor);
 int32_t __swift_bridge__$flows_dominant_family_position(struct RustStr names, struct __private__FfiSlice scores, double floor);
 double __swift_bridge__$flows_displayed_band(double weighted, double peak);
+double __swift_bridge__$flows_ahead_display_risk(struct __private__FfiSlice sample_risks, struct __private__FfiSlice seg_lengths, double along_meters);
 void* __swift_bridge__$flows_decode_polyline_lonlat(struct __private__FfiSlice bytes);
 
 

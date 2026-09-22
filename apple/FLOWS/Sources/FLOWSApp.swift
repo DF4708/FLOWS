@@ -1391,6 +1391,59 @@ final class AppModel: ObservableObject {
         }
     }
     private var trafficWatchTask: Task<Void, Never>?
+    /// Minutes a faster route FLOWS took on its own saves: the HUD's "Took a
+    /// faster route" chip, shown for a few seconds.
+    @Published var fasterRouteSavedMinutes: Int?
+    /// The traffic offer on screen is for a road with more risk (the driver
+    /// is asked instead of FLOWS switching on its own).
+    @Published var trafficOfferRiskier = false
+    /// FLOWS looked and there is nothing to take: the only faster road runs
+    /// through red, none saves enough or keeps the driver's road choices, or
+    /// the car is past the turn-off. The chip shows the delay with no button,
+    /// and each traffic check looks again.
+    @Published var trafficOfferBlocked = false
+    /// The faster road FLOWS weighed and offered, for a yes to take: to the
+    /// end of this leg, with the driver's road choices, its line and where it
+    /// leaves the current road (a yes checks the car can still reach it), the
+    /// spacing its detour was checked at and the risk it was offered at (a
+    /// yes scores it again and compares).
+    private struct StagedFasterRoute {
+        let legID: UUID
+        let route: PlannedRoute
+        let line: [CLLocationCoordinate2D]
+        let divergeAlong: CLLocationDistance?
+        let checkSpacing: CLLocationDistance
+        let offeredRisk: Double
+        let stagedAt: Date
+    }
+    private var stagedFasterRoute: StagedFasterRoute?
+    /// How long a weighed road stays good for a yes, and before the next
+    /// check weighs the jam again. Older, its saving is stale (traffic is
+    /// checked every 4 minutes at rush hour, every 12 otherwise), and a yes
+    /// plans afresh.
+    private static let stagedFasterRouteMaxAge: TimeInterval = 600
+    /// The offer on screen has nothing weighed behind it (a safety prompt was
+    /// up, the plan failed, or the road's score didn't finish): each check
+    /// weighs the jam again, so FLOWS can still take a faster road on its own.
+    private var trafficOfferNeedsWeigh = false
+    /// The driver said no to the offer: the jam isn't weighed again, and
+    /// nothing is switched on their behalf until it clears.
+    private var trafficOfferDeclined = false
+    /// A reroute the driver asked for (Reroute on a rising-risk prompt, a yes
+    /// to the traffic offer) is being planned: FLOWS doesn't swap legs under
+    /// it. A count, so overlapping requests don't clear it early.
+    private var driverReroutesInFlight = 0
+
+    /// The traffic offer is over: its risk label, its block, its staged road,
+    /// the pending spoken yes, and the driver's no.
+    private func clearTrafficOffer() {
+        trafficOfferRiskier = false
+        trafficOfferBlocked = false
+        trafficOfferNeedsWeigh = false
+        trafficOfferDeclined = false
+        stagedFasterRoute = nil
+        if case .fasterRoute? = pendingVoiceOffer { pendingVoiceOffer = nil }
+    }
 
     /// The live-monitoring window: how far AHEAD to watch scales with speed
     /// (≈30 min of travel — walking watches ~5 km, highway driving watches
@@ -3301,7 +3354,10 @@ final class AppModel: ObservableObject {
     /// latitude-band profile can shift ±1 band on elevation (contiguous
     /// rule), so mountain samples normalize against their climatically-
     /// correct band. Keyed by SAMPLE INDEX into `samples`. Split from
-    /// `scored` so these fetches overlap the alert-cell pass.
+    /// `scored` so these fetches overlap the alert-cell pass. At most 15, at
+    /// every other sample of the first 30: a road weighed with closer check
+    /// points keeps to 30 of them (Rust `DETOUR_CHECK_POINTS_MAX`) so each
+    /// stays within reach of one.
     nonisolated private static func corridorForecasts(
         at samples: [CLLocationCoordinate2D]
     ) async -> [Int: (ForecastConditions, Double?)] {
@@ -3359,10 +3415,43 @@ final class AppModel: ObservableObject {
         adoptTripFeeds: Bool = true,
         onProgress: (@MainActor (Double, [RiskSample?]) -> Void)? = nil
     ) async -> PlannedRoute {
+        let (route, feeds) = await scoredWithFeeds(input, onProgress: onProgress)
+        if adoptTripFeeds { adoptCorridorFeeds(feeds) }
+        return route
+    }
+
+    /// A corridor's road closures and live feeds, fetched by a scoring pass.
+    private struct CorridorFeeds {
+        let closures: [(lat: Double, lon: Double)]
+        let live: LiveHazardSnapshot
+        let box: (minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)
+    }
+
+    /// Make a scored corridor's feeds the trip's: what the live watch scores
+    /// the road ahead with.
+    private func adoptCorridorFeeds(_ feeds: CorridorFeeds) {
+        tripClosures = feeds.closures
+        tripLive = feeds.live
+        tripLiveFetched = Date()
+        tripLiveBox = feeds.box
+    }
+
+    /// `scored`, handing back the corridor's feeds instead of adopting them:
+    /// a road that may not be taken (a faster road FLOWS is weighing) must
+    /// not replace the trip's.
+    ///
+    /// `everyMeters`: the check-point spacing. A road only weighed (a detour
+    /// FLOWS compares) may be scored closer; a road that is driven keeps the
+    /// usual 40 km, which the corridor watch and the attribute pass index by.
+    private func scoredWithFeeds(
+        _ input: PlannedRoute,
+        everyMeters: CLLocationDistance = FasterRoutePolicy.corridorCheckMeters,
+        onProgress: (@MainActor (Double, [RiskSample?]) -> Void)? = nil
+    ) async -> (route: PlannedRoute, feeds: CorridorFeeds) {
         var r = input
         // Partition once: boundaries feed the weather scorer, the
         // between-boundary runs become map-drawable segments.
-        let part = RouteService.corridorPartition(of: r.route.polyline, everyMeters: 40_000)
+        let part = RouteService.corridorPartition(of: r.route.polyline, everyMeters: everyMeters)
 
         // Corridor bbox for the flood-evidence fetches.
         let sampleLats = part.samples.map(\.latitude)
@@ -3378,10 +3467,14 @@ final class AppModel: ObservableObject {
         // Time-aware: sample i is reached ~(eta * i / n) after departure —
         // alerts that expire before then don't count there.
         let eta = r.eta
+        // Check points closer than an alert cell each look their alerts up at
+        // their own point: a detour a few km off the road shares the road's
+        // cells, and the cell's lookup point sits on the road.
         async let scoreF = alerts.corridorRisk(
             at: part.samples,
             arrivalOffsets: RiskTiming.arrivalOffsets(
                 sampleCount: part.samples.count, totalTravelSeconds: eta),
+            perSample: everyMeters < FasterRoutePolicy.corridorCheckMeters,
             onProgress: onProgress)
         async let onDeviceF = Self.corridorForecasts(at: part.samples)
         // DOT closures along the corridor (WZDx): realized blocked-road proof.
@@ -3433,12 +3526,8 @@ final class AppModel: ObservableObject {
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
         let corridorClosures = await closuresF
         let corridorLive = await liveF
-        if adoptTripFeeds {
-            tripClosures = corridorClosures   // the live watch reads these
-            tripLive = corridorLive
-            tripLiveFetched = Date()
-            tripLiveBox = bbox
-        }
+        // The live watch reads these once the caller adopts them.
+        let feeds = CorridorFeeds(closures: corridorClosures, live: corridorLive, box: bbox)
         let corridorGauges = await gaugesF
         let corridorWater = await waterF
 
@@ -3591,7 +3680,7 @@ final class AppModel: ObservableObject {
         // not present as confidently clear (score.complete's documented
         // contract). Incomplete routes keep "Scoring…" and hydrate retries.
         r.weatherScored = score.complete
-        return r
+        return (r, feeds)
     }
 
     /// Second hydration pass: physical attributes from public data (EPQS
@@ -3921,6 +4010,8 @@ final class AppModel: ObservableObject {
         corridorWindFromDegrees = nil
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
+        clearTrafficOffer()
+        fasterRouteSavedMinutes = nil
         pendingVoiceOffer = nil
         walkRefineTask?.cancel()
         walkingRefinedPath = []
@@ -4292,6 +4383,10 @@ final class AppModel: ObservableObject {
         }
         let previous = escalation
         let gen = tripGeneration
+        // The prompt clears before the planning awaits: count the reroute so
+        // no automatic faster-route switch lands in the middle of it.
+        driverReroutesInFlight += 1
+        defer { driverReroutesInFlight -= 1 }
         escalation = nil
         guard let planned = try? await router.planRoutes(
             from: fix, fromName: "Current location",
@@ -4394,6 +4489,8 @@ final class AppModel: ObservableObject {
     private func beginTrafficWatch() {
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
+        clearTrafficOffer()   // the old leg's offer goes with its chip, pending yes and all
+        fasterRouteSavedMinutes = nil
         trafficWatchTask = Task(priority: .utility) { [weak self] in
             while !Task.isCancelled {
                 // Hybrid cadence: tighter during commute/school/meal windows
@@ -4432,6 +4529,10 @@ final class AppModel: ObservableObject {
                 request.transportType = .automobile
                 request.departureDate = Date()
                 guard let eta = try? await MKDirections(request: request).calculateETA() else { continue }
+                // The probe doesn't stop for cancellation: a leg swap, a stop
+                // or the end of the trip while it was out leaves this watch
+                // measuring a leg that is gone. The new leg runs its own.
+                if Task.isCancelled { return }
                 let liveDelay = (eta.expectedTravelTime - scaledBaseline) / 60
                 // The live probe sees traffic that exists NOW; the learned
                 // model knows what this hour in this weather usually costs.
@@ -4445,32 +4546,23 @@ final class AppModel: ObservableObject {
                 let delay = max(liveDelay, learned)
                 let newDelay = (delay >= 8 && self.notifyTraffic)
                     ? Int(delay.rounded()) : nil
-                // Announce a FRESH offer once (not every re-measure of the
-                // same jam), stage it for the spoken "go ahead" yes, and
-                // LISTEN for the plain yes/no right after asking. No clear
-                // answer = the chip stays on screen; nothing is guessed.
-                if let minutes = newDelay, self.trafficDelayMinutes == nil {
-                    self.pendingVoiceOffer = .fasterRoute
-                    if self.hapticAlerts { Haptics.offer() }   // chip just appeared
-                    if self.voiceAlerts {
-                        VoiceAnnouncer.shared.announce(
-                            SiriSummaries.fasterRouteOffer(minutes: minutes),
-                            topic: SpeechTopic.trafficOffer)
-                        VoiceReply.shared.listenAfterSpeech { [weak self] answer in
-                            guard let self,
-                                  case .fasterRoute? = self.pendingVoiceOffer
-                            else { return }
-                            if answer == true {
-                                Task { await self.rerouteForTraffic() }
-                            } else if answer == false {
-                                self.pendingVoiceOffer = nil
-                            }
-                        }
-                    }
-                } else if newDelay == nil,
-                          case .fasterRoute? = self.pendingVoiceOffer {
-                    self.pendingVoiceOffer = nil   // jam cleared on its own
+                // A FRESH jam is weighed once (not every re-measure of the
+                // same jam): a faster road is taken, offered or refused, and
+                // an offer is spoken once. A jam with nothing to take, an
+                // offer with nothing weighed behind it, or a weighed road gone
+                // stale is weighed again each check, quietly — unless the
+                // driver said no.
+                let staleStaged = self.stagedFasterRoute.map {
+                    Date().timeIntervalSince($0.stagedAt) >= Self.stagedFasterRouteMaxAge
+                } ?? false
+                let weighAgain = !self.trafficOfferDeclined
+                    && (self.trafficOfferBlocked || self.trafficOfferNeedsWeigh || staleStaged)
+                if let minutes = newDelay, self.trafficDelayMinutes == nil || weighAgain {
+                    let outcome = await self.weighFasterRoute(
+                        leg: leg, minutes: minutes, fresh: self.trafficDelayMinutes == nil)
+                    if outcome == .leftLeg { return }   // a new leg runs its own watch
                 }
+                if newDelay == nil { self.clearTrafficOffer() }
                 self.trafficDelayMinutes = newDelay
             }
         }
@@ -4583,16 +4675,420 @@ final class AppModel: ObservableObject {
                             weather: currentTrafficWeather)
     }
 
-    /// Traffic chip's action: swap to the currently-fastest hydrated route.
-    func rerouteForTraffic() async {
-        guard let fix = location.coordinate, let dest = finalDestination else { return }
+    /// Whether FLOWS may weigh taking a faster road on its own right now: a
+    /// driving leg, on route, nothing being replanned or added, the trip not
+    /// over, and no safety prompt on screen (a warning, a rising-risk prompt
+    /// or a crash check-in comes first).
+    private func fasterRouteEligible(_ leg: PlannedRoute) -> Bool {
+        leg.route.transportType == .automobile && !leg.isWalkingEstimate
+            && !walkingMode && !isPassengerTransit
+            && navigation.guidance?.isOffRoute != true && !navigation.isRerouting
+            && !addingStop && arrivedAt == nil && driverReroutesInFlight == 0
+            && escalation == nil && imminentWarning == nil && crash.state == .idle
+    }
+
+    /// A faster road FLOWS weighed: its verdict, the road to drive (scored at
+    /// the usual spacing) and its feeds (nil when nothing was scored), the
+    /// minutes it saves, the risk it was weighed at, and its line with the
+    /// point where it leaves the current road.
+    private struct FasterRouteCheck {
+        var verdict: FasterRoutePolicy.Verdict
+        var route: PlannedRoute? = nil
+        var feeds: CorridorFeeds? = nil
+        /// Against the current road's own time from the router; nil when the
+        /// router didn't hand that road back, and the saving can't be told.
+        var savedMinutes: Int? = nil
+        /// The candidate's risk from the car forward, its detour checked;
+        /// nil when its score didn't finish.
+        var candidateRisk: Double? = nil
+        /// Red somewhere ahead on it: never taken, never offered.
+        var candidateRed = false
+        /// Its band is above the current road's, both scored the same way:
+        /// the offer says so.
+        var moreRisk = false
+        var line: [CLLocationCoordinate2D] = []
+        var divergeAlong: CLLocationDistance? = nil
+        /// The check-point spacing its detour was weighed at.
+        var checkSpacing = FasterRoutePolicy.corridorCheckMeters
+    }
+
+    /// `scoredWithFeeds`'s road alone, for a road that is only compared
+    /// with (its feeds are not kept); nil in, nil out.
+    private func scoredForComparison(_ route: PlannedRoute?,
+                                     everyMeters: CLLocationDistance) async -> PlannedRoute? {
+        guard let route else { return nil }
+        return await scoredWithFeeds(route, everyMeters: everyMeters).route
+    }
+
+    /// Weigh a faster road for the current leg (owner item 9). It plans to
+    /// the end of THIS leg, so an added stop is never dropped; keeps the
+    /// driver's road choices; must save FLOWS's "same time" tolerance against
+    /// the current road's own time; is scored without taking over the trip's
+    /// feeds; and is compared with the current road scored the same way at
+    /// the same moment, both from the car forward, with check points on the
+    /// stretches where they differ. nil when no plan came back.
+    private func evaluateFasterRoute(leg: PlannedRoute) async -> FasterRouteCheck? {
+        guard let fix = location.coordinate, let end = Self.lastCoordinate(of: leg),
+              let raw = try? await router.planRoutes(
+                  from: fix, fromName: "Current location", to: end, toName: leg.destinationName,
+                  includeTollFree: leg.planKind == .tollFree || !leg.hasTolls
+                      || routeFilters.contains(.noTolls)),
+              !raw.isEmpty else { return nil }
+        let planned = RouteService.applyPersonalPace(
+            raw, multiplier: DrivingProfileStore.shared.etaMultiplier)
+        // The current road is the plan that never leaves the leg's line; the
+        // rest are where each one leaves it and comes back.
+        let legLine = FasterRoutePolicy.coordinates(of: leg.route.polyline)
+        let lines = planned.map { FasterRoutePolicy.coordinates(of: $0.route.polyline) }
+        let spans = lines.map { FasterRoutePolicy.offLineSpans(candidate: $0, road: legLine) }
+        let sameRoad = planned.indices.first { spans[$0].isEmpty }.map { planned[$0] }
+        guard let c = planned.indices.first(where: {
+            !spans[$0].isEmpty && FasterRoutePolicy.keepsRoadChoice(planned[$0], leg: leg,
+                                                                    filters: routeFilters)
+        }) else { return FasterRouteCheck(verdict: .notFaster) }
+        let candidate = planned[c]
+        // The saving is told only against the router's own time for the
+        // current road. The traffic probe times MapKit's best path to a point
+        // ahead, which may be the detour itself: set against it, a real
+        // detour read as no faster.
+        if let current = sameRoad,
+           !FasterRoutePolicy.savesEnough(currentSeconds: current.eta, candidateSeconds: candidate.eta) {
+            return FasterRouteCheck(verdict: .notFaster)
+        }
+        // Check points every 40 km miss a 10 km detour: the roads would be
+        // compared on the points they share. Both are weighed closer; the road
+        // to drive keeps the usual spacing, which the corridor watch indexes.
+        // Sized to the longer road: the current one is scored at the same
+        // spacing, and a check point past the cap would miss its forecast.
+        let spacing = FasterRoutePolicy.checkSpacing(
+            spans: spans[c],
+            candidateMeters: max(candidate.distanceMeters, sameRoad?.distanceMeters ?? 0))
+        let closer = spacing < FasterRoutePolicy.corridorCheckMeters
+        let (driven, weighedCandidate, weighedCurrent) = await RequestGate.shared.withPlanningBurst {
+            async let drivenF = self.scoredWithFeeds(candidate)
+            async let candidateF = self.scoredForComparison(closer ? candidate : nil, everyMeters: spacing)
+            async let currentF = self.scoredForComparison(sameRoad, everyMeters: spacing)
+            return (await drivenF, await candidateF, await currentF)
+        }
+        let (scored, feeds) = driven
+        let weighed = weighedCandidate ?? scored
+        // From the car forward on both: the check point at the car is where
+        // the car already is, whichever road it takes (1 m in counts only the
+        // first stretch's forward end, like the leg's point just behind).
+        let candidateRisk = FasterRoutePolicy.aheadRisk(of: weighed, alongMeters: 1)
+        var ahead = weighedCurrent.flatMap { FasterRoutePolicy.aheadRisk(of: $0, alongMeters: 1) }
+        let sameMoment = ahead != nil
+        if !sameMoment {
+            // The router didn't hand back the current road (or its score
+            // didn't finish): the live leg's own score, read after the awaits.
+            let live = navigation.route?.id == leg.id ? navigation.route : nil
+            ahead = live.flatMap {
+                FasterRoutePolicy.aheadRisk(of: $0, alongMeters: navigation.guidance?.alongMeters ?? 0)
+            }
+        }
+        // What the driver filters on that the new road can't be checked for
+        // before it starts: a rig's bridges, weights and grades, and flood
+        // zones (FEMA loads with the leg). FLOWS asks instead.
+        let limitsUnchecked = towingActive || truckerUI
+            || !routeFilters.isDisjoint(with: [.lowBridges, .bridgeWeight, .mountainGrades,
+                                               .noFloodRisk])
+        var verdict = FasterRoutePolicy.riskVerdict(
+            candidateRisk: candidateRisk, aheadRisk: ahead, limitsUnchecked: limitsUnchecked)
+        let bandsRiskier = FasterRoutePolicy.riskVerdict(
+            candidateRisk: candidateRisk, aheadRisk: ahead, limitsUnchecked: false) == .riskier
+        if !sameMoment, let candidateRisk,
+           [.yellow, .red].contains(FlowsCore.riskBand(score: candidateRisk)) {
+            // The live leg isn't scored the way a fresh plan is: against it,
+            // only a Clear or Green road is taken without asking, and a
+            // higher band isn't called "more risk".
+            verdict = .unknown
+        }
+        // Without the current road's own time, the saving can't be told.
+        if sameRoad == nil, verdict == .switchNow { verdict = .unknown }
+        // Nor can the risk when a stretch where the roads differ has no check
+        // point on it.
+        if verdict == .switchNow, !FasterRoutePolicy.detourChecked(spans: spans[c], on: weighed) {
+            verdict = .unknown
+        }
+        // High winds, set against the current road: a road the driver's No
+        // high winds filter refuses is riskier for them only when it is
+        // windier than the one they're on (the car's own cell counts on both).
+        if verdict != .riskier, routeFilters.contains(.noHighWinds),
+           !RouteFilter.noHighWinds.passes(weighed) {
+            if sameMoment, let current = weighedCurrent {
+                if RouteFilter.noHighWinds.passes(current)
+                    || FasterRoutePolicy.riskVerdict(candidateRisk: weighed.familyPeaks["wind"],
+                                                     aheadRisk: current.familyPeaks["wind"],
+                                                     limitsUnchecked: false) == .riskier {
+                    verdict = .riskier
+                }
+            } else if verdict == .switchNow {
+                verdict = .unknown
+            }
+        }
+        var switched = scored
+        switched.planKind = leg.planKind   // later replans keep the driver's choice
+        let saved = sameRoad.map { max(Int((($0.eta - scored.eta) / 60).rounded()), 1) }
+        // An unfinished score that already shows red is red, on either score.
+        let red = [candidateRisk ?? weighed.weatherRisk,
+                   FasterRoutePolicy.aheadRisk(of: scored, alongMeters: 1) ?? scored.weatherRisk]
+            .contains { FlowsCore.riskBand(score: $0) == .red }
+        FlowsDiag.log(.info, "traffic",
+                      "faster route: \(verdict) saves \(saved.map { "\($0)" } ?? "?") min "
+                      + "same-moment \(sameMoment) spacing \(Int(spacing)) m")
+        return FasterRouteCheck(
+            verdict: verdict, route: switched, feeds: feeds, savedMinutes: saved,
+            candidateRisk: candidateRisk, candidateRed: red,
+            moreRisk: verdict == .riskier || (sameMoment && bandsRiskier),
+            line: lines[c], divergeAlong: spans[c].first?.from, checkSpacing: spacing)
+    }
+
+    /// What weighing a jam came to: FLOWS moved to a new leg (or the trip
+    /// moved on under it), or the watch carries on.
+    private enum FasterRouteOutcome { case leftLeg, settled }
+
+    /// Weigh a faster road for this jam and act on it (owner item 9): take
+    /// it, offer it, or say there's none worth taking and look again next
+    /// check. `fresh`: the jam is new; a jam weighed before with nothing to
+    /// take, or offered with nothing weighed, is weighed again quietly.
+    private func weighFasterRoute(leg: PlannedRoute, minutes: Int,
+                                  fresh: Bool) async -> FasterRouteOutcome {
+        // A watch cancelled while its probe was out must not act on the new
+        // leg: it runs its own watch.
+        guard !Task.isCancelled, navigation.route?.id == leg.id else { return .leftLeg }
+        guard fasterRouteEligible(leg) else {
+            // A safety prompt, a replan or a walk comes first: the plain
+            // offer, as before, weighed again next check.
+            if fresh { offerPlainFasterRoute(minutes: minutes) }
+            return .settled
+        }
+        let gen = tripGeneration
+        let check = await evaluateFasterRoute(leg: leg)
+        // A leg swap or a new trip restarted the watch.
+        guard !Task.isCancelled, mode == .navigating, gen == tripGeneration,
+              navigation.route?.id == leg.id else { return .leftLeg }
+        guard let check else {
+            // No plan came back: the plain offer, weighed again next check.
+            if fresh { offerPlainFasterRoute(minutes: minutes) }
+            return .settled
+        }
+        guard let route = check.route else {
+            blockFasterRoute(saying: fresh ? SiriSummaries.trafficNoFasterRoute(minutes: minutes) : nil)
+            return .settled
+        }
+        if check.candidateRed {
+            // A yes could never be carried out: say so instead of asking.
+            blockFasterRoute(saying: fresh ? SiriSummaries.fasterRouteRefusedRed(minutes: minutes) : nil)
+            return .settled
+        }
+        // The road was planned from where the car was before it was scored:
+        // past its turn-off, it is no faster road at all.
+        guard let here = location.coordinate,
+              FasterRoutePolicy.canStillTake(candidate: check.line,
+                                             divergeAlong: check.divergeAlong,
+                                             position: here, speedMps: location.speed)
+        else {
+            blockFasterRoute(saying: fresh ? SiriSummaries.trafficNoFasterRoute(minutes: minutes) : nil)
+            return .settled
+        }
+        if check.verdict == .switchNow, let saved = check.savedMinutes,
+           fasterRouteEligible(leg) {   // nothing came up meanwhile
+            takeFasterRoute(route, feeds: check.feeds, automaticSaving: saved)
+            return .leftLeg   // startLeg started the new leg's watch
+        }
+        let wasBlocked = trafficOfferBlocked
+        guard let candidateRisk = check.candidateRisk else {
+            // Its score didn't finish: the plain offer, weighed again next
+            // check; a yes meanwhile plans and scores afresh (refusing red).
+            stagedFasterRoute = nil
+            if fresh || wasBlocked { offerPlainFasterRoute(minutes: minutes) }
+            trafficOfferNeedsWeigh = true
+            return .settled
+        }
+        // A yes takes the road that was weighed: to the end of this leg,
+        // with the driver's road choices.
+        stagedFasterRoute = StagedFasterRoute(
+            legID: leg.id, route: route, line: check.line, divergeAlong: check.divergeAlong,
+            checkSpacing: check.checkSpacing, offeredRisk: candidateRisk, stagedAt: Date())
+        trafficOfferNeedsWeigh = false
+        if fresh || wasBlocked || (check.moreRisk && !trafficOfferRiskier) {
+            // Said aloud when new, when it follows "no faster road", or when
+            // the road on offer now has more risk than the driver was told.
+            offerFasterRoute(minutes: minutes, riskier: check.moreRisk)
+        } else {
+            trafficOfferRiskier = check.moreRisk
+        }
+        return .settled
+    }
+
+    /// Nothing to take for this jam: the chip keeps the delay with no
+    /// button, no yes is listened for, and each check looks again. `saying`:
+    /// the line spoken, once per jam.
+    private func blockFasterRoute(saying line: String?) {
+        trafficOfferBlocked = true
+        trafficOfferRiskier = false
+        trafficOfferNeedsWeigh = false
+        stagedFasterRoute = nil
+        if case .fasterRoute? = pendingVoiceOffer { pendingVoiceOffer = nil }
+        if let line, voiceAlerts {
+            VoiceAnnouncer.shared.announce(line, topic: SpeechTopic.trafficOffer)
+        }
+    }
+
+    /// The offer as before item 9, with nothing weighed: a yes plans afresh.
+    /// Each check weighs it again until there's a road to stage or take.
+    private func offerPlainFasterRoute(minutes: Int) {
+        stagedFasterRoute = nil
+        offerFasterRoute(minutes: minutes, riskier: false)
+        trafficOfferNeedsWeigh = true
+    }
+
+    /// Put the faster-route offer up: the chip's button, a haptic, the spoken
+    /// ask, and a listen for the plain yes or no right after it. No clear
+    /// answer = the chip stays on screen; nothing is guessed. A no stands for
+    /// the jam: FLOWS stops weighing it and never switches on its own.
+    private func offerFasterRoute(minutes: Int, riskier: Bool) {
+        trafficOfferBlocked = false
+        trafficOfferRiskier = riskier
+        pendingVoiceOffer = .fasterRoute
+        if hapticAlerts { Haptics.offer() }   // chip just appeared
+        guard voiceAlerts else { return }
+        VoiceAnnouncer.shared.announce(
+            SiriSummaries.fasterRouteOffer(minutes: minutes, riskier: riskier),
+            topic: SpeechTopic.trafficOffer)
+        VoiceReply.shared.listenAfterSpeech { [weak self] answer in
+            guard let self, case .fasterRoute? = self.pendingVoiceOffer else { return }
+            if answer == true {
+                Task { await self.rerouteForTraffic() }
+            } else if answer == false {
+                self.pendingVoiceOffer = nil
+                self.trafficOfferDeclined = true
+            }
+        }
+    }
+
+    /// Take a faster road FLOWS weighed. Like a missed turn, the escalation
+    /// state carries across (the driver's Continue still stands); like the
+    /// manual traffic reroute, the leg starts afresh. `automaticSaving`: the
+    /// minutes saved when FLOWS took it on its own (no more risk), said and
+    /// shown; nil for a road the driver said yes to, which needs neither.
+    private func takeFasterRoute(_ route: PlannedRoute, feeds: CorridorFeeds?,
+                                 automaticSaving savedMinutes: Int?) {
+        let toFinal = upcomingLeg == nil && pendingStopName == nil
+        let accepted = escalationState
+        startLeg(route)
+        escalationState = accepted
+        // A leg to an added stop must not hand its box to the trip.
+        if toFinal, let feeds { adoptCorridorFeeds(feeds) }
+        guard let savedMinutes else { return }
+        if hapticAlerts { Haptics.offer() }
+        if voiceAlerts {
+            VoiceAnnouncer.shared.announce(SiriSummaries.fasterRouteTaken(minutes: savedMinutes))
+        }
+        // After startLeg, which clears it with the old leg's traffic state.
+        fasterRouteSavedMinutes = savedMinutes
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            if self?.fasterRouteSavedMinutes == savedMinutes { self?.fasterRouteSavedMinutes = nil }
+        }
+    }
+
+    /// What a yes to the traffic offer came to, so Siri's reply matches what
+    /// FLOWS did (and said).
+    enum TrafficRerouteOutcome {
+        /// On the faster road.
+        case taken
+        /// Staying: the road turned red, its turn-off passed, or nothing was
+        /// on offer. FLOWS has said why.
+        case stayed
+        /// Its risk rose since the offer: FLOWS asked again.
+        case askedAgain
+        /// Nothing came of it: no plan, or the trip moved on.
+        case nothing
+    }
+
+    /// A yes to the road FLOWS weighed and offered. Alerts change in
+    /// minutes, so it is scored again first: refused when it has turned red
+    /// or the car has passed its turn-off meanwhile, asked again when its
+    /// level has risen since the offer, else taken. `minutes`: the delay the
+    /// chip showed, put back when FLOWS stays.
+    private func takeStagedFasterRoute(_ staged: StagedFasterRoute,
+                                       minutes: Int) async -> TrafficRerouteOutcome {
+        let gen = tripGeneration
+        let closer = staged.checkSpacing < FasterRoutePolicy.corridorCheckMeters
+        let (driven, weighedAgain) = await RequestGate.shared.withPlanningBurst {
+            async let drivenF = self.scoredWithFeeds(staged.route)
+            async let weighedF = self.scoredForComparison(closer ? staged.route : nil,
+                                                          everyMeters: staged.checkSpacing)
+            return (await drivenF, await weighedF)
+        }
+        guard mode == .navigating, gen == tripGeneration,
+              navigation.route?.id == staged.legID else { return .nothing }
+        let (scored, feeds) = driven
+        let weighed = weighedAgain ?? scored
+        let risk = FasterRoutePolicy.aheadRisk(of: weighed, alongMeters: 1) ?? weighed.weatherRisk
+        let drivenRisk = FasterRoutePolicy.aheadRisk(of: scored, alongMeters: 1) ?? scored.weatherRisk
+        let stay: String?
+        if [risk, drivenRisk].contains(where: { FlowsCore.riskBand(score: $0) == .red }) {
+            stay = SiriSummaries.fasterRouteNowRed
+        } else if let here = location.coordinate,
+                  FasterRoutePolicy.canStillTake(candidate: staged.line,
+                                                 divergeAlong: staged.divergeAlong,
+                                                 position: here, speedMps: location.speed) {
+            stay = nil
+        } else {
+            stay = SiriSummaries.fasterRoutePassed
+        }
+        if let stay {
+            trafficDelayMinutes = minutes   // the jam is still there
+            blockFasterRoute(saying: stay)
+            return .stayed
+        }
+        var route = scored
+        route.planKind = staged.route.planKind
+        if FasterRoutePolicy.riskVerdict(candidateRisk: risk, aheadRisk: staged.offeredRisk,
+                                         limitsUnchecked: false) == .riskier {
+            // The yes was to less risk than this: ask again, saying so.
+            trafficDelayMinutes = minutes
+            stagedFasterRoute = StagedFasterRoute(
+                legID: staged.legID, route: route, line: staged.line,
+                divergeAlong: staged.divergeAlong, checkSpacing: staged.checkSpacing,
+                offeredRisk: risk, stagedAt: Date())
+            offerFasterRoute(minutes: minutes, riskier: true)
+            return .askedAgain
+        }
+        takeFasterRoute(route, feeds: feeds, automaticSaving: nil)
+        return .taken
+    }
+
+    /// Traffic chip's action: take the faster road FLOWS weighed, or plan one.
+    @discardableResult
+    func rerouteForTraffic() async -> TrafficRerouteOutcome {
+        guard let fix = location.coordinate, let dest = finalDestination else { return .nothing }
+        // Nothing on offer: the only faster road is red, or none is faster.
+        guard !trafficOfferBlocked else { return .stayed }
+        driverReroutesInFlight += 1
+        defer { driverReroutesInFlight -= 1 }
+        let staged = stagedFasterRoute
+        let minutes = trafficDelayMinutes
         trafficDelayMinutes = nil
+        clearTrafficOffer()
         pendingVoiceOffer = nil
+        // The yes is to the road FLOWS weighed and offered: that one (to the
+        // end of this leg, a stop kept, the driver's road choices kept), while
+        // it is fresh and the car can still reach its turn-off.
+        if let staged, let minutes, staged.legID == navigation.route?.id, mode == .navigating,
+           Date().timeIntervalSince(staged.stagedAt) < Self.stagedFasterRouteMaxAge,
+           FasterRoutePolicy.canStillTake(candidate: staged.line,
+                                          divergeAlong: staged.divergeAlong,
+                                          position: fix, speedMps: location.speed) {
+            return await takeStagedFasterRoute(staged, minutes: minutes)
+        }
         let gen = tripGeneration
         guard let planned = try? await router.planRoutes(
             from: fix, fromName: "Current location",
             to: dest.coordinate, toName: dest.name),
-            let fastest = planned.first else { return }
+            let fastest = planned.first else { return .nothing }
         let route = await scoredBurst(fastest)
         // The traffic offer is "save N minutes", scored AFTER the driver
         // said yes. If the saving runs through a Red corridor it is not a
@@ -4602,16 +5098,17 @@ final class AppModel: ObservableObject {
         if FlowsCore.riskBand(score: route.weatherRisk) == .red {
             VoiceAnnouncer.shared.announce(
                 "The faster route runs through a red weather zone. Staying on this one.")
-            return
+            return .stayed
         }
         // Don't restart a trip the driver ended/finished during the awaits above.
-        guard mode == .navigating, gen == tripGeneration else { return }
+        guard mode == .navigating, gen == tripGeneration else { return .nothing }
         // Direct reroute: drop any pending stop (name + kind), same as the
         // escalation reroute, so the final arrival isn't taken for a stop.
         upcomingLeg = nil
         pendingStopName = nil
         pendingStopKind = nil
         startLeg(route)
+        return .taken
     }
 
     /// The off-route replan (NavigationEngine.onReroute). It used to swap
@@ -4799,6 +5296,13 @@ final class AppModel: ObservableObject {
             if pendingStopKind == .gas { vehicle.filledUp() }
             pendingStopKind = nil
             pendingStopName = nil
+            // The leg to the stop is done: a faster-route check still in
+            // flight for it must not start a new leg to the stop just reached
+            // (its arrival would read as the final one). The continuation's
+            // startLeg starts the next watch.
+            trafficWatchTask?.cancel()
+            trafficDelayMinutes = nil
+            clearTrafficOffer()
             let gen = tripGeneration
             Task { [weak self] in
                 guard let self else { return }
@@ -4860,6 +5364,8 @@ final class AppModel: ObservableObject {
         // does the full reset when they dismiss it.
         trafficWatchTask?.cancel()
         trafficDelayMinutes = nil
+        clearTrafficOffer()
+        fasterRouteSavedMinutes = nil
         alerts.endCorridorWatch()
         watch.sendArrived()
     }

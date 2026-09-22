@@ -367,6 +367,7 @@ targets:
       - path: FLOWS/Sources/Core/SiriSummaries.swift
       - path: FLOWS/Sources/Core/VoiceReply.swift
       - path: FLOWS/Sources/Core/SpeechLineQueue.swift
+      - path: FLOWS/Sources/Core/FasterRoutePolicy.swift
       - path: FLOWS/Sources/Core/TextScale.swift
       - path: FLOWS/Sources/Core/IntentClarifier.swift
       - path: FLOWS/Sources/Core/PlaybackFallback.swift

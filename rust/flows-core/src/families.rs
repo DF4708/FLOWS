@@ -518,6 +518,61 @@ pub fn displayed_band(weighted: f64, peak: f64) -> f64 {
     }
 }
 
+/// The displayed risk of the part of a leg still ahead of the vehicle: a
+/// faster road is weighed against the road it would replace, not against the
+/// miles already driven. `sample_risks` are the leg's check points and
+/// `seg_lengths` the stretches between them (one fewer). Each stretch keeps
+/// only its length past `along_meters`. A stretch wholly ahead carries the
+/// worse of its two ends, as the map draws it; the stretch the vehicle is in
+/// carries only its forward end, so a red check point just behind never reads
+/// as risk ahead (read as ahead, it would make a riskier road look no worse).
+/// The weighted risk is over the lengths ahead and the peak over the
+/// stretches ahead, then [`displayed_band`] as for a whole route. `None` when
+/// nothing is ahead, the counts don't pair up, or any input is not finite.
+#[must_use]
+pub fn ahead_display_risk(
+    sample_risks: &[f64],
+    seg_lengths: &[f64],
+    along_meters: f64,
+) -> Option<f64> {
+    if sample_risks.len() != seg_lengths.len() + 1
+        || !along_meters.is_finite()
+        || sample_risks.iter().any(|r| !r.is_finite())
+    {
+        return None;
+    }
+    let mut start = 0.0;
+    let mut weighted = 0.0;
+    let mut total = 0.0;
+    let mut peak: Option<f64> = None;
+    for (j, &length) in seg_lengths.iter().enumerate() {
+        if !length.is_finite() || length < 0.0 {
+            return None;
+        }
+        let end = start + length;
+        let ahead = if along_meters <= start {
+            length
+        } else if along_meters >= end {
+            0.0
+        } else {
+            end - along_meters
+        };
+        if ahead > 0.0 {
+            let risk = if along_meters > start {
+                sample_risks[j + 1]
+            } else {
+                smax(sample_risks[j], sample_risks[j + 1])
+            };
+            weighted += risk * ahead;
+            total += ahead;
+            peak = Some(peak.map_or(risk, |p| smax(p, risk)));
+        }
+        start = end;
+    }
+    let peak = peak?;
+    (total > 0.0).then(|| displayed_band(weighted / total, peak))
+}
+
 /// Hazards that are a DISTINCT named danger rather than a reading on a dial —
 /// the thing a driver most needs called by its name when scores are close.
 /// They get a nudge, not a veto. Sorted.
@@ -994,6 +1049,59 @@ mod tests {
     #[test]
     fn below_red_the_distance_weighted_average_stands() {
         assert!((displayed_band(0.2, 0.7) - 0.2).abs() < 1e-12);
+    }
+
+    // ---- the road still ahead ----
+
+    #[test]
+    fn red_behind_the_vehicle_no_longer_sets_the_floor() {
+        // Check points: red at the start, calm after; stretches 10 km and 30 km.
+        let samples = [0.95, 0.2, 0.2];
+        let lengths = [10_000.0, 30_000.0];
+        // 15 km in: only calm road is ahead.
+        let ahead = ahead_display_risk(&samples, &lengths, 15_000.0).unwrap();
+        assert!((ahead - 0.2).abs() < 1e-12);
+        // Before starting, the red stretch is ahead and floors the band.
+        let before = ahead_display_risk(&samples, &lengths, 0.0).unwrap();
+        assert!((before - 0.95).abs() < 1e-12);
+    }
+
+    #[test]
+    fn the_stretch_the_vehicle_is_in_counts_only_its_forward_end() {
+        let lengths = [10_000.0, 30_000.0];
+        // A red check point just behind, 9 km into the first stretch: calm.
+        let behind = ahead_display_risk(&[0.95, 0.2, 0.2], &lengths, 9_000.0).unwrap();
+        assert!((behind - 0.2).abs() < 1e-12);
+        // A red check point just ahead, at the end of that stretch: red.
+        let ahead = ahead_display_risk(&[0.2, 0.95, 0.2], &lengths, 9_000.0).unwrap();
+        assert!((ahead - 0.95).abs() < 1e-12);
+    }
+
+    #[test]
+    fn only_the_part_ahead_of_the_current_stretch_is_weighted() {
+        // 1 km left of the first stretch (forward end 0.5), then 3 km whose
+        // worse end is 0.5 too.
+        let samples = [0.1, 0.5, 0.1];
+        let lengths = [2_000.0, 3_000.0];
+        let ahead = ahead_display_risk(&samples, &lengths, 1_000.0).unwrap();
+        assert!((ahead - 0.5).abs() < 1e-12);
+        let calm = ahead_display_risk(&[0.5, 0.1, 0.1], &lengths, 1_000.0).unwrap();
+        assert!((calm - 0.1).abs() < 1e-12);
+    }
+
+    #[test]
+    fn nothing_ahead_or_bad_input_answers_nothing() {
+        assert_eq!(ahead_display_risk(&[0.2, 0.2], &[1_000.0], 1_000.0), None);
+        assert_eq!(ahead_display_risk(&[0.2, 0.2], &[1_000.0], 5_000.0), None);
+        assert_eq!(ahead_display_risk(&[0.2], &[], 0.0), None);
+        // The counts must pair up: one more check point than stretches.
+        assert_eq!(
+            ahead_display_risk(&[0.2, 0.3], &[1_000.0, 1_000.0], 0.0),
+            None
+        );
+        assert_eq!(ahead_display_risk(&[f64::NAN, 0.2], &[1_000.0], 0.0), None);
+        assert_eq!(ahead_display_risk(&[0.2, 0.2], &[f64::INFINITY], 0.0), None);
+        assert_eq!(ahead_display_risk(&[0.2, 0.2], &[1_000.0], f64::NAN), None);
     }
 
     // ---- naming an area ----

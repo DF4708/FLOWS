@@ -540,6 +540,19 @@ struct RadioControlIntent: AppIntent {
 
 // MARK: voice approval ("go ahead") + faster route + trip start
 
+/// Siri's reply to a yes to the faster-route offer, matching what FLOWS did:
+/// it may have stayed (the road turned red, or its turn-off passed) or asked
+/// again (the road's risk rose) instead of rerouting.
+@MainActor
+private func rerouteDialog(_ outcome: AppModel.TrafficRerouteOutcome) -> IntentDialog {
+    switch outcome {
+    case .taken: return "Rerouting around the traffic."
+    case .stayed: return "Staying on this road."
+    case .askedAgain: return "That road has more risk now. Say yes if you still want it."
+    case .nothing: return "Staying on this road for now."
+    }
+}
+
 struct TakeFasterRouteIntent: AppIntent {
     static let title: LocalizedStringResource = "Take the faster route"
     static let description = IntentDescription(
@@ -557,8 +570,13 @@ struct TakeFasterRouteIntent: AppIntent {
             return .result(dialog:
                 "No faster route on offer right now — I'll speak up when one appears.")
         }
-        await model.rerouteForTraffic()
-        return .result(dialog: "Rerouting around the traffic.")
+        // FLOWS looked and there is nothing to take (the only faster road is
+        // red, or none is faster): the chip has no button, so Siri has none.
+        guard !model.trafficOfferBlocked else {
+            return .result(dialog:
+                "There's no faster road I can take right now, so I'm staying on this one.")
+        }
+        return .result(dialog: rerouteDialog(await model.rerouteForTraffic()))
     }
 }
 
@@ -592,8 +610,7 @@ struct GoAheadIntent: AppIntent {
             return .result(dialog: IntentDialog("Starting to \(name)."))
         case .fasterRoute:
             model.pendingVoiceOffer = nil
-            await model.rerouteForTraffic()
-            return .result(dialog: "Rerouting around the traffic.")
+            return .result(dialog: rerouteDialog(await model.rerouteForTraffic()))
         case nil:
             return .result(dialog: "Nothing is waiting for a yes right now.")
         }

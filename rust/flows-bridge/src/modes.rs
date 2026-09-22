@@ -175,6 +175,36 @@ mod ffi {
         fn flows_modes_is_peak(local_minutes: i64) -> bool;
         fn flows_modes_local_minutes(reference_seconds: f64, longitude: f64) -> FlowsModesMinutes;
         fn flows_modes_traffic_constants() -> Vec<f64>;
+        fn flows_modes_keeps_road_choice(
+            leg_kind: u8,
+            leg_has_tolls: bool,
+            candidate_kind: u8,
+            candidate_has_tolls: bool,
+            candidate_has_highways: bool,
+            no_tolls: bool,
+            no_highways: bool,
+        ) -> bool;
+        fn flows_modes_faster_saves_enough(
+            current_seconds: f64,
+            candidate_seconds: f64,
+            tolerance_seconds: f64,
+        ) -> bool;
+        fn flows_modes_off_line_spans(
+            candidate_lats: &[f64],
+            candidate_lons: &[f64],
+            road_lats: &[f64],
+            road_lons: &[f64],
+        ) -> Vec<f64>;
+        fn flows_modes_detour_check_spacing(spans: &[f64], candidate_meters: f64) -> f64;
+        fn flows_modes_spans_checked(spans: &[f64], check_alongs: &[f64]) -> bool;
+        fn flows_modes_nearest_on_line(lats: &[f64], lons: &[f64], lat: f64, lon: f64) -> Vec<f64>;
+        fn flows_modes_faster_risk_verdict(
+            candidate_complete: bool,
+            candidate_risk: f64,
+            ahead_known: bool,
+            ahead_risk: f64,
+            limits_unchecked: bool,
+        ) -> u8;
         fn flows_modes_risk_clusters(lats: &[f64], lons: &[f64], adjacency_meters: f64)
             -> Vec<i64>;
         fn flows_modes_risk_hull(
@@ -208,6 +238,12 @@ type Point = (f64, f64);
 
 fn points(lats: &[f64], lons: &[f64]) -> Vec<Point> {
     lats.iter().zip(lons).map(|(&a, &b)| (a, b)).collect()
+}
+
+/// Pairs from a flat `[a, b, a, b, …]` buffer (a trailing odd value is
+/// dropped).
+fn points_flat(flat: &[f64]) -> Vec<Point> {
+    flat.chunks_exact(2).map(|p| (p[0], p[1])).collect()
 }
 
 fn flat(points: &[Point]) -> Vec<f64> {
@@ -493,6 +529,107 @@ pub fn flows_modes_local_minutes(reference_seconds: f64, longitude: f64) -> Flow
 /// `[peak seconds, off-peak seconds]`.
 pub fn flows_modes_traffic_constants() -> Vec<f64> {
     vec![tm::PEAK_SECONDS, tm::OFF_PEAK_SECONDS]
+}
+
+/// Whether a candidate keeps the driver's road choices (a leg with no tolls
+/// refuses them); plan kinds are
+/// `RoutePlanKind` codes (standard 0, avoid-highways 1, toll-free 2).
+pub fn flows_modes_keeps_road_choice(
+    leg_kind: u8,
+    leg_has_tolls: bool,
+    candidate_kind: u8,
+    candidate_has_tolls: bool,
+    candidate_has_highways: bool,
+    no_tolls: bool,
+    no_highways: bool,
+) -> bool {
+    contain(false, || {
+        tm::keeps_road_choice(
+            leg_kind,
+            leg_has_tolls,
+            candidate_kind,
+            candidate_has_tolls,
+            candidate_has_highways,
+            no_tolls,
+            no_highways,
+        )
+    })
+}
+
+/// Whether a candidate saves at least the tolerance.
+pub fn flows_modes_faster_saves_enough(
+    current_seconds: f64,
+    candidate_seconds: f64,
+    tolerance_seconds: f64,
+) -> bool {
+    contain(false, || {
+        tm::faster_saves_enough(current_seconds, candidate_seconds, tolerance_seconds)
+    })
+}
+
+/// The candidate's stretches off the road, flat `[from, to, …]` meters along
+/// it (`to` infinite when it never rejoins); empty when it never leaves. On
+/// containment, one stretch from the start that never rejoins: the road is
+/// then no current road, and a switch onto it finds the car past its
+/// turn-off and is refused.
+pub fn flows_modes_off_line_spans(
+    candidate_lats: &[f64],
+    candidate_lons: &[f64],
+    road_lats: &[f64],
+    road_lons: &[f64],
+) -> Vec<f64> {
+    contain(vec![0.0, f64::INFINITY], || {
+        tm::off_line_spans(
+            &points(candidate_lats, candidate_lons),
+            &points(road_lats, road_lons),
+        )
+        .into_iter()
+        .flat_map(|(from, to)| [from, to])
+        .collect()
+    })
+}
+
+/// The check-point spacing for weighing a detour; the usual 40 km on
+/// containment.
+pub fn flows_modes_detour_check_spacing(spans: &[f64], candidate_meters: f64) -> f64 {
+    contain(tm::CORRIDOR_CHECK_METERS, || {
+        tm::detour_check_spacing(&points_flat(spans), candidate_meters)
+    })
+}
+
+/// Whether every stretch has a check point inside it; false (FLOWS asks) on
+/// containment.
+pub fn flows_modes_spans_checked(spans: &[f64], check_alongs: &[f64]) -> bool {
+    contain(false, || {
+        tm::spans_checked(&points_flat(spans), check_alongs)
+    })
+}
+
+/// `[along, off]` meters for a point on a line; empty for an empty line.
+pub fn flows_modes_nearest_on_line(lats: &[f64], lons: &[f64], lat: f64, lon: f64) -> Vec<f64> {
+    contain(Vec::new(), || {
+        tm::nearest_on_line(&points(lats, lons), (lat, lon))
+            .map_or_else(Vec::new, |(along, off)| vec![along, off])
+    })
+}
+
+/// 0 switch, 1 riskier, 2 unknown (never switched); 2 on containment.
+pub fn flows_modes_faster_risk_verdict(
+    candidate_complete: bool,
+    candidate_risk: f64,
+    ahead_known: bool,
+    ahead_risk: f64,
+    limits_unchecked: bool,
+) -> u8 {
+    contain(tm::FASTER_UNKNOWN, || {
+        tm::faster_risk_verdict(
+            candidate_complete,
+            candidate_risk,
+            ahead_known,
+            ahead_risk,
+            limits_unchecked,
+        )
+    })
 }
 
 /// `[count, lengths…, indices…]`.

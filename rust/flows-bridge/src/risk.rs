@@ -80,6 +80,11 @@ mod ffi {
         fn flows_peak_family_position(names: &str, scores: &[f64], floor: f64) -> i32;
         fn flows_dominant_family_position(names: &str, scores: &[f64], floor: f64) -> i32;
         fn flows_displayed_band(weighted: f64, peak: f64) -> f64;
+        fn flows_ahead_display_risk(
+            sample_risks: &[f64],
+            seg_lengths: &[f64],
+            along_meters: f64,
+        ) -> f64;
 
         fn flows_decode_polyline_lonlat(bytes: &[u8]) -> Vec<f64>;
     }
@@ -265,6 +270,19 @@ pub fn flows_dominant_family_position(names: &str, scores: &[f64], floor: f64) -
 
 pub fn flows_displayed_band(weighted: f64, peak: f64) -> f64 {
     contain(f64::NAN, || fam::displayed_band(weighted, peak))
+}
+
+/// The displayed risk of the part of a leg still ahead, from its check points
+/// and the stretches between them (one fewer); NaN when there is
+/// none (nothing ahead, mismatched lists, a value that is not a number).
+pub fn flows_ahead_display_risk(
+    sample_risks: &[f64],
+    seg_lengths: &[f64],
+    along_meters: f64,
+) -> f64 {
+    contain(f64::NAN, || {
+        fam::ahead_display_risk(sample_risks, seg_lengths, along_meters).unwrap_or(f64::NAN)
+    })
 }
 
 /// Interleaved `[lon, lat, …]` degrees; empty on containment.

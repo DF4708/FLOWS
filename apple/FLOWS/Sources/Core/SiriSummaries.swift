@@ -64,9 +64,41 @@ enum SiriSummaries {
     /// Spoken offer when traffic opens a faster route — FLOWS listens for
     /// the plain yes/no right after asking ("go ahead in FLOWS" also works
     /// any time via Siri).
-    static func fasterRouteOffer(minutes: Int) -> String {
+    static func fasterRouteOffer(minutes: Int, riskier: Bool = false) -> String {
         "Traffic ahead adds about \(minutes) minute\(minutes == 1 ? "" : "s"). "
-            + "A faster route is ready — say yes to take it."
+            + (riskier
+                ? "A faster route is ready, but it has more risk. Say yes to take it."
+                : "A faster route is ready — say yes to take it.")
+    }
+
+    /// Said when the only faster road runs through a red zone: nothing to
+    /// take (a red road is always refused), so nothing is asked.
+    static func fasterRouteRefusedRed(minutes: Int) -> String {
+        "Traffic ahead adds about \(minutes) minute\(minutes == 1 ? "" : "s"). "
+            + "The faster road runs through a red weather zone, so I'm staying on this one."
+    }
+
+    /// Said when FLOWS looked for a faster road around a jam and none is
+    /// worth taking: none saves enough, none keeps the driver's road choices,
+    /// or the car is already past the turn-off. Nothing is asked.
+    static func trafficNoFasterRoute(minutes: Int) -> String {
+        "Traffic ahead adds about \(minutes) minute\(minutes == 1 ? "" : "s"). "
+            + "There's no faster road right now, so I'm staying on this one."
+    }
+
+    /// Said on a yes to a faster road that turned red since it was offered.
+    static let fasterRouteNowRed =
+        "The faster road now runs through a red weather zone, so I'm staying on this one."
+
+    /// Said on a yes to a faster road whose turn-off the car has passed.
+    static let fasterRoutePassed =
+        "The turn for the faster road is behind us, so I'm staying on this one."
+
+    /// Said when FLOWS took a faster route on its own (it saved enough time
+    /// and brought no more risk). Nothing to answer.
+    static func fasterRouteTaken(minutes: Int) -> String {
+        "Heads up, there's traffic ahead, so I switched you to a faster route. "
+            + "It saves about \(minutes) minute\(minutes == 1 ? "" : "s"), with no more risk."
     }
 
     /// Turn distances, spoken the way a navigator says them.

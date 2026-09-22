@@ -85,9 +85,17 @@ final class WeatherAlertService: ObservableObject {
     /// color the corridor as cells land instead of spinning until the last
     /// one. Progress is display-only; the returned score (and its `complete`
     /// contract) is unchanged.
+    ///
+    /// `perSample`: every sample looks its alerts up at its own point, and
+    /// nothing is read from or written to the cell cache. For samples closer
+    /// than a cell (a detour FLOWS weighs, checked every few km): the cell's
+    /// one lookup point sits on whichever road reached the cell first, so a
+    /// detour 3 km off the highway got the highway's alerts. The state lists
+    /// and zone shapes the lookups join against are cached as usual.
     func corridorRisk(
         at samples: [CLLocationCoordinate2D],
         arrivalOffsets: [TimeInterval]? = nil,
+        perSample: Bool = false,
         onProgress: (@MainActor (Double, [RiskSample?]) -> Void)? = nil
     ) async -> CorridorScore {
         let now = Date()
@@ -95,16 +103,34 @@ final class WeatherAlertService: ObservableObject {
             guard let arrivalOffsets, i < arrivalOffsets.count else { return 0 }
             return arrivalOffsets[i]
         }
-        // One representative point per grid cell, first-sample-wins.
+        /// The lookup a sample's alerts come from: its cell, or itself.
+        func unitKey(_ i: Int, _ pt: CLLocationCoordinate2D) -> String {
+            perSample ? "sample:\(i)" : Self.cellKey(pt)
+        }
+        /// The per-sample view of what has landed so far.
+        func view(_ landed: [String: [NWSAlert]]) -> [RiskSample?] {
+            guard perSample else {
+                return Self.provisionalSamples(samples: samples, cellAlerts: landed,
+                                               arrivalOffsets: arrivalOffsets, now: now)
+            }
+            return samples.enumerated().map { i, pt in
+                guard let hits = landed[unitKey(i, pt)] else { return nil }
+                return Self.provisionalSamples(
+                    samples: [pt], cellAlerts: [Self.cellKey(pt): hits],
+                    arrivalOffsets: arrivalOffsets.map { _ in [offset(i)] }, now: now).first ?? nil
+            }
+        }
+        // One representative point per grid cell, first-sample-wins (or
+        // every sample, per sample).
         var cells: [String: CLLocationCoordinate2D] = [:]
-        for pt in samples {
-            let key = Self.cellKey(pt)
+        for (i, pt) in samples.enumerated() {
+            let key = unitKey(i, pt)
             if cells[key] == nil { cells[key] = pt }
         }
         var cellAlerts: [String: [NWSAlert]] = [:]
         var fresh: [(String, CLLocationCoordinate2D)] = []
         for (key, pt) in cells {
-            if let cached = await cache.get(key) {
+            if !perSample, let cached = await cache.get(key) {
                 cellAlerts[key] = cached
             } else {
                 fresh.append((key, pt))
@@ -119,16 +145,12 @@ final class WeatherAlertService: ObservableObject {
         // `pointCells` and rides the original per-point oracle unchanged.
         var pointCells = fresh
         if !fresh.isEmpty {
-            let (resolved, remaining) = await resolveViaStates(fresh)
+            let (resolved, remaining) = await resolveViaStates(fresh, caching: !perSample)
             for (key, hits) in resolved { cellAlerts[key] = hits }
             pointCells = remaining
             if let onProgress, !resolved.isEmpty {
                 let attempted = Double(cellAlerts.count + fetchFailures)
-                onProgress(
-                    min(attempted / Double(max(cells.count, 1)), 1),
-                    Self.provisionalSamples(
-                        samples: samples, cellAlerts: cellAlerts,
-                        arrivalOffsets: arrivalOffsets, now: now))
+                onProgress(min(attempted / Double(max(cells.count, 1)), 1), view(cellAlerts))
             }
         }
         let maxInFlight = AdaptiveTuning.shared.maxInFlight
@@ -145,9 +167,11 @@ final class WeatherAlertService: ObservableObject {
                     // Coalesced through the cache actor: concurrent corridor
                     // scores (route alternates) join one fetch per cell
                     // instead of each running their own. Success is cached
-                    // inside fetch(); failure returns nil uncached.
+                    // inside fetch(); failure returns nil uncached. A sample
+                    // looked up at its own point stays out of the cell cache.
                     group.addTask {
-                        (key, await self.cache.fetch(key) {
+                        if perSample { return (key, await self.activeAlerts(at: pt)) }
+                        return (key, await self.cache.fetch(key) {
                             await self.activeAlerts(at: pt)
                         })
                     }
@@ -165,11 +189,7 @@ final class WeatherAlertService: ObservableObject {
                 // (the pass over them is done) but stay nil in the samples —
                 // a failure is "unknown", never "clear".
                 let attempted = Double(cellAlerts.count + fetchFailures)
-                onProgress(
-                    min(attempted / Double(max(cells.count, 1)), 1),
-                    Self.provisionalSamples(
-                        samples: samples, cellAlerts: cellAlerts,
-                        arrivalOffsets: arrivalOffsets, now: now))
+                onProgress(min(attempted / Double(max(cells.count, 1)), 1), view(cellAlerts))
             }
         }
         // Per-sample local risk: the worst alert in the sample's cell that
@@ -177,15 +197,13 @@ final class WeatherAlertService: ObservableObject {
         // the provisional view; a cell with no data (failed fetch) scores 0
         // here and is reported through `complete: false` instead.
         let riskSamples = zip(
-            samples,
-            Self.provisionalSamples(samples: samples, cellAlerts: cellAlerts,
-                                    arrivalOffsets: arrivalOffsets, now: now)
+            samples, view(cellAlerts)
         ).map { pt, s in s ?? RiskSample(coordinate: pt, risk: 0) }
         // Per-alert corridor coverage: fraction of samples whose cell
         // contains that alert AND where it survives until arrival.
         var alertSampleCount: [String: Int] = [:]
         for (i, pt) in samples.enumerated() {
-            for h in cellAlerts[Self.cellKey(pt)] ?? []
+            for h in cellAlerts[unitKey(i, pt)] ?? []
             where RiskTiming.isActive(expires: h.expires, arrivalOffset: offset(i), now: now) {
                 alertSampleCount[h.id, default: 0] += 1
             }
@@ -431,9 +449,11 @@ final class WeatherAlertService: ObservableObject {
     /// any needed zone geometry is unavailable — every cell this pass would
     /// have judged, because an unplaceable alert must not silently vanish
     /// from the corridor. Failure can only ever mean "fall back to the
-    /// per-point oracle", never "fewer alerts".
+    /// per-point oracle", never "fewer alerts". `caching`: false for points
+    /// that are not cells (a sample looked up at its own point).
     private func resolveViaStates(
-        _ fresh: [(String, CLLocationCoordinate2D)]
+        _ fresh: [(String, CLLocationCoordinate2D)],
+        caching: Bool = true
     ) async -> (resolved: [String: [NWSAlert]], pointFallback: [(String, CLLocationCoordinate2D)]) {
         var fallback: [(String, CLLocationCoordinate2D)] = []
         var candidates: [(String, CLLocationCoordinate2D, [String])] = []
@@ -515,7 +535,7 @@ final class WeatherAlertService: ObservableObject {
         }
 
         let resolved = await Self.joinCells(joinable, alerts: union, zoneRings: zoneRings)
-        for (key, hits) in resolved { await cache.put(key, hits) }
+        if caching { for (key, hits) in resolved { await cache.put(key, hits) } }
         return (resolved, fallback)
     }
 
