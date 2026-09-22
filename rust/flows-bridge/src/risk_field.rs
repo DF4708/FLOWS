@@ -23,6 +23,11 @@
 //! empty string for no text. The rescore takes the harmonic table's own
 //! handle ([`crate::climate::FlowsHarmonicTable`]).
 //!
+//! The field keeps each summary exactly as the bundle wrote it; the facade
+//! reads it out through [`flows_risk_summary_plain`]
+//! (`flows_core::risk_summary`), so a bundle written in the trainers' old
+//! words is shown in plain ones.
+//!
 //! Every function is a thin forwarder through [`contain`], so a panic inside
 //! the core becomes the documented fallback instead of crossing into Swift.
 
@@ -93,12 +98,24 @@ mod ffi {
             week: i64,
         ) -> i64;
     }
+
+    extern "Rust" {
+        fn flows_risk_summary_plain(text: &str) -> String;
+    }
 }
 
 use crate::climate::FlowsHarmonicTable;
 use crate::contain;
 use flows_core::climate::WeekTrig;
 use flows_core::risk_field::{Entry, RiskField};
+use flows_core::risk_summary;
+
+/// A summary as a driver reads it ([`risk_summary::plain`]): the old trainer
+/// lines in plain words, any other text unchanged. The fallback is the empty
+/// text, never the line as given, so an old line can't reach the screen.
+pub fn flows_risk_summary_plain(text: &str) -> String {
+    contain(String::new(), || risk_summary::plain(text))
+}
 
 /// The field behind Swift's `RiskFieldService`.
 pub struct FlowsRiskField(RiskField);
@@ -345,5 +362,15 @@ mod tests {
         assert!(flows_risk_field_empty("", "", &[0], 0)
             .families()
             .is_empty());
+    }
+
+    #[test]
+    fn a_summary_crosses_in_plain_words() {
+        assert_eq!(
+            flows_risk_summary_plain("Seasonal baseline: elevated convective risk (climatology)"),
+            "Storms are common here in some seasons."
+        );
+        assert_eq!(flows_risk_summary_plain("windy"), "windy");
+        assert_eq!(flows_risk_summary_plain(""), "");
     }
 }

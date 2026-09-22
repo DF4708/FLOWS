@@ -76,6 +76,7 @@
 // 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
 #![forbid(unsafe_code)]
 
+use flows_core::risk_summary;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::env;
@@ -977,13 +978,6 @@ fn fmt_num(x: f64, decimals: usize) -> String {
     s
 }
 
-fn summary_family_label(family: &str) -> &str {
-    match family {
-        "qpf_flood" => "flood",
-        other => other,
-    }
-}
-
 /// Extract the families array (of plain strings) from the bundle prefix text.
 fn parse_families(text: &str) -> Result<Vec<String>, String> {
     let key = "\"families\":";
@@ -1097,7 +1091,12 @@ fn rebuild_bundle(
         let mut hist_won = vec![false; families.len()];
         for (i, fam) in fam_map.iter().enumerate() {
             if let Some(f) = *fam {
-                let h = history_score(z, week, f);
+                // At the precision the bundle stores (3 decimals): a score
+                // written rounded up (0.4567 as 0.457) lost the tie on a re-run
+                // and its 20-year line flipped to the seasonal one.
+                let h = fmt_num(history_score(z, week, f), 3)
+                    .parse::<f64>()
+                    .unwrap_or(0.0);
                 // ties count as history-won so re-running the merge on its own
                 // output is a fixed point (labels never flip back to seasonal)
                 if h > 0.0 && h >= s[i] {
@@ -1121,16 +1120,14 @@ fn rebuild_bundle(
                 }
             }
             if s[top] > SUMMARY_MIN {
-                let label = summary_family_label(&families[top]);
-                if hist_won[top] {
-                    ent.push_str(&format!(
-                        ",\"t\":\"Historical baseline: elevated {label} risk (20-yr storm climatology)\""
-                    ));
+                // Plain words, the app's own (flows_core::risk_summary): the
+                // line is shown to drivers as written.
+                let line = if hist_won[top] {
+                    risk_summary::historical(&families[top])
                 } else {
-                    ent.push_str(&format!(
-                        ",\"t\":\"Seasonal baseline: elevated {label} risk (climatology)\""
-                    ));
-                }
+                    risk_summary::seasonal(&families[top])
+                };
+                ent.push_str(&format!(",\"t\":\"{line}\""));
             }
             ent.push('}');
             ent
@@ -1822,7 +1819,7 @@ mod tests {
         let (out, stats) = rebuild_bundle(&src, 0, &lookup).expect("merge");
         assert_eq!(stats.rescored, 1);
         // 55401: winter max(0.1, 0.5) = 0.5, history won -> historical summary
-        assert!(out.contains("{\"z\":\"55401\",\"c\":[-93.27,44.98],\"s\":[0,0.5],\"t\":\"Historical baseline: elevated winter risk (20-yr storm climatology)\"}"),
+        assert!(out.contains("{\"z\":\"55401\",\"c\":[-93.27,44.98],\"s\":[0,0.5],\"t\":\"Snow and ice storms have been common here over the last 20 years.\"}"),
             "merged entry wrong: {out}");
         assert!(out.contains("\"history_baseline\":true,\"history_week\":0,"));
         // idempotency: merging the output again is a byte-for-byte fixed point
@@ -1857,7 +1854,7 @@ mod tests {
         let nat = "{\"z\":\"97201\",\"c\":[-122.69,45.5],\"s\":[0,0]}";
         let nat_t = concat!(
             "{\"z\":\"33101\",\"c\":[-80.1937,25.7743],\"s\":[0.35,0.31],",
-            "\"t\":\"Seasonal baseline: elevated wind risk (climatology)\"}"
+            "\"t\":\"Strong winds are common here in some seasons.\"}"
         );
         let src = format!("{{\"families\":[\"wind\",\"qpf_flood\"],\"zips\":[{nat},{nat_t}]}}");
         let lookup = |_z: &str, _w: u32, _f: usize| 0.0;
@@ -1869,6 +1866,49 @@ mod tests {
         );
         assert_eq!(stats.unchanged, 2);
         assert_eq!(stats.rescored, 0);
+    }
+
+    // ---- a score that rounds up when written still wins its tie on a re-run
+    #[test]
+    fn a_rounded_up_history_score_is_a_fixed_point() {
+        let src = "{\"families\":[\"winter\"],\"zips\":[{\"z\":\"55401\",\"c\":[-93.27,44.98],\"s\":[0.1]}]}";
+        let lookup = |_z: &str, _w: u32, _f: usize| 0.4567;
+        let (out, _) = rebuild_bundle(src, 0, &lookup).expect("merge");
+        assert!(
+            out.contains("\"s\":[0.457],\"t\":\"Snow and ice storms have been common here over the last 20 years.\""),
+            "{out}"
+        );
+        let (again, stats) = rebuild_bundle(&out, 0, &lookup).expect("re-merge");
+        assert_eq!(
+            again, out,
+            "the 20-year line must not flip to the seasonal one"
+        );
+        assert_eq!(stats.rescored, 0);
+    }
+
+    // ---- a bundle written in the old words comes out in plain ones
+    #[test]
+    fn old_summary_words_are_rewritten_by_the_merge() {
+        let old = concat!(
+            "{\"z\":\"33101\",\"c\":[-80.1937,25.7743],\"s\":[0.35,0.31],",
+            "\"t\":\"Seasonal baseline: elevated wind risk (climatology)\"}"
+        );
+        let src = format!("{{\"families\":[\"wind\",\"qpf_flood\"],\"zips\":[{old}]}}");
+        let lookup = |_z: &str, _w: u32, _f: usize| 0.0;
+        let (out, stats) = rebuild_bundle(&src, 27, &lookup).expect("merge");
+        assert!(
+            out.contains("\"t\":\"Strong winds are common here in some seasons.\""),
+            "old words must be rewritten: {out}"
+        );
+        assert!(!out.contains("baseline:") && !out.contains("climatology)"));
+        assert_eq!(stats.rescored, 1);
+        // History-won flood reads as the 20-year record, in plain words.
+        let flood = |_z: &str, _w: u32, f: usize| if FAMS[f] == "qpf_flood" { 0.5 } else { 0.0 };
+        let (out, _) = rebuild_bundle(&src, 27, &flood).expect("merge");
+        assert!(
+            out.contains("\"t\":\"Flooding has been common here over the last 20 years.\""),
+            "{out}"
+        );
     }
 
     // ---- raw object pair scanner

@@ -14,6 +14,10 @@
 //! state gets a dense choropleth. Every entry already in the bundle is carried
 //! through BYTE-FOR-BYTE (its raw JSON object slice is copied untouched — floats
 //! are never re-encoded); only uncovered ZCTAs get a freshly generated entry.
+//! So an entry's summary `t` keeps whatever words it was written in: a new
+//! entry's is plain (`flows_core::risk_summary`), and an older entry's old
+//! line is put into plain words by `bundle-frb` on the way to the app (and by
+//! the app itself, for a bundle read as JSON).
 //! The field is a single unified national climatology: no special-cased or
 //! byte-preserved Wisconsin / R-engine entries, and no polygon ring `p` (the app
 //! fetches ZCTA rings on demand). Entries carry centroid `c` as [lon, lat] and
@@ -32,6 +36,7 @@
 // 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
 #![forbid(unsafe_code)]
 
+use flows_core::risk_summary;
 use std::env;
 use std::f64::consts::PI;
 use std::fs;
@@ -386,13 +391,6 @@ fn fmt_num(x: f64, decimals: usize) -> String {
     s
 }
 
-fn summary_family_label(family: &str) -> &str {
-    match family {
-        "qpf_flood" => "flood",
-        other => other,
-    }
-}
-
 /// Build one national entry's raw JSON: {"z":..,"c":[lon,lat],"s":[..],"t":..}
 /// No "p" ring — the app fetches ZCTA rings on demand.
 fn national_entry(z: &Zcta, families: &[String], week: u32) -> String {
@@ -415,9 +413,11 @@ fn national_entry(z: &Zcta, families: &[String], week: u32) -> String {
         }
     }
     if scores[top] > SUMMARY_MIN {
+        // Plain words, the app's own (flows_core::risk_summary): the line is
+        // shown to drivers as written.
         out.push_str(&format!(
-            ",\"t\":\"Seasonal baseline: elevated {} risk (climatology)\"",
-            summary_family_label(&families[top])
+            ",\"t\":\"{}\"",
+            risk_summary::seasonal(&families[top])
         ));
     }
     out.push('}');
@@ -730,7 +730,7 @@ mod tests {
         };
         let e = national_entry(&z, &fams, 36);
         assert!(e.starts_with("{\"z\":\"33101\",\"c\":[-80.1937,25.7743],\"s\":["));
-        assert!(e.contains("Seasonal baseline: elevated flood risk (climatology)"));
+        assert!(e.contains("\"t\":\"Flooding is common here in some seasons.\""));
         assert!(!e.contains("\"p\":"));
         // Quiet zip/week -> no summary key at all.
         let q = Zcta {

@@ -3002,6 +3002,11 @@ public func flows_risk_field_from_columns<GenericToRustStr: ToRustStr>(_ generat
     })
     })
 }
+public func flows_risk_summary_plain<GenericToRustStr: ToRustStr>(_ text: GenericToRustStr) -> RustString {
+    return text.toRustStr({ textAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_risk_summary_plain(textAsRustStr))
+    })
+}
 
 
 

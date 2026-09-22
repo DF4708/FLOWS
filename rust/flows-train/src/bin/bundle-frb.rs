@@ -16,7 +16,10 @@
 //! are carried BIT-EXACT: Rust's `str::parse::<f64>` and Foundation's JSON
 //! number parsing are both correctly rounded, so the f64 written here equals
 //! the f64 JSONDecoder would have produced from the same literal — the
-//! Swift-side field is byte-identical to the JSON path by construction.
+//! Swift-side field is byte-identical to the JSON path by construction. The
+//! one exception is each summary, written in plain words
+//! (`flows_core::risk_summary::plain`): the app reads the JSON path's
+//! summaries through the same rule, so both show the same line.
 //!
 //! Format FRB1 (little-endian):
 //!   0  magic  "FRB1"
@@ -30,7 +33,7 @@
 //!   zips:      nZips x 5 ASCII bytes          (sorted as in the JSON)
 //!   centroids: nZips x (f64 lon, f64 lat)
 //!   scores:    nZips x nFams x f64            (row-major per zip)
-//!   summaries: nZips x (u16 len, bytes)       (len 0 = none)
+//!   summaries: nZips x (u16 len, bytes)       (len 0 = none; plain words)
 //!   rings:     nZips x (u16 npts, npts x (f64 lon, f64 lat))  (0 = none)
 //!
 //! Usage: bundle-frb <in.json> <out.frb1>
@@ -38,6 +41,7 @@
 // 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
 #![forbid(unsafe_code)]
 
+use flows_core::risk_summary;
 use std::env;
 use std::fs;
 use std::process;
@@ -385,7 +389,10 @@ fn encode_frb1(root: &Json) -> Result<Vec<u8>, String> {
         }
     }
     for z in zips {
-        let t = z.get("t").and_then(Json::as_str).unwrap_or("");
+        // Plain words: a JSON bundle still carrying the old trainer lines
+        // ships them as drivers read them (national-bundle carries existing
+        // entries through byte for byte, old lines and all).
+        let t = risk_summary::plain(z.get("t").and_then(Json::as_str).unwrap_or(""));
         let b = t.as_bytes();
         if b.len() > u16::MAX as usize {
             return Err("summary too long".into());
@@ -574,5 +581,36 @@ mod tests {
         let bad2 = r#"{"generated_utc":"x","families":["a"],
                        "zips":[{"z":"123","c":[0,0],"s":[0]}]}"#;
         assert!(encode_frb1(&parse_json(bad2).unwrap()).is_err());
+    }
+
+    /// A JSON bundle still carrying the old trainer lines ships them in
+    /// plain words; other text and an absent summary pass through.
+    #[test]
+    fn old_summary_lines_ship_in_plain_words() {
+        let old = r#"{"generated_utc":"x","families":["convective","qpf_flood"],
+            "zips":[
+              {"z":"53703","c":[-89.4,43.07],"s":[0.4,0],
+               "t":"Seasonal baseline: elevated convective risk (climatology)"},
+              {"z":"53202","c":[-87.91,43.04],"s":[0,0.5],
+               "t":"Historical baseline: elevated flood risk (20-yr storm climatology)"},
+              {"z":"01001","c":[-72.6258,42.0624],"s":[0,0],"t":"windy"},
+              {"z":"99999","c":[-100.5,40.25],"s":[0,0]}
+            ]}"#;
+        let b = encode_frb1(&parse_json(old).unwrap()).unwrap();
+        let field = flows_core::risk_field::RiskField::parse_frb1(&b).expect("FRB1 parses");
+        let summaries: Vec<Option<&str>> = field
+            .entries()
+            .iter()
+            .map(|e| e.summary.as_deref())
+            .collect();
+        assert_eq!(
+            summaries,
+            vec![
+                Some("Storms are common here in some seasons."),
+                Some("Flooding has been common here over the last 20 years."),
+                Some("windy"),
+                None,
+            ]
+        );
     }
 }

@@ -85,6 +85,7 @@ pub mod polyline;
 pub mod recents_and_rides;
 pub mod risk;
 pub mod risk_field;
+pub mod risk_summary;
 pub mod routing;
 pub mod scoring;
 pub mod seasonal;

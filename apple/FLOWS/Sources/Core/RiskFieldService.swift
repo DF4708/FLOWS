@@ -251,6 +251,21 @@ final class RiskFieldService: ObservableObject {
     }
 }
 
+/// A ZIP's risk summary in plain words. The bundle's trainers wrote lines like
+/// "Seasonal baseline: elevated convective risk (climatology)", and the
+/// shipped bundle still carries them; they read as "Storms are common here in
+/// some seasons." Any other text is shown as written. The rule is Rust's
+/// (rust/flows-core risk_summary.rs), the same one the trainers now write
+/// with, so an old bundle and a rebuilt one read alike.
+enum RiskSummaryText {
+    /// The line to show, or nil when there is none to show (an empty text,
+    /// or one the rule could not read — never the old line as written).
+    static func plain(_ text: String) -> String? {
+        let line = flows_risk_summary_plain(text).text
+        return line.isEmpty ? nil : line
+    }
+}
+
 /// The Rust field behind `RiskFieldService`: one opaque handle, parsed once
 /// and read in place. Nothing mutates it after `load()` finishes its rescore,
 /// so it moves between the loading task and the main actor as a value would.
@@ -343,8 +358,12 @@ final class RiskField: @unchecked Sendable {
 
     func scores(at index: Int) -> [Double] { Array(handle.scores(Int64(index))) }
 
+    /// The entry's summary as a driver reads it (RiskSummaryText): every
+    /// reader of the field's text — the route card, the map's tap card, the
+    /// entries — goes through here.
     func summary(at index: Int) -> String? {
-        handle.has_summary(Int64(index)) ? handle.summary(Int64(index)).text : nil
+        guard handle.has_summary(Int64(index)) else { return nil }
+        return RiskSummaryText.plain(handle.summary(Int64(index)).text)
     }
 
     func entry(_ index: Int) -> RiskFieldService.ZipEntry {
