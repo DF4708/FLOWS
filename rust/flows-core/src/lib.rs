@@ -65,6 +65,8 @@
 //! crate's Cargo.toml.)
 #![forbid(unsafe_code)]
 
+pub mod airports;
+pub mod airports_table;
 pub mod alert_text;
 pub mod alerts;
 pub mod ch;

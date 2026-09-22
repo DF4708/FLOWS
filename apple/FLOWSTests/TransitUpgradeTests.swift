@@ -86,6 +86,60 @@ final class TransitUpgradeTests: XCTestCase {
 
     // MARK: - Plane option
 
+    /// The owner's trip: Milwaukee → Evans, Georgia. The plane card said "No
+    /// flight fits this trip" because its only source of airports was a live
+    /// map search. The table FLOWS carries answers offline.
+    func testTheAirportsForATripAreFoundWithoutTheNetwork() throws {
+        let milwaukee = CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)
+        let evansGA = CLLocationCoordinate2D(latitude: 33.5337, longitude: -82.1307)
+        let ends = try XCTUnwrap(AirTravel.flightEnds(from: milwaukee, to: evansGA))
+        XCTAssertEqual(ends.board.code, "MKE")
+        XCTAssertEqual(ends.alight.code, "AGS")
+        XCTAssertEqual(ends.alight.city, "Augusta")
+        XCTAssertEqual(ends.board.label, "Milwaukee (MKE)")
+        XCTAssertLessThan(ends.board.meters, 20_000, "MKE is in Milwaukee")
+        XCTAssertLessThan(ends.alight.meters, 40_000, "AGS serves Evans")
+
+        // Near neighbours have no flight. Milwaukee → Madison is 80 miles, so
+        // the card is gated on trip length before any airport is looked at
+        // ("Flying won't help here"); a pair closer than the airport gap has
+        // no ends at all.
+        let madison = CLLocationCoordinate2D(latitude: 43.0731, longitude: -89.4012)
+        XCTAssertFalse(AirTravel.worthFlying(
+            tripMiles: POIRanking.meters(milwaukee, madison) / 1609.344))
+        let racine = CLLocationCoordinate2D(latitude: 42.7261, longitude: -87.7829)
+        XCTAssertNil(AirTravel.flightEnds(from: milwaukee, to: racine),
+                     "both ends are Milwaukee's own airport")
+
+        // And the nearest list is ordered, with the big fields worth a drive.
+        let near = AirTravel.nearest(to: madison, limit: 3)
+        XCTAssertEqual(near.first?.code, "MSN")
+        XCTAssertEqual(near.count, 3)
+        XCTAssertLessThanOrEqual(near[0].meters, near[2].meters + 1)
+        XCTAssertTrue(AirTravel.nearest(to: madison, limit: 0).isEmpty)
+    }
+
+    /// Rental hand-offs carry FLOWS's partner tag, and name the city the
+    /// traveller actually gets off in.
+    func testRentalCompareLinksCarryThePartnerTag() throws {
+        let milwaukee = try XCTUnwrap(
+            RentalCars.compareURL(country: "US", region: "US-WI", city: "Milwaukee"))
+        XCTAssertEqual(milwaukee.absoluteString,
+                       "https://www.discovercars.com/usa-wisconsin/milwaukee?a_aid=FAWN")
+        // An airport from FLOWS's own table names its own landing page.
+        let evansGA = CLLocationCoordinate2D(latitude: 33.5337, longitude: -82.1307)
+        let augusta = try XCTUnwrap(AirTravel.nearest(to: evansGA, limit: 1).first)
+        let link = try XCTUnwrap(RentalCars.compareURL(country: augusta.country,
+                                                       region: augusta.region,
+                                                       city: augusta.city))
+        XCTAssertEqual(link.absoluteString,
+                       "https://www.discovercars.com/usa-georgia/augusta?a_aid=FAWN")
+        // A place FLOWS cannot name that way still carries the tag.
+        let plain = try XCTUnwrap(RentalCars.compareURL(country: "FR", region: "", city: "Paris"))
+        XCTAssertTrue(plain.absoluteString.contains("a_aid=FAWN"), plain.absoluteString)
+        XCTAssertEqual(plain, RentalCars.compareURL)
+    }
+
     func testWorthFlyingThreshold() {
         XCTAssertFalse(AirTravel.worthFlying(tripMiles: 60))
         XCTAssertFalse(AirTravel.worthFlying(tripMiles: 99.9))

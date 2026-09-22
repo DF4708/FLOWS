@@ -58,7 +58,88 @@ enum AirTravel {
         flows_modes_fare_estimate(airportMiles)
     }
 
-    // -- Airport selection ----------------------------------------------------
+    // -- Airports with airline service ---------------------------------------
+
+    /// One airport from the table FLOWS carries (rust/flows-core airports.rs,
+    /// built from OurAirports' public-domain data): every airport in the US,
+    /// Canada and Mexico with a code and SCHEDULED SERVICE.
+    struct Airport: Equatable {
+        /// "MKE" — what a booking search wants.
+        let code: String
+        /// "Milwaukee Mitchell International Airport".
+        let name: String
+        /// "Milwaukee" — the city it serves, which is how people name it.
+        let city: String
+        /// "US", "CA" or "MX".
+        let country: String
+        /// "US-WI" — the state or province, which a rental landing page is
+        /// named for.
+        let region: String
+        /// "large", "medium" or "small".
+        let size: String
+        let coordinate: CLLocationCoordinate2D
+        /// Straight-line meters from the point that was asked about.
+        let meters: Double
+
+        static func == (a: Airport, b: Airport) -> Bool { a.code == b.code }
+
+        /// "Milwaukee (MKE)" — the plain name for a card or a spoken line.
+        var label: String { city.isEmpty ? "\(name) (\(code))" : "\(city) (\(code))" }
+    }
+
+    /// How far FLOWS will drive to an airport, in meters.
+    static var maxDriveMeters: Double { flows_airports_max_drive_meters() }
+
+    /// The airports with airline service near a point, best first (nearest,
+    /// with a large airport worth a longer drive).
+    static func nearest(to c: CLLocationCoordinate2D, limit: Int = 3) -> [Airport] {
+        airports(flows_airports_nearest(c.latitude, c.longitude, Int64(limit)),
+                 places: flows_airports_nearest_places(c.latitude, c.longitude, Int64(limit)))
+    }
+
+    /// The two ends of a flight for this trip — board, then alight — or none
+    /// when no flight fits it. The MAP SEARCH this replaced turned an empty
+    /// or throttled answer into "no flight fits this trip" for routes with
+    /// daily service, and judged airports by name.
+    static func flightEnds(from: CLLocationCoordinate2D,
+                           to: CLLocationCoordinate2D) -> (board: Airport, alight: Airport)? {
+        let gap = minAirportGapMiles * 1609.344
+        let rows = flows_airports_pair(from.latitude, from.longitude,
+                                       to.latitude, to.longitude, gap)
+        let places = flows_airports_pair_places(from.latitude, from.longitude,
+                                                to.latitude, to.longitude, gap)
+        let found = airports(rows, places: places)
+        guard found.count == 2 else { return nil }
+        return (found[0], found[1])
+    }
+
+    /// The bridge's rows ("IATA␟name␟city␟country␟size") beside their three
+    /// doubles each (latitude, longitude, meters).
+    private static func airports(_ rows: RustVec<RustString>,
+                                 places: RustVec<Double>) -> [Airport] {
+        var numbers: [Double] = []
+        for value in places { numbers.append(value) }
+        var out: [Airport] = []
+        var i = 0
+        for row in rows {
+            let text: String = row.as_str().toString()
+            let parts: [String] = text
+                .split(separator: "\u{1F}", omittingEmptySubsequences: false)
+                .map(String.init)
+            let base = i * 3
+            i += 1
+            guard parts.count == 6, numbers.count >= base + 3 else { continue }
+            let place = CLLocationCoordinate2D(latitude: numbers[base],
+                                               longitude: numbers[base + 1])
+            let airport = Airport(code: parts[0], name: parts[1], city: parts[2],
+                                  country: parts[3], region: parts[4], size: parts[5],
+                                  coordinate: place, meters: numbers[base + 2])
+            out.append(airport)
+        }
+        return out
+    }
+
+    // -- Airport selection (the map-search fallback) --------------------------
 
     struct Candidate {
         let name: String

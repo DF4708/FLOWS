@@ -161,6 +161,30 @@ enum RentalCars {
         return site.isEmpty ? nil : URL(string: site)
     }
 
+    /// Compare prices across brands in one place. FLOWS's partner link, so a
+    /// booking made from here is credited to it; the brand rows beside it
+    /// still go to each company's own site.
+    static var compareURL: URL? {
+        URL(string: flows_rides_rental_compare_url().text)
+    }
+
+    /// The same, for ONE place: the partner's own landing page for that city
+    /// ("…/usa-wisconsin/milwaukee?a_aid=FAWN"), built the way their
+    /// landing-page generator builds it. A place FLOWS cannot name that way
+    /// falls back to `compareURL`.
+    static func compareURL(near placemark: CLPlacemark?) -> URL? {
+        guard let placemark else { return compareURL }
+        return compareURL(country: placemark.isoCountryCode ?? "",
+                          region: placemark.administrativeArea ?? "",
+                          city: placemark.locality ?? placemark.subAdministrativeArea ?? "")
+    }
+
+    /// The same from a place FLOWS already names itself — an airport in its
+    /// own table carries its country, state and city.
+    static func compareURL(country: String, region: String, city: String) -> URL? {
+        URL(string: flows_rides_rental_landing_url(country, region, city).text) ?? compareURL
+    }
+
     /// Pick the offices worth showing: nearest office PER BRAND (an
     /// Enterprise downtown and one at the airport are the same booking),
     /// ordered by brand size then distance, capped at three. Unknown local
@@ -230,6 +254,10 @@ struct TransitOption {
     /// Rental counters near the destination — the traveller arrives
     /// WITHOUT a car (that's the whole point of leg 3 being a walk).
     var rentals: [RentalCars.Office] = []
+    /// Compare those counters' prices in one place — the partner's landing
+    /// page for the city the traveller gets off in, so a booking made from
+    /// the card is credited to FLOWS.
+    var rentalCompareURL: URL? = RentalCars.compareURL
 }
 
 /// The walk + paid-ride card's computed pieces (walking mode only). On the

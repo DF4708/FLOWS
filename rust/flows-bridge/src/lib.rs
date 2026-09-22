@@ -53,6 +53,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod airports;
 pub mod alert_text;
 pub mod alerts;
 pub mod climate;

@@ -1,3 +1,20 @@
+public func flows_airports_nearest(_ latitude: Double, _ longitude: Double, _ limit: Int64) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_airports_nearest(latitude, longitude, limit))
+}
+public func flows_airports_nearest_places(_ latitude: Double, _ longitude: Double, _ limit: Int64) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_airports_nearest_places(latitude, longitude, limit))
+}
+public func flows_airports_pair(_ from_latitude: Double, _ from_longitude: Double, _ to_latitude: Double, _ to_longitude: Double, _ min_gap_meters: Double) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_airports_pair(from_latitude, from_longitude, to_latitude, to_longitude, min_gap_meters))
+}
+public func flows_airports_pair_places(_ from_latitude: Double, _ from_longitude: Double, _ to_latitude: Double, _ to_longitude: Double, _ min_gap_meters: Double) -> RustVec<Double> {
+    RustVec(ptr: __swift_bridge__$flows_airports_pair_places(from_latitude, from_longitude, to_latitude, to_longitude, min_gap_meters))
+}
+public func flows_airports_max_drive_meters() -> Double {
+    __swift_bridge__$flows_airports_max_drive_meters()
+}
+
+
 public func flows_alert_text_evaluate_escalation<GenericToRustStr: ToRustStr>(_ complete: Bool, _ mean: Double, _ peak: Double, _ peak_alert_id: GenericToRustStr, _ has_peak_alert_id: Bool, _ baseline: Double, _ dismissed_risk: Double, _ dismissed_joined: GenericToRustStr, _ dismissed_lens: UnsafeBufferPointer<Int64>, _ dismissed_count: Int64) -> FlowsAlertEscalation {
     return dismissed_joined.toRustStr({ dismissed_joinedAsRustStr in
         return peak_alert_id.toRustStr({ peak_alert_idAsRustStr in
@@ -2767,6 +2784,18 @@ public func flows_rides_rental_brand_rank<GenericToRustStr: ToRustStr>(_ name: G
 public func flows_rides_rental_booking_site<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool) -> RustString {
     return name.toRustStr({ nameAsRustStr in
         RustString(ptr: __swift_bridge__$flows_rides_rental_booking_site(nameAsRustStr, has_name))
+    })
+}
+public func flows_rides_rental_compare_url() -> RustString {
+    RustString(ptr: __swift_bridge__$flows_rides_rental_compare_url())
+}
+public func flows_rides_rental_landing_url<GenericToRustStr: ToRustStr>(_ country: GenericToRustStr, _ region: GenericToRustStr, _ city: GenericToRustStr) -> RustString {
+    return city.toRustStr({ cityAsRustStr in
+        return region.toRustStr({ regionAsRustStr in
+        return country.toRustStr({ countryAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_rides_rental_landing_url(countryAsRustStr, regionAsRustStr, cityAsRustStr))
+    })
+    })
     })
 }
 public func flows_rides_recommend_rentals<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ miles: UnsafeBufferPointer<Double>, _ count: Int64, _ limit: Int64) -> RustVec<Int64> {

@@ -261,7 +261,10 @@ struct RouteChoicesView: View {
             fare: fare, destination: dest,
             ticketLabel: ticketLabel, ticketURL: ticketURL,
             itinerary: itinerary,
-            rentals: await rentalsNearDest)
+            rentals: await rentalsNearDest,
+            // The city the traveller gets off in, not the one they set out
+            // for: that is where they would pick a car up.
+            rentalCompareURL: RentalCars.compareURL(near: alight?.placemark))
     }
 
     /// Plane option: board at the nearest airport with airline service to the
@@ -302,26 +305,44 @@ struct RouteChoicesView: View {
             }, maxMeters: 150_000)
             return picked.map { items[$0] }
         }
-        async let boardTask = airport(near: ep.from)
-        async let alightTask = airport(near: ep.to)
-        let (boardOpt, alightOpt) = await (boardTask, alightTask)
+        // The airports FLOWS carries answer first: the table knows which
+        // fields airlines actually serve, it cannot be throttled, and it
+        // works with no signal. A map search only fills in for a place the
+        // table has never heard of.
+        let ends = AirTravel.flightEnds(from: ep.from, to: ep.to)
+        var boardC = ends?.board.coordinate
+        var alightC = ends?.alight.coordinate
+        var boardLabel = ends?.board.label
+        var alightLabel = ends?.alight.label
+        var boardItem: MKMapItem?
+        if ends == nil {
+            async let boardTask = airport(near: ep.from)
+            async let alightTask = airport(near: ep.to)
+            let (boardOpt, alightOpt) = await (boardTask, alightTask)
+            if Task.isCancelled { return }
+            boardC = boardOpt?.placemark.coordinate
+            alightC = alightOpt?.placemark.coordinate
+            boardLabel = boardOpt?.name
+            alightLabel = alightOpt?.name
+            boardItem = boardOpt
+        }
         if Task.isCancelled { return }
-        guard let board = boardOpt, let alight = alightOpt,
-              POIRanking.meters(board.placemark.coordinate,
-                                alight.placemark.coordinate) / 1609.344
+        guard let boardC, let alightC,
+              POIRanking.meters(boardC, alightC) / 1609.344
                   >= AirTravel.minAirportGapMiles else {
+            let nothingNear = boardC == nil || alightC == nil
             model.transitOptions[.plane] = TransitOption(
                 title: "No flight fits this trip",
-                detail: boardOpt == nil || alightOpt == nil
-                    ? "No airport with airline service found near one end of the trip."
+                detail: nothingNear
+                    ? "No airport with airline service is within "
+                        + "\(Int((AirTravel.maxDriveMeters / 1609.344).rounded())) miles of one "
+                        + "end of the trip."
                     : "Both ends of the trip use the same nearby airport — flying can't shorten it.",
                 fare: 0, destination: dest)
             return
         }
-        let boardC = board.placemark.coordinate
-        let alightC = alight.placemark.coordinate
-        let boardName = board.name ?? "the departure airport"
-        let alightName = alight.name ?? "the arrival airport"
+        let boardName = boardLabel ?? "the departure airport"
+        let alightName = alightLabel ?? "the arrival airport"
         let startName = ep.fromName.isEmpty ? "your start" : ep.fromName
         let destName = ep.toName.isEmpty ? "your destination" : ep.toName
         let airportMiles = POIRanking.meters(boardC, alightC) / 1609.344
@@ -405,7 +426,7 @@ struct RouteChoicesView: View {
         model.transitItinerary = itinerary
 
         let ticket = AirTravel.ticket(board: boardName, alight: alightName,
-                                      airportURL: board.url)
+                                      airportURL: boardItem?.url)
         let accessVerb = accessLeg.kind == .drive ? "Drive" : "Walk"
         if Task.isCancelled { return }
         model.transitOptions[.plane] = TransitOption(
@@ -416,7 +437,13 @@ struct RouteChoicesView: View {
             fare: fare, destination: dest,
             ticketLabel: ticket.label, ticketURL: ticket.url,
             itinerary: itinerary,
-            rentals: await rentalsAtAirport)
+            rentals: await rentalsAtAirport,
+            // The city the flight lands in — FLOWS's own airport table knows
+            // its state, which the landing page is named for.
+            rentalCompareURL: ends.map {
+                RentalCars.compareURL(country: $0.alight.country, region: $0.alight.region,
+                                      city: $0.alight.city)
+            } ?? RentalCars.compareURL)
     }
 
     // MARK: - Walk + paid ride (walking mode)
@@ -684,6 +711,13 @@ struct RouteChoicesView: View {
                             .scaledFont(size: 10, weight: .bold)
                     }
                 }
+            }
+            // One place to compare the brands against each other. FLOWS's
+            // partner link: a booking from here is credited to the app, and
+            // the rows above still go to each company's own site.
+            if let compare = t.rentalCompareURL {
+                Link("Compare prices at all of them", destination: compare)
+                    .scaledFont(size: 10, weight: .semibold)
             }
         }
     }
