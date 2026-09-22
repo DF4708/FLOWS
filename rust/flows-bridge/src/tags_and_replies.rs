@@ -61,6 +61,15 @@ mod ffi {
         fn flows_tags_weight_limit_lbs(tag: &str) -> FlowsTagsNumber;
         fn flows_tags_is_high_risk_flood_zone(zone: &str) -> bool;
         fn flows_tags_route_constants() -> Vec<f64>;
+        fn flows_tags_limits_on_route(
+            route_lats: &[f64],
+            route_lons: &[f64],
+            way_point_counts: &[i64],
+            way_lats: &[f64],
+            way_lons: &[f64],
+            way_tags_joined: &str,
+            way_tag_lens: &[i64],
+        ) -> Vec<u8>;
 
         // ---- sensors ----
         fn flows_tags_parse_tpms(
@@ -299,6 +308,65 @@ pub fn flows_tags_weight_limit_lbs(tag: &str) -> FlowsTagsNumber {
 /// `tr::is_high_risk_flood_zone`. A panic answers false: unknown is not risky.
 pub fn flows_tags_is_high_risk_flood_zone(zone: &str) -> bool {
     contain(false, || tr::is_high_risk_flood_zone(zone))
+}
+
+/// For each restricted way (its points in order, `way_point_counts` per way;
+/// its tags as `key=value` pairs joined by U+001F, one string per way in
+/// `way_tags_joined` with byte lengths `way_tag_lens`): 1 when its posted
+/// limit restricts the route, else 0. Input that doesn't add up, and
+/// containment, count every way: missing a real low bridge is worse than an
+/// extra warning.
+pub fn flows_tags_limits_on_route(
+    route_lats: &[f64],
+    route_lons: &[f64],
+    way_point_counts: &[i64],
+    way_lats: &[f64],
+    way_lons: &[f64],
+    way_tags_joined: &str,
+    way_tag_lens: &[i64],
+) -> Vec<u8> {
+    let n = way_point_counts.len();
+    contain(vec![1; n], || {
+        let everything = vec![1; n];
+        let Some(tag_texts) = split_texts(way_tags_joined, way_tag_lens, n) else {
+            return everything;
+        };
+        let route: Vec<tr::Point> = route_lats
+            .iter()
+            .zip(route_lons)
+            .map(|(&a, &b)| (a, b))
+            .collect();
+        let mut lines: Vec<Vec<tr::Point>> = Vec::with_capacity(n);
+        let mut at = 0usize;
+        for &count in way_point_counts {
+            let Ok(count) = usize::try_from(count) else {
+                return everything;
+            };
+            let Some(end) = at
+                .checked_add(count)
+                .filter(|&e| e <= way_lats.len() && e <= way_lons.len())
+            else {
+                return everything;
+            };
+            lines.push((at..end).map(|i| (way_lats[i], way_lons[i])).collect());
+            at = end;
+        }
+        let ways: Vec<tr::RestrictedWay> = lines
+            .iter()
+            .zip(&tag_texts)
+            .map(|(line, text)| {
+                let tags = text
+                    .split('\u{1F}')
+                    .filter_map(|pair| pair.split_once('='))
+                    .collect();
+                (line.as_slice(), tags)
+            })
+            .collect();
+        tr::limits_on_route(&route, &ways)
+            .into_iter()
+            .map(u8::from)
+            .collect()
+    })
 }
 
 /// `[LOW_CLEARANCE_THRESHOLD_METERS, WEIGHT_LIMIT_CAP_LBS]`.

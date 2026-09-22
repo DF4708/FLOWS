@@ -1077,6 +1077,12 @@ struct NavigationHUD: View {
     }
 
     private var listTitle: String {
+        // Nothing ranked on the route: the rows are the nearest ones around
+        // it, and the title must not call them "ahead".
+        let results = model.poi.results
+        if !results.isEmpty, results.allSatisfy({ $0.placement == .offRoute }) {
+            return "None on your route — the nearest ones near it"
+        }
         if let category = model.poi.activeFoodCategory {
             return "\(category.rawValue) ahead — soonest first"
         }
@@ -1097,9 +1103,19 @@ struct NavigationHUD: View {
                     .scaledFont(size: 14, weight: .semibold)
                     .lineLimit(1)
                 HStack(spacing: 6) {
-                    Text(String(format: "in %.0f mi", max(ranked.aheadMeters, 0) / 1609.344))
-                    Text(String(format: "· +%.0f min detour",
-                                2 * ranked.detourMeters / POIRanking.detourSpeedMps / 60))
+                    // Only a stop ranked along the route has miles AHEAD and a
+                    // detour; the rest are a straight line from the vehicle.
+                    let miles = max(ranked.aheadMeters, 0) / 1609.344
+                    switch ranked.placement {
+                    case .onRoute:
+                        Text(String(format: "in %.0f mi", miles))
+                        Text(String(format: "· +%.0f min detour",
+                                    2 * ranked.detourMeters / POIRanking.detourSpeedMps / 60))
+                    case .straightLine:
+                        Text(String(format: "%.0f mi away", miles))
+                    case .offRoute:
+                        Text(String(format: "%.0f mi away · not on your route", miles))
+                    }
                     if let open = ranked.isOpenNow {
                         Text(open ? "· Open" : "· Closed")
                             .foregroundStyle(open ? Theme.riskGreen : Theme.riskRed)
@@ -1165,7 +1181,7 @@ struct NavigationHUD: View {
                     } else if model.poi.activeKind == .gas, !ranked.isLivePrice {
                         Text(ranked.pricePerUnit.map {
                             String(format: "~$%.2f est.", $0) }
-                            ?? (model.tomtomAPIKey.isEmpty ? "add TomTom key" : "$ —"))
+                            ?? "$ —")
                             .scaledFont(size: 10, weight: .semibold)
                             .foregroundStyle(.secondary)
                     } else if model.poi.activeKind == .hotel, ranked.pricePerUnit == nil {

@@ -2060,6 +2060,11 @@ public func flows_places_shower_brand<GenericToRustStr: ToRustStr>(_ name: Gener
         __swift_bridge__$flows_places_shower_brand(nameAsRustStr)
     })
 }
+public func flows_places_truck_parking_admissible<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr) -> Bool {
+    return name.toRustStr({ nameAsRustStr in
+        __swift_bridge__$flows_places_truck_parking_admissible(nameAsRustStr)
+    })
+}
 public func flows_places_index_parse(_ data: UnsafeBufferPointer<UInt8>) -> Optional<FlowsPlacesIndex> {
     { let val = __swift_bridge__$flows_places_index_parse(data.toFfiSlice()); if val != nil { return FlowsPlacesIndex(ptr: val!) } else { return nil } }()
 }
@@ -3575,6 +3580,11 @@ public func flows_tags_is_high_risk_flood_zone<GenericToRustStr: ToRustStr>(_ zo
 }
 public func flows_tags_route_constants() -> RustVec<Double> {
     RustVec(ptr: __swift_bridge__$flows_tags_route_constants())
+}
+public func flows_tags_limits_on_route<GenericToRustStr: ToRustStr>(_ route_lats: UnsafeBufferPointer<Double>, _ route_lons: UnsafeBufferPointer<Double>, _ way_point_counts: UnsafeBufferPointer<Int64>, _ way_lats: UnsafeBufferPointer<Double>, _ way_lons: UnsafeBufferPointer<Double>, _ way_tags_joined: GenericToRustStr, _ way_tag_lens: UnsafeBufferPointer<Int64>) -> RustVec<UInt8> {
+    return way_tags_joined.toRustStr({ way_tags_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_tags_limits_on_route(route_lats.toFfiSlice(), route_lons.toFfiSlice(), way_point_counts.toFfiSlice(), way_lats.toFfiSlice(), way_lons.toFfiSlice(), way_tags_joinedAsRustStr, way_tag_lens.toFfiSlice()))
+    })
 }
 public func flows_tags_parse_tpms<GenericToRustStr: ToRustStr>(_ name: GenericToRustStr, _ has_name: Bool, _ data: UnsafeBufferPointer<UInt8>, _ data_count: Int64, _ has_data: Bool) -> RustVec<Double> {
     return name.toRustStr({ nameAsRustStr in

@@ -78,6 +78,54 @@ enum RouteAttributes {
     }
 }
 
+/// A posted limit OpenStreetMap puts on one way: its value (meters of
+/// clearance or pounds), the way's line and its tags — which together decide
+/// whether it restricts a route (`RouteAttributes.onRoute`).
+struct PostedLimit {
+    let value: Double
+    let line: [CLLocationCoordinate2D]
+    let tags: [String: String]
+}
+
+extension RouteAttributes {
+    /// Which posted limits restrict the route along `route`: a public road
+    /// the route drives along — not a garage, a parking aisle, a private
+    /// drive, or a road crossing under or over it (rust/flows-core
+    /// tags_and_replies.rs `limits_on_route`). A garage bar beside the last
+    /// street of a downtown trip used to fail every route for a truck.
+    static func onRoute(_ limits: [PostedLimit], route: [CLLocationCoordinate2D]) -> [Bool] {
+        // The bridge never sees an empty buffer: no limits or no route line
+        // answers here.
+        guard !limits.isEmpty else { return [] }
+        guard route.count > 1 else { return limits.map { _ in false } }
+        let counts = limits.map { Int64($0.line.count) }
+        var wayLats = limits.flatMap { $0.line.map(\.latitude) }
+        var wayLons = limits.flatMap { $0.line.map(\.longitude) }
+        if wayLats.isEmpty { wayLats = [0]; wayLons = [0] }   // counts are all 0
+        let tagTexts = limits.map { limit in
+            limit.tags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }
+                .joined(separator: "\u{1F}")
+        }
+        let tags = RustTextColumn(tagTexts)
+        let mask = route.map(\.latitude).withUnsafeBufferPointer { rla in
+            route.map(\.longitude).withUnsafeBufferPointer { rlo in
+                counts.withUnsafeBufferPointer { c in
+                    wayLats.withUnsafeBufferPointer { wla in
+                        wayLons.withUnsafeBufferPointer { wlo in
+                            tags.with { joined, lens, _ in
+                                Array(flows_tags_limits_on_route(rla, rlo, c, wla, wlo, joined, lens))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // The bridge answers one flag per limit; anything else counts them all.
+        guard mask.count == limits.count else { return limits.map { _ in true } }
+        return mask.map { $0 != 0 }
+    }
+}
+
 /// Network side: cached, capped, best-effort fetchers for the attributes.
 actor RouteAttributeFetcher {
     static let shared = RouteAttributeFetcher()
@@ -91,8 +139,8 @@ actor RouteAttributeFetcher {
     private var floodZoneCache: [String: Bool?] = [:]   // key -> high-risk?
     private var restrictionCache: [String:
         (fetched: Date,
-         clearances: [(meters: Double, lat: Double, lon: Double)],
-         weights: [(lbs: Double, lat: Double, lon: Double)])] = [:]
+         clearances: [PostedLimit],
+         weights: [PostedLimit])] = [:]
 
     private func key(_ c: CLLocationCoordinate2D) -> String {
         "\(Int((c.latitude * 100).rounded()))|\(Int((c.longitude * 100).rounded()))"
@@ -232,13 +280,13 @@ actor RouteAttributeFetcher {
     /// limits the bridge-weight check. Both tags ride ONE query so the
     /// second check adds no Overpass load (the instances are strictly
     /// rate-limited). nil on failure/rate-limit.
-    /// Coordinates ride along so the caller keeps only posts actually ON the
-    /// route — the ±3 km corridor boxes also catch parking garages and
-    /// side-street underpasses (a 6 ft garage bar was failing whole
-    /// interstates like I-65).
+    /// Each way's whole line and tags ride along so the caller keeps only
+    /// limits on roads the route drives (RouteAttributes.onRoute) — the
+    /// ±3 km corridor boxes also catch parking garages, driveways and roads
+    /// crossing under or over the route (a 6 ft garage bar was failing whole
+    /// interstates like I-65, and every route into downtown Milwaukee).
     func postedRestrictions(inBoxes boxes: [(s: Double, w: Double, n: Double, e: Double)])
-        async -> (clearances: [(meters: Double, lat: Double, lon: Double)],
-                  weights: [(lbs: Double, lat: Double, lon: Double)])? {
+        async -> (clearances: [PostedLimit], weights: [PostedLimit])? {
         guard !boxes.isEmpty else { return ([], []) }
         // Bridges are static infrastructure — re-scoring the same route (same
         // corridor boxes) must not re-query Overpass, which is strictly
@@ -255,7 +303,7 @@ actor RouteAttributeFetcher {
             let bbox = String(format: "%.4f,%.4f,%.4f,%.4f", $0.s, $0.w, $0.n, $0.e)
             return "way[\"maxheight\"](\(bbox));way[\"maxweight\"](\(bbox));"
         }.joined()
-        let query = "[out:json][timeout:10];(\(clauses));out center tags;"
+        let query = "[out:json][timeout:10];(\(clauses));out geom tags;"
         // Through the shared mirror ladder — the main instance rate-limits
         // under load, which used to leave the route card in "Bridges:
         // checking…" forever. This query POSTs route corridor coordinates,
@@ -264,21 +312,25 @@ actor RouteAttributeFetcher {
         // now calls the ladder.)
         guard let elements = await LiveHazardFeedFetcher.overpassElements(post: query)
         else { return nil }
-        var clearanceHits: [(meters: Double, lat: Double, lon: Double)] = []
-        var weightHits: [(lbs: Double, lat: Double, lon: Double)] = []
+        var clearanceHits: [PostedLimit] = []
+        var weightHits: [PostedLimit] = []
         for el in elements {
-            guard let tags = el["tags"] as? [String: Any] else { continue }
-            let center = el["center"] as? [String: Any]
-            let lat = (center?["lat"] as? Double) ?? (el["lat"] as? Double) ?? 0
-            let lon = (center?["lon"] as? Double) ?? (el["lon"] as? Double) ?? 0
-            if let mh = tags["maxheight"] as? String,
+            guard let rawTags = el["tags"] as? [String: Any] else { continue }
+            let tags = rawTags.compactMapValues { $0 as? String }
+            let line: [CLLocationCoordinate2D] = (el["geometry"] as? [[String: Any]] ?? [])
+                .compactMap { node in
+                    guard let lat = node["lat"] as? Double, let lon = node["lon"] as? Double
+                    else { return nil }
+                    return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                }
+            if let mh = tags["maxheight"],
                let m = RouteAttributes.clearanceMeters(fromOSM: mh), m < 5.5 {
-                clearanceHits.append((m, lat, lon))
+                clearanceHits.append(PostedLimit(value: m, line: line, tags: tags))
             }
-            if let mw = tags["maxweight"] as? String,
+            if let mw = tags["maxweight"],
                let lbs = RouteAttributes.weightLimitLbs(fromOSM: mw),
                lbs < RouteAttributes.weightLimitCapLbs {
-                weightHits.append((lbs, lat, lon))
+                weightHits.append(PostedLimit(value: lbs, line: line, tags: tags))
             }
         }
         restrictionCache[cacheKey] = (Date(), clearanceHits, weightHits)

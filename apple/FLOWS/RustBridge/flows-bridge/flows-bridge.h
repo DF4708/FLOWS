@@ -447,6 +447,7 @@ void* __swift_bridge__$flows_places_dedup(bool location_only, struct RustStr nam
 void* __swift_bridge__$flows_places_pinned(struct RustStr keys_joined, struct __private__FfiSlice key_lens, int64_t everyday_count, int64_t closed_count, int64_t ranked_count);
 void* __swift_bridge__$flows_places_merge(struct RustStr keys_joined, struct __private__FfiSlice key_lens, int64_t everyday_count, int64_t network_count);
 uint8_t __swift_bridge__$flows_places_shower_brand(struct RustStr name);
+bool __swift_bridge__$flows_places_truck_parking_admissible(struct RustStr name);
 void* __swift_bridge__$flows_places_index_parse(struct __private__FfiSlice data);
 struct __swift_bridge__$FlowsPlacesCellKey __swift_bridge__$flows_places_cell_key(int64_t lat5, int64_t lon5);
 int64_t __swift_bridge__$FlowsPlacesIndex$count(void* self);
@@ -679,6 +680,7 @@ struct __swift_bridge__$FlowsTagsNumber __swift_bridge__$flows_tags_clearance_me
 struct __swift_bridge__$FlowsTagsNumber __swift_bridge__$flows_tags_weight_limit_lbs(struct RustStr tag);
 bool __swift_bridge__$flows_tags_is_high_risk_flood_zone(struct RustStr zone);
 void* __swift_bridge__$flows_tags_route_constants(void);
+void* __swift_bridge__$flows_tags_limits_on_route(struct __private__FfiSlice route_lats, struct __private__FfiSlice route_lons, struct __private__FfiSlice way_point_counts, struct __private__FfiSlice way_lats, struct __private__FfiSlice way_lons, struct RustStr way_tags_joined, struct __private__FfiSlice way_tag_lens);
 void* __swift_bridge__$flows_tags_parse_tpms(struct RustStr name, bool has_name, struct __private__FfiSlice data, int64_t data_count, bool has_data);
 void* __swift_bridge__$flows_tags_tpms_position(struct RustStr name);
 double __swift_bridge__$flows_tags_displayed_psi(double psi);

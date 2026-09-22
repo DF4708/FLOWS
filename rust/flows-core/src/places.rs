@@ -20,6 +20,7 @@
 //! | [`rank_by_distance`] | the store's cross-shard merge, the service's no-route and essential fallbacks |
 //! | [`kind_policy`], [`rank_along`], [`merge_everyday_first`], [`attribute_id`] | `POIService`'s per-kind rules and `rank`, `merged`, `EverydayPlace.attributeID` |
 //! | [`first_nearest`], [`center_picks`], [`route_decimation_step`], [`dedup_rows`], [`pinned_rows`], [`shower_brand`] | the corridor start, the search centres, the route thinning, the result dedup, the habit pins and the shower brand pick inside `search` and `beginCorridorSearch` |
+//! | [`truck_parking_admissible`] | new: which truck-parking hits a truck can use (not a port) |
 //!
 //! # Fidelity
 //!
@@ -783,6 +784,32 @@ pub fn shower_brand(name: &str) -> u8 {
     }
 }
 
+/// Whether a truck-parking search hit is somewhere a truck can park: a truck
+/// stop brand ([`shower_brand`]) or a name that says trucks, a travel center
+/// or plaza, a rest area, a service plaza or area, a welcome center or a
+/// weigh station. Not a port: a search for "truck parking" also finds every
+/// car park and campus garage nearby — low-clearance ramps no truck fits,
+/// which FLOWS used to list as "Truck parking ahead".
+#[must_use]
+pub fn truck_parking_admissible(name: &str) -> bool {
+    let lower = st::lowercased(name);
+    let has = |w: &str| st::contains(&lower, w);
+    shower_brand(name) != 0
+        || [
+            "truck",
+            "travel center",
+            "travel centre",
+            "travel plaza",
+            "rest area",
+            "service plaza",
+            "service area",
+            "welcome center",
+            "weigh station",
+        ]
+        .iter()
+        .any(|w| has(w))
+}
+
 /// One ranked row: the item's index and its route metrics.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RankedRow {
@@ -1330,6 +1357,33 @@ mod tests {
         let order = rank_by_distance(&[(43.1, -89.4), (43.0, -89.4)], (43.0, -89.4), 8);
         assert_eq!(order[0].0, 1);
         assert!(rank_by_distance(&[(0.0, 0.0)], (0.0, 0.0), -1).is_empty());
+    }
+
+    #[test]
+    fn truck_parking_is_somewhere_a_truck_fits() {
+        // What a "truck parking" search found beside a Madison campus drive.
+        for garage in [
+            "Grainger Hall Garage",
+            "Lake & Johnson Parking Ramp",
+            "University Square - Parking",
+            "Helen C. White Garage",
+            "Loveland Parking",
+        ] {
+            assert!(!truck_parking_admissible(garage), "{garage}");
+        }
+        for stop in [
+            "Love's Travel Stop",
+            "Pilot Travel Center",
+            "Petro Stopping Center",
+            "Truck Parking",
+            "Rest Area - I-94 Eastbound",
+            "Kenosha Welcome Center",
+            "Oasis Service Plaza",
+            "State Patrol Weigh Station",
+            "Iowa 80 Truckstop",
+        ] {
+            assert!(truck_parking_admissible(stop), "{stop}");
+        }
     }
 
     #[test]

@@ -165,6 +165,21 @@ final class POIService: ObservableObject {
         /// True when pricePerUnit is a REAL posted price (CRE/TomTom), not
         /// a state-average estimate — the HUD only headlines real prices.
         var isLivePrice = false
+        /// How far the row's distance can be trusted as a route fact.
+        var placement: Placement = .onRoute
+    }
+
+    /// What a row's distance means. Only a ranked row knows how far AHEAD a
+    /// stop is and what the detour costs; the others know a straight line.
+    enum Placement {
+        /// Ranked along the route: miles ahead, detour minutes.
+        case onRoute
+        /// Straight-line miles from the vehicle (the nearest ER, a
+        /// remembered stop before the search confirms it).
+        case straightLine
+        /// Nothing ranked on the route; the nearest hits around it, shown
+        /// so the driver isn't told none exist — but not on the route.
+        case offRoute
     }
 
     @Published private(set) var results: [RankedPOI] = []
@@ -306,7 +321,7 @@ final class POIService: ObservableObject {
         case .gas:
             activeKind = kind
             if let fuel = fuelType {
-                await search(kind, queries: [fuelQuery(fuel)], fuel: fuel, aheadOf: position)
+                await search(kind, queries: fuelQueries(fuel), fuel: fuel, aheadOf: position)
             } else {
                 pendingFuelChoice = true   // first run only; persisted after
             }
@@ -410,14 +425,18 @@ final class POIService: ObservableObject {
     func chooseFuel(_ fuel: FuelType, aheadOf position: CLLocationCoordinate2D?) async {
         pendingFuelChoice = false
         fuelType = fuel
-        await search(.gas, queries: [fuelQuery(fuel)], fuel: fuel, aheadOf: position)
+        await search(.gas, queries: fuelQueries(fuel), fuel: fuel, aheadOf: position)
     }
 
     /// One fuel-query builder (was copy-pasted in request() and chooseFuel()).
-    private func fuelQuery(_ fuel: FuelType) -> String {
-        truckerMode
-            ? "truck stop \(fuel.searchQuery) Loves Pilot Flying J TA"
-            : fuel.searchQuery
+    /// In trucker mode, truck stops ride along as their OWN queries:
+    /// MKLocalSearch matches a query as a phrase, and the old run-on
+    /// "truck stop gas station Loves Pilot Flying J TA" matched nothing on
+    /// the corridor — the list fell back to Love's stations 549 miles away.
+    private func fuelQueries(_ fuel: FuelType) -> [String] {
+        truckerMode && fuel != .electric
+            ? [fuel.searchQuery, "truck stop", "travel center"]
+            : [fuel.searchQuery]
     }
 
     /// One MKLocalSearch with the throttle handled: MapKit rejects rapid
@@ -466,8 +485,11 @@ final class POIService: ObservableObject {
         // network searches run; the fresh results merge in below.
         lastSearchPosition = position
         let category = Self.everydayCategory(for: kind)
+        // Truck parking shares the parking habit store with car parking: a
+        // remembered campus garage must not be pinned into a trucker's list.
         let everyday: [RankedPOI] = category.map { cat in
             EverydayPlaces.shared.instantResults(in: cat, near: position)
+                .filter { kind != .truckParking || Self.truckCanPark(named: $0.name) }
                 .prefix(SearchLimits.instantRows).map { Self.instantRow(for: $0, from: position) }
         } ?? []
         if !everyday.isEmpty {
@@ -538,6 +560,11 @@ final class POIService: ObservableObject {
         // shelters and service offices no storm-warned driver can use.
         if kind == .shelter {
             unique = unique.filter { !BrandKnowledge.isShelterNoise(name: $0.name ?? "") }
+        }
+        // Truck parking: a "truck parking" search also finds every car park
+        // and campus garage nearby — low-clearance ramps no truck fits.
+        if kind == .truckParking {
+            unique = unique.filter { Self.truckCanPark(named: $0.name ?? "") }
         }
 
         // Prices/ratings come from main-actor state; the O(items × vertices)
@@ -696,12 +723,22 @@ final class POIService: ObservableObject {
         // If the ahead-only/detour ranking dropped EVERY raw hit (vehicle
         // position quirks, all hits slightly behind, tight detour caps),
         // showing the nearest raw results beats claiming nothing exists.
+        // Only hits inside the boxes this sweep searched: MapKit treats the
+        // region as a hint and answers a brand query from anywhere, and the
+        // fallback once listed Love's stations 549 miles off an 80-mile trip.
+        // They're labelled as off the route, never as miles ahead.
         if finalRanked.isEmpty, !unique.isEmpty, let anchor = position ?? centers.first,
            policy.empty_fallback {
-            finalRanked = POIRanking.byDistance(unique.map(\.placemark.coordinate), from: anchor,
+            let searched = Array(centers.prefix(centerCap))
+            let nearby = unique.filter { item in
+                searched.contains {
+                    POIRanking.meters($0, item.placemark.coordinate) <= regionMeters
+                }
+            }
+            finalRanked = POIRanking.byDistance(nearby.map(\.placemark.coordinate), from: anchor,
                                                 limit: SearchLimits.fallbackRows)
-                .map { RankedPOI(item: unique[$0.index], aheadMeters: $0.meters,
-                                 detourMeters: 0, pricePerUnit: nil) }
+                .map { RankedPOI(item: nearby[$0.index], aheadMeters: $0.meters,
+                                 detourMeters: 0, pricePerUnit: nil, placement: .offRoute) }
         }
         // Medical rule: the ABSOLUTE nearest hospital/ER leads, regardless
         // of route direction — straight-line from the vehicle.
@@ -710,7 +747,7 @@ final class POIService: ObservableObject {
                 let nearest = unique[i]
                 let d = POIRanking.meters(nearest.placemark.coordinate, position)
                 let top = RankedPOI(item: nearest, aheadMeters: d, detourMeters: 0,
-                                    pricePerUnit: nil)
+                                    pricePerUnit: nil, placement: .straightLine)
                 finalRanked = [top] + finalRanked.filter { $0.item !== nearest }
             }
         }
@@ -766,7 +803,7 @@ final class POIService: ObservableObject {
         item.name = place.name
         let ahead = position.map { POIRanking.meters(coordinate, $0) } ?? 0
         return RankedPOI(item: item, aheadMeters: ahead, detourMeters: 0,
-                         pricePerUnit: nil)
+                         pricePerUnit: nil, placement: .straightLine)
     }
 
     /// The everyday cache's stable identity for a result row (name + ~220 m
@@ -864,7 +901,7 @@ final class POIService: ObservableObject {
             return POIRanking.byDistance(items.map(\.placemark.coordinate), from: position,
                                          limit: SearchLimits.rankedRows)
                 .map { RankedPOI(item: items[$0.index], aheadMeters: $0.meters, detourMeters: 0,
-                                 pricePerUnit: nil) }
+                                 pricePerUnit: nil, placement: .straightLine) }
         }
         // Each item pairs with its price and rating; a shorter list drops the
         // items past its end, as zipping them always did.
@@ -907,6 +944,13 @@ final class POIService: ObservableObject {
             return RankedPOI(item: items[i], aheadMeters: rows[k + 1], detourMeters: rows[k + 2],
                              pricePerUnit: prices[i], rating: ratings[i])
         }
+    }
+
+    /// Somewhere a truck can park: a truck stop, rest area, travel plaza or
+    /// the like, never a car park (rust/flows-core places.rs
+    /// `truck_parking_admissible`).
+    nonisolated static func truckCanPark(named name: String) -> Bool {
+        !name.isEmpty && flows_places_truck_parking_admissible(name)
     }
 
     func clearResults() {

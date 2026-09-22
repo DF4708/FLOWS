@@ -16,6 +16,7 @@
 //! | here | Swift |
 //! |---|---|
 //! | [`max_grade_percent`], [`clearance_meters`], [`weight_limit_lbs`], [`is_high_risk_flood_zone`] | `RouteAttributes` |
+//! | [`posted_limit_way_counts`], [`limits_on_route`] | new: which posted limits restrict a route (not ports) |
 //! | [`parse_tpms_advertisement`], [`displayed_psi`], [`parse_fuel_reply`], [`looks_like_obd_adapter`] | `VehicleLink` |
 //! | [`interpret_yes_no`], [`wants_weather_radio`], [`choose`], [`place_reply`] | `YesNoWords`, `VoiceCommands`, `VoicePick` |
 //! | [`RadioKind`], [`kind_for_tags`], [`dial_label`], [`ranked_stations`] | `BroadcastRadio` |
@@ -202,6 +203,224 @@ pub fn weight_limit_lbs(tag: &str) -> Option<f64> {
 pub fn is_high_risk_flood_zone(zone: &str) -> bool {
     let z = st::uppercased(st::trim_whitespace(zone));
     st::has_prefix(&z, "A") || st::has_prefix(&z, "V")
+}
+
+// ------------------------------------------------- posted limits on the route
+
+// Not ports: which posted height and weight limits restrict a route. The
+// corridor boxes FLOWS asks OpenStreetMap about also hold parking garages,
+// driveways and roads that cross under or over the route; counting their
+// signs said no route into downtown Milwaukee cleared a 13'6" truck (a 6'5"
+// garage bar beside the last street).
+
+/// A restricted road's vertex this close to the route's line is on it:
+/// OpenStreetMap and Apple draw the same road a few metres apart.
+pub const LIMIT_ON_ROUTE_METERS: f64 = 20.0;
+/// How far along the route a restricted road must run with it to be the road
+/// the route drives. A road crossing under or over the route runs along it
+/// for next to nothing; a shorter restricted road needs half its own length.
+pub const LIMIT_ALONG_METERS: f64 = 30.0;
+
+/// Whether an OpenStreetMap way's posted height or weight limit belongs to a
+/// road a route can drive: it has a `highway` tag that isn't a path, and it
+/// isn't a parking aisle, a driveway, a car park, a building or a private
+/// road. `tags` are the way's (key, value) pairs.
+///
+/// Anything else stays counted: missing a real low bridge is worse than an
+/// extra warning.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn posted_limit_way_counts(tags: &[(&str, &str)]) -> bool {
+    let tag = |key: &str| tags.iter().find(|(k, _)| *k == key).map(|(_, v)| *v);
+    let Some(highway) = tag("highway") else {
+        return false;
+    };
+    let not_driven = [
+        "footway",
+        "cycleway",
+        "path",
+        "pedestrian",
+        "steps",
+        "bridleway",
+        "corridor",
+        "platform",
+        "elevator",
+    ];
+    if not_driven.contains(&highway) {
+        return false;
+    }
+    if matches!(
+        tag("service"),
+        Some("parking_aisle" | "driveway" | "drive-through" | "parking")
+    ) {
+        return false;
+    }
+    if tag("amenity") == Some("parking") || tag("parking").is_some() || tag("building").is_some() {
+        return false;
+    }
+    !matches!(tag("access"), Some("private" | "no" | "customers"))
+}
+
+/// A route's line indexed for nearby-segment lookups: segments filed under
+/// every grid cell their box (grown by [`LIMIT_ON_ROUTE_METERS`]) touches,
+/// and the meters along the route to each vertex.
+struct RouteIndex<'a> {
+    line: &'a [Point],
+    along: Vec<f64>,
+    cells: std::collections::HashMap<(i64, i64), Vec<usize>>,
+}
+
+/// About 550 m of latitude: a grid cell of the route index.
+const ROUTE_CELL_DEGREES: f64 = 0.005;
+
+fn route_cell(p: Point) -> (i64, i64) {
+    (
+        (p.0 / ROUTE_CELL_DEGREES).floor() as i64,
+        (p.1 / ROUTE_CELL_DEGREES).floor() as i64,
+    )
+}
+
+impl<'a> RouteIndex<'a> {
+    fn new(line: &'a [Point]) -> Self {
+        let mut along = Vec::with_capacity(line.len());
+        let mut total = 0.0;
+        for (i, &p) in line.iter().enumerate() {
+            if i > 0 {
+                total += meters(line[i - 1].0, line[i - 1].1, p.0, p.1);
+            }
+            along.push(total);
+        }
+        let mut cells: std::collections::HashMap<(i64, i64), Vec<usize>> =
+            std::collections::HashMap::new();
+        // The margin in degrees, generous in longitude at any latitude FLOWS
+        // drives (cos 70° ≈ 0.34).
+        let lat_margin = LIMIT_ON_ROUTE_METERS / 111_320.0;
+        let lon_margin = lat_margin / 0.34;
+        for s in 0..line.len().saturating_sub(1) {
+            let (a, b) = (line[s], line[s + 1]);
+            if !(a.0.is_finite() && a.1.is_finite() && b.0.is_finite() && b.1.is_finite()) {
+                continue;
+            }
+            let lo = route_cell((a.0.min(b.0) - lat_margin, a.1.min(b.1) - lon_margin));
+            let hi = route_cell((a.0.max(b.0) + lat_margin, a.1.max(b.1) + lon_margin));
+            for y in lo.0..=hi.0 {
+                for x in lo.1..=hi.1 {
+                    cells.entry((y, x)).or_default().push(s);
+                }
+            }
+        }
+        RouteIndex { line, along, cells }
+    }
+
+    /// Meters along the route to the nearest point of its line within
+    /// [`LIMIT_ON_ROUTE_METERS`] of `p`; `None` when the line is farther.
+    fn along_if_near(&self, p: Point) -> Option<f64> {
+        if !(p.0.is_finite() && p.1.is_finite()) {
+            return None;
+        }
+        let segments = self.cells.get(&route_cell(p))?;
+        let m_lat = 111_320.0;
+        let m_lon = m_lat * (p.0 * std::f64::consts::PI / 180.0).cos();
+        let mut best: Option<(f64, f64)> = None;
+        for &s in segments {
+            let (a, b) = (self.line[s], self.line[s + 1]);
+            let (bx, by) = ((b.1 - a.1) * m_lon, (b.0 - a.0) * m_lat);
+            let (px, py) = ((p.1 - a.1) * m_lon, (p.0 - a.0) * m_lat);
+            let len2 = bx * bx + by * by;
+            let t = if len2 > 0.0 {
+                ((px * bx + py * by) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let (dx, dy) = (px - t * bx, py - t * by);
+            let off = (dx * dx + dy * dy).sqrt();
+            if off <= LIMIT_ON_ROUTE_METERS && best.is_none_or(|(o, _)| off < o) {
+                let seg = self.along[s + 1] - self.along[s];
+                best = Some((off, self.along[s] + t * seg));
+            }
+        }
+        best.map(|(_, along)| along)
+    }
+}
+
+/// Metres between the points a restricted road is walked at: OpenStreetMap
+/// ways can be long straight runs with no vertex where the route meets them.
+const LIMIT_WALK_METERS: f64 = 10.0;
+/// A stretch of road on the route counts only when it runs with the route:
+/// the route distance it spans is at least this share of the road distance.
+/// A road crossing at angle θ spans cos θ of it, so crossings steeper than
+/// about 25° never count.
+const LIMIT_PARALLEL_SHARE: f64 = 0.9;
+
+/// Whether a restricted road runs along the route: walked every
+/// [`LIMIT_WALK_METERS`], a stretch of it in a row within
+/// [`LIMIT_ON_ROUTE_METERS`] of the route's line spans at least
+/// [`LIMIT_ALONG_METERS`] of the route (or half the road's own length, when
+/// that is shorter), running with the route rather than across it. Only the
+/// route's segments near each point are measured, so a long route costs
+/// little per road.
+fn runs_along(index: &RouteIndex, way: &[Point]) -> bool {
+    if way.len() < 2 {
+        return false;
+    }
+    // The road walked at even steps: (point, meters along the road).
+    let mut walk: Vec<(Point, f64)> = vec![(way[0], 0.0)];
+    let mut length = 0.0;
+    for w in way.windows(2) {
+        let hop = meters(w[0].0, w[0].1, w[1].0, w[1].1);
+        if !hop.is_finite() {
+            return false;
+        }
+        let steps = (hop / LIMIT_WALK_METERS).ceil().max(1.0) as usize;
+        for k in 1..=steps {
+            let t = k as f64 / steps as f64;
+            let p = (
+                w[0].0 + (w[1].0 - w[0].0) * t,
+                w[0].1 + (w[1].1 - w[0].1) * t,
+            );
+            walk.push((p, length + hop * t));
+        }
+        length += hop;
+    }
+    let needed = LIMIT_ALONG_METERS.min(length / 2.0);
+    // The current stretch on the route: route span (lo, hi) and where it
+    // started along the road.
+    let mut run: Option<(f64, f64, f64)> = None;
+    for &(p, on_road) in &walk {
+        let Some(a) = index.along_if_near(p) else {
+            run = None;
+            continue;
+        };
+        let (lo, hi, from) = run.map_or((a, a, on_road), |(lo, hi, from)| {
+            (lo.min(a), hi.max(a), from)
+        });
+        let span = hi - lo;
+        if span > 0.0 && span >= needed && span >= LIMIT_PARALLEL_SHARE * (on_road - from) {
+            return true;
+        }
+        run = Some((lo, hi, from));
+    }
+    false
+}
+
+/// A restricted OpenStreetMap way: its line, and its (key, value) tags.
+pub type RestrictedWay<'a> = (&'a [Point], Vec<(&'a str, &'a str)>);
+
+/// For each restricted OpenStreetMap way (its line and its (key, value) tags),
+/// whether its posted limit restricts a route along `route`: a drivable public
+/// road ([`posted_limit_way_counts`]) that runs along the route's line.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn limits_on_route(route: &[Point], ways: &[RestrictedWay]) -> Vec<bool> {
+    if route.len() < 2 {
+        return vec![false; ways.len()];
+    }
+    let index = RouteIndex::new(route);
+    ways.iter()
+        .map(|(line, tags)| posted_limit_way_counts(tags) && runs_along(&index, line))
+        .collect()
 }
 
 // ================================================================ VehicleLink
@@ -978,6 +1197,119 @@ pub fn ranked_nearest(stations: &[RadioStation], urls: &[&str], position: Point)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `n` points `step` metres apart from `start`, heading `bearing_deg`
+    /// (0 = north, 90 = east), near Madison.
+    fn line(start: Point, bearing_deg: f64, n: usize, step: f64) -> Vec<Point> {
+        let (s, c) = bearing_deg.to_radians().sin_cos();
+        let m_lon = 111_320.0 * (start.0.to_radians()).cos();
+        (0..n)
+            .map(|i| {
+                let d = i as f64 * step;
+                (start.0 + d * c / 111_320.0, start.1 + d * s / m_lon)
+            })
+            .collect()
+    }
+
+    fn offset(p: Point, north_m: f64, east_m: f64) -> Point {
+        let m_lon = 111_320.0 * (p.0.to_radians()).cos();
+        (p.0 + north_m / 111_320.0, p.1 + east_m / m_lon)
+    }
+
+    const ROAD: [(&str, &str); 1] = [("highway", "primary")];
+
+    #[test]
+    fn only_a_drivable_public_road_carries_a_route_limit() {
+        assert!(posted_limit_way_counts(&ROAD));
+        assert!(posted_limit_way_counts(&[("highway", "service")]));
+        assert!(posted_limit_way_counts(&[
+            ("highway", "residential"),
+            ("bridge", "yes")
+        ]));
+        // A garage, its aisle, a driveway, a building, a path, a private road.
+        assert!(!posted_limit_way_counts(&[
+            ("amenity", "parking"),
+            ("maxheight", "1.96")
+        ]));
+        assert!(!posted_limit_way_counts(&[
+            ("highway", "service"),
+            ("service", "parking_aisle")
+        ]));
+        assert!(!posted_limit_way_counts(&[
+            ("highway", "service"),
+            ("service", "driveway")
+        ]));
+        assert!(!posted_limit_way_counts(&[
+            ("highway", "service"),
+            ("parking", "multi-storey")
+        ]));
+        assert!(!posted_limit_way_counts(&[
+            ("highway", "service"),
+            ("building", "parking")
+        ]));
+        assert!(!posted_limit_way_counts(&[("highway", "footway")]));
+        assert!(!posted_limit_way_counts(&[
+            ("highway", "tertiary"),
+            ("access", "private")
+        ]));
+        assert!(!posted_limit_way_counts(&[]));
+    }
+
+    #[test]
+    fn a_limit_counts_only_on_a_road_the_route_drives_along() {
+        let start = (43.07, -89.40);
+        // The route: 2 km north.
+        let route = line(start, 0.0, 21, 100.0);
+        let road = || ROAD.to_vec();
+        // 300 m of the same road, drawn a few metres over: counts.
+        let along: Vec<Point> = line(offset(start, 500.0, 6.0), 0.0, 4, 100.0);
+        // A road crossing under it at right angles: does not.
+        let across = line(offset(start, 1_000.0, -100.0), 90.0, 3, 100.0);
+        // One running beside it 60 m east: does not.
+        let beside = line(offset(start, 500.0, 60.0), 0.0, 4, 100.0);
+        // A garage bar on the route's own line: does not.
+        let garage = along.clone();
+        // A crossing at 45 degrees: runs with it too little.
+        let slant = line(offset(start, 800.0, -150.0), 45.0, 5, 100.0);
+        // A 20 m bridge on the route: half its own length is enough.
+        let bridge = line(offset(start, 1_500.0, 0.0), 0.0, 3, 10.0);
+        let ways: Vec<RestrictedWay> = vec![
+            (&along, road()),
+            (&across, road()),
+            (&beside, road()),
+            (
+                &garage,
+                vec![("highway", "service"), ("service", "parking_aisle")],
+            ),
+            (&slant, road()),
+            (&bridge, road()),
+        ];
+        assert_eq!(
+            limits_on_route(&route, &ways),
+            vec![true, false, false, false, false, true]
+        );
+        // A route too short to judge restricts nothing.
+        assert_eq!(limits_on_route(&route[..1], &ways), vec![false; 6]);
+    }
+
+    #[test]
+    fn a_long_straight_road_counts_where_the_route_drives_part_of_it() {
+        let start = (43.07, -89.40);
+        // The route: 500 m north, then 1 km east.
+        let mut route = line(start, 0.0, 6, 100.0);
+        route.extend(
+            line(offset(start, 500.0, 0.0), 90.0, 11, 100.0)
+                .into_iter()
+                .skip(1),
+        );
+        // A posted road drawn as ONE 1 km segment north from the start: the
+        // route drives its first half, where it has no vertex.
+        let posted = [start, offset(start, 1_000.0, 0.0)];
+        assert_eq!(
+            limits_on_route(&route, &[(&posted[..], ROAD.to_vec())]),
+            vec![true]
+        );
+    }
 
     #[test]
     fn osm_heights_and_weights_read_as_the_app_read_them() {

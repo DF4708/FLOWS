@@ -3748,20 +3748,18 @@ final class AppModel: ObservableObject {
         r.femaFloodFraction = fema.isEmpty ? nil
             : Double(fema.filter { $0 }.count) / Double(fema.count)
         if let found = await restrictionList {
-            // ON-ROUTE only: a posted limit must sit within ~60 m of the
-            // route geometry to restrict it (garages/side streets don't
-            // count — the old any-post-in-the-box rule read a 6 ft garage
-            // bar as I-65's clearance).
-            let path = POIRanking.RoutePath(
-                coords: RouteService.samplePoints(of: r.route.polyline, everyMeters: 250))
-            func onRoute(_ lat: Double, _ lon: Double) -> Bool {
-                let pt = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                return (path.nearest(to: pt)?.offRoute ?? .infinity) < 60
-            }
-            r.clearancesMeters = found.clearances
-                .filter { onRoute($0.lat, $0.lon) }.map(\.meters)
-            r.weightLimitsLbs = found.weights
-                .filter { onRoute($0.lat, $0.lon) }.map(\.lbs)
+            // ON-ROUTE only: a posted limit restricts the route when it sits
+            // on a public road the route drives along. Garages, driveways and
+            // roads crossing under or over it don't count — the old rule
+            // (within 60 m of a point every 250 m) read a 6 ft garage bar as
+            // I-65's clearance and failed every route into downtown Milwaukee.
+            let line = FasterRoutePolicy.coordinates(of: r.route.polyline)
+            r.clearancesMeters = zip(found.clearances,
+                                     RouteAttributes.onRoute(found.clearances, route: line))
+                .filter(\.1).map(\.0.value)
+            r.weightLimitsLbs = zip(found.weights,
+                                    RouteAttributes.onRoute(found.weights, route: line))
+                .filter(\.1).map(\.0.value)
         } else {
             r.clearanceDataUnavailable = true   // every endpoint failed
         }

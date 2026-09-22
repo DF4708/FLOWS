@@ -219,6 +219,7 @@ mod ffi {
             network_count: i64,
         ) -> Vec<i64>;
         fn flows_places_shower_brand(name: &str) -> u8;
+        fn flows_places_truck_parking_admissible(name: &str) -> bool;
 
         // ---- the FPS1 shard ----
         type FlowsPlacesIndex;
@@ -701,6 +702,12 @@ pub fn flows_places_merge(
 
 pub fn flows_places_shower_brand(name: &str) -> u8 {
     contain(0, || pl::shower_brand(name))
+}
+
+/// Whether a truck-parking hit is somewhere a truck can park; false on
+/// containment (a car park is not offered to a truck).
+pub fn flows_places_truck_parking_admissible(name: &str) -> bool {
+    contain(false, || pl::truck_parking_admissible(name))
 }
 
 pub fn flows_places_index_parse(data: &[u8]) -> Option<FlowsPlacesIndex> {

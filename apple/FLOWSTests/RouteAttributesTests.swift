@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import XCTest
 
 /// Gates for the physical route-attribute math backing the trucker filters.
@@ -75,5 +76,45 @@ final class RouteAttributesTests: XCTestCase {
         XCTAssertTrue(RouteAttributes.isHighRiskFloodZone("VE"))
         XCTAssertFalse(RouteAttributes.isHighRiskFloodZone("X"))
         XCTAssertFalse(RouteAttributes.isHighRiskFloodZone("D"))
+    }
+
+    /// `n` points `step` metres apart heading north (bearing 0) or east (90).
+    private func line(from start: CLLocationCoordinate2D, bearing: Double, count: Int,
+                      step: Double) -> [CLLocationCoordinate2D] {
+        let mLon = 111_320.0 * cos(start.latitude * .pi / 180)
+        return (0..<count).map { i in
+            let d = Double(i) * step
+            return CLLocationCoordinate2D(
+                latitude: start.latitude + d * cos(bearing * .pi / 180) / 111_320,
+                longitude: start.longitude + d * sin(bearing * .pi / 180) / mLon)
+        }
+    }
+
+    /// A downtown finish: the route's last kilometre runs north past a
+    /// parking garage whose 6'5" bar sits a few metres off the street. Only
+    /// the low bridge the route itself drives under restricts it.
+    func testOnlyLimitsOnTheRoadTheRouteDrivesCount() {
+        let start = CLLocationCoordinate2D(latitude: 43.04, longitude: -87.91)
+        let route = line(from: start, bearing: 0, count: 11, step: 100)
+        let bridge = PostedLimit(value: 3.9, line: Array(route[3...4]), tags: ["highway": "primary"])
+        let garageEntrance = PostedLimit(
+            value: 1.96, line: Array(route[7...8]),
+            tags: ["highway": "service", "service": "parking_aisle"])
+        let garage = PostedLimit(value: 1.96, line: Array(route[5...6]), tags: ["amenity": "parking"])
+        let crossing = PostedLimit(
+            value: 3.2,
+            line: line(from: CLLocationCoordinate2D(latitude: route[2].latitude,
+                                                    longitude: start.longitude - 0.002),
+                       bearing: 90, count: 3, step: 100),
+            tags: ["highway": "residential"])
+        XCTAssertEqual(RouteAttributes.onRoute([bridge, garageEntrance, garage, crossing],
+                                               route: route),
+                       [true, false, false, false])
+        // Nothing to judge: no limits, or a route too short to have a line.
+        XCTAssertEqual(RouteAttributes.onRoute([], route: route), [])
+        XCTAssertEqual(RouteAttributes.onRoute([bridge], route: [start]), [false])
+        // A limit whose road came back with no line can't be placed on the route.
+        let lineless = PostedLimit(value: 3.9, line: [], tags: ["highway": "primary"])
+        XCTAssertEqual(RouteAttributes.onRoute([lineless, bridge], route: route), [false, true])
     }
 }
