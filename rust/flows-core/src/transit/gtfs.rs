@@ -481,10 +481,30 @@ pub struct GtfsLoad {
     pub stop_ids: Vec<String>,
     /// Dense stop index → `stop_name` (may be empty).
     pub stop_names: Vec<String>,
+    /// Dense stop index → IANA zone from `stop_timezone`, falling back to
+    /// [`GtfsLoad::agency_timezone`] when the row leaves it blank (the GTFS
+    /// default). Never empty when the agency declares one.
+    ///
+    /// This is for DISPLAY only. Per the GTFS reference, every time in
+    /// `stop_times.txt` is in the agency's timezone no matter where the stop
+    /// is — so the clock a rider reads at a stop is
+    /// `agency-midnight + seconds`, *rendered* in this zone. Amtrak's feed is
+    /// the worked example: one agency zone (`America/New_York`) and four stop
+    /// zones, so a Los Angeles departure stored as `12:55:00` is 9:55 AM on
+    /// the platform. Getting this backwards prints every western time hours
+    /// off, which is why the zone travels with the shard.
+    pub stop_zones: Vec<String>,
     /// Engine route index → human label ("28 Route 28" style).
     pub route_names: Vec<String>,
     /// The service date actually built (YYYYMMDD).
     pub service_date: u32,
+    /// `agency.txt`'s `agency_timezone` — the zone EVERY stop time in the feed
+    /// is measured from. Empty when the feed omits agency.txt.
+    pub agency_timezone: String,
+    /// When the publisher cut this feed (YYYYMMDD), from `feed_info.txt`
+    /// (`feed_version` when it is a date, else `feed_start_date`). 0 when the
+    /// feed says nothing — the UI needs it to say "Times as of ‹date›".
+    pub feed_published: u32,
     /// GTFS trips active on the date (before frequency expansion).
     pub n_gtfs_trips: usize,
     /// Concrete trips in the timetable (after frequency expansion).
@@ -514,14 +534,47 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
         return Err(err(format!("not a directory: {}", dir.display())));
     }
 
+    // --- agency.txt → the zone every stop time in the feed is measured from.
+    // Optional: a feed may omit it, and then times carry no zone at all and the
+    // caller renders them as local-to-the-stop. Multi-agency feeds (Amtrak ships
+    // 20 rows) are required by GTFS to agree on the zone, so the first non-empty
+    // one speaks for the file. ---
+    let mut agency_timezone = String::new();
+    if let Some((h, mut r)) = open_csv(dir, "agency.txt")? {
+        let c_tz = h.get("agency_timezone");
+        while let Some(row) = r.next_record()? {
+            let tz = f(&row, c_tz).trim();
+            if !tz.is_empty() {
+                agency_timezone = tz.to_string();
+                break;
+            }
+        }
+    }
+
+    // --- feed_info.txt → the publication date, for "Times as of ‹date›". ---
+    let mut feed_published = 0u32;
+    if let Some((h, mut r)) = open_csv(dir, "feed_info.txt")? {
+        let (c_ver, c_start) = (h.get("feed_version"), h.get("feed_start_date"));
+        if let Some(row) = r.next_record()? {
+            // feed_version is free-form; Amtrak puts a YYYYMMDD in it, others
+            // put "1.2.3". Take it only when it reads as a plausible date.
+            feed_published = parse_date(f(&row, c_ver)).unwrap_or(0);
+            if feed_published == 0 {
+                feed_published = parse_date(f(&row, c_start)).unwrap_or(0);
+            }
+        }
+    }
+
     // --- stops.txt → dense ids. All rows kept (stations/entrances included;
     // only stops referenced by trips/transfers ever matter to RAPTOR). ---
     let (h, mut r) =
         open_csv(dir, "stops.txt")?.ok_or_else(|| err("stops.txt missing or empty"))?;
     let c_id = h.req("stop_id", "stops.txt")?;
     let (c_name, c_lat, c_lon) = (h.get("stop_name"), h.get("stop_lat"), h.get("stop_lon"));
+    let c_tz = h.get("stop_timezone");
     let mut stop_ids: Vec<String> = Vec::new();
     let mut stop_names: Vec<String> = Vec::new();
+    let mut stop_zones: Vec<String> = Vec::new();
     let mut stop_latlon: Vec<(i32, i32)> = Vec::new();
     let mut stop_index: HashMap<String, u32> = HashMap::new();
     while let Some(row) = r.next_record()? {
@@ -548,6 +601,12 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
         stop_index.insert(id.to_string(), stop_ids.len() as u32);
         stop_ids.push(id.to_string());
         stop_names.push(f(&row, c_name).to_string());
+        let zone = f(&row, c_tz).trim();
+        stop_zones.push(if zone.is_empty() {
+            agency_timezone.clone()
+        } else {
+            zone.to_string()
+        });
         stop_latlon.push(((lat * 1e6).round() as i32, (lon * 1e6).round() as i32));
     }
     if stop_ids.is_empty() {
@@ -911,8 +970,11 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
         timetable: builder.build(),
         stop_ids,
         stop_names,
+        stop_zones,
         route_names,
         service_date,
+        agency_timezone,
+        feed_published,
         n_gtfs_trips,
         n_trips,
         n_events,

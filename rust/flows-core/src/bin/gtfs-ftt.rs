@@ -32,7 +32,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use flows_core::transit::gtfs::{fmt_time, load_gtfs, GtfsLoad};
-use flows_core::transit::{ftt, plan, LegKind};
+use flows_core::transit::{ftt, plan, shard, LegKind};
 
 fn usage() -> String {
     "usage: gtfs-ftt <gtfs-dir> <out.ftt> [YYYYMMDD] [--verify] [--plan FROM_STOP_ID TO_STOP_ID HH:MM]"
@@ -134,21 +134,41 @@ fn run() -> Result<(), String> {
         t_parse.as_secs_f64()
     );
 
-    // --- Write the .ftt. ---
+    // --- Write the shard: the .ftt RAPTOR reads plus the .fts labels that
+    // let a rider see a station name and the right clock. One writer, so the
+    // pair can never drift apart. ---
     let t1 = Instant::now();
-    ftt::write_ftt(tt, &args.out).map_err(|e| format!("write {}: {e}", args.out.display()))?;
+    // Strip only a ".ftt" — an out path like "data/transit/amtrak.v2" keeps
+    // its suffix instead of silently losing it and writing somewhere else.
+    let prefix = if args.out.extension().is_some_and(|e| e == "ftt") {
+        args.out.with_extension("")
+    } else {
+        args.out.clone()
+    };
+    let report = shard::write(&load, &prefix)?;
     let t_write = t1.elapsed();
-    let size = std::fs::metadata(&args.out).map(|m| m.len()).unwrap_or(0);
     println!(
         "wrote {} ({:.2} MB, {} B/stop-event incl. header) | {:.3}s",
-        args.out.display(),
-        size as f64 / 1e6,
+        report.ftt_path.display(),
+        report.ftt_bytes as f64 / 1e6,
         if load.n_events > 0 {
-            size as usize / load.n_events
+            report.ftt_bytes / load.n_events
         } else {
             0
         },
         t_write.as_secs_f64()
+    );
+    println!(
+        "wrote {} ({:.1} KB) | agency zone {} | published {} | service date {}",
+        report.fts_path.display(),
+        report.fts_bytes as f64 / 1e3,
+        if report.agency_zone.is_empty() {
+            "(none declared)"
+        } else {
+            &report.agency_zone
+        },
+        report.feed_published,
+        report.service_date
     );
 
     if !(args.verify || args.plan_req.is_some()) {
@@ -157,14 +177,14 @@ fn run() -> Result<(), String> {
 
     // --- Read back + verify. ---
     let t2 = Instant::now();
-    let tt2 = ftt::read_ftt(&args.out).map_err(|e| format!("read-back: {e}"))?;
+    let tt2 = ftt::read_ftt(&report.ftt_path).map_err(|e| format!("read-back: {e}"))?;
     let t_read = t2.elapsed();
     if ftt::to_bytes(tt) != ftt::to_bytes(&tt2) {
         return Err("VERIFY FAILED: reloaded timetable is not byte-identical".into());
     }
     println!(
         "read back {} in {:.3}s — byte-identical re-encode OK",
-        args.out.display(),
+        report.ftt_path.display(),
         t_read.as_secs_f64()
     );
 

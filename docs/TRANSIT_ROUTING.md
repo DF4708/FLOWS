@@ -19,11 +19,44 @@ transit routing at all**.
 Design chosen by a multi-proposal design panel (memory-first / correctness-first /
 shippable-first) synthesized against the project's hard constraints.
 
-## Status (2026-07)
+## Status (2026-09-22)
 
-**Phase 0 is built and tested. Phase 1's feed→`.ftt` pipeline is DONE — real
-GTFS feeds now convert to `.ftt` shards and plan identically after reload;
-Swift wiring is the next gate.** What runs today:
+**Phase 0 is built and tested. Phase 1's feed→shard pipeline is DONE — real
+GTFS feeds convert to a shard pair and plan identically after reload; Swift
+wiring is the next gate.**
+
+> **Correction (2026-09-22):** an earlier revision of this document described a
+> C-ABI `flows_transit_*` FFI in `rust/flows-core/src/ffi.rs` as shipped. That
+> file no longer exists: the whole C-ABI layer was deleted when the project
+> moved to **swift-bridge**, and `flows_transit_plan` was removed along with it
+> because nothing called it (see the note in `rust/flows-core/src/lib.rs`). The
+> FFI section below is kept as a record of the shape that was tried, but it is
+> **not the plan** — the transit surface will cross the bridge the way every
+> other FLOWS module does: a `#[swift_bridge::bridge]` module in
+> `rust/flows-bridge`, listed in that crate's `build.rs` `BRIDGES`, behind a
+> Swift facade. There is no on-device linkage self-test any more either.
+
+Two things landed on 2026-09-22 that the phase plan had deferred:
+
+- **The shard is a PAIR.** `<name>.ftt` holds only what RAPTOR reads (positions
+  and times — every byte resident during a query); `<name>.fts` holds what a
+  rider reads (stop names, the operator's station codes, IANA timezones, the
+  service date, and the feed's publication date). `transit/shard.rs` writes and
+  opens both, and the `.fts` carries the `.ftt`'s fnv1a-64 body hash, so labels
+  from one build can never be applied to another build's stop indices. The
+  `.ftt` format itself did not change — it stays the tested, hashed v1.
+- **Timezones travel with the shard**, because getting them wrong is the worst
+  failure this feature has. Per the GTFS reference, **every** time in
+  `stop_times.txt` is measured from midnight in the *agency's* zone no matter
+  where the stop is. Amtrak publishes one agency zone (`America/New_York`) and
+  four stop zones; the Coast Starlight's Seattle departure is stored as
+  `12:55:00` and belongs on screen as 9:55 AM. So `.fts` stores the agency zone
+  plus each stop's own zone, and the Rust side stays clock-free and
+  tz-database-free: a query takes and returns seconds from service midnight,
+  and **Swift** does `agency-midnight + seconds`, rendered in the stop's zone
+  (Foundation has the tz database; Rust here does not).
+
+What runs today:
 
 - **GTFS → `.ftt` pipeline (DONE, 2026-07-10):**
   - `rust/flows-core/src/transit/ftt.rs` — `.ftt` v1 writer/reader (pure std):
@@ -62,11 +95,13 @@ Swift wiring is the next gate.** What runs today:
     transfer → Verona, 1 transfer) in **~0.1 ms** per Pareto query, identical
     on original vs reloaded.
   - Note on placement: the GTFS parser lives inside `flows-core::transit` for
-    one test suite and shared types, but it is **reachable only from the
-    `gtfs-ftt` bin** — no FFI entry references it, so the app's dead-stripped
-    static link never carries GTFS-format code; `.ftt` stays the only
-    on-device format (the planned separate `flows-transit-build` crate was
-    consolidated the same way Phase 0 consolidated `timetable`/`journey`).
+    one test suite and shared types. An earlier revision noted that it was
+    reachable only from the `gtfs-ftt` bin, so the app's dead-stripped static
+    link never carried GTFS-format code. **That is deliberately no longer
+    true**: agencies publish schedules as GTFS zips and nothing serves us
+    pre-built shards, so the device parses the feed itself and writes its own
+    pair. The parser ships. (The planned separate `flows-transit-build` crate
+    was consolidated the same way Phase 0 consolidated `timetable`/`journey`.)
 
 - **Engine core (Rust, shipped in `flows-core`):** the in-memory CSR timetable +
   `TimetableBuilder` (`rust/flows-core/src/transit/mod.rs` — `StopEvent`/`Stop`/
@@ -78,28 +113,27 @@ Swift wiring is the next gate.** What runs today:
   `correctness_gate_matches_reference_dijkstra` asserts RAPTOR earliest arrival
   equals an independent time-dependent label-setting Dijkstra oracle over the
   same randomized timetables — the `ch.rs`-vs-Dijkstra discipline applied to
-  transit. 8 `#[test]`s in `raptor.rs` plus FFI-level tests in `ffi.rs`.
-- **FFI (shipped, ahead of the phased plan):** `flows_transit_plan` in
-  `rust/flows-core/src/ffi.rs` — `catch_unwind`-wrapped, two-pass sizing
-  (`out_counts = [n_journeys, n_legs]` on the NULL pass), flat `FfiJourney`
-  (`first_leg, n_legs, arrival, n_transfers, walk_secs`) + `FfiLeg`
-  (`kind, mode, from_stop, to_stop, dep, arr, route, trip`) marshalling, Swift
-  owns all buffers. Note the shipped surface takes the **timetable as flat
-  arrays per call** (no persistent handle yet); the handle-based
-  `open/close/scope` surface below is the Phase-1+ target once `.ftt` shards
-  exist. `flows_transit_selftest` builds a canonical two-leg transfer timetable
-  internally, runs RAPTOR, and returns 1500 — and
-  `FlowsCore.transitSelfTest()` (`apple/FLOWS/Sources/Core/FlowsCore.swift`)
-  dlsym-resolves it, proving the compiled RAPTOR engine links and executes
-  on-device (the transit analog of the polyline decoder's linkage check).
+  transit. 8 `#[test]`s in `raptor.rs`.
+- **The shard surface (`transit/shard.rs`, 2026-09-22):** `build()` (GTFS dir →
+  `.ftt` + `.fts`), `write()` (same, from a load the caller already holds),
+  `open()` (both files, refusing a mismatched or corrupt pair), plus the only
+  two questions the app asks — `nearest_stops(lat, lon, max_m, limit)`, which
+  skips stops no trip ever calls at, and `departures(from, to, depart_secs)`,
+  which returns the Pareto set rendered with names, codes, zones and route
+  labels. 7 `#[test]`s over a synthetic two-timezone feed.
+- **Proved on the real Amtrak feed (2026-09-22):** the published GTFS
+  (19.5 MB zip) builds to a **110 KB `.ftt` + 30 KB `.fts`** — 645 stops, 360
+  engine routes, 594 trips, 5,569 stop-events — parsed in 0.16 s, written in
+  0.03 s, reloaded byte-identically in 1 ms, with a Milwaukee → Chicago query
+  answered in **0.06 ms** (Hiawatha Service, stored 07:15 → 08:57 Eastern,
+  which is the 6:15 AM a Milwaukee rider actually catches).
 - **Not yet built:** `backbone.ftt` (Amtrak + VIA merge — a multi-feed run of
-  the now-working pipeline + cross-feed timezone normalization + stitching),
-  `manifest.ftm`, the mmap zero-copy reader, and the **Swift wiring** of
-  `.ftt`-loaded journeys into `TransitItinerary` (the next gate: a
-  handle-based `flows_transit_open`/`plan` FFI over a bundled shard). Until
-  that lands, **the app's transit UX is the MapKit stopgap — now substantially
-  upgraded** (next section) — and the engine runs on-device only via the
-  self-test.
+  the now-working pipeline + cross-feed stitching), `manifest.ftm`, the mmap
+  zero-copy reader, the **device-side supply line** (download, unzip and cache
+  the feed on Wi-Fi, never while navigating), the **swift-bridge module** over
+  `shard.rs`, and the **Swift wiring** of shard-loaded journeys into
+  `TransitItinerary`. Until that lands, **the app's transit UX is the MapKit
+  stopgap — now substantially upgraded** (next section).
 
 ## The shipped stopgap: MapKit itineraries, in FLOWS (superseded-by-design, still current UX)
 
@@ -376,19 +410,29 @@ hash-mismatched shard is refused on mmap.
   service day.
 - **Expand `frequencies.txt`** (headway-based service) into concrete departures before
   the FRAPTOR even-headway re-compression.
-- **Agency timezone is load-bearing.** GTFS times are local; a cross-timezone corridor
-  (Amtrak spans ET→CT→MT→PT) must normalize to a common epoch at the stitch, or arrival
-  math is off by hours.
+- **Agency timezone is load-bearing** — and the rule is narrower than it looks.
+  GTFS times are **not** local to the stop: the reference requires every time in
+  `stop_times.txt` to be measured from midnight in the *agency's* zone, so a
+  single feed is already internally consistent and needs no normalization.
+  Amtrak's corridor spans ET→CT→MT→PT in *stop* zones while storing everything
+  in ET, which is why `.fts` carries both: one agency zone to anchor the day,
+  one zone per stop to render the clock a rider reads on the platform. The
+  normalization the stitch really needs is across **different feeds**, when
+  their agency zones differ.
 - **`shapes.txt` is display-only** — not needed for routing and often the 2nd-largest
   file. Drop it from the hot routing arrays; keep a downsampled copy only for drawing
   the ride leg (or omit and draw station-to-station until it lands).
 
-## FFI (C-ABI, matching `ffi.rs` conventions)
+## FFI (C-ABI) — HISTORICAL, NOT THE PLAN
 
-> **Partially shipped / partially target.** `flows_transit_plan` +
-> `flows_transit_selftest` exist today (flat-array timetable per call — see
-> Status above). The handle-based `open`/`close`/`scope`/`stop_name`/`leg_shape`
-> surface below is the design for the mmap'd-shard world and lands with `.ftt`.
+> **Superseded.** `rust/flows-core/src/ffi.rs` was deleted with the rest of the
+> C-ABI layer when the project moved to swift-bridge; `flows_transit_plan` and
+> `flows_transit_selftest` are gone and nothing called them. The transit surface
+> will cross as a `#[swift_bridge::bridge]` module over `transit::shard.rs`,
+> registered in `rust/flows-bridge/build.rs`'s `BRIDGES` and wrapped in a Swift
+> facade, exactly like every other FLOWS module. The section below is retained
+> only because the *shape* of the query it describes (open a shard, scope it,
+> plan, pull names and leg shapes) is still the right decomposition.
 
 Swift owns all output buffers; Rust allocates nothing across the boundary; every
 entry point is `catch_unwind`-wrapped (a panic must never cross `extern "C"`);
@@ -417,9 +461,9 @@ one `TransitLeg` (walk/ride/**transfer**); the Pareto set → the route-choice l
 
 As built, the Phase-0 code consolidated slightly: the timetable lives in
 `transit` itself (`transit/mod.rs`) rather than a `timetable` submodule, and
-journey reconstruction + the FFI structs live inside `transit::raptor` / `ffi.rs`
-rather than a separate `transit::journey`. The planned split below still holds
-for the pieces not yet written.
+journey reconstruction lives inside `transit::raptor` rather than a separate
+`transit::journey`, and the FFI structs are gone entirely with `ffi.rs`. The
+planned split below still holds for the pieces not yet written.
 
 - `transit` (mod.rs) — **built**: the in-memory CSR timetable + builder (Phase 0);
   the structs are field-width-matched to the `.ftt` sections on purpose.
@@ -429,17 +473,26 @@ for the pieces not yet written.
 - `transit::ftt` — **built**: `.ftt` v1 `write_ftt`/`read_ftt` (header +
   fnv1a-64 hash validation + full bounds/CSR-invariant checks; sequential v1
   reader, mmap-ready layout).
-- `transit::gtfs` — **built** (offline-only; only the `gtfs-ftt` bin references
-  it): streaming CSV, calendar/service-date expansion, frequencies expansion,
-  transfers→footpaths, and the overtaking-split RAPTOR route derivation
-  (`load_gtfs(dir, date) -> GtfsLoad { Timetable, names, stats }`).
+- `transit::gtfs` — **built**: streaming CSV, calendar/service-date expansion,
+  frequencies expansion, transfers→footpaths, the overtaking-split RAPTOR route
+  derivation, and the label columns the sidecar needs — `stop_timezone`,
+  `agency.txt`'s `agency_timezone`, and `feed_info.txt`'s publication date
+  (`load_gtfs(dir, date) -> GtfsLoad { Timetable, names, zones, dates, stats }`).
+  No longer offline-only: the device builds its own shards from downloaded
+  feeds, so this code ships.
+- `transit::fts` — **built**: `.fts` v1, the label sidecar (stop names, station
+  codes, IANA zones, service + publication dates), paired to its `.ftt` by body
+  hash and fully bounds-/UTF-8-checked on read.
+- `transit::shard` — **built**: `build`/`write`/`open` for the pair, plus
+  `nearest_stops` and `departures` — the whole surface Swift needs, clock-free.
 - `transit::mcraptor` — Pareto bag labels for the walking (then fare) axes;
   feature-gated so bicriteria ships first with zero bag overhead.
 - `transit::engine` — the opaque `TransitEngine`: holds mapped shards, resolves
   twin-stop joins into one logical timetable, does nearest-boardable-stop resolution
   (via `distance.rs`), owns the query entry.
 - `transit::csa` — documented CSA fallback over the same format.
-- `flows-core::ffi` (extend) — the `flows_transit_*` surface above.
+- `flows-bridge` (new module) — the swift-bridge forwarders over
+  `transit::shard`, registered in that crate's `build.rs` `BRIDGES`.
 
 ## Phased build plan
 
@@ -447,8 +500,9 @@ for the pieces not yet written.
   in-memory CSR timetable + builder, bicriteria RAPTOR + journey reconstruction, and
   the **correctness gate** (RAPTOR earliest-arrival == time-dependent Dijkstra on
   random timetables) — all in `flows-core::transit`, `cargo test`-verified. The
-  `flows_transit_plan`/`flows_transit_selftest` FFI also landed early, with the
-  on-device linkage check in `FlowsCore.transitSelfTest()`. _(From Phase 0's
+  `flows_transit_plan`/`flows_transit_selftest` C-ABI FFI also landed early, but
+  both were deleted in the swift-bridge migration (see the correction above).
+  _(From Phase 0's
   tail, owned CSV + the `.ftt` writer/reader landed with Phase 1 below; owned
   `inflate` stays queued — `unzip` is build-host tooling for now.)_
 - **Phase 1 — first vertical slice — feed→`.ftt` ✅ DONE (2026-07-10), Swift wiring NEXT:**
@@ -458,12 +512,15 @@ for the pieces not yet written.
   real Madison Metro feed (round-trip byte-identical, plans identical on
   original vs reloaded; see Status). **Usage:**
   `scripts/fetch_gtfs.sh <feed-url> <name>` then `scripts/build_ftt.sh <name>
-  [YYYYMMDD]` → `data/transit/<name>.ftt`. Remaining for the slice: run it on
-  Amtrak + VIA → `backbone.ftt` + `manifest.ftm` (cross-feed timezone
-  normalization at the stitch); wire the handle-based `flows_transit_*` FFI +
-  the Swift loader; extend `TransitLeg` with `case transfer`; ship real
-  intercity-with-transfers, retiring the MapKit stopgap. Golden-hash the
-  backbone build and known OD pairs.
+  [YYYYMMDD]` → `data/transit/<name>.ftt` **and `.fts`**. Remaining for the
+  slice: the **device-side supply line** (download the feed over Wi-Fi, unzip
+  it, build the pair into Caches, conditional-GET refresh, never while
+  navigating); the **swift-bridge module** over `transit::shard` + its Swift
+  facade; the wall-clock conversion in Swift (`agency-midnight + seconds`,
+  rendered per stop zone) with its own tests; real departure and arrival times
+  on the rail card; then Amtrak + VIA → `backbone` + `manifest.ftm` (cross-FEED
+  zone normalization at the stitch); extend `TransitLeg` with `case transfer`;
+  retire the MapKit stopgap. Golden-hash the backbone build and known OD pairs.
 - **Phase 2 — region-scoping + first metros:** shard union + stitch + LRU eviction +
   `flows_transit_scope`; import 2–3 top metros; validate cross-region stitching.
   Each further metro is a `feeds.toml` row = pure data-ops.

@@ -26,9 +26,11 @@
 //! layout here is exactly what the `.ftt` sections deserialize into, so the engine
 //! does not change when real feeds arrive.
 
+pub mod fts;
 pub mod ftt;
 pub mod gtfs;
 pub mod raptor;
+pub mod shard;
 
 pub use raptor::{plan, Journey, Leg, LegKind, INF_TIME};
 
@@ -143,6 +145,16 @@ impl Timetable {
     #[inline]
     pub fn stop(&self, s: u32) -> Stop {
         self.stops[s as usize]
+    }
+
+    /// How many (route, position) memberships stop `s` has. Zero means nothing
+    /// ever calls there — a station entrance or a parent node — so origin/
+    /// destination pickers must skip it however close it happens to be.
+    #[inline]
+    pub fn n_routes_at(&self, s: u32) -> usize {
+        let a = self.stop_route_off[s as usize] as usize;
+        let b = self.stop_route_off[s as usize + 1] as usize;
+        b - a
     }
 
     /// Stop ids visited by route `r`, in pattern order.

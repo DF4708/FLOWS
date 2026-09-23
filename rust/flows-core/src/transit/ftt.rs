@@ -144,6 +144,19 @@ pub fn write_ftt(tt: &Timetable, path: &Path) -> io::Result<()> {
     f.flush()
 }
 
+/// The body hash recorded in a `.ftt`'s header — the shard's identity. The
+/// `.fts` sidecar stores this so a set of labels can only ever be applied to
+/// the timetable it was built from (see [`super::fts`]). Returns `None` for
+/// bytes that are not a readable `.ftt` header.
+pub fn body_hash(bytes: &[u8]) -> Option<u64> {
+    if bytes.len() < FTT_HEADER_LEN || bytes[0..4] != FTT_MAGIC {
+        return None;
+    }
+    let mut v = [0u8; 8];
+    v.copy_from_slice(&bytes[40..48]);
+    Some(u64::from_le_bytes(v))
+}
+
 fn bad(msg: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg.into())
 }
