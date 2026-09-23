@@ -1573,14 +1573,25 @@ struct ContentView: View {
                 // ALL offered alternates side by side: gray underlays, then
                 // the highlighted route on top in per-segment risk-band colors
                 // so the risk being accepted is visible on the map itself.
-                ForEach(grayAlternates) { alt in
-                    MapPolyline(alt.route.polyline)
-                        .stroke(Color.gray.opacity(0.55), lineWidth: 5)
-                }
-                if let hl = model.routeChoices.first(where: { $0.id == model.highlightedRouteID }) {
-                    if model.show3DMap { gradeRibbon(hl) }   // elevation casing UNDER the route
-                    riskStrokedRoute(hl)
-                    if model.show3DMap { steepGradeMarkers(hl) }
+                //
+                // ...unless the traveller is looking at a train, bus or plane.
+                // Someone who has chosen not to drive should not have to pick
+                // their itinerary out from under the driving routes they just
+                // rejected — the drawn lines are the trip being considered, and
+                // a highway they are not on is not it. The weather layers above
+                // stay: the storm is over that ground whichever way you cross
+                // it, and it is the reason this app exists.
+                if model.transitItinerary == nil {
+                    ForEach(grayAlternates) { alt in
+                        MapPolyline(alt.route.polyline)
+                            .stroke(Color.gray.opacity(0.55), lineWidth: 5)
+                    }
+                    if let hl = model.routeChoices
+                        .first(where: { $0.id == model.highlightedRouteID }) {
+                        if model.show3DMap { gradeRibbon(hl) }   // casing UNDER the route
+                        riskStrokedRoute(hl)
+                        if model.show3DMap { steepGradeMarkers(hl) }
+                    }
                 }
                 // Public-transit itinerary drawn IN FLOWS: walk legs (real
                 // MapKit geometry) solid green; a park-and-ride access leg
