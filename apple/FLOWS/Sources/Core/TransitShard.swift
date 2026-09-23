@@ -226,3 +226,48 @@ enum TransitShard {
         return out
     }
 }
+
+extension TransitShard {
+    /// Turn an answer into what a card says. Separate from the query so the
+    /// wording is testable without a timetable, and so the one place that
+    /// decides how a time is phrased is not inside a view.
+    ///
+    /// The first departure is the one the card leads with; the rest become
+    /// "Then 8:15 AM, 10:15 AM", because the useful question after "when does
+    /// it leave" is "and when is the next one".
+    static func schedule(
+        from answer: Answer, credit: String, laterCount: Int = 2, locale: Locale = .current
+    ) -> TransitSchedule? {
+        guard let first = answer.departures.first,
+              let ride = first.rides.first,
+              let board = moment(first.departSeconds, answer.stamp),
+              let arrive = moment(first.arriveSeconds, answer.stamp)
+        else { return nil }
+
+        let endZone = first.rides.last?.alightZone ?? ride.alightZone
+        let later: [String] = answer.departures.dropFirst().prefix(laterCount).compactMap {
+            moment($0.departSeconds, answer.stamp).map {
+                TransitClock.clock($0, zone: ride.boardZone, locale: locale)
+            }
+        }
+        // One ride means one train and its name is worth saying. Several means
+        // a change, and naming only the first would mislead.
+        let route = first.rides.count == 1
+            ? ride.routeName
+            : (first.transfers == 1 ? "1 change" : "\(first.transfers) changes")
+
+        return TransitSchedule(
+            boardName: ride.boardName,
+            alightName: first.rides.last?.alightName ?? ride.alightName,
+            routeName: route,
+            clockSpan: TransitClock.span(
+                board: board, boardZone: ride.boardZone,
+                alight: arrive, alightZone: endZone, locale: locale
+            ),
+            rideSeconds: TimeInterval(first.arriveSeconds - first.departSeconds),
+            laterClocks: later,
+            credit: credit,
+            asOf: TransitClock.publishedNote(answer.stamp.published)
+        )
+    }
+}

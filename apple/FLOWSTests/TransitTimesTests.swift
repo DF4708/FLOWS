@@ -265,4 +265,110 @@ final class TransitTimesTests: XCTestCase {
             XCTAssertFalse(failure.plainText.contains("ftt"))
         }
     }
+
+    // MARK: what the card ends up saying
+
+    private func answer(
+        rides: [TransitShard.Ride], laterDepartures: [Int] = [], transfers: Int = 0,
+        published: Int = 20260921
+    ) -> TransitShard.Answer {
+        let stamp = TransitShard.Stamp(
+            serviceDate: 20260923, published: published, agencyZone: eastern
+        )
+        let first = TransitShard.Departure(
+            rides: rides,
+            departSeconds: rides.first?.departSeconds ?? 0,
+            arriveSeconds: rides.last?.arriveSeconds ?? 0,
+            transfers: transfers, walkSeconds: 0
+        )
+        let later = laterDepartures.map { secs in
+            TransitShard.Departure(
+                rides: rides, departSeconds: secs, arriveSeconds: secs + 3600,
+                transfers: transfers, walkSeconds: 0
+            )
+        }
+        return TransitShard.Answer(
+            stamp: stamp,
+            ends: TransitShard.Ends(
+                boardName: rides.first?.boardName ?? "", boardCode: "", boardZone: "",
+                boardMeters: 400,
+                alightName: rides.last?.alightName ?? "", alightCode: "", alightZone: "",
+                alightMeters: 900
+            ),
+            departures: [first] + later
+        )
+    }
+
+    private func ride(
+        _ route: String, board: String, boardZone: String, depart: Int,
+        alight: String, alightZone: String, arrive: Int
+    ) -> TransitShard.Ride {
+        TransitShard.Ride(
+            boardName: board, boardCode: "", boardZone: boardZone,
+            alightName: alight, alightCode: "", alightZone: alightZone,
+            routeName: route, mode: 0, departSeconds: depart, arriveSeconds: arrive
+        )
+    }
+
+    func testTheCardNamesTheTrainAndTheClockTheRiderReads() throws {
+        let hiawatha = ride(
+            "Hiawatha Service",
+            board: "Milwaukee Intermodal Station", boardZone: "America/Chicago",
+            depart: 7 * 3600 + 15 * 60,
+            alight: "Chicago Union Station", alightZone: "America/Chicago",
+            arrive: 8 * 3600 + 57 * 60
+        )
+        let schedule = try XCTUnwrap(TransitShard.schedule(
+            from: answer(rides: [hiawatha], laterDepartures: [9 * 3600 + 15 * 60,
+                                                              11 * 3600 + 15 * 60]),
+            credit: "Schedule from Amtrak", locale: us
+        ))
+        XCTAssertEqual(plain(schedule.clockSpan), "6:15 AM – 7:57 AM")
+        XCTAssertEqual(schedule.routeName, "Hiawatha Service")
+        XCTAssertEqual(plain(schedule.plainLine), "6:15 AM – 7:57 AM · Hiawatha Service")
+        XCTAssertEqual(plain(schedule.laterLine), "Then 8:15 AM, 10:15 AM")
+        XCTAssertEqual(schedule.rideSeconds, 102 * 60)
+        XCTAssertEqual(schedule.asOf, "Times as of Sep 21")
+        XCTAssertEqual(schedule.boardName, "Milwaukee Intermodal Station")
+    }
+
+    func testAChangeOfTrainsIsSaidPlainlyNotNamedAfterTheFirst() throws {
+        let one = ride("Hiawatha Service", board: "Milwaukee Intermodal Station",
+                       boardZone: "America/Chicago", depart: 7 * 3600,
+                       alight: "Chicago Union Station", alightZone: "America/Chicago",
+                       arrive: 9 * 3600)
+        let two = ride("Southwest Chief", board: "Chicago Union Station",
+                       boardZone: "America/Chicago", depart: 10 * 3600,
+                       alight: "Kansas City", alightZone: "America/Chicago",
+                       arrive: 18 * 3600)
+        let schedule = try XCTUnwrap(TransitShard.schedule(
+            from: answer(rides: [one, two], transfers: 1),
+            credit: "Schedule from Amtrak", locale: us
+        ))
+        XCTAssertEqual(schedule.routeName, "1 change",
+                       "naming only the first train would hide the change")
+        XCTAssertEqual(schedule.alightName, "Kansas City", "the far end, not the first stop")
+    }
+
+    func testALastTrainSaysNothingAboutALaterOne() throws {
+        let last = ride("Empire Builder", board: "Milwaukee Intermodal Station",
+                        boardZone: "America/Chicago", depart: 22 * 3600,
+                        alight: "Chicago Union Station", alightZone: "America/Chicago",
+                        arrive: 23 * 3600 + 30 * 60)
+        let schedule = try XCTUnwrap(TransitShard.schedule(
+            from: answer(rides: [last]), credit: "Schedule from Amtrak", locale: us
+        ))
+        XCTAssertTrue(schedule.laterClocks.isEmpty)
+        XCTAssertEqual(schedule.laterLine, "", "no empty 'Then' on the card")
+    }
+
+    func testAFeedThatNeverSaidWhenItWasPublishedShowsNoDate() throws {
+        let hop = ride("Hiawatha Service", board: "A", boardZone: eastern, depart: 3600,
+                       alight: "B", alightZone: eastern, arrive: 7200)
+        let schedule = try XCTUnwrap(TransitShard.schedule(
+            from: answer(rides: [hop], published: 0), credit: "Schedule from Amtrak", locale: us
+        ))
+        XCTAssertEqual(schedule.asOf, "")
+        XCTAssertEqual(schedule.credit, "Schedule from Amtrak", "the operator is still credited")
+    }
 }

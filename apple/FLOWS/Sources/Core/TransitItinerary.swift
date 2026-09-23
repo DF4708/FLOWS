@@ -252,6 +252,41 @@ enum TransitTickets {
 /// stations; plane boards at the nearest commercial airports.
 enum TransitMode: CaseIterable, Hashable { case rail, bus, plane }
 
+/// The real published times for a ride, read from the operator's own schedule.
+///
+/// Everything else on a transit card is FLOWS estimating — a road-corridor
+/// proxy for the track, a fare fitted from published averages. This is not an
+/// estimate: it is the timetable, so it says the train, the clock, and who
+/// published it, and the card presents it as different in kind.
+struct TransitSchedule: Equatable {
+    /// The stations the timetable actually uses, which may not be the ones a
+    /// map search picked.
+    let boardName: String
+    let alightName: String
+    /// What the operator calls the service — "Hiawatha Service".
+    let routeName: String
+    /// "6:15 AM – 7:57 AM", with the zone named when the trip crosses one.
+    let clockSpan: String
+    /// How long the ride itself takes, by the timetable.
+    let rideSeconds: TimeInterval
+    /// Departure times after this one today, already on a clock face.
+    let laterClocks: [String]
+    /// "Schedule from Amtrak" — shown wherever its times are.
+    let credit: String
+    /// "Times as of Sep 22", so a rider can judge how fresh this is.
+    let asOf: String
+
+    /// One plain line for the card. No jargon, no station codes.
+    var plainLine: String {
+        routeName.isEmpty ? clockSpan : "\(clockSpan) · \(routeName)"
+    }
+
+    /// "Then 8:15 AM, 10:15 AM" — empty when this is the last one today.
+    var laterLine: String {
+        laterClocks.isEmpty ? "" : "Then " + laterClocks.joined(separator: ", ")
+    }
+}
+
 /// One computed transit option — the content of a rail/bus/plane card.
 /// Lives on AppModel (not view @State): rotating the phone flips the size
 /// class, which rebuilds the chrome tree and would clear view-local state
@@ -268,6 +303,10 @@ struct TransitOption {
     /// This option's own itinerary — rail and bus cards coexist, each with
     /// its own legs; tapping a card draws ITS itinerary on the map.
     var itinerary: TransitItinerary?
+    /// Real times from the operator's timetable, once it has been read. Nil
+    /// until then — the card shows its estimate immediately and this arrives
+    /// after, so a schedule download never holds the choices up.
+    var schedule: TransitSchedule?
     /// Rental counters near the destination — the traveller arrives
     /// WITHOUT a car (that's the whole point of leg 3 being a walk).
     var rentals: [RentalCars.Office] = []

@@ -265,6 +265,40 @@ struct RouteChoicesView: View {
             // The city the traveller gets off in, not the one they set out
             // for: that is where they would pick a car up.
             rentalCompareURL: RentalCars.compareURL(near: alight?.placemark))
+
+        // The card is on screen with its estimate; now replace the estimate
+        // with the operator's actual timetable if we can get one. Deliberately
+        // AFTER publishing: reading a schedule may mean a download, and no one
+        // should watch a spinner to find out a train exists.
+        await fillPublishedTimes(tMode, rail: rail, longHaul: longHaul, endpoints: ep)
+    }
+
+    /// Ask the real timetable when the ride leaves, and put that on the card.
+    ///
+    /// Rail only for now, and intercity only: those are the feeds FLOWS
+    /// carries. Anything missing — no timetable, no service today, no station
+    /// near either end — simply leaves the card as it was, because an honest
+    /// estimate beats a blank where a time should be.
+    private func fillPublishedTimes(
+        _ tMode: TransitMode, rail: Bool, longHaul: Bool,
+        endpoints ep: (from: CLLocationCoordinate2D, fromName: String,
+                       to: CLLocationCoordinate2D, toName: String)
+    ) async {
+        guard rail, longHaul else { return }
+        // A driver's connection belongs to the road ahead, not to a schedule
+        // refresh; mid-drive we use a timetable only if one is already here.
+        let mayFetch = model.mode != .navigating
+        guard let ready = try? await TransitFeeds.shared.ready(
+            TransitFeeds.amtrak, on: Date(), allowNetwork: mayFetch
+        ) else { return }
+        guard let answer = try? TransitShard.departures(
+            prefix: ready.prefix, from: ep.from, to: ep.to,
+            departing: Date(), stamp: ready.stamp
+        ) else { return }
+        guard let schedule = TransitShard.schedule(from: answer, credit: ready.credit)
+        else { return }
+        if Task.isCancelled { return }   // a newer mode tap superseded this one
+        model.transitOptions[tMode]?.schedule = schedule
     }
 
     /// Plane option: board at the nearest airport with airline service to the
@@ -639,6 +673,31 @@ struct RouteChoicesView: View {
         return "Rental cars near \(alight)"
     }
 
+    /// The timetable's own words: when it leaves, when it gets in, what it is
+    /// called, and when the next one goes. Extracted so the compiler does not
+    /// have to type-check it inside the already-large detail builder.
+    @ViewBuilder
+    private func publishedTimesRow(_ s: TransitSchedule) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(s.plainLine, systemImage: "clock.fill")
+                .scaledFont(.caption, weight: .bold)
+                .foregroundStyle(.primary)
+            Text("\(s.boardName) to \(s.alightName)")
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
+            if !s.laterLine.isEmpty {
+                Text(s.laterLine)
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(s.asOf.isEmpty ? s.credit : "\(s.credit) · \(s.asOf)")
+                .scaledFont(size: 9)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+    }
+
     /// The open itinerary under a transit card: its legs, what the drawn
     /// line is and is not, the ticket, and wheels at the far end. Its own
     /// function because the card's body, with all of this inline, put the
@@ -657,6 +716,12 @@ struct RouteChoicesView: View {
                   systemImage: "exclamationmark.triangle.fill")
                 .scaledFont(.caption2, weight: .bold)
                 .foregroundStyle(.orange)
+        }
+        // Real times, when the operator's timetable could be read. Set apart
+        // from the estimates below it, because it is the one thing on this
+        // card that is not FLOWS guessing.
+        if let s = t.schedule {
+            publishedTimesRow(s)
         }
         ForEach(Array(itin.legs.enumerated()), id: \.offset) { i, leg in
             transitLegRow(leg, isLast: i == itin.legs.count - 1,

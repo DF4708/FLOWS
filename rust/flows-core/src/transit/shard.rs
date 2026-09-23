@@ -284,6 +284,32 @@ impl Shard {
             .collect()
     }
 
+    /// A departure BOARD: the next `count` distinct departures from `source`
+    /// to `target` at or after `after`, earliest first.
+    ///
+    /// Not the same thing as [`Self::departures`], and the difference matters
+    /// on screen. One RAPTOR query answers "leaving now, what are my options?"
+    /// — a Pareto set trading arrival time against transfers, all of which may
+    /// ride the SAME train. A rider reading a card wants the other question:
+    /// "when does one go, and when is the next?". So each round takes the
+    /// earliest-departing journey and asks again from one second later.
+    pub fn board(&self, source: u32, target: u32, after: Time, count: usize) -> Vec<Departure> {
+        let mut out = Vec::new();
+        let mut from_time = after;
+        for _ in 0..count {
+            // Among journeys that leave at the same moment, the one that gets
+            // there soonest is the one to name.
+            let best = self
+                .departures(source, target, from_time)
+                .into_iter()
+                .min_by_key(|d| (d.dep, d.arr));
+            let Some(d) = best else { break };
+            from_time = d.dep.saturating_add(1);
+            out.push(d);
+        }
+        out
+    }
+
     fn render(&self, j: &Journey) -> Option<Departure> {
         let legs: Vec<RideLeg> = j
             .legs
@@ -426,6 +452,23 @@ mod tests {
         assert_eq!(leg.board_name, "East Station");
         assert_eq!(leg.alight_code, "WES");
         assert_eq!(leg.route_name, "Western Star");
+        clean(&dir, &prefix);
+    }
+
+    #[test]
+    fn a_board_lists_later_trains_not_the_same_one_twice() {
+        let (dir, prefix, s) = build_tmp("board");
+        let from = s.labels.stop_codes.iter().position(|c| c == "EAS").unwrap() as u32;
+        let to = s.labels.stop_codes.iter().position(|c| c == "WES").unwrap() as u32;
+        // One train a day in this feed: a board of four must still be one
+        // entry, never the same departure repeated or looped forever.
+        let board = s.board(from, to, 0, 4);
+        assert_eq!(board.len(), 1);
+        assert_eq!(board[0].dep, 9 * 3600);
+        // And a Pareto query at the same moment may hold several options,
+        // all of them THIS train — which is why a board is not that list.
+        let pareto = s.departures(from, to, 0);
+        assert!(pareto.iter().all(|d| d.dep == 9 * 3600));
         clean(&dir, &prefix);
     }
 

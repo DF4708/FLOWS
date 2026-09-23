@@ -201,7 +201,7 @@ pub fn flows_transit_departures(
         pairs.sort_by(|x, y| (x.0.meters + x.1.meters).total_cmp(&(y.0.meters + y.1.meters)));
 
         for (b, a) in pairs {
-            let found = s.departures(b.stop, a.stop, depart);
+            let found = s.board(b.stop, a.stop, depart, want);
             if found.is_empty() {
                 continue;
             }
