@@ -526,6 +526,34 @@ struct RawTrip {
     events: TripEvents,
 }
 
+/// The zone a feed measures ALL its stop times from, from `agency.txt` alone.
+///
+/// Separate from [`load_gtfs`] because it answers a question that has to come
+/// first: "which service day is it right now?" is a question in the operator's
+/// zone, not the device's. At 9pm in Honolulu, Amtrak is already on tomorrow's
+/// timetable, and building today's would show a rider trains that have run.
+/// Reading one small file costs nothing next to parsing the feed.
+///
+/// `None` when the feed omits agency.txt or leaves the column blank.
+pub fn agency_timezone(dir: &Path) -> Option<String> {
+    read_agency_timezone(dir).ok().flatten()
+}
+
+fn read_agency_timezone(dir: &Path) -> Result<Option<String>, GtfsError> {
+    // Multi-agency feeds (Amtrak ships 20 rows) are required by GTFS to agree
+    // on the zone, so the first non-empty one speaks for the file.
+    if let Some((h, mut r)) = open_csv(dir, "agency.txt")? {
+        let c_tz = h.get("agency_timezone");
+        while let Some(row) = r.next_record()? {
+            let tz = f(&row, c_tz).trim();
+            if !tz.is_empty() {
+                return Ok(Some(tz.to_string()));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Load an unzipped GTFS directory into a single-service-day [`Timetable`].
 /// `date` is `YYYYMMDD`; `None` uses the first weekday the calendar covers
 /// with active service (never the system clock — wrappers pass "today" in).
@@ -539,17 +567,7 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     // caller renders them as local-to-the-stop. Multi-agency feeds (Amtrak ships
     // 20 rows) are required by GTFS to agree on the zone, so the first non-empty
     // one speaks for the file. ---
-    let mut agency_timezone = String::new();
-    if let Some((h, mut r)) = open_csv(dir, "agency.txt")? {
-        let c_tz = h.get("agency_timezone");
-        while let Some(row) = r.next_record()? {
-            let tz = f(&row, c_tz).trim();
-            if !tz.is_empty() {
-                agency_timezone = tz.to_string();
-                break;
-            }
-        }
-    }
+    let agency_timezone = read_agency_timezone(dir)?.unwrap_or_default();
 
     // --- feed_info.txt → the publication date, for "Times as of ‹date›". ---
     let mut feed_published = 0u32;

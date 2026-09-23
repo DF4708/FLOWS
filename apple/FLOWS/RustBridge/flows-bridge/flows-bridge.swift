@@ -3824,6 +3824,30 @@ extension __swift_bridge__$Option$FlowsTagsOutcome {
 }
 
 
+public func flows_transit_agency_zone<GenericToRustStr: ToRustStr>(_ gtfs_dir: GenericToRustStr) -> RustString {
+    return gtfs_dir.toRustStr({ gtfs_dirAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_transit_agency_zone(gtfs_dirAsRustStr))
+    })
+}
+public func flows_transit_build<GenericToRustStr: ToRustStr>(_ gtfs_dir: GenericToRustStr, _ prefix: GenericToRustStr, _ service_date: Int64) -> RustVec<RustString> {
+    return prefix.toRustStr({ prefixAsRustStr in
+        return gtfs_dir.toRustStr({ gtfs_dirAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_transit_build(gtfs_dirAsRustStr, prefixAsRustStr, service_date))
+    })
+    })
+}
+public func flows_transit_info<GenericToRustStr: ToRustStr>(_ prefix: GenericToRustStr) -> RustVec<RustString> {
+    return prefix.toRustStr({ prefixAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_transit_info(prefixAsRustStr))
+    })
+}
+public func flows_transit_departures<GenericToRustStr: ToRustStr>(_ prefix: GenericToRustStr, _ from_latitude: Double, _ from_longitude: Double, _ to_latitude: Double, _ to_longitude: Double, _ max_station_meters: Double, _ depart_seconds: Int64, _ limit: Int64) -> RustVec<RustString> {
+    return prefix.toRustStr({ prefixAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_transit_departures(prefixAsRustStr, from_latitude, from_longitude, to_latitude, to_longitude, max_station_meters, depart_seconds, limit))
+    })
+}
+
+
 public func flows_trip_vehicle_fuel_type_names() -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_trip_vehicle_fuel_type_names())
 }
