@@ -235,6 +235,16 @@ extension TransitShard {
     /// The first departure is the one the card leads with; the rest become
     /// "Then 8:15 AM, 10:15 AM", because the useful question after "when does
     /// it leave" is "and when is the next one".
+    /// Plain words for the engine's mode byte. Someone waits for a bus, not
+    /// for a "coach" and certainly not for a "mode 3".
+    static func vehicleWord(_ mode: Int) -> String {
+        switch mode {
+        case 1: return "Subway"
+        case 2, 3: return "Bus"
+        default: return "Train"
+        }
+    }
+
     static func schedule(
         from answer: Answer, credit: String, laterCount: Int = 2, locale: Locale = .current
     ) -> TransitSchedule? {
@@ -251,12 +261,30 @@ extension TransitShard {
             }
         }
         // One ride means one train and its name is worth saying. Several means
-        // a change, and naming only the first would mislead.
+        // a change, and naming only the first would mislead — the legs below
+        // name each one, so the headline says how many changes there are.
         let route = first.rides.count == 1
             ? ride.routeName
             : (first.transfers == 1 ? "1 change" : "\(first.transfers) changes")
 
+        let legs: [TransitSchedule.Leg] = first.rides.compactMap { r in
+            guard let on = moment(r.departSeconds, answer.stamp),
+                  let off = moment(r.arriveSeconds, answer.stamp) else { return nil }
+            return TransitSchedule.Leg(
+                clockSpan: TransitClock.span(
+                    board: on, boardZone: r.boardZone,
+                    alight: off, alightZone: r.alightZone, locale: locale
+                ),
+                vehicle: vehicleWord(r.mode),
+                name: r.routeName,
+                boardName: r.boardName,
+                alightName: r.alightName
+            )
+        }
+        guard !legs.isEmpty else { return nil }
+
         return TransitSchedule(
+            legs: legs,
             boardName: ride.boardName,
             alightName: first.rides.last?.alightName ?? ride.alightName,
             routeName: route,

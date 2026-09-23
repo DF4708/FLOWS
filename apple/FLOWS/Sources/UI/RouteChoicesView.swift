@@ -119,8 +119,24 @@ struct RouteChoicesView: View {
         guard let board = await boardTask else {
             if Task.isCancelled { return }   // don't let a superseded tap clear newer state
             model.transitItinerary = nil
-            // No rail in range → still be useful: the bundled list names the
-            // CLOSEST Amtrak station within intercity range, offline.
+            // Before declaring there is no service, ASK THE TIMETABLE. The
+            // bundled list is rail-served stations only, so the 110 towns
+            // Amtrak reaches by connecting coach — Bakersfield, Eureka,
+            // Arcata — look unserved to a map search and are not. Bakersfield
+            // has 400,000 people and a daily coach to a Surfliner.
+            if rail, longHaul, let schedule = await publishedSchedule(endpoints: ep) {
+                if Task.isCancelled { return }
+                model.transitOptions[tMode] = TransitOption(
+                    title: "Train via \(schedule.boardName)",
+                    detail: "Amtrak serves \(schedule.boardName). FLOWS can't draw the way to "
+                            + "the stop from here, so check locally how to reach it.",
+                    fare: 0,
+                    destination: MKMapItem(placemark: MKPlacemark(coordinate: ep.to)),
+                    schedule: schedule)
+                return
+            }
+            // Still nothing scheduled → be useful anyway: the bundled list
+            // names the CLOSEST Amtrak station within intercity range, offline.
             var detail = "No station within range of the start point."
             if rail, let nearest = AmtrakStations.nearest(to: ep.from, within: 240_000) {
                 let mi = POIRanking.meters(nearest.coordinate, ep.from) / 1609.344
@@ -284,21 +300,27 @@ struct RouteChoicesView: View {
         endpoints ep: (from: CLLocationCoordinate2D, fromName: String,
                        to: CLLocationCoordinate2D, toName: String)
     ) async {
-        guard rail, longHaul else { return }
+        guard rail, longHaul, let schedule = await publishedSchedule(endpoints: ep) else { return }
+        if Task.isCancelled { return }   // a newer mode tap superseded this one
+        model.transitOptions[tMode]?.schedule = schedule
+    }
+
+    /// What the operator's timetable says about this trip, if anything.
+    private func publishedSchedule(
+        endpoints ep: (from: CLLocationCoordinate2D, fromName: String,
+                       to: CLLocationCoordinate2D, toName: String)
+    ) async -> TransitSchedule? {
         // A driver's connection belongs to the road ahead, not to a schedule
         // refresh; mid-drive we use a timetable only if one is already here.
         let mayFetch = model.mode != .navigating
         guard let ready = try? await TransitFeeds.shared.ready(
             TransitFeeds.amtrak, on: Date(), allowNetwork: mayFetch
-        ) else { return }
+        ) else { return nil }
         guard let answer = try? TransitShard.departures(
             prefix: ready.prefix, from: ep.from, to: ep.to,
             departing: Date(), stamp: ready.stamp
-        ) else { return }
-        guard let schedule = TransitShard.schedule(from: answer, credit: ready.credit)
-        else { return }
-        if Task.isCancelled { return }   // a newer mode tap superseded this one
-        model.transitOptions[tMode]?.schedule = schedule
+        ) else { return nil }
+        return TransitShard.schedule(from: answer, credit: ready.credit)
     }
 
     /// Plane option: board at the nearest airport with airline service to the
@@ -682,9 +704,25 @@ struct RouteChoicesView: View {
             Label(s.plainLine, systemImage: "clock.fill")
                 .scaledFont(.caption, weight: .bold)
                 .foregroundStyle(.primary)
-            Text("\(s.boardName) to \(s.alightName)")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
+            if s.legs.count > 1 {
+                // Every vehicle named. For the 110 towns Amtrak reaches only
+                // by connecting coach, the bus IS the ride — showing just the
+                // train would leave someone waiting on the wrong platform.
+                ForEach(Array(s.legs.enumerated()), id: \.offset) { _, leg in
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("\(leg.clockSpan) · \(leg.vehicleLine)")
+                            .scaledFont(.caption2, weight: .semibold)
+                        Text("\(leg.boardName) to \(leg.alightName)")
+                            .scaledFont(size: 9)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            } else {
+                Text("\(s.boardName) to \(s.alightName)")
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             if !s.laterLine.isEmpty {
                 Text(s.laterLine)
                     .scaledFont(.caption2)
@@ -716,12 +754,6 @@ struct RouteChoicesView: View {
                   systemImage: "exclamationmark.triangle.fill")
                 .scaledFont(.caption2, weight: .bold)
                 .foregroundStyle(.orange)
-        }
-        // Real times, when the operator's timetable could be read. Set apart
-        // from the estimates below it, because it is the one thing on this
-        // card that is not FLOWS guessing.
-        if let s = t.schedule {
-            publishedTimesRow(s)
         }
         ForEach(Array(itin.legs.enumerated()), id: \.offset) { i, leg in
             transitLegRow(leg, isLast: i == itin.legs.count - 1,
@@ -837,6 +869,13 @@ struct RouteChoicesView: View {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+            }
+            // Real times, whenever the operator's timetable could be read —
+            // above the itinerary, and shown even when there is no drawn
+            // itinerary at all, because a town reachable only by connecting
+            // coach has a real departure and no route FLOWS can draw to it.
+            if let s = t.schedule {
+                publishedTimesRow(s)
             }
             // In-app itinerary: every leg, with the ARRIVAL-station walk called
             // out — you took the train, so the last mile is on foot, not a drive.

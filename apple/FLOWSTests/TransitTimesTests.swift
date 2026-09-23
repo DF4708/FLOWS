@@ -371,4 +371,56 @@ final class TransitTimesTests: XCTestCase {
         XCTAssertEqual(schedule.asOf, "")
         XCTAssertEqual(schedule.credit, "Schedule from Amtrak", "the operator is still credited")
     }
+
+    func testAConnectingBusIsNamedNotHiddenBehindAChange() throws {
+        // Amtrak reaches 110 towns only by connecting coach: Bakersfield to
+        // San Diego is a bus to Los Angeles, then the Surfliner. Both belong
+        // on the card, and the bus has to say it is a bus.
+        let coach = TransitShard.Ride(
+            boardName: "Bakersfield", boardCode: "BFD", boardZone: "America/Los_Angeles",
+            alightName: "Los Angeles", alightCode: "LAX", alightZone: "America/Los_Angeles",
+            routeName: "Amtrak Thruway Connecting Service", mode: 3,
+            departSeconds: 12 * 3600 + 35 * 60, arriveSeconds: 14 * 3600 + 45 * 60
+        )
+        let surfliner = TransitShard.Ride(
+            boardName: "Los Angeles", boardCode: "LAX", boardZone: "America/Los_Angeles",
+            alightName: "San Diego", alightCode: "SAN", alightZone: "America/Los_Angeles",
+            routeName: "Pacific Surfliner", mode: 0,
+            departSeconds: 15 * 3600 + 10 * 60, arriveSeconds: 18 * 3600 + 7 * 60
+        )
+        let schedule = try XCTUnwrap(TransitShard.schedule(
+            from: answer(rides: [coach, surfliner], transfers: 1),
+            credit: "Schedule from Amtrak", locale: us
+        ))
+        XCTAssertEqual(schedule.legs.count, 2)
+        XCTAssertEqual(schedule.legs[0].vehicle, "Bus", "the connecting leg is a bus")
+        XCTAssertEqual(schedule.legs[1].vehicle, "Train")
+        XCTAssertEqual(
+            schedule.legs[0].vehicleLine, "Bus · Amtrak Thruway Connecting Service"
+        )
+        XCTAssertEqual(schedule.legs[1].vehicleLine, "Train · Pacific Surfliner")
+        // Eastern in the file, Pacific on the kerb.
+        XCTAssertEqual(plain(schedule.legs[0].clockSpan), "9:35 AM – 11:45 AM")
+        XCTAssertEqual(plain(schedule.legs[1].clockSpan), "12:10 PM – 3:07 PM")
+        XCTAssertEqual(schedule.routeName, "1 change")
+    }
+
+    func testASingleRideStillGetsOneLeg() throws {
+        let hop = ride("Hiawatha Service", board: "Milwaukee", boardZone: "America/Chicago",
+                       depart: 7 * 3600 + 15 * 60, alight: "Chicago",
+                       alightZone: "America/Chicago", arrive: 8 * 3600 + 57 * 60)
+        let schedule = try XCTUnwrap(TransitShard.schedule(
+            from: answer(rides: [hop]), credit: "Schedule from Amtrak", locale: us
+        ))
+        XCTAssertEqual(schedule.legs.count, 1)
+        XCTAssertEqual(schedule.legs[0].vehicleLine, "Train · Hiawatha Service")
+    }
+
+    func testTheVehicleIsSaidInWordsARiderUses() {
+        XCTAssertEqual(TransitShard.vehicleWord(0), "Train")
+        XCTAssertEqual(TransitShard.vehicleWord(1), "Subway")
+        XCTAssertEqual(TransitShard.vehicleWord(2), "Bus")
+        XCTAssertEqual(TransitShard.vehicleWord(3), "Bus", "a coach is a bus to the person riding it")
+        XCTAssertEqual(TransitShard.vehicleWord(4), "Train")
+    }
 }

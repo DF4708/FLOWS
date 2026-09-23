@@ -259,6 +259,32 @@ enum TransitMode: CaseIterable, Hashable { case rail, bus, plane }
 /// estimate: it is the timetable, so it says the train, the clock, and who
 /// published it, and the card presents it as different in kind.
 struct TransitSchedule: Equatable {
+    /// One vehicle the traveller actually gets on.
+    ///
+    /// A trip that rides a connecting bus and then a train is two of these,
+    /// and both belong on screen: the bus IS the last leg for the 110 towns
+    /// Amtrak reaches only by coach, and folding it into "1 change" is how
+    /// someone stands on a platform waiting for a train that was never coming.
+    struct Leg: Equatable {
+        /// "9:35 AM – 11:45 AM", in each end's own clock.
+        let clockSpan: String
+        /// Plain words for what pulls up: "Bus", "Train", "Subway".
+        let vehicle: String
+        /// What the operator calls the service, when it says more than the
+        /// vehicle word does.
+        let name: String
+        let boardName: String
+        let alightName: String
+
+        /// "Bus · Amtrak Thruway Connecting Service", or plain "Train" when
+        /// the service has no name worth repeating.
+        var vehicleLine: String {
+            name.isEmpty || name == vehicle ? vehicle : "\(vehicle) · \(name)"
+        }
+    }
+
+    /// Each vehicle in order. Always at least one.
+    let legs: [Leg]
     /// The stations the timetable actually uses, which may not be the ones a
     /// map search picked.
     let boardName: String
