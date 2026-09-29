@@ -23,6 +23,11 @@
 //!   original and the reloaded timetable, asserting identical plans.
 //! - `--plan A B HH:MM`: like --verify but between the given GTFS stop_ids at
 //!   the given departure time.
+//! - `--with DIR:SHIFT_SECS` (repeatable): merge another feed into the first,
+//!   moving its times SHIFT_SECS into the first feed's clock, with walking
+//!   links between the two operators' nearby stops. Needs an explicit date.
+//!   E.g. Amtrak (Eastern) plus LA Metro (Pacific, three hours behind):
+//!   `gtfs-ftt amtrak/ out.ftt 20260929 --with lametro/:10800 --plan BFD 80203 07:00`
 
 // 3.15: this crate holds no unsafe, and the compiler now keeps it that way.
 #![forbid(unsafe_code)]
@@ -31,11 +36,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use flows_core::transit::gtfs::{fmt_time, load_gtfs, GtfsLoad};
+use flows_core::transit::gtfs::{fmt_time, load_gtfs, load_gtfs_many, FeedInput, GtfsLoad};
 use flows_core::transit::{ftt, plan, shard, LegKind};
 
 fn usage() -> String {
-    "usage: gtfs-ftt <gtfs-dir> <out.ftt> [YYYYMMDD] [--verify] [--plan FROM_STOP_ID TO_STOP_ID HH:MM]"
+    "usage: gtfs-ftt <gtfs-dir> <out.ftt> [YYYYMMDD] [--verify] [--plan FROM_STOP_ID TO_STOP_ID HH:MM] [--with DIR:SHIFT_SECS ...]"
         .to_string()
 }
 
@@ -55,6 +60,9 @@ struct Args {
     date: Option<u32>,
     verify: bool,
     plan_req: Option<(String, String, u32)>,
+    /// Further feeds merged into the first, each with the seconds that move
+    /// its times into the first feed's clock (`--with DIR:SHIFT`).
+    with: Vec<(PathBuf, i32)>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -62,6 +70,7 @@ fn parse_args() -> Result<Args, String> {
     let mut pos: Vec<String> = Vec::new();
     let mut verify = false;
     let mut plan_req = None;
+    let mut with: Vec<(PathBuf, i32)> = Vec::new();
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -74,6 +83,17 @@ fn parse_args() -> Result<Args, String> {
                 let depart = parse_hhmm(hm).ok_or_else(|| format!("bad --plan time '{hm}'"))?;
                 plan_req = Some((argv[i + 1].clone(), argv[i + 2].clone(), depart));
                 i += 3;
+            }
+            "--with" => {
+                let spec = argv
+                    .get(i + 1)
+                    .ok_or_else(|| format!("--with needs DIR:SHIFT_SECS\n{}", usage()))?;
+                let (dir, shift) = spec
+                    .rsplit_once(':')
+                    .and_then(|(d, s)| s.parse::<i32>().ok().map(|s| (d, s)))
+                    .ok_or_else(|| format!("bad --with '{spec}' (want DIR:SHIFT_SECS)"))?;
+                with.push((PathBuf::from(dir), shift));
+                i += 1;
             }
             "-h" | "--help" => return Err(usage()),
             other => pos.push(other.to_string()),
@@ -98,6 +118,7 @@ fn parse_args() -> Result<Args, String> {
         date,
         verify,
         plan_req,
+        with,
     })
 }
 
@@ -116,7 +137,29 @@ fn run() -> Result<(), String> {
 
     // --- Parse + build the service-day timetable. ---
     let t0 = Instant::now();
-    let load = load_gtfs(&args.gtfs_dir, args.date).map_err(|e| e.to_string())?;
+    let load = if args.with.is_empty() {
+        load_gtfs(&args.gtfs_dir, args.date).map_err(|e| e.to_string())?
+    } else {
+        // A merge needs one service day every feed agrees on, so it must be
+        // named; the first feed's default weekday may not run in the others.
+        let date = args.date.ok_or("--with needs an explicit YYYYMMDD date")?;
+        let mut feeds = vec![FeedInput {
+            dir: &args.gtfs_dir,
+            shift_secs: 0,
+        }];
+        for (dir, shift) in &args.with {
+            feeds.push(FeedInput {
+                dir,
+                shift_secs: *shift,
+            });
+        }
+        let load = load_gtfs_many(&feeds, date).map_err(|e| e.to_string())?;
+        for (feed, why) in &load.skipped_feeds {
+            println!("skipped feed {feed}: {why}");
+        }
+        println!("linked feeds at {} stop pairs", load.n_feed_links);
+        load
+    };
     let t_parse = t0.elapsed();
     let tt = &load.timetable;
     println!(

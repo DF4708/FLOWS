@@ -127,13 +127,33 @@ What runs today:
   0.03 s, reloaded byte-identically in 1 ms, with a Milwaukee → Chicago query
   answered in **0.06 ms** (Hiawatha Service, stored 07:15 → 08:57 Eastern,
   which is the 6:15 AM a Milwaukee rider actually catches).
-- **Not yet built:** `backbone.ftt` (Amtrak + VIA merge — a multi-feed run of
-  the now-working pipeline + cross-feed stitching), `manifest.ftm`, the mmap
-  zero-copy reader, the **device-side supply line** (download, unzip and cache
-  the feed on Wi-Fi, never while navigating), the **swift-bridge module** over
-  `shard.rs`, and the **Swift wiring** of shard-loaded journeys into
-  `TransitItinerary`. Until that lands, **the app's transit UX is the MapKit
-  stopgap — now substantially upgraded** (next section).
+- **Built 2026-09-22:** the device-side supply line (`TransitFeeds` fetches
+  only the files the router reads — 1.58 MB of Amtrak's 19.48 MB — by byte
+  range), the swift-bridge module over `shard.rs`, `TransitClock` for the
+  agency-zone/noon-minus-12h rules, and real published times on the rail
+  card, including connecting-coach legs named as buses.
+- **Built 2026-09-29 — several feeds, one timetable:**
+  `gtfs::load_gtfs_many(&[FeedInput { dir, shift_secs }], date)` merges feeds
+  so one query can ride one operator's train and another's bus. Each feed's
+  times are shifted into the FIRST feed's clock by a caller-supplied number
+  of seconds (Swift computes it; Rust stays tz-free — put the easternmost feed
+  first so shifts are never negative, and a trip a shift would push before
+  midnight is dropped, never wrapped). Feeds never reference each other, so
+  served stops from DIFFERENT feeds within `MAX_LINK_METERS` (400 m) get a
+  footpath both ways at `LINK_WALK_MPS` (1.1 m/s, luggage pace) plus
+  `LINK_BUFFER_SECS` (120 s). A feed's own stops keep exactly what its
+  publisher said; a stop with no zone of its own keeps ITS operator's zone,
+  not the merge's. A broken secondary feed is skipped and reported; the first
+  feed's failure fails the load. `load_gtfs` is the one-feed case and was
+  proved byte-identical on three real Amtrak service days. Proved live:
+  Amtrak + LA Metro Rail, Bakersfield → Hollywood/Highland = Thruway coach to
+  LA Union Station, a 5½-minute walk to the B/D platform, then the B Line.
+- **Not yet built:** the Swift side of the merge (choosing and fetching a
+  city's feed, computing its shift, passing several feeds across the bridge)
+  — and WHICH city feeds are allowed is an owner decision still open: of the
+  1,336 US/CA feeds in the MobilityData catalog, only 290 state a licence.
+  Also still ahead: `backbone.ftt` (Amtrak + VIA), `manifest.ftm`, and the
+  mmap zero-copy reader.
 
 ## The shipped stopgap: MapKit itineraries, in FLOWS (superseded-by-design, still current UX)
 

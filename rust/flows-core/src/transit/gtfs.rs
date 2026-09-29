@@ -37,6 +37,7 @@ use std::io::{self, BufRead, BufReader};
 use std::path::Path;
 
 use super::{Mode, StopEvent, Time, Timetable, TimetableBuilder, TripEvents};
+use crate::seasonal::haversine_km;
 
 /// Ingestion error: an I/O failure or a described feed problem.
 #[derive(Debug)]
@@ -517,6 +518,16 @@ pub struct GtfsLoad {
     pub n_dropped_trips: usize,
     /// Dense stop index → number of trip visits (busyness, for stop picking).
     pub stop_visits: Vec<u32>,
+    /// Dense stop index → which input feed it came from (always 0 for
+    /// [`load_gtfs`]). A merged timetable credits each operator by this.
+    pub stop_feed: Vec<u16>,
+    /// Walking links added BETWEEN feeds — each one a pair of stops close
+    /// enough to change from one operator to another (see
+    /// [`MAX_LINK_METERS`]). Counted as pairs; each is two footpaths.
+    pub n_feed_links: usize,
+    /// Secondary feeds that could not be used, with the reason. The first
+    /// feed is never skipped: if it fails, the whole load fails.
+    pub skipped_feeds: Vec<(usize, String)>,
 }
 
 /// One trip's working data while grouping.
@@ -524,6 +535,60 @@ struct RawTrip {
     route: u32, // index into the GTFS routes vec
     pattern: Vec<u32>,
     events: TripEvents,
+}
+
+/// One feed's service day, parsed but not yet merged. Every index in here is
+/// LOCAL to the feed — stop 0 is this feed's first stop — and every time is
+/// in this feed's own agency zone. [`assemble`] offsets and shifts them.
+struct FeedParts {
+    stop_ids: Vec<String>,
+    stop_names: Vec<String>,
+    stop_zones: Vec<String>,
+    stop_latlon: Vec<(i32, i32)>,
+    stop_visits: Vec<u32>,
+    route_modes: Vec<Mode>,
+    route_names: Vec<String>,
+    raw: Vec<RawTrip>,
+    /// transfers.txt, as (from, to, seconds) in local stop indices.
+    transfers: Vec<(u32, u32, Time)>,
+    service_date: u32,
+    agency_timezone: String,
+    feed_published: u32,
+    n_gtfs_trips: usize,
+    n_dropped: usize,
+}
+
+/// The farthest FLOWS asks someone to walk between two operators' stops to
+/// make a connection. Four hundred metres is a city block or two — the bus
+/// stop across the street from the station, not one in the next district.
+/// Past this, a "connection" is really a separate walk the rider should plan.
+pub const MAX_LINK_METERS: f64 = 400.0;
+
+/// Walking pace for a connection, in metres a second. Slower than a free walk
+/// (about 1.4) on purpose: this is someone with a bag, leaving a platform and
+/// looking for a stop they have never seen. Too fast a pace plans connections
+/// people miss, which is the worse mistake.
+pub const LINK_WALK_MPS: f64 = 1.1;
+
+/// Time added to every connection before the walk itself: getting off,
+/// finding the exit, finding the other stop. The same two minutes GTFS
+/// assumes when a transfers.txt row gives no time.
+pub const LINK_BUFFER_SECS: Time = 120;
+
+/// One input to [`load_gtfs_many`]: a feed directory and how far to shift its
+/// times so they are measured in the FIRST feed's clock.
+///
+/// Every feed stores its times from midnight in its own agency's zone, so a
+/// Milwaukee bus at 08:00 Central is 09:00 in an Amtrak (Eastern) timetable.
+/// The shift is supplied by the caller because working it out needs a
+/// timezone database, which Swift has and this crate deliberately does not.
+/// Put the EASTERNMOST feed first so every shift is zero or positive — a
+/// negative shift can push an early trip before midnight, and such a trip is
+/// dropped rather than wrapped onto the wrong day.
+#[derive(Clone, Copy, Debug)]
+pub struct FeedInput<'a> {
+    pub dir: &'a Path,
+    pub shift_secs: i32,
 }
 
 /// The zone a feed measures ALL its stop times from, from `agency.txt` alone.
@@ -558,6 +623,45 @@ fn read_agency_timezone(dir: &Path) -> Result<Option<String>, GtfsError> {
 /// `date` is `YYYYMMDD`; `None` uses the first weekday the calendar covers
 /// with active service (never the system clock — wrappers pass "today" in).
 pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
+    let feed = parse_feed(dir, date)?;
+    Ok(assemble(vec![(feed, 0)], Vec::new()))
+}
+
+/// Load SEVERAL feeds into one timetable for one service day, so a single
+/// query can ride one operator's train and another's bus.
+///
+/// Why one timetable and not several: RAPTOR's rounds are what make a change
+/// of vehicle cheap to find, and they only see routes in the same timetable.
+/// Two timetables side by side have no way to change between them.
+///
+/// Why walking links: feeds never reference each other. Amtrak's Chicago
+/// station and the city bus stop across the street are two unrelated stops to
+/// two unrelated publishers, and no `transfers.txt` joins them. So every pair
+/// of stops from DIFFERENT feeds within [`MAX_LINK_METERS`] gets a footpath
+/// both ways, timed at [`LINK_WALK_MPS`] plus [`LINK_BUFFER_SECS`]. Only
+/// stops a trip actually calls at are linked. Stops within one feed are left
+/// exactly as that feed describes them.
+///
+/// The first feed is the reference: its zone is the result's zone, its
+/// failure is the load's failure. A later feed that cannot be used — its
+/// calendar has lapsed, its files are malformed — is skipped and reported in
+/// [`GtfsLoad::skipped_feeds`], because a city's broken bus feed must never
+/// cost a rider their train times.
+pub fn load_gtfs_many(feeds: &[FeedInput], date: u32) -> Result<GtfsLoad, GtfsError> {
+    let (first, rest) = feeds.split_first().ok_or_else(|| err("no feeds to load"))?;
+    let mut parts = vec![(parse_feed(first.dir, Some(date))?, first.shift_secs)];
+    let mut skipped = Vec::new();
+    for (i, input) in rest.iter().enumerate() {
+        match parse_feed(input.dir, Some(date)) {
+            Ok(p) => parts.push((p, input.shift_secs)),
+            Err(e) => skipped.push((i + 1, e.0)),
+        }
+    }
+    Ok(assemble(parts, skipped))
+}
+
+/// Parse one feed's service day into [`FeedParts`], with nothing merged.
+fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     if !dir.is_dir() {
         return Err(err(format!("not a directory: {}", dir.display())));
     }
@@ -887,6 +991,140 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     }
     drop(trip_rows);
 
+    // --- transfers.txt (optional) → directed footpaths, kept in this feed's
+    // own stop indices; they are resolved here because only this feed knows
+    // what its stop_ids mean. ---
+    let mut transfers: Vec<(u32, u32, Time)> = Vec::new();
+    if let Some((h, mut r)) = open_csv(dir, "transfers.txt")? {
+        let (c_from, c_to, c_type, c_min) = (
+            h.get("from_stop_id"),
+            h.get("to_stop_id"),
+            h.get("transfer_type"),
+            h.get("min_transfer_time"),
+        );
+        const DEFAULT_TRANSFER_SECS: Time = 120;
+        while let Some(row) = r.next_record()? {
+            // Types 0/1/2 are walkable; 3 = not possible; 4/5 are in-seat
+            // (trip-level, not a footpath).
+            let ty = f(&row, c_type).trim();
+            if matches!(ty, "3" | "4" | "5") {
+                continue;
+            }
+            let (Some(&from), Some(&to)) = (
+                stop_index.get(f(&row, c_from)),
+                stop_index.get(f(&row, c_to)),
+            ) else {
+                continue;
+            };
+            if from == to {
+                continue;
+            }
+            let secs = f(&row, c_min)
+                .trim()
+                .parse::<Time>()
+                .unwrap_or(DEFAULT_TRANSFER_SECS);
+            transfers.push((from, to, secs));
+        }
+    }
+
+    Ok(FeedParts {
+        stop_ids,
+        stop_names,
+        stop_zones,
+        stop_latlon,
+        stop_visits,
+        route_modes,
+        route_names: gtfs_route_names,
+        raw,
+        transfers,
+        service_date,
+        agency_timezone,
+        feed_published,
+        n_gtfs_trips,
+        n_dropped,
+    })
+}
+
+/// Merge parsed feeds into one [`GtfsLoad`]. The first feed is the
+/// reference; each feed's times move by its shift into the reference's clock.
+///
+/// For a single feed with a zero shift this is exactly the old single-feed
+/// load, byte for byte — every offset is zero, no trip moves, and there is no
+/// second feed to link to. That identity is tested against real shards.
+fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> GtfsLoad {
+    let service_date = feeds[0].0.service_date;
+    let agency_timezone = feeds[0].0.agency_timezone.clone();
+    // The oldest schedule in the mix is the one a rider should be warned
+    // about, so "Times as of" reports the earliest publication date known.
+    let feed_published = feeds
+        .iter()
+        .map(|(p, _)| p.feed_published)
+        .filter(|&d| d > 0)
+        .min()
+        .unwrap_or(0);
+
+    let mut stop_ids: Vec<String> = Vec::new();
+    let mut stop_names: Vec<String> = Vec::new();
+    let mut stop_zones: Vec<String> = Vec::new();
+    let mut stop_latlon: Vec<(i32, i32)> = Vec::new();
+    let mut stop_visits: Vec<u32> = Vec::new();
+    let mut stop_feed: Vec<u16> = Vec::new();
+    let mut route_modes: Vec<Mode> = Vec::new();
+    let mut gtfs_route_names: Vec<String> = Vec::new();
+    let mut raw: Vec<RawTrip> = Vec::new();
+    let mut transfers: Vec<(u32, u32, Time)> = Vec::new();
+    let mut n_gtfs_trips = 0usize;
+    let mut n_dropped = 0usize;
+
+    for (feed_no, (p, shift)) in feeds.into_iter().enumerate() {
+        let stop_base = stop_ids.len() as u32;
+        let route_base = route_modes.len() as u32;
+        n_gtfs_trips += p.n_gtfs_trips;
+        n_dropped += p.n_dropped;
+        stop_feed.extend(std::iter::repeat_n(feed_no as u16, p.stop_ids.len()));
+        stop_ids.extend(p.stop_ids);
+        stop_names.extend(p.stop_names);
+        stop_zones.extend(p.stop_zones);
+        stop_latlon.extend(p.stop_latlon);
+        stop_visits.extend(p.stop_visits);
+        route_modes.extend(p.route_modes);
+        gtfs_route_names.extend(p.route_names);
+        for (from, to, secs) in p.transfers {
+            transfers.push((stop_base + from, stop_base + to, secs));
+        }
+        for mut t in p.raw {
+            // Into the reference clock. A trip the shift would push before
+            // midnight is dropped, never wrapped: wrapping would put it on
+            // the wrong day with a time that looks perfectly ordinary.
+            if shift != 0 {
+                let moved: Option<TripEvents> = t
+                    .events
+                    .iter()
+                    .map(|e| {
+                        let a = e.arr as i64 + shift as i64;
+                        let d = e.dep as i64 + shift as i64;
+                        (a >= 0 && d >= 0 && d <= Time::MAX as i64).then_some(StopEvent {
+                            arr: a as Time,
+                            dep: d as Time,
+                        })
+                    })
+                    .collect();
+                match moved {
+                    Some(ev) => t.events = ev,
+                    None => {
+                        n_dropped += 1;
+                        continue;
+                    }
+                }
+            }
+            t.route += route_base;
+            for s in &mut t.pattern {
+                *s += stop_base;
+            }
+            raw.push(t);
+        }
+    }
+
     // --- The RAPTOR derivation: group by (GTFS route, exact stop sequence),
     // sort by first departure, split overtaking trips into separate engine
     // routes so departure-at-every-stop is non-decreasing in trip index —
@@ -951,40 +1189,15 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
         }
     }
 
-    // --- transfers.txt (optional) → directed footpaths. ---
-    if let Some((h, mut r)) = open_csv(dir, "transfers.txt")? {
-        let (c_from, c_to, c_type, c_min) = (
-            h.get("from_stop_id"),
-            h.get("to_stop_id"),
-            h.get("transfer_type"),
-            h.get("min_transfer_time"),
-        );
-        const DEFAULT_TRANSFER_SECS: Time = 120;
-        while let Some(row) = r.next_record()? {
-            // Types 0/1/2 are walkable; 3 = not possible; 4/5 are in-seat
-            // (trip-level, not a footpath).
-            let ty = f(&row, c_type).trim();
-            if matches!(ty, "3" | "4" | "5") {
-                continue;
-            }
-            let (Some(&from), Some(&to)) = (
-                stop_index.get(f(&row, c_from)),
-                stop_index.get(f(&row, c_to)),
-            ) else {
-                continue;
-            };
-            if from == to {
-                continue;
-            }
-            let secs = f(&row, c_min)
-                .trim()
-                .parse::<Time>()
-                .unwrap_or(DEFAULT_TRANSFER_SECS);
-            builder.add_footpath(from, to, secs);
-        }
+    // --- Each feed's own transfers.txt, in the order it listed them. ---
+    for (from, to, secs) in transfers {
+        builder.add_footpath(from, to, secs);
     }
 
-    Ok(GtfsLoad {
+    // --- Walking links BETWEEN feeds (none when there is only one). ---
+    let n_feed_links = link_feeds(&mut builder, &stop_latlon, &stop_visits, &stop_feed);
+
+    GtfsLoad {
         timetable: builder.build(),
         stop_ids,
         stop_names,
@@ -999,7 +1212,69 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
         n_overtake_splits,
         n_dropped_trips: n_dropped,
         stop_visits,
-    })
+        stop_feed,
+        n_feed_links,
+        skipped_feeds: skipped,
+    }
+}
+
+/// Join stops from DIFFERENT feeds that stand within [`MAX_LINK_METERS`] of
+/// each other with a footpath both ways. Returns how many pairs were joined.
+///
+/// Stops are sorted by latitude and each one scans only the band a link could
+/// reach, so a city of ten thousand stops beside Amtrak's six hundred is a
+/// few milliseconds, not a hundred million distance checks. Deterministic:
+/// the same feeds always produce the same links in the same order.
+fn link_feeds(
+    builder: &mut TimetableBuilder,
+    latlon: &[(i32, i32)],
+    visits: &[u32],
+    feed: &[u16],
+) -> usize {
+    if feed
+        .iter()
+        .all(|&f| f == feed.first().copied().unwrap_or(0))
+    {
+        return 0; // one feed: nothing to join, and its footpaths stay as published
+    }
+    // Only stops something calls at. An entrance or a parent station with no
+    // trips is not somewhere to change vehicles.
+    let mut served: Vec<(i32, u32)> = (0..latlon.len())
+        .filter(|&s| visits[s] > 0)
+        .map(|s| (latlon[s].0, s as u32))
+        .collect();
+    served.sort_unstable();
+
+    // One degree of latitude is 111.32 km everywhere, so a fixed band in
+    // micro-degrees bounds the scan; longitude is checked by true distance.
+    let band_e6 = (MAX_LINK_METERS / 111_320.0 * 1e6).ceil() as i32;
+    let mut pairs = 0usize;
+    for (i, &(lat_a, a)) in served.iter().enumerate() {
+        let (la, lo) = latlon[a as usize];
+        for &(lat_b, b) in &served[i + 1..] {
+            if lat_b - lat_a > band_e6 {
+                break;
+            }
+            if feed[a as usize] == feed[b as usize] {
+                continue; // a feed's own walks are its publisher's business
+            }
+            let (lb, lob) = latlon[b as usize];
+            let meters = haversine_km(
+                la as f64 / 1e6,
+                lo as f64 / 1e6,
+                lb as f64 / 1e6,
+                lob as f64 / 1e6,
+            ) * 1000.0;
+            if meters > MAX_LINK_METERS {
+                continue;
+            }
+            let secs = LINK_BUFFER_SECS + (meters / LINK_WALK_MPS).ceil() as Time;
+            builder.add_footpath(a, b, secs);
+            builder.add_footpath(b, a, secs);
+            pairs += 1;
+        }
+    }
+    pairs
 }
 
 // Re-exported for the CLI: format seconds-since-service-midnight as HH:MM:SS
@@ -1550,5 +1825,370 @@ mod tests {
         assert_eq!(js[0].n_transfers, 1);
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_file(&path);
+    }
+
+    // ---- Several feeds in one timetable. ----
+
+    /// A train operator on Eastern time with one daily run into "Union", and a
+    /// city bus operator on Central time whose stop "UNIONBUS" stands ~150 m
+    /// from the train station (0.00135° of latitude). Built so the only way
+    /// from "Start" to "Uptown" is train, walk, bus.
+    fn rail_feed(name: &str) -> PathBuf {
+        write_feed(
+            name,
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Rail,America/New_York\n",
+                ),
+                (
+                    "feed_info.txt",
+                    "feed_publisher_name,feed_publisher_url,feed_lang,feed_version\n\
+                     Rail,http://example.invalid,en,20260920\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_timezone,stop_lat,stop_lon\n\
+                     START,Start,America/Chicago,42.00000,-88.00000\n\
+                     UNION,Union,America/Chicago,41.87890,-87.63990\n",
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\nR,,Lakeshore,2\n",
+                ),
+                ("calendar.txt", CALENDAR),
+                ("trips.txt", "route_id,service_id,trip_id\nR,WK,r1\n"),
+                (
+                    // Eastern: 09:00 -> 10:00, i.e. 8:00 -> 9:00 Central.
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     r1,09:00:00,09:00:00,START,1\n\
+                     r1,10:00:00,10:00:00,UNION,2\n",
+                ),
+            ],
+        )
+    }
+
+    fn bus_feed(name: &str, bus_stop_lat: &str, published: &str) -> PathBuf {
+        write_feed(
+            name,
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,City Bus,America/Chicago\n",
+                ),
+                (
+                    "feed_info.txt",
+                    &format!(
+                        "feed_publisher_name,feed_publisher_url,feed_lang,feed_version\n\
+                         Bus,http://example.invalid,en,{published}\n"
+                    ),
+                ),
+                (
+                    // No stop_timezone column at all: every stop keeps the
+                    // agency's zone, which is Central, not the merge's Eastern.
+                    "stops.txt",
+                    &format!(
+                        "stop_id,stop_name,stop_lat,stop_lon\n\
+                         UNIONBUS,Union Bus Bay,{bus_stop_lat},-87.63990\n\
+                         UPTOWN,Uptown,41.96500,-87.65500\n\
+                         DEPOT,Depot,41.80000,-87.60000\n"
+                    ),
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\nB,22,Clark,3\n",
+                ),
+                ("calendar.txt", CALENDAR),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nB,WK,b1\nB,WK,b2\n",
+                ),
+                (
+                    // Central: the 09:10 leaves ten minutes after the train
+                    // gets in (10:00 Eastern = 9:00 Central). DEPOT is a stop
+                    // no trip calls at, to prove unserved stops are not linked.
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     b1,09:10:00,09:10:00,UNIONBUS,1\n\
+                     b1,09:40:00,09:40:00,UPTOWN,2\n\
+                     b2,08:10:00,08:10:00,UNIONBUS,1\n\
+                     b2,08:40:00,08:40:00,UPTOWN,2\n",
+                ),
+            ],
+        )
+    }
+
+    fn stop(load: &GtfsLoad, id: &str) -> u32 {
+        load.stop_ids.iter().position(|s| s == id).unwrap() as u32
+    }
+
+    /// Central is one hour behind Eastern in July.
+    const CENTRAL_INTO_EASTERN: i32 = 3600;
+
+    #[test]
+    fn a_train_then_a_city_bus_is_one_trip() {
+        let rail = rail_feed("many_rail");
+        let bus = bus_feed("many_bus", "41.88025", "20260915");
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: CENTRAL_INTO_EASTERN,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+
+        assert!(load.skipped_feeds.is_empty());
+        assert_eq!(
+            load.n_feed_links, 1,
+            "only the station and the bus bay are close"
+        );
+        let js = plan(
+            &load.timetable,
+            stop(&load, "START"),
+            stop(&load, "UPTOWN"),
+            0,
+            8,
+        );
+        let j = js.first().expect("train, walk, bus");
+        let kinds: Vec<LegKind> = j.legs.iter().map(|l| l.kind).collect();
+        assert_eq!(kinds, vec![LegKind::Ride, LegKind::Walk, LegKind::Ride]);
+        // The bus's 09:10 Central is 10:10 in the merged Eastern clock; it
+        // arrives 09:40 Central = 10:40 Eastern. The earlier 08:10 bus left
+        // before the train got in and must not be the one chosen.
+        assert_eq!(j.legs[2].dep, 10 * 3600 + 10 * 60);
+        assert_eq!(j.arrival, 10 * 3600 + 40 * 60);
+        // The walk is the fixed allowance plus ~150 m at the connection pace.
+        let walk = j.legs[1].arr - j.legs[1].dep;
+        assert!(
+            (LINK_BUFFER_SECS + 130..=LINK_BUFFER_SECS + 145).contains(&walk),
+            "walk took {walk}s"
+        );
+        let _ = fs::remove_dir_all(&rail);
+        let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn a_city_stop_keeps_its_own_clock_not_the_merged_one() {
+        // The bus feed names no stop zones, so its stops take ITS agency's
+        // zone. Falling back to the merged (Eastern) zone would print every
+        // bus time an hour late on the card.
+        let rail = rail_feed("many_zone_rail");
+        let bus = bus_feed("many_zone_bus", "41.88025", "20260915");
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: CENTRAL_INTO_EASTERN,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(
+            load.agency_timezone, "America/New_York",
+            "the reference's clock"
+        );
+        assert_eq!(
+            load.stop_zones[stop(&load, "UPTOWN") as usize],
+            "America/Chicago"
+        );
+        assert_eq!(load.stop_feed[stop(&load, "START") as usize], 0);
+        assert_eq!(load.stop_feed[stop(&load, "UPTOWN") as usize], 1);
+        let _ = fs::remove_dir_all(&rail);
+        let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn a_stop_across_town_is_not_a_connection() {
+        // Bus bay moved ~1.1 km away: past MAX_LINK_METERS, so no link, and
+        // no way from the train to the bus.
+        let rail = rail_feed("many_far_rail");
+        let bus = bus_feed("many_far_bus", "41.88890", "20260915");
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: CENTRAL_INTO_EASTERN,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(load.n_feed_links, 0);
+        assert!(plan(
+            &load.timetable,
+            stop(&load, "START"),
+            stop(&load, "UPTOWN"),
+            0,
+            8
+        )
+        .is_empty());
+        let _ = fs::remove_dir_all(&rail);
+        let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn one_feed_through_the_merge_is_the_plain_load_byte_for_byte() {
+        let rail = rail_feed("many_same_rail");
+        let plain = load_gtfs(&rail, Some(20260709)).unwrap();
+        let merged = load_gtfs_many(
+            &[FeedInput {
+                dir: &rail,
+                shift_secs: 0,
+            }],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(
+            ftt::to_bytes(&plain.timetable),
+            ftt::to_bytes(&merged.timetable)
+        );
+        assert_eq!(plain.stop_ids, merged.stop_ids);
+        assert_eq!(plain.stop_zones, merged.stop_zones);
+        assert_eq!(plain.route_names, merged.route_names);
+        assert_eq!(merged.n_feed_links, 0);
+        let _ = fs::remove_dir_all(&rail);
+    }
+
+    #[test]
+    fn a_shift_before_midnight_drops_the_trip_instead_of_wrapping_it() {
+        // Back 9 hours, the 08:10 bus lands before midnight and the 09:10 at
+        // 00:10: exactly one is dropped. Back 10 hours, both are. A dropped
+        // trip is counted, never wrapped onto the previous evening.
+        let rail = rail_feed("many_neg_rail");
+        let bus = bus_feed("many_neg_bus", "41.88025", "20260915");
+        let one_early = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: -9 * 3600,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(
+            one_early.n_dropped_trips, 1,
+            "08:10 - 9h is before midnight"
+        );
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: -10 * 3600,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(load.n_dropped_trips, 2, "and so is 09:10 - 10h");
+        assert!(plan(
+            &load.timetable,
+            stop(&load, "START"),
+            stop(&load, "UPTOWN"),
+            0,
+            8
+        )
+        .is_empty());
+        let _ = fs::remove_dir_all(&rail);
+        let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn a_broken_city_feed_costs_nothing_but_itself() {
+        // The second feed has no service that day. The trains must still load;
+        // the bus feed is reported, not silently lost and not fatal.
+        let rail = rail_feed("many_skip_rail");
+        let bus = bus_feed("many_skip_bus", "41.88025", "20260915");
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: CENTRAL_INTO_EASTERN,
+                },
+            ],
+            20260711, // a Saturday: CALENDAR runs weekdays only
+        );
+        // ...but the rail feed has no Saturday service either, and it is the
+        // reference, so THAT is an error.
+        assert!(load.is_err(), "the reference feed failing fails the load");
+
+        let missing = std::env::temp_dir().join("flows_gtfs_no_such_feed_dir");
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &missing,
+                    shift_secs: 0,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(load.skipped_feeds.len(), 1);
+        assert_eq!(load.skipped_feeds[0].0, 1);
+        assert!(load.skipped_feeds[0].1.contains("not a directory"));
+        assert!(!load.stop_ids.is_empty(), "the trains are all still there");
+        let _ = fs::remove_dir_all(&rail);
+        let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn times_as_of_reports_the_oldest_schedule_in_the_mix() {
+        let rail = rail_feed("many_pub_rail"); // published 20260920
+        let bus = bus_feed("many_pub_bus", "41.88025", "20260915");
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: CENTRAL_INTO_EASTERN,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(load.feed_published, 20260915, "warn about the staler one");
+        let _ = fs::remove_dir_all(&rail);
+        let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn no_feeds_is_an_error_not_a_panic() {
+        assert!(load_gtfs_many(&[], 20260709).is_err());
     }
 }
