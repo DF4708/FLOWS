@@ -19,7 +19,7 @@
 //! walking — no priority queue, no allocation in the hot loop beyond the fixed
 //! per-round label arrays — matching the CSR discipline in `routing.rs`/`ch.rs`.
 
-use super::{Mode, Time, Timetable};
+use super::{Mode, Time, Timetable, ALL_VEHICLES};
 
 /// Sentinel "unreached" arrival time.
 pub const INF_TIME: Time = Time::MAX;
@@ -93,7 +93,14 @@ struct Raptor<'a> {
 }
 
 impl<'a> Raptor<'a> {
-    fn run(tt: &'a Timetable, source: u32, target: u32, depart: Time, max_rounds: u32) -> Self {
+    fn run(
+        tt: &'a Timetable,
+        source: u32,
+        target: u32,
+        depart: Time,
+        max_rounds: u32,
+        vehicles: u8,
+    ) -> Self {
         let n = tt.n_stops();
         let k_max = max_rounds as usize;
         let mut r = Raptor {
@@ -155,6 +162,11 @@ impl<'a> Raptor<'a> {
             touched_routes.clear();
             for &p in &queue {
                 for sr in tt.routes_at(p) {
+                    // A vehicle the rider did not ask for is not boarded at
+                    // all, so no journey can use it — walks still link stops.
+                    if tt.route_mode(sr.route).bit() & vehicles == 0 {
+                        continue;
+                    }
                     let cur = route_hop[sr.route as usize];
                     if cur == u32::MAX {
                         touched_routes.push(sr.route);
@@ -360,6 +372,20 @@ pub fn plan(
     depart: Time,
     max_rounds: u32,
 ) -> Vec<Journey> {
+    plan_vehicles(tt, source, target, depart, max_rounds, ALL_VEHICLES)
+}
+
+/// [`plan`], boarding only the vehicles in `vehicles` (a mask of
+/// [`Mode::bit`]s) — a rider who chose the bus is never put on a subway. An
+/// empty mask boards nothing and so finds no journey.
+pub fn plan_vehicles(
+    tt: &Timetable,
+    source: u32,
+    target: u32,
+    depart: Time,
+    max_rounds: u32,
+    vehicles: u8,
+) -> Vec<Journey> {
     // An id the timetable cannot contain behaves like an unreachable pair,
     // never an index panic — in-process callers (manifest builder, multi-
     // shard stitching) may hold stale or cross-shard stop ids.
@@ -369,7 +395,7 @@ pub fn plan(
     if source == target {
         return Vec::new();
     }
-    let r = Raptor::run(tt, source, target, depart, max_rounds);
+    let r = Raptor::run(tt, source, target, depart, max_rounds, vehicles);
 
     // Candidate journeys: one per round whose target arrival strictly improved on
     // the best with fewer trips. The round index is only an UPPER bound on the
@@ -428,7 +454,7 @@ pub(crate) fn earliest_arrival(
     if source == target {
         return depart;
     }
-    let r = Raptor::run(tt, source, target, depart, max_rounds);
+    let r = Raptor::run(tt, source, target, depart, max_rounds, ALL_VEHICLES);
     r.best_arr[target as usize]
 }
 
@@ -554,6 +580,39 @@ mod tests {
         // The faster option arrives earlier but costs a transfer — a real tradeoff.
         assert!(js[1].arrival < js[0].arrival);
         assert!(js[1].n_transfers > js[0].n_transfers);
+    }
+
+    #[test]
+    fn a_rider_who_chose_the_bus_is_never_put_on_the_subway() {
+        // Two ways A->C: a fast subway (arrive 900) and a slow bus (arrive
+        // 2000). Everything allowed takes the subway; bus-only takes the bus;
+        // train-only takes the subway; a mask with neither finds nothing.
+        use crate::transit::{ALL_VEHICLES, BUS_VEHICLES, TRAIN_VEHICLES};
+        let mut b = TimetableBuilder::new();
+        let a = b.add_stop(0, 0);
+        let c = b.add_stop(0, 1_000_000);
+        b.add_route(&[a, c], vec![vec![ev(0, 0), ev(900, 900)]], Mode::Subway);
+        b.add_route(&[a, c], vec![vec![ev(0, 0), ev(2000, 2000)]], Mode::Bus);
+        let tt = b.build();
+
+        let any = plan_vehicles(&tt, a, c, 0, K, ALL_VEHICLES);
+        assert_eq!(any.last().map(|j| j.arrival), Some(900));
+        assert_eq!(plan(&tt, a, c, 0, K), any, "plan is the everything mask");
+
+        let bus = plan_vehicles(&tt, a, c, 0, K, BUS_VEHICLES);
+        assert_eq!(bus.len(), 1);
+        assert_eq!(bus[0].arrival, 2000);
+        assert!(bus[0]
+            .legs
+            .iter()
+            .all(|l| l.kind != LegKind::Ride || l.mode == Mode::Bus));
+
+        let train = plan_vehicles(&tt, a, c, 0, K, TRAIN_VEHICLES);
+        assert_eq!(train.len(), 1);
+        assert_eq!(train[0].legs[0].mode, Mode::Subway);
+
+        assert!(plan_vehicles(&tt, a, c, 0, K, 0).is_empty());
+        assert!(plan_vehicles(&tt, a, c, 0, K, Mode::Commuter.bit()).is_empty());
     }
 
     #[test]

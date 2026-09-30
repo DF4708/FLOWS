@@ -34,7 +34,7 @@ pub mod gtfs;
 pub mod raptor;
 pub mod shard;
 
-pub use raptor::{plan, Journey, Leg, LegKind, INF_TIME};
+pub use raptor::{plan, plan_vehicles, Journey, Leg, LegKind, INF_TIME};
 
 /// Seconds since the service day's midnight. GTFS permits times past 24:00:00
 /// (a trip that departs after midnight), so this is a plain monotone counter, not
@@ -70,6 +70,23 @@ pub enum Mode {
     Coach = 3,
     Commuter = 4,
 }
+
+impl Mode {
+    /// This vehicle's bit in a vehicle mask: `1 << byte`. A rider who picked
+    /// "bus" is asking for `Bus.bit() | Coach.bit()`, and the planner boards
+    /// only routes whose bit is in the mask.
+    #[must_use]
+    pub const fn bit(self) -> u8 {
+        1 << (self as u8)
+    }
+}
+
+/// Every vehicle there is — the mask for a rider who named none.
+pub const ALL_VEHICLES: u8 = 0b1_1111;
+/// Trains of every kind: intercity, subway and tram, commuter.
+pub const TRAIN_VEHICLES: u8 = Mode::Rail.bit() | Mode::Subway.bit() | Mode::Commuter.bit();
+/// Buses of every kind: city buses and coaches.
+pub const BUS_VEHICLES: u8 = Mode::Bus.bit() | Mode::Coach.bit();
 
 /// A RAPTOR "route": a maximal set of trips that visit the **identical ordered
 /// stop sequence** and do not overtake one another (so trips sort consistently by

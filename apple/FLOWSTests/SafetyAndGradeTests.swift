@@ -837,10 +837,10 @@ final class AdaptiveTuningTests: XCTestCase {
     /// Rental recommendations at a transit destination: nearest office PER
     /// BRAND (airport + downtown Enterprise = one booking), biggest brands
     /// first, unknown independents keep their own dedupe key and sort last,
-    /// capped at three; the booking link falls back to the brand site.
+    /// capped at three. Booking is the partner page, never a brand site.
     func testRentalCarRecommendations() {
         func office(_ name: String, _ miles: Double) -> RentalCars.Office {
-            RentalCars.Office(name: name, miles: miles, url: nil)
+            RentalCars.Office(name: name, miles: miles)
         }
         let picks = RentalCars.recommend([
             office("Hertz Car Rental - Columbia Airport", 6.2),
@@ -858,13 +858,10 @@ final class AdaptiveTuningTests: XCTestCase {
         let locals = RentalCars.recommend([
             office("Bob's Rentals", 0.5), office("Carol's Cars", 0.7)])
         XCTAssertEqual(locals.count, 2)
-        // Booking fallback: recognized brands link to their own site;
-        // unknown agencies get nil (name + distance still shown).
-        XCTAssertEqual(RentalCars.bookingURL(name: "Hertz Car Rental")?.host,
-                       "www.hertz.com")
-        XCTAssertEqual(RentalCars.bookingURL(name: "Enterprise Rent-A-Car")?.host,
-                       "www.enterprise.com")
-        XCTAssertNil(RentalCars.bookingURL(name: "Bob's Rent-a-Wreck"))
+        // The owner's rule (2026-09-29): searches and results alike book
+        // through the partner link carrying FLOWS's code.
+        XCTAssertEqual(RentalCars.compareURL?.host, "www.discovercars.com")
+        XCTAssertTrue(RentalCars.compareURL?.absoluteString.contains("a_aid=FAWN") ?? false)
     }
 
     /// Per-host circuit breaker: transport failures trip it after N in a row,

@@ -39,6 +39,13 @@ struct TransitLeg: Identifiable {
     let polyline: MKPolyline?
     /// WALK: MapKit step instructions. RIDE: board / ride / alight.
     let steps: [String]
+    /// A city bus or train ridden to or from the main ride (or door to door
+    /// on a short trip), from the city's own timetable — not the main ride.
+    var local = false
+    /// What pulls up on a city ride: "Bus" or "Train".
+    var vehicle: String? = nil
+    /// A DRIVE leg in a rental car the rider picks up at its start.
+    var rental = false
 }
 
 struct TransitItinerary {
@@ -56,6 +63,12 @@ struct TransitItinerary {
     var rideGeometryIsReal: Bool = true
 
     var totalSeconds: TimeInterval { legs.compactMap(\.seconds).reduce(0, +) }
+
+    /// The long ride — the train, coach or flight — as opposed to a city bus
+    /// or train ridden to or from it.
+    var mainRide: TransitLeg? {
+        legs.first { $0.kind == .ride && !$0.local }
+    }
 }
 
 /// Pure helpers (pinned by FLOWSTests).
@@ -117,20 +130,58 @@ enum TransitPlanning {
         let m = Int(s / 60)
         return m >= 90 ? String(format: "%dh %02dm", m / 60, m % 60) : "\(m) min"
     }
+
+    /// A city ride as a rider says it: "the 30 bus", "the 12 Teutonia Avenue
+    /// bus", "the Blue Line", "the bus". A name that is or starts with a route
+    /// number reads before the vehicle; a line's own name needs no vehicle
+    /// word.
+    static func cityRide(vehicle: String, name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let word = vehicle.lowercased()
+        if trimmed.isEmpty || trimmed.lowercased() == word { return "the \(word)" }
+        let numbered = trimmed.first?.isNumber ?? false
+        return numbered || trimmed.count <= 4 ? "the \(trimmed) \(word)" : "the \(trimmed)"
+    }
+
+    /// The symbol for a city vehicle: a bus for "Bus", a train otherwise.
+    static func vehicleSymbol(_ vehicle: String?) -> String {
+        vehicle == "Bus" ? "bus.fill" : "tram.fill"
+    }
+
+    /// The third line of a drive-and-park leg: what happens at the far end,
+    /// now that the car stays behind.
+    static func farEndNote(_ egress: TripShape.Egress) -> String {
+        switch egress {
+        case .walk: return "Your car stays here — the far end is on foot"
+        case .local: return "Your car stays here — take the city bus or train at the far end"
+        case .rental: return "Your car stays here — a rental car waits at the far end"
+        case .rentOrRide: return "Your car stays here — rent or ride at the far end"
+        }
+    }
 }
 
 /// Rental cars at the FAR END of a transit trip — the traveller rode the
 /// train/bus, so they arrive without a car; the last-mile walk works for a
 /// hotel but not for a week of errands. Offices come from MKLocalSearch
 /// (keyless, the same source as every POI pick) near the destination; this
-/// type ranks them and supplies a booking link. Any operator MapKit knows
-/// appears — Hertz, Enterprise, a local independent — biggest brands first.
+/// type ranks them. Any operator MapKit knows appears — Hertz, Enterprise, a
+/// local independent — biggest brands first.
+///
+/// Every booking goes through FLOWS's DiscoverCars partner link (code FAWN):
+/// the owner's rule (2026-09-29) for searches and results alike. The offices
+/// say who rents cars there and how far away; the partner page is where the
+/// rider compares them and books.
 enum RentalCars {
     struct Office {
         let name: String
-        let miles: Double        // from the trip destination
-        let url: URL?            // office's own page, else the brand's site
+        let miles: Double        // from where the rider picks the car up
+        /// Where the counter is, so a rider can be routed to it.
+        var coordinate: CLLocationCoordinate2D? = nil
     }
+
+    /// How far a counter may be from where the rider picks the car up and
+    /// still be listed — the edge of the 30 km box the map is asked about.
+    static let maxOfficeMiles = 20.0
 
     /// US rental-brand order (fleet size / market share; lower = bigger).
     /// Enterprise Holdings brands lead (Enterprise/National/Alamo), then
@@ -153,17 +204,9 @@ enum RentalCars {
         Int(flows_rides_rental_brand_rank(name ?? "", name != nil))
     }
 
-    /// Keyless booking fallback when MapKit has no office URL: the brand's
-    /// own reservation site. Unrecognized brands get nil (the row still
-    /// shows — name + distance are useful without a link).
-    static func bookingURL(name: String?) -> URL? {
-        let site = flows_rides_rental_booking_site(name ?? "", name != nil).text
-        return site.isEmpty ? nil : URL(string: site)
-    }
-
-    /// Compare prices across brands in one place. FLOWS's partner link, so a
-    /// booking made from here is credited to it; the brand rows beside it
-    /// still go to each company's own site.
+    /// Compare prices across brands in one place — FLOWS's partner link, so a
+    /// booking made from here is credited to it. The homepage, for when no
+    /// place is known.
     static var compareURL: URL? {
         URL(string: flows_rides_rental_compare_url().text)
     }
@@ -261,9 +304,128 @@ enum TransitTickets {
     }
 }
 
-/// The three transit toggles on the Routes card. Rail/bus route through
-/// stations; plane boards at the nearest commercial airports.
-enum TransitMode: CaseIterable, Hashable { case rail, bus, plane }
+/// The toggles on the Routes card: train, bus, plane and a rental car. Any
+/// mix of them is ONE trip — `TripShape` says how the pieces fit together.
+enum TransitMode: CaseIterable, Hashable { case rail, bus, plane, rental }
+
+/// What the rider means by the toggles they switched on, read as one trip by
+/// `flows_core::trip_shape` — the owner's rule, pinned there by a test for
+/// every combination. "Car, bus and train" drives to the train and takes the
+/// bus from it; "walk, bus and plane" rides the bus to the airport and from
+/// it — unless a rental car is on too, which is then picked up where the
+/// plane lands.
+struct TripShape: Equatable {
+    /// The long way. `short` is a trip with none: the city's own buses and
+    /// trains, or a rental car, go door to door.
+    enum Main: Int { case short = 0, plane, train, coach }
+    /// How the rider reaches the main ride.
+    enum Access: Int {
+        /// Walk when the station is close, drive and park when it is not.
+        case ownCar = 0
+        /// Walk, with a ride share offered when the walk is long.
+        case onFoot
+        /// The city's buses or trains, when they beat walking.
+        case local
+    }
+    /// How the rider gets from the main ride to where they are going.
+    enum Egress: Int { case walk = 0, local, rental, rentOrRide }
+
+    let main: Main
+    let access: Access
+    let egress: Egress
+    /// What the far end becomes when the city has no timetable, or its buses
+    /// and trains do not beat walking.
+    let egressFallback: Egress
+    /// The city vehicles the rider accepts, as the timetable's mode bits —
+    /// handed straight to `TransitShard.departures(vehicles:)`.
+    let localVehicles: Int
+    let cards: Int
+    /// The one kind of city vehicle the rider chose — "bus" or "train" — or
+    /// nil when they chose both or neither. Names it when another kind has
+    /// to carry a leg.
+    let cityChoice: String?
+
+    /// The whole trip — main ride and both ends — on one card.
+    static let cardMain = 1
+    /// A short trip on the city's buses and trains, door to door.
+    static let cardLocal = 2
+    /// A short trip in a rental car picked up near the start.
+    static let cardRental = 4
+    /// The plane was on, but this is not a trip to fly: its card says why.
+    static let cardPlaneNote = 8
+
+    init(onFoot: Bool, modes: Set<TransitMode>, tripMiles: Double) {
+        let packed = flows_transit_trip_shape(
+            onFoot, modes.contains(.rail), modes.contains(.bus), modes.contains(.plane),
+            modes.contains(.rental), tripMiles)
+        func byte(_ index: Int64) -> Int { Int((packed >> (8 * index)) & 0xFF) }
+        main = Main(rawValue: byte(0)) ?? .short
+        access = Access(rawValue: byte(1)) ?? .ownCar
+        egress = Egress(rawValue: byte(2)) ?? .walk
+        egressFallback = Egress(rawValue: byte(3)) ?? .walk
+        localVehicles = byte(4)
+        cards = byte(5)
+        switch (modes.contains(.bus), modes.contains(.rail)) {
+        case (true, false): cityChoice = "bus"
+        case (false, true): cityChoice = "train"
+        default: cityChoice = nil
+        }
+    }
+
+    func shows(_ card: Int) -> Bool { cards & card != 0 }
+
+    /// The card that holds the whole trip, keyed by its main ride.
+    var mainMode: TransitMode? {
+        switch main {
+        case .plane: return .plane
+        case .train: return .rail
+        case .coach: return .bus
+        case .short: return nil
+        }
+    }
+
+    /// The key of a short trip's city card: the bus when it was chosen, the
+    /// train when only the train was.
+    static func localMode(_ modes: Set<TransitMode>) -> TransitMode {
+        modes.contains(.bus) ? .bus : .rail
+    }
+
+    /// The toggles a card stands for, so its X turns off exactly those. The
+    /// whole-trip card is every toggle but a plane that only left a note.
+    func modes(ofCard key: TransitMode, active: Set<TransitMode>) -> Set<TransitMode> {
+        if key == mainMode {
+            return shows(Self.cardPlaneNote) ? active.subtracting([.plane]) : active
+        }
+        switch key {
+        case .plane: return [.plane]
+        case .rental: return [.rental]
+        case .rail, .bus: return active.intersection([.rail, .bus])
+        }
+    }
+
+    /// Past this many miles a train or bus toggle means the intercity service.
+    static var longHaulMiles: Double { flows_transit_long_haul_miles() }
+
+    /// A walk to a station longer than this is driven, or offered a ride share.
+    static var farWalkSeconds: TimeInterval { flows_transit_far_walk_seconds() }
+
+    /// The mask that boards every city vehicle.
+    static var allVehicles: Int { Int(flows_transit_all_vehicles()) }
+
+    /// Whether a city trip on any vehicle, taking `otherSeconds`, should
+    /// replace the one on the chosen vehicles (nil: they cannot make it).
+    static func otherVehicleWins(chosenSeconds: TimeInterval?,
+                                 otherSeconds: TimeInterval) -> Bool {
+        flows_transit_other_vehicle_wins(chosenSeconds ?? 0, chosenSeconds != nil, otherSeconds)
+    }
+
+    /// Whether a city ride taking `transitSeconds` door to door (waiting
+    /// included) should replace a walk of `walkSeconds`.
+    static func transitBeatsWalk(walkSeconds: TimeInterval?,
+                                 transitSeconds: TimeInterval) -> Bool {
+        flows_transit_beats_walk(walkSeconds ?? 0, walkSeconds != nil, transitSeconds)
+    }
+}
 
 /// The real published times for a ride, read from the operator's own schedule.
 ///
@@ -281,7 +443,7 @@ struct TransitSchedule: Equatable {
     struct Leg: Equatable {
         /// "9:35 AM – 11:45 AM", in each end's own clock.
         let clockSpan: String
-        /// Plain words for what pulls up: "Bus", "Train", "Subway".
+        /// Plain words for what pulls up: "Bus" or "Train".
         let vehicle: String
         /// What the operator calls the service, when it says more than the
         /// vehicle word does.
@@ -314,6 +476,67 @@ struct TransitSchedule: Equatable {
     let credit: String
     /// "Times as of Sep 22", so a rider can judge how fresh this is.
     let asOf: String
+    /// When the first vehicle leaves and the last one arrives, with each
+    /// end's zone — what joining several operators' times into one trip
+    /// needs. Nil on a schedule that was not built from a timetable.
+    var boardAt: Date? = nil
+    var boardZone: String = ""
+    var alightAt: Date? = nil
+    var alightZone: String = ""
+    /// The operators whose times these are, as riders know them.
+    var operators: [String] = []
+
+    /// One trip's timetables in the order they are ridden — a city bus to the
+    /// station, the train, a city bus from it — as ONE schedule: every
+    /// vehicle named, one clock door to door, every operator credited.
+    ///
+    /// "Then 8:15 AM" is dropped from a joined schedule: a later train does
+    /// not bring a later bus with it, so the line would promise a trip no
+    /// timetable was asked about.
+    static func joined(_ parts: [TransitSchedule], locale: Locale = .current) -> TransitSchedule? {
+        guard let first = parts.first, let last = parts.last else { return nil }
+        if parts.count == 1 { return first }
+        let legs = parts.flatMap(\.legs)
+        guard !legs.isEmpty else { return nil }
+        var operators: [String] = []
+        for name in parts.flatMap(\.operators) where !operators.contains(name) {
+            operators.append(name)
+        }
+        var credits: [String] = []
+        for credit in parts.map(\.credit) where !credit.isEmpty && !credits.contains(credit) {
+            credits.append(credit)
+        }
+        let span: String
+        let seconds: TimeInterval
+        if let on = first.boardAt, let off = last.alightAt {
+            span = TransitClock.span(board: on, boardZone: first.boardZone,
+                                     alight: off, alightZone: last.alightZone, locale: locale)
+            seconds = off.timeIntervalSince(on)
+        } else {
+            span = "\(first.clockSpan) … \(last.clockSpan)"
+            seconds = parts.map(\.rideSeconds).reduce(0, +)
+        }
+        let changes = legs.count - 1
+        return TransitSchedule(
+            legs: legs,
+            boardName: first.boardName,
+            alightName: last.alightName,
+            routeName: changes == 0 ? first.routeName
+                : (changes == 1 ? "1 change" : "\(changes) changes"),
+            clockSpan: span,
+            rideSeconds: seconds,
+            laterClocks: [],
+            // Named operator by operator when every part says who it is from;
+            // otherwise each part's own credit line, so none goes missing.
+            credit: parts.allSatisfy { !$0.operators.isEmpty }
+                ? TransitFeeds.credit(for: operators) : credits.joined(separator: " · "),
+            asOf: parts.first { !$0.asOf.isEmpty }?.asOf ?? "",
+            boardAt: first.boardAt,
+            boardZone: first.boardZone,
+            alightAt: last.alightAt,
+            alightZone: last.alightZone,
+            operators: operators)
+    }
 
     /// One plain line for the card. No jargon, no station codes.
     var plainLine: String {
@@ -353,6 +576,9 @@ struct TransitOption {
     /// page for the city the traveller gets off in, so a booking made from
     /// the card is credited to FLOWS.
     var rentalCompareURL: URL? = RentalCars.compareURL
+    /// Plain lines the rider should read before the legs — a city train
+    /// standing in for the bus they chose, and why.
+    var notes: [String] = []
 }
 
 /// The walk + paid-ride card's computed pieces (walking mode only). On the

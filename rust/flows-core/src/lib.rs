@@ -97,6 +97,7 @@ pub mod swift_text;
 pub mod tags_and_replies;
 pub mod transit;
 pub mod travel_modes;
+pub mod trip_shape;
 pub mod trip_vehicle;
 pub mod vehicle_policy;
 

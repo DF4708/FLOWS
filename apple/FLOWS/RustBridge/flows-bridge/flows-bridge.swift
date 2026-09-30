@@ -3853,10 +3853,28 @@ public func flows_transit_info<GenericToRustStr: ToRustStr>(_ prefix: GenericToR
 public func flows_transit_city_feeds(_ latitude: Double, _ longitude: Double, _ limit: Int64) -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_transit_city_feeds(latitude, longitude, limit))
 }
-public func flows_transit_departures<GenericToRustStr: ToRustStr>(_ prefix: GenericToRustStr, _ from_latitude: Double, _ from_longitude: Double, _ to_latitude: Double, _ to_longitude: Double, _ max_station_meters: Double, _ depart_seconds: Int64, _ limit: Int64) -> RustVec<RustString> {
+public func flows_transit_departures<GenericToRustStr: ToRustStr>(_ prefix: GenericToRustStr, _ from_latitude: Double, _ from_longitude: Double, _ to_latitude: Double, _ to_longitude: Double, _ max_station_meters: Double, _ depart_seconds: Int64, _ limit: Int64, _ vehicles: Int64) -> RustVec<RustString> {
     return prefix.toRustStr({ prefixAsRustStr in
-        RustVec(ptr: __swift_bridge__$flows_transit_departures(prefixAsRustStr, from_latitude, from_longitude, to_latitude, to_longitude, max_station_meters, depart_seconds, limit))
+        RustVec(ptr: __swift_bridge__$flows_transit_departures(prefixAsRustStr, from_latitude, from_longitude, to_latitude, to_longitude, max_station_meters, depart_seconds, limit, vehicles))
     })
+}
+public func flows_transit_trip_shape(_ on_foot: Bool, _ train: Bool, _ bus: Bool, _ plane: Bool, _ rental: Bool, _ trip_miles: Double) -> Int64 {
+    __swift_bridge__$flows_transit_trip_shape(on_foot, train, bus, plane, rental, trip_miles)
+}
+public func flows_transit_beats_walk(_ walk_seconds: Double, _ walk_known: Bool, _ transit_seconds: Double) -> Bool {
+    __swift_bridge__$flows_transit_beats_walk(walk_seconds, walk_known, transit_seconds)
+}
+public func flows_transit_other_vehicle_wins(_ chosen_seconds: Double, _ chosen_known: Bool, _ other_seconds: Double) -> Bool {
+    __swift_bridge__$flows_transit_other_vehicle_wins(chosen_seconds, chosen_known, other_seconds)
+}
+public func flows_transit_all_vehicles() -> Int64 {
+    __swift_bridge__$flows_transit_all_vehicles()
+}
+public func flows_transit_long_haul_miles() -> Double {
+    __swift_bridge__$flows_transit_long_haul_miles()
+}
+public func flows_transit_far_walk_seconds() -> Double {
+    __swift_bridge__$flows_transit_far_walk_seconds()
 }
 
 

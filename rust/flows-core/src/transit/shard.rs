@@ -28,7 +28,7 @@ use super::fts::{self, Labels};
 use super::ftt;
 use super::gtfs;
 use super::raptor::{self, Journey};
-use super::{Time, Timetable};
+use super::{Time, Timetable, ALL_VEHICLES};
 use crate::seasonal::haversine_km;
 
 /// The default RAPTOR round cap: 4 rounds = up to 3 transfers, which covers
@@ -195,6 +195,12 @@ pub struct RideLeg {
     pub mode: u8,
     pub dep: Time,
     pub arr: Time,
+    /// Where the rider gets on and off, in degrees — so a city bus leg can be
+    /// drawn stop to stop and walked to.
+    pub board_lat: f64,
+    pub board_lon: f64,
+    pub alight_lat: f64,
+    pub alight_lon: f64,
 }
 
 /// A departure the app can show: the rides, the walking between them, and the
@@ -240,6 +246,20 @@ impl Shard {
         max_meters: f64,
         limit: usize,
     ) -> Vec<NearStop> {
+        self.nearest_stops_vehicles(lat, lon, max_meters, limit, ALL_VEHICLES)
+    }
+
+    /// [`Self::nearest_stops`], counting only stops a vehicle in `vehicles`
+    /// calls at. A rider who chose the bus is not offered a subway entrance
+    /// as their nearest stop — it would find them no ride.
+    pub fn nearest_stops_vehicles(
+        &self,
+        lat: f64,
+        lon: f64,
+        max_meters: f64,
+        limit: usize,
+        vehicles: u8,
+    ) -> Vec<NearStop> {
         if limit == 0
             || !lat.is_finite()
             || !lon.is_finite()
@@ -250,7 +270,12 @@ impl Shard {
         }
         let mut found: Vec<(f64, u32)> = Vec::new();
         for s in 0..self.timetable.n_stops() as u32 {
-            if self.timetable.n_routes_at(s) == 0 {
+            if !self
+                .timetable
+                .routes_at(s)
+                .iter()
+                .any(|sr| self.timetable.route_mode(sr.route).bit() & vehicles != 0)
+            {
                 continue;
             }
             let p = self.timetable.stop(s);
@@ -271,6 +296,12 @@ impl Shard {
                 zone: self.stop_zone(stop),
             })
             .collect()
+    }
+
+    /// A stop's position in degrees (latitude, longitude).
+    fn degrees(&self, s: u32) -> (f64, f64) {
+        let p = self.timetable.stop(s);
+        (f64::from(p.lat_e6) / 1e6, f64::from(p.lon_e6) / 1e6)
     }
 
     fn stop_name(&self, s: u32) -> String {
@@ -311,14 +342,32 @@ impl Shard {
     /// journey with no ride at all (pure walking) is dropped: it is not a
     /// departure, and the caller already knows how to walk.
     pub fn departures(&self, source: u32, target: u32, depart: Time) -> Vec<Departure> {
+        self.departures_vehicles(source, target, depart, ALL_VEHICLES)
+    }
+
+    /// [`Self::departures`], boarding only the vehicles in `vehicles`.
+    pub fn departures_vehicles(
+        &self,
+        source: u32,
+        target: u32,
+        depart: Time,
+        vehicles: u8,
+    ) -> Vec<Departure> {
         let n = self.timetable.n_stops() as u32;
         if source >= n || target >= n || source == target {
             return Vec::new();
         }
-        raptor::plan(&self.timetable, source, target, depart, DEFAULT_MAX_ROUNDS)
-            .into_iter()
-            .filter_map(|j| self.render(&j))
-            .collect()
+        raptor::plan_vehicles(
+            &self.timetable,
+            source,
+            target,
+            depart,
+            DEFAULT_MAX_ROUNDS,
+            vehicles,
+        )
+        .into_iter()
+        .filter_map(|j| self.render(&j))
+        .collect()
     }
 
     /// A departure BOARD: the next `count` distinct departures from `source`
@@ -333,12 +382,24 @@ impl Shard {
     /// minutes charged per change ([`Departure::cost`]) — and asks again from
     /// one second after it leaves.
     pub fn board(&self, source: u32, target: u32, after: Time, count: usize) -> Vec<Departure> {
+        self.board_vehicles(source, target, after, count, ALL_VEHICLES)
+    }
+
+    /// [`Self::board`], boarding only the vehicles in `vehicles`.
+    pub fn board_vehicles(
+        &self,
+        source: u32,
+        target: u32,
+        after: Time,
+        count: usize,
+        vehicles: u8,
+    ) -> Vec<Departure> {
         let mut out = Vec::new();
         let mut from_time = after;
         for _ in 0..count {
             // The best journey on offer; between equals, the one leaving first.
             let best = self
-                .departures(source, target, from_time)
+                .departures_vehicles(source, target, from_time, vehicles)
                 .into_iter()
                 .min_by_key(|d| (d.cost(), d.dep));
             let Some(d) = best else { break };
@@ -364,6 +425,10 @@ impl Shard {
                 mode: l.mode as u8,
                 dep: l.dep,
                 arr: l.arr,
+                board_lat: self.degrees(l.from_stop).0,
+                board_lon: self.degrees(l.from_stop).1,
+                alight_lat: self.degrees(l.to_stop).0,
+                alight_lon: self.degrees(l.to_stop).1,
             })
             .collect();
         let dep = legs.first()?.dep;
@@ -543,6 +608,30 @@ mod tests {
         );
         assert!(s.nearest_stops(40.71, -74.01, 5_000.0, 0).is_empty());
         assert!(s.nearest_stops(f64::NAN, -74.01, 5_000.0, 3).is_empty());
+        clean(&dir, &prefix);
+    }
+
+    #[test]
+    fn a_ride_says_where_its_stops_are_and_only_its_vehicles_count() {
+        use crate::transit::{Mode, BUS_VEHICLES, TRAIN_VEHICLES};
+        let (dir, prefix, s) = build_tmp("vehicles");
+        let from = s.labels.stop_codes.iter().position(|c| c == "EAS").unwrap() as u32;
+        let to = s.labels.stop_codes.iter().position(|c| c == "WES").unwrap() as u32;
+        let leg = &s.departures(from, to, 8 * 3600)[0].legs[0];
+        assert!((leg.board_lat - 40.70).abs() < 1e-6 && (leg.board_lon + 74.00).abs() < 1e-6);
+        assert!((leg.alight_lat - 39.74).abs() < 1e-6 && (leg.alight_lon + 104.98).abs() < 1e-6);
+
+        // The feed's only route is intercity rail: a rider who chose the bus
+        // is offered no stop and no ride from it; a train rider is.
+        assert_eq!(leg.mode, Mode::Rail as u8);
+        assert!(s
+            .nearest_stops_vehicles(40.71, -74.01, 5_000.0, 3, BUS_VEHICLES)
+            .is_empty());
+        assert!(!s
+            .nearest_stops_vehicles(40.71, -74.01, 5_000.0, 3, TRAIN_VEHICLES)
+            .is_empty());
+        assert!(s.board_vehicles(from, to, 0, 2, BUS_VEHICLES).is_empty());
+        assert_eq!(s.board_vehicles(from, to, 0, 2, TRAIN_VEHICLES).len(), 1);
         clean(&dir, &prefix);
     }
 

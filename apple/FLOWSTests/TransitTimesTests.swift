@@ -418,7 +418,8 @@ final class TransitTimesTests: XCTestCase {
 
     func testTheVehicleIsSaidInWordsARiderUses() {
         XCTAssertEqual(TransitShard.vehicleWord(0), "Train")
-        XCTAssertEqual(TransitShard.vehicleWord(1), "Subway")
+        XCTAssertEqual(TransitShard.vehicleWord(1), "Train",
+                       "light rail and trams share the byte; a train to everyone riding one")
         XCTAssertEqual(TransitShard.vehicleWord(2), "Bus")
         XCTAssertEqual(TransitShard.vehicleWord(3), "Bus", "a coach is a bus to the person riding it")
         XCTAssertEqual(TransitShard.vehicleWord(4), "Train")

@@ -1234,8 +1234,11 @@ struct ContentView: View {
                 }
                 return switch leg.kind {
                 case .walk: ("figure.walk", .green)
-                case .drive: ("car.fill", .blue)   // park-and-ride access or hailed ride
-                case .ride: (rideSymbol, .purple)
+                case .drive: ("car.fill", .blue)   // park-and-ride, a rental, or a hailed ride
+                // A city bus or train to or from the main ride shows its own
+                // vehicle, not the train's or the plane's.
+                case .ride: (leg.local ? TransitPlanning.vehicleSymbol(leg.vehicle) : rideSymbol,
+                             .purple)
                 }
             }
             if model.walkingMode { return ("figure.walk", .green) }
@@ -1327,8 +1330,7 @@ struct ContentView: View {
     /// walking-close on the ground and on approach, continent-wide at cruise.
     private func flightCamera(for fix: CLLocation) -> MapCamera? {
         guard model.transitItinerary?.mode == "Plane",
-              let poly = model.transitItinerary?.legs
-                  .first(where: { $0.kind == .ride })?.polyline,
+              let poly = model.transitItinerary?.mainRide?.polyline,
               poly.pointCount >= 2 else { return nil }
         var board = CLLocationCoordinate2D()
         var alight = CLLocationCoordinate2D()

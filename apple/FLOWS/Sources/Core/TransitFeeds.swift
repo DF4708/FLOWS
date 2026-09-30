@@ -40,8 +40,8 @@ actor TransitFeeds {
         /// The operator as a rider knows it — "Amtrak", "LA Metro".
         let operatorName: String
         /// Where the service runs. Nil for a national network asked about
-        /// every trip; a city feed is fetched only for trips that END inside
-        /// its box, because that is the last leg it can carry.
+        /// every trip; a city feed is fetched only for a leg that starts or
+        /// ends inside its box, because that is the leg it can carry.
         var area: Area?
         /// The catalog's copy of the latest version, tried when the publisher's
         /// own link fails. Nil for Amtrak, whose link has never needed one.
@@ -76,8 +76,8 @@ actor TransitFeeds {
     /// string of downloads.
     static let cityFeedLimit = 2
 
-    /// The city timetables that could carry the last leg of a trip ending at
-    /// a point, best first.
+    /// The city timetables that could carry a leg starting or ending at a
+    /// point, best first.
     ///
     /// The owner's rule (2026-09-29): every feed downloadable WITHOUT an API
     /// key is on by default. The table is compiled into flows-core from
@@ -106,17 +106,37 @@ actor TransitFeeds {
         return out
     }
 
-    /// The feeds to ask for a trip ending at a point: Amtrak, then the city
-    /// feeds whose service area holds the destination. `cities` replaces the
-    /// compiled-in table (tests pass their own); nil asks the table.
-    static func sources(
-        endingAt latitude: Double, _ longitude: Double, from cities: [Source]? = nil,
-        limit: Int = cityFeedLimit
+    /// The city timetables for a leg ridden on the city — a bus to the
+    /// airport, a train from the station, a short trip door to door. A feed
+    /// whose area holds BOTH ends comes first (one city's own system), then
+    /// the best feed at each end, so two neighbouring systems can be merged
+    /// when the leg crosses between them. `cities` replaces the compiled-in
+    /// table (tests pass their own); nil asks the table.
+    ///
+    /// Amtrak is never here: the train is its own leg, asked separately, so
+    /// the rider's choice of city vehicles can be held to without touching
+    /// the connecting buses Amtrak runs as part of the train.
+    static func citySources(
+        from startLatitude: Double, _ startLongitude: Double,
+        to endLatitude: Double, _ endLongitude: Double,
+        cities: [Source]? = nil, limit: Int = cityFeedLimit
     ) -> [Source] {
-        let candidates = cities ?? cityFeeds(near: latitude, longitude, limit: limit)
-        return [amtrak] + candidates.filter {
-            $0.area?.contains(latitude: latitude, longitude: longitude) ?? false
-        }.prefix(limit)
+        let nearStart = cities ?? cityFeeds(near: startLatitude, startLongitude, limit: limit)
+        let nearEnd = cities ?? cityFeeds(near: endLatitude, endLongitude, limit: limit)
+        func holdsStart(_ s: Source) -> Bool {
+            s.area?.contains(latitude: startLatitude, longitude: startLongitude) ?? false
+        }
+        func holdsEnd(_ s: Source) -> Bool {
+            s.area?.contains(latitude: endLatitude, longitude: endLongitude) ?? false
+        }
+        var out: [Source] = []
+        func add(_ s: Source) {
+            if !out.contains(where: { $0.name == s.name }) { out.append(s) }
+        }
+        for s in nearStart + nearEnd where holdsStart(s) && holdsEnd(s) { add(s) }
+        if let s = nearStart.first(where: holdsStart) { add(s) }
+        if let s = nearEnd.first(where: holdsEnd) { add(s) }
+        return Array(out.prefix(max(0, limit)))
     }
 
     /// The most schedule text this device will read out of one feed. A big
@@ -164,6 +184,8 @@ actor TransitFeeds {
         let prefix: String
         let stamp: TransitShard.Stamp
         let credit: String
+        /// The operators whose times are in it, as riders know them.
+        var operators: [String] = []
     }
 
     enum Failure: Error, Equatable {
@@ -270,7 +292,8 @@ actor TransitFeeds {
         let prefix = root().appendingPathComponent(name)
         if let stamp = TransitShard.stamp(prefix: prefix.path), stamp.serviceDate == date {
             return Ready(prefix: prefix.path, stamp: stamp,
-                         credit: Self.credit(for: used.map(\.operatorName)))
+                         credit: Self.credit(for: used.map(\.operatorName)),
+                         operators: used.map(\.operatorName))
         }
         do {
             if parts.count == 1 {
@@ -279,7 +302,8 @@ actor TransitFeeds {
                     feedDirectory: primaryFeed.path, prefix: prefix.path, serviceDate: date
                 )
                 sweepOldShards(before: date)
-                return Ready(prefix: prefix.path, stamp: stamp, credit: primary.credit)
+                return Ready(prefix: prefix.path, stamp: stamp, credit: primary.credit,
+                             operators: [primary.operatorName])
             }
             let merged = try TransitShard.build(
                 feeds: parts.map { .init(directory: $0.feed.path, shiftSeconds: $0.shift) },
@@ -301,7 +325,8 @@ actor TransitFeeds {
             }
             sweepOldShards(before: date)
             return Ready(prefix: prefix.path, stamp: merged.stamp,
-                         credit: Self.credit(for: used.map(\.operatorName)))
+                         credit: Self.credit(for: used.map(\.operatorName)),
+                         operators: used.map(\.operatorName))
         } catch let failure as Failure {
             throw failure
         } catch {

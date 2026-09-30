@@ -157,10 +157,11 @@ What runs today:
   the rest are best effort. A city feed Rust skips (lapsed calendar,
   malformed files) is remembered as unusable for the day and the shard is
   rebuilt without it, so a shard's name, contents and credit line always
-  agree. Amtrak alone keeps its old path and cache name byte for byte. The
-  rail card asks `TransitFeeds.sources(endingAt:)` — Amtrak plus any allowed
-  city feed whose area holds the destination — and credits every operator
-  shown ("Schedules from Amtrak and LA Metro").
+  agree. Amtrak alone keeps its old path and cache name byte for byte. (Until
+  2026-09-30 the rail card merged Amtrak with the destination's city feeds
+  through `TransitFeeds.sources(endingAt:)`; the combinations below replaced
+  that with separate city legs — the merge now joins neighbouring CITY feeds
+  for one leg.)
 - **City buses ON (2026-09-29) — the owner's rule: every API-key-free feed
   by default.** `flows-train`'s `feeds-table` compiles MobilityData's current
   export (`files.mobilitydatabase.org/feeds_v2.csv`; the older bit.ly
@@ -203,6 +204,57 @@ What runs today:
     is chosen by the whole trip (access walk delays boarding, egress walk
     adds). Result: 1 change — the Hiawatha, a 10-minute walk, Route 30 —
     arriving 10:39.
+- **Any mix of toggles is one trip (2026-09-30) — the owner's rule.** The
+  Routes card has Drive | Walk and four toggles: train, bus, plane and (new)
+  rental car. "Car, bus and train" means drive to the train and take the bus
+  from the far station; "walk, bus and plane" means the city bus to the
+  airport and from it — unless the rental car is on too, which is then picked
+  up where the plane lands. `flows_core::trip_shape::shape` reads a selection
+  and the trip's length and returns one shape, with a test over every one of
+  the 31 selections at three distances:
+
+  | Part | Rule |
+  | --- | --- |
+  | Main ride | plane when flying is worth it (≥ 100 mi), else Amtrak (train, > 60 mi), else Greyhound (bus, > 60 mi); none on a short trip |
+  | Way there | Drive: walk if ≤ 45 min, else drive and park. Walk: the city's buses/trains when chosen and ≥ 5 min faster than walking, else walk (ride share past 45 min) |
+  | Way from | rental car when on; else the city's buses/trains when chosen and ≥ 5 min faster; else walk (from an airport: walk, ride share, or rent/ride) |
+  | Short trip | city buses/trains door to door on one card; a rental car alone is picked up near the start on its own card |
+  | Plane too short | its card says why; the ground toggles make the trip |
+
+  A train choice accepts the city's trains, a bus choice its buses. The
+  planner holds to that with a **vehicle mask** (`transit::Mode::bit`,
+  `TRAIN_VEHICLES`, `BUS_VEHICLES`; `raptor::plan_vehicles`,
+  `Shard::board_vehicles`, `nearest_stops_vehicles`, and a mask argument on
+  `flows_transit_departures`) — but not at any cost: another city vehicle
+  takes a leg when none of the chosen ones can, or it is ≥ 15 min faster, and
+  the card says so. Found live: MSP's link to downtown Minneapolis is the
+  Blue Line light rail, and buses alone went by way of St. Paul.
+
+  Each city leg is its own query on a shard of only the city feeds at its
+  ends (`TransitFeeds.citySources`), and Amtrak is asked separately, from
+  the station the rider is actually going to, for when they get there — so
+  the mask never touches the connecting buses Amtrak runs as part of the
+  train, and a 40-minute drive to the station is no longer charged as a
+  7-hour walk. The legs carry stop coordinates (four new fields on each
+  `leg` row) so a city ride is drawn stop to stop and walked to by MapKit;
+  `TransitSchedule.joined` shows the whole trip's timetables as one clock
+  door to door, every operator credited. The card appears at once with the
+  walk, drive or rental, then again as the timetables answer; the ride leg
+  takes the train's own time once Amtrak's timetable has it.
+
+  Proved live in the simulator: Chicago → UW-Milwaukee by car, train and bus
+  (drive to Union Station 18 min, Hiawatha 6:10–7:49, MCTS 12 and 66 to
+  Hartford & Maryland 8:37); Chicago → Minneapolis on foot with bus and plane
+  (Blue Line from MSP Terminal 2 with the note); the same with a rental car
+  (counters 0.3–0.5 mi from MSP, each booked through the FAWN link); a short
+  Milwaukee trip with bus and rental (Route 30 card, and a rental card from
+  the nearest counter).
+
+  Two things the run showed that are not fixed here: CTA's timetable is over
+  the phone's 80 MB parse limit, so a Chicago city leg falls back to walking
+  or a ride share on a phone; and MapKit's rental search from one city about
+  another returned the first city's counters, 340 miles off — now a hard
+  search box (iOS 18/macOS 15) plus a 20-mile cutoff.
 - **Still ahead:** `backbone.ftt` (Amtrak + VIA), `manifest.ftm`, and the
   mmap zero-copy reader.
 

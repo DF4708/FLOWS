@@ -21,7 +21,11 @@
 //! leg  ␟ board_name ␟ board_code ␟ board_zone
 //!      ␟ alight_name ␟ alight_code ␟ alight_zone
 //!      ␟ route_name ␟ mode ␟ dep_secs ␟ arr_secs
+//!      ␟ board_lat ␟ board_lon ␟ alight_lat ␟ alight_lon
 //! ```
+//!
+//! A departures query also takes a vehicle mask — `transit::Mode` bits, 0 for
+//! every vehicle — so a rider who chose the bus is planned on buses alone.
 //!
 //! Times are seconds from the service day's start, in the agency's zone — NOT
 //! a wall clock and NOT local to the station. Swift turns them into clocks
@@ -51,7 +55,29 @@ mod ffi {
             max_station_meters: f64,
             depart_seconds: i64,
             limit: i64,
+            vehicles: i64,
         ) -> Vec<String>;
+        fn flows_transit_trip_shape(
+            on_foot: bool,
+            train: bool,
+            bus: bool,
+            plane: bool,
+            rental: bool,
+            trip_miles: f64,
+        ) -> i64;
+        fn flows_transit_beats_walk(
+            walk_seconds: f64,
+            walk_known: bool,
+            transit_seconds: f64,
+        ) -> bool;
+        fn flows_transit_other_vehicle_wins(
+            chosen_seconds: f64,
+            chosen_known: bool,
+            other_seconds: f64,
+        ) -> bool;
+        fn flows_transit_all_vehicles() -> i64;
+        fn flows_transit_long_haul_miles() -> f64;
+        fn flows_transit_far_walk_seconds() -> f64;
     }
 }
 
@@ -60,7 +86,8 @@ use std::path::Path;
 use crate::contain;
 use flows_core::transit::gtfs::{FeedInput, LINK_WALK_MPS};
 use flows_core::transit::shard::{self, BuildReport, Departure, NearStop, Shard};
-use flows_core::transit::Time;
+use flows_core::transit::{Time, ALL_VEHICLES};
+use flows_core::trip_shape::{self, Picked};
 
 /// The separator between fields. U+001F is not a character a station name,
 /// route name or zone id carries.
@@ -231,7 +258,8 @@ fn dep_rows(d: &Departure, out: &mut Vec<String>) {
     ));
     for l in &d.legs {
         out.push(format!(
-            "leg{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}",
+            "leg{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}\
+             {UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}",
             l.board_name,
             l.board_code,
             l.board_zone,
@@ -241,7 +269,11 @@ fn dep_rows(d: &Departure, out: &mut Vec<String>) {
             l.route_name,
             l.mode,
             l.dep,
-            l.arr
+            l.arr,
+            l.board_lat,
+            l.board_lon,
+            l.alight_lat,
+            l.alight_lon
         ));
     }
 }
@@ -263,6 +295,7 @@ pub fn flows_transit_departures(
     max_station_meters: f64,
     depart_seconds: i64,
     limit: i64,
+    vehicles: i64,
 ) -> Vec<String> {
     contain(err_rows("transit: departures panicked"), || {
         let s = match open_or_err(prefix) {
@@ -271,15 +304,23 @@ pub fn flows_transit_departures(
         };
         let depart = u32::try_from(depart_seconds.max(0)).unwrap_or(0);
         let want = usize::try_from(limit).unwrap_or(0).clamp(1, 8);
+        let vehicles = vehicle_mask(vehicles);
 
         const CANDIDATES: usize = 5;
-        let boards = s.nearest_stops(
+        let boards = s.nearest_stops_vehicles(
             from_latitude,
             from_longitude,
             max_station_meters,
             CANDIDATES,
+            vehicles,
         );
-        let alights = s.nearest_stops(to_latitude, to_longitude, max_station_meters, CANDIDATES);
+        let alights = s.nearest_stops_vehicles(
+            to_latitude,
+            to_longitude,
+            max_station_meters,
+            CANDIDATES,
+            vehicles,
+        );
         if boards.is_empty() || alights.is_empty() {
             return err_rows("transit: no station near one end of this trip");
         }
@@ -298,7 +339,11 @@ pub fn flows_transit_departures(
                     continue;
                 }
                 let leave = depart.saturating_add(walk(b.meters));
-                let Some(d) = s.board(b.stop, a.stop, leave, 1).into_iter().next() else {
+                let Some(d) = s
+                    .board_vehicles(b.stop, a.stop, leave, 1, vehicles)
+                    .into_iter()
+                    .next()
+                else {
                     continue;
                 };
                 let total = d.cost() + u64::from(walk(a.meters));
@@ -312,7 +357,7 @@ pub fn flows_transit_departures(
         let Some((b, a, leave, _)) = best else {
             return err_rows("transit: no ride between those stations today");
         };
-        let found = s.board(b.stop, a.stop, leave, want);
+        let found = s.board_vehicles(b.stop, a.stop, leave, want, vehicles);
         let mut out = vec![
             info_row(&s),
             format!("od{UNIT}{}{UNIT}{}", near_fields(b), near_fields(a)),
@@ -322,6 +367,71 @@ pub fn flows_transit_departures(
         }
         out
     })
+}
+
+/// The vehicles a query may board, from the Swift side's mask of
+/// `transit::Mode` bits. Zero, or anything that is not a mask, means the
+/// rider named no vehicle — every one is allowed.
+fn vehicle_mask(vehicles: i64) -> u8 {
+    match u8::try_from(vehicles) {
+        Ok(v) if v != 0 && v & !ALL_VEHICLES == 0 => v,
+        _ => ALL_VEHICLES,
+    }
+}
+
+/// One selection of toggles read as one trip (`flows_core::trip_shape`),
+/// packed a byte per part.
+pub fn flows_transit_trip_shape(
+    on_foot: bool,
+    train: bool,
+    bus: bool,
+    plane: bool,
+    rental: bool,
+    trip_miles: f64,
+) -> i64 {
+    let picked = Picked {
+        on_foot,
+        train,
+        bus,
+        plane,
+        rental,
+    };
+    contain(0, || {
+        trip_shape::pack(trip_shape::shape(picked, trip_miles))
+    })
+}
+
+/// Whether a city ride of `transit_seconds` should replace a walk.
+pub fn flows_transit_beats_walk(walk_seconds: f64, walk_known: bool, transit_seconds: f64) -> bool {
+    contain(false, || {
+        trip_shape::transit_beats_walk(walk_known.then_some(walk_seconds), transit_seconds)
+    })
+}
+
+/// Whether a city trip on any vehicle should replace the rider's chosen one.
+pub fn flows_transit_other_vehicle_wins(
+    chosen_seconds: f64,
+    chosen_known: bool,
+    other_seconds: f64,
+) -> bool {
+    contain(false, || {
+        trip_shape::other_vehicle_wins(chosen_known.then_some(chosen_seconds), other_seconds)
+    })
+}
+
+/// The mask that boards every vehicle — a rider who chose them all.
+pub fn flows_transit_all_vehicles() -> i64 {
+    i64::from(ALL_VEHICLES)
+}
+
+/// Past this many miles a train or bus toggle means the intercity service.
+pub fn flows_transit_long_haul_miles() -> f64 {
+    trip_shape::LONG_HAUL_MILES
+}
+
+/// A walk to a station longer than this is driven, or offered a ride share.
+pub fn flows_transit_far_walk_seconds() -> f64 {
+    trip_shape::FAR_WALK_SECONDS
 }
 
 #[cfg(test)]
@@ -389,6 +499,45 @@ mod tests {
             "mid-Atlantic"
         );
         assert!(flows_transit_city_feeds(43.0, -87.9, 0).is_empty());
+    }
+
+    #[test]
+    fn a_vehicle_mask_that_is_not_one_means_every_vehicle() {
+        use flows_core::transit::{BUS_VEHICLES, TRAIN_VEHICLES};
+        assert_eq!(vehicle_mask(0), ALL_VEHICLES);
+        assert_eq!(vehicle_mask(-1), ALL_VEHICLES);
+        assert_eq!(vehicle_mask(1 << 9), ALL_VEHICLES);
+        assert_eq!(
+            vehicle_mask(0b10_0000),
+            ALL_VEHICLES,
+            "a bit no vehicle has"
+        );
+        assert_eq!(vehicle_mask(i64::from(BUS_VEHICLES)), BUS_VEHICLES);
+        assert_eq!(vehicle_mask(i64::from(TRAIN_VEHICLES)), TRAIN_VEHICLES);
+    }
+
+    #[test]
+    fn the_trip_shape_crosses_as_the_core_packs_it() {
+        let packed = flows_transit_trip_shape(false, true, true, false, false, 400.0);
+        let core = trip_shape::pack(trip_shape::shape(
+            Picked {
+                on_foot: false,
+                train: true,
+                bus: true,
+                plane: false,
+                rental: false,
+            },
+            400.0,
+        ));
+        assert_eq!(packed, core);
+        assert_eq!(packed & 0xFF, trip_shape::Main::Train as i64);
+        assert!(flows_transit_beats_walk(0.0, false, 60.0));
+        assert!(!flows_transit_beats_walk(600.0, true, 590.0));
+        assert!(flows_transit_other_vehicle_wins(0.0, false, 60.0));
+        assert!(!flows_transit_other_vehicle_wins(1_000.0, true, 900.0));
+        assert_eq!(flows_transit_all_vehicles(), i64::from(ALL_VEHICLES));
+        assert!(flows_transit_long_haul_miles() > 0.0);
+        assert!(flows_transit_far_walk_seconds() > 0.0);
     }
 
     #[test]

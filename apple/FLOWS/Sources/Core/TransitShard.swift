@@ -32,6 +32,22 @@ enum TransitShard {
         /// Seconds from the service day's start, in the AGENCY's zone.
         let departSeconds: Int
         let arriveSeconds: Int
+        /// Where the rider gets on and off — so a city bus leg can be drawn
+        /// stop to stop and walked to. Nil from a row that did not say.
+        var boardLatitude: Double? = nil
+        var boardLongitude: Double? = nil
+        var alightLatitude: Double? = nil
+        var alightLongitude: Double? = nil
+
+        var boardCoordinate: CLLocationCoordinate2D? {
+            guard let boardLatitude, let boardLongitude else { return nil }
+            return CLLocationCoordinate2D(latitude: boardLatitude, longitude: boardLongitude)
+        }
+
+        var alightCoordinate: CLLocationCoordinate2D? {
+            guard let alightLatitude, let alightLongitude else { return nil }
+            return CLLocationCoordinate2D(latitude: alightLatitude, longitude: alightLongitude)
+        }
     }
 
     /// One whole itinerary the rider could take.
@@ -158,6 +174,9 @@ enum TransitShard {
     // -- Asking ---------------------------------------------------------------
 
     /// What leaves after `departing` on the trip's own service day.
+    ///
+    /// `vehicles` limits which vehicles are boarded — `TripShape`'s mask of
+    /// the timetable's mode bits; 0 boards every vehicle.
     static func departures(
         prefix: String,
         from: CLLocationCoordinate2D,
@@ -165,7 +184,8 @@ enum TransitShard {
         departing: Date,
         stamp known: Stamp,
         maxStationMeters: Double = 40_000,
-        limit: Int = 4
+        limit: Int = 4,
+        vehicles: Int = 0
     ) throws -> Answer {
         guard let seconds = TransitClock.seconds(
             at: departing, serviceDate: known.serviceDate, agencyZone: known.agencyZone
@@ -173,7 +193,7 @@ enum TransitShard {
 
         let rows = decode(flows_transit_departures(
             prefix, from.latitude, from.longitude, to.latitude, to.longitude,
-            maxStationMeters, Int64(max(0, seconds)), Int64(limit)
+            maxStationMeters, Int64(max(0, seconds)), Int64(limit), Int64(vehicles)
         ))
         if let message = firstError(rows) {
             if message.contains("no station near") { throw Failure.noneNearby }
@@ -258,12 +278,19 @@ enum TransitShard {
                     : nil
             case "leg":
                 guard row.count >= 11 else { continue }
-                rides.append(Ride(
+                var ride = Ride(
                     boardName: row[1], boardCode: row[2], boardZone: row[3],
                     alightName: row[4], alightCode: row[5], alightZone: row[6],
                     routeName: row[7], mode: Int(row[8]) ?? 0,
                     departSeconds: Int(row[9]) ?? 0, arriveSeconds: Int(row[10]) ?? 0
-                ))
+                )
+                if row.count >= 15 {
+                    ride.boardLatitude = Double(row[11])
+                    ride.boardLongitude = Double(row[12])
+                    ride.alightLatitude = Double(row[13])
+                    ride.alightLongitude = Double(row[14])
+                }
+                rides.append(ride)
             default:
                 continue
             }
@@ -282,17 +309,19 @@ extension TransitShard {
     /// "Then 8:15 AM, 10:15 AM", because the useful question after "when does
     /// it leave" is "and when is the next one".
     /// Plain words for the engine's mode byte. Someone waits for a bus, not
-    /// for a "coach" and certainly not for a "mode 3".
+    /// for a "coach" and certainly not for a "mode 3". Everything on rails is
+    /// a train: mode 1 holds trams and light rail as well as subways, and
+    /// Minneapolis's airport light rail read "Subway" on the card.
     static func vehicleWord(_ mode: Int) -> String {
         switch mode {
-        case 1: return "Subway"
         case 2, 3: return "Bus"
         default: return "Train"
         }
     }
 
     static func schedule(
-        from answer: Answer, credit: String, laterCount: Int = 2, locale: Locale = .current
+        from answer: Answer, credit: String, operators: [String] = [], laterCount: Int = 2,
+        locale: Locale = .current
     ) -> TransitSchedule? {
         guard let first = answer.departures.first,
               let ride = first.rides.first,
@@ -341,7 +370,12 @@ extension TransitShard {
             rideSeconds: TimeInterval(first.arriveSeconds - first.departSeconds),
             laterClocks: later,
             credit: credit,
-            asOf: TransitClock.publishedNote(answer.stamp.published)
+            asOf: TransitClock.publishedNote(answer.stamp.published),
+            boardAt: board,
+            boardZone: ride.boardZone,
+            alightAt: arrive,
+            alightZone: endZone,
+            operators: operators
         )
     }
 }
