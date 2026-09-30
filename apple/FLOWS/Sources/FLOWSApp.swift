@@ -37,6 +37,11 @@ final class AppModel: ObservableObject {
     /// The selected public-transit itinerary (walk → ride → walk), drawn on the
     /// map and stepped in-app. Cleared whenever drive routes are (re)presented.
     @Published var transitItinerary: TransitItinerary?
+    /// The rider tapped a road (a drive or a walk) to look at it while
+    /// transit cards were up. A card that updates later — a timetable
+    /// answering — must not draw its trip back over the road they chose.
+    /// Cleared when a transit card is tapped or the toggles change.
+    var roadChosenOverTransit = false
     /// Transit planning state on the CHOICES screen: which rail/bus/plane
     /// toggles are on and each mode's computed option card. On the model, not
     /// view @State — rotating the phone flips the size class, which rebuilds
@@ -3551,6 +3556,7 @@ final class AppModel: ObservableObject {
             return
         }
         transitItinerary = nil   // drive routes replace any transit overlay
+        roadChosenOverTransit = false
         // A fresh plan resets the transit pickers: cancel in-flight
         // computations, drop stale option cards, untoggle rail/bus/plane.
         transitTasks.values.forEach { $0.cancel() }
@@ -4512,6 +4518,7 @@ final class AppModel: ObservableObject {
         // could land mid-drive and flip an active drive into passenger mode,
         // blanking the speed sign and the camera list.
         transitItinerary = nil
+        roadChosenOverTransit = false
         transitTasks.values.forEach { $0.cancel() }
         transitTasks = [:]
         transitOptions = [:]

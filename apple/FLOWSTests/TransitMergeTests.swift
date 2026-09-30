@@ -348,6 +348,18 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertEqual(one.alightName, "Uptown")
         XCTAssertEqual(TransitSchedule.joined([train]), train)
         XCTAssertNil(TransitSchedule.joined([]))
+
+        // Door to door: 10 minutes' walk to the first bus, the timetable's
+        // 8:00 → 10:40 with every connection's wait inside it, 5 minutes'
+        // walk after — 2 h 55 m, not the rides and walks added up.
+        XCTAssertEqual(TransitItinerary.doorToDoor(before: 600, schedule: one, after: 300),
+                       600 + 9_600 + 300)
+        XCTAssertEqual(TransitItinerary.doorToDoor(before: nil, schedule: one, after: nil), 9_600)
+        let noClock = TransitSchedule(
+            legs: one.legs, boardName: "A", alightName: "B", routeName: "", clockSpan: "",
+            rideSeconds: 60, laterClocks: [], credit: "", asOf: "")
+        XCTAssertNil(TransitItinerary.doorToDoor(before: 600, schedule: noClock, after: 300),
+                     "an estimate has no clock, and its total stays its legs'")
     }
 
     func testCityRidesAreSaidTheWayRidersSayThem() {

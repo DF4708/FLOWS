@@ -61,8 +61,29 @@ struct TransitItinerary {
     /// station-to-station connector fallback (false). Gates the "follows the
     /// roads/corridor" claim so it never overstates a straight-line fallback.
     var rideGeometryIsReal: Bool = true
+    /// Door to door once the timetables have answered — see
+    /// ``doorToDoor(before:schedule:after:)``. Nil on an estimate.
+    var doorToDoorSeconds: TimeInterval? = nil
 
-    var totalSeconds: TimeInterval { legs.compactMap(\.seconds).reduce(0, +) }
+    /// What the card's header says the trip takes. The legs alone leave out
+    /// every wait for a connection: Chicago to Milwaukee by train and two
+    /// city buses read 2 h 28 m when its own timetable said 2 h 43 m.
+    var totalSeconds: TimeInterval {
+        doorToDoorSeconds ?? legs.compactMap(\.seconds).reduce(0, +)
+    }
+
+    /// Door to door around a timetable: `before` getting to the first vehicle,
+    /// the timetable's own span from boarding it to leaving the last one —
+    /// every connection's wait inside it — and `after` from there. The wait
+    /// for the first vehicle is not counted: a rider leaves later instead.
+    /// Nil without a timetable's clock.
+    static func doorToDoor(before: TimeInterval?, schedule: TransitSchedule?,
+                           after: TimeInterval?) -> TimeInterval? {
+        guard let on = schedule?.boardAt, let off = schedule?.alightAt, off >= on else {
+            return nil
+        }
+        return (before ?? 0) + off.timeIntervalSince(on) + (after ?? 0)
+    }
 
     /// The long ride — the train, coach or flight — as opposed to a city bus
     /// or train ridden to or from it.

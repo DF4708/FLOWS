@@ -42,13 +42,26 @@ struct RouteChoicesView: View {
     private func replanForMode() async {
         guard let ep = model.lastPlanEndpointsPublic else { return }
         // A drive replan supersedes any in-flight transit calc; present()
-        // below clears the option cards, toggles, and walk+ride offer too.
+        // below clears the option cards and walk+ride offer too.
         model.transitTasks.values.forEach { $0.cancel() }
         model.transitTasks = [:]
         if let planned = try? await model.plan(from: ep.from, fromName: ep.fromName,
                                                to: ep.to, toName: ep.toName) {
+            // The same trip on foot or by car, so the train, bus, plane and
+            // rental toggles stay on: "walk, bus and plane" is one choice
+            // whichever order it was made in, and present() — built for a
+            // new destination — turned them all off when Walk came last.
+            let chosen = model.activeTransitModes
             model.present(routes: planned)
+            // (Behind a trip being driven, present() leaves the transit state
+            // to that trip, and so does this.)
+            guard model.mode == .choosing else { return }
+            model.activeTransitModes = chosen
         }
+        // Read them again for the new way of travel (TripShape): a walker
+        // rides the bus to the station where a driver drove.
+        guard model.mode == .choosing else { return }
+        reshapeTransit()
     }
 
     // MARK: - The selection as one trip
@@ -61,9 +74,17 @@ struct RouteChoicesView: View {
         model.transitTasks.values.forEach { $0.cancel() }
         model.transitTasks = [:]
         model.transitOptions = [:]
+        model.roadChosenOverTransit = false
         if model.transitItinerary?.mode != "Walk + ride" { model.transitItinerary = nil }
         guard !model.activeTransitModes.isEmpty, let shape = currentShape() else { return }
         launchCards(shape, active: model.activeTransitModes)
+    }
+
+    /// Draw a card's trip on the map as it computes — unless the rider has
+    /// since tapped a road to look at it: the map hides the roads under a
+    /// transit trip, so a timetable answering later took their road away.
+    private func draw(_ itinerary: TransitItinerary) {
+        if !model.roadChosenOverTransit { model.transitItinerary = itinerary }
     }
 
     /// The trip the toggles describe right now (or `modes`, when given).
@@ -448,11 +469,23 @@ struct RouteChoicesView: View {
             }
             let legs = access.legs + (ride.map { [$0] } ?? []) + egress.legs
             let fare = mainFare + cityFare(legs)
-            let itinerary = TransitItinerary(
+            // One timetable door to door: the city ride to the station, the
+            // train, the city ride from it — shown only once the train's own
+            // times are known, so the clock is the trip's.
+            let schedule = train.flatMap {
+                TransitSchedule.joined([access.schedule, $0, egress.schedule].compactMap { $0 })
+            }
+            var itinerary = TransitItinerary(
                 mode: kind, legs: legs, fare: fare, mapsDestination: dest,
                 rideGeometryIsApproximate: hasRide,
                 rideGeometryIsReal: ridePolyOpt != nil)
-            model.transitItinerary = itinerary   // latest computed draws on the map
+            // A city part's own first (or last) leg is the walk to (or from)
+            // its stop; the rest of it is inside the timetable's span.
+            itinerary.doorToDoorSeconds = TransitItinerary.doorToDoor(
+                before: access.schedule != nil ? access.legs.first?.seconds : access.seconds,
+                schedule: schedule,
+                after: egress.schedule != nil ? egress.legs.last?.seconds : egress.seconds)
+            draw(itinerary)   // latest computed draws on the map
             let accessVerb = access.legs.contains { $0.local } ? "City bus or train"
                 : access.legs.first?.kind == .drive ? "Drive" : "Walk"
             let tail = egress.legs.contains { $0.rental } ? " · then a rental car from \(offName)"
@@ -469,12 +502,7 @@ struct RouteChoicesView: View {
                 fare: fare, destination: dest,
                 ticketLabel: ticketLabel, ticketURL: ticketURL,
                 itinerary: itinerary,
-                // One timetable door to door: the city ride to the station,
-                // the train, the city ride from it — shown only once the
-                // train's own times are known, so the clock is the trip's.
-                schedule: train.flatMap {
-                    TransitSchedule.joined([access.schedule, $0, egress.schedule].compactMap { $0 })
-                },
+                schedule: schedule,
                 rentals: rentals,
                 rentalCompareURL: compare,
                 notes: [access.note, egress.note].compactMap { $0 })
@@ -614,10 +642,13 @@ struct RouteChoicesView: View {
         for leg in trip.legs where leg.local {
             if let word = leg.vehicle, !vehicles.contains(word) { vehicles.append(word) }
         }
-        let itinerary = TransitItinerary(
+        var itinerary = TransitItinerary(
             mode: "City", legs: trip.legs, fare: fare, mapsDestination: dest,
             rideGeometryIsApproximate: true, rideGeometryIsReal: false)
-        model.transitItinerary = itinerary
+        itinerary.doorToDoorSeconds = TransitItinerary.doorToDoor(
+            before: trip.legs.first?.seconds, schedule: trip.schedule,
+            after: trip.legs.last?.seconds)
+        draw(itinerary)
         let what = vehicles.isEmpty ? "Bus" : vehicles.joined(separator: " + ")
         model.transitOptions[key] = TransitOption(
             title: "\(what) from \(trip.schedule.boardName)",
@@ -668,7 +699,7 @@ struct RouteChoicesView: View {
         let itinerary = TransitItinerary(
             mode: "Rental car", legs: legs, fare: 0, mapsDestination: dest,
             rideGeometryIsApproximate: false)
-        model.transitItinerary = itinerary
+        draw(itinerary)
         model.transitOptions[.rental] = TransitOption(
             title: "Rental car from \(office.name)",
             detail: "\(access.legs.first?.kind == .drive ? "Drive" : "Walk") "
@@ -803,7 +834,7 @@ struct RouteChoicesView: View {
             let itinerary = TransitItinerary(
                 mode: "Plane", legs: legs, fare: fare, mapsDestination: dest,
                 rideGeometryIsApproximate: true)
-            model.transitItinerary = itinerary
+            draw(itinerary)
             let accessVerb = access.legs.contains { $0.local } ? "City bus or train"
                 : access.legs.first?.kind == .drive ? "Drive" : "Walk"
             model.transitOptions[.plane] = TransitOption(
@@ -990,7 +1021,9 @@ struct RouteChoicesView: View {
             model.transitOptions[mode] = nil
         }
         model.activeTransitModes.subtract(gone)
-        if let next = TransitMode.allCases.first(where: {
+        if model.roadChosenOverTransit {
+            // The rider is looking at a road; closing a card leaves it be.
+        } else if let next = TransitMode.allCases.first(where: {
             model.transitOptions[$0]?.itinerary != nil
         }) {
             model.transitItinerary = model.transitOptions[next]?.itinerary
@@ -1291,7 +1324,10 @@ struct RouteChoicesView: View {
         // Tapping a transit card draws ITS itinerary on the map (rail and bus
         // cards can both be open; the tapped one is shown).
         .onTapGesture {
-            if let itin = t.itinerary { model.transitItinerary = itin }
+            if let itin = t.itinerary {
+                model.roadChosenOverTransit = false
+                model.transitItinerary = itin
+            }
         }
     }
 
@@ -1675,7 +1711,10 @@ struct RouteChoicesView: View {
         .background(Color.green.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         // Tapping draws the ride + walk legs on the map, like the transit cards.
-        .onTapGesture { model.transitItinerary = h.itinerary }
+        .onTapGesture {
+            model.roadChosenOverTransit = false
+            model.transitItinerary = h.itinerary
+        }
     }
 
     private func hailButtonLabel(_ text: String) -> some View {
@@ -1789,6 +1828,12 @@ struct RouteChoicesView: View {
 
     private func highlight(_ route: PlannedRoute) {
         model.highlightChosen(route.id)
+        // The map hides the roads while a train, bus or plane is drawn
+        // (ContentView), so tapping a road card with one up moved the camera
+        // to a route it never drew. The road the rider tapped is what shows;
+        // tapping a transit card brings its trip back.
+        model.roadChosenOverTransit = true
+        model.transitItinerary = nil
         // Same framing rule as the first plan: grow the rect on whichever
         // side the panel covers, so the route lands in the map the driver
         // can actually see (PlannerPanel.choicesCameraRect).
