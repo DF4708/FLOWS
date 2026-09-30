@@ -180,21 +180,22 @@ enum RentalCars {
         "FLOWS is paid a fee when you book a rental car through its "
         + "DiscoverCars links."
 
-    /// The same, for ONE place: the partner's own landing page for that city
-    /// ("…/usa-wisconsin/milwaukee?a_aid=FAWN"), built the way their
-    /// landing-page generator builds it. A place FLOWS cannot name that way
-    /// falls back to `compareURL`.
-    static func compareURL(near placemark: CLPlacemark?) -> URL? {
-        guard let placemark else { return compareURL }
-        return compareURL(country: placemark.isoCountryCode ?? "",
-                          region: placemark.administrativeArea ?? "",
-                          city: placemark.locality ?? placemark.subAdministrativeArea ?? "")
+    /// The partner's page for renting near ONE point: the nearest DiscoverCars
+    /// city ("…/usa-wisconsin/milwaukee?a_aid=FAWN"), else its state, else
+    /// the homepage. Built from DiscoverCars' own list of places — the map's
+    /// names are not theirs (Mexico City is "mexico/mexico"), and links
+    /// guessed from map names landed on 404s.
+    static func compareURL(near coordinate: CLLocationCoordinate2D) -> URL? {
+        URL(string: flows_rides_rental_landing_near(coordinate.latitude, coordinate.longitude).text)
+            ?? compareURL
     }
 
-    /// The same from a place FLOWS already names itself — an airport in its
-    /// own table carries its country, state and city.
-    static func compareURL(country: String, region: String, city: String) -> URL? {
-        URL(string: flows_rides_rental_landing_url(country, region, city).text) ?? compareURL
+    /// The arrival airport's own rental page ("…/usa-illinois/chicago/ord")
+    /// when DiscoverCars lists it; otherwise the best page near the airport.
+    static func compareURL(airport code: String, at coordinate: CLLocationCoordinate2D) -> URL? {
+        URL(string: flows_rides_rental_landing_airport(code, coordinate.latitude,
+                                                       coordinate.longitude).text)
+            ?? compareURL
     }
 
     /// Pick the offices worth showing: nearest office PER BRAND (an

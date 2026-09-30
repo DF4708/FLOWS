@@ -110,7 +110,8 @@ fn report_rows(r: &BuildReport) -> Vec<String> {
 }
 
 /// The city timetables that could carry the last leg of a trip ending at a
-/// point, best first: `feed␟id␟operator␟url␟licence␟minLat␟maxLat␟minLon␟maxLon`.
+/// point, best first: `feed␟id␟operator␟url␟licence␟minLat␟maxLat␟minLon␟maxLon␟mirror`
+/// (the mirror is the catalog's copy, tried when the publisher's link fails).
 /// The table is compiled in (see `flows_core::transit::feeds`), so this never
 /// touches the network. Feeds whose licence needs written permission for
 /// commercial use are never returned.
@@ -121,7 +122,7 @@ pub fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Ve
             .iter()
             .map(|f| {
                 format!(
-                    "feed{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}",
+                    "feed{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{}",
                     f.id,
                     flows_core::transit::feeds::operator_name(f.provider).replace(UNIT, " "),
                     f.url,
@@ -129,7 +130,8 @@ pub fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Ve
                     f.min_lat,
                     f.max_lat,
                     f.min_lon,
-                    f.max_lon
+                    f.max_lon,
+                    f.mirror
                 )
             })
             .collect()
@@ -375,7 +377,11 @@ mod tests {
         let rows = flows_transit_city_feeds(43.0389, -87.9065, 3);
         assert!(!rows.is_empty());
         let f: Vec<&str> = rows[0].split(UNIT).collect();
-        assert_eq!(f.len(), 9, "{:?}", rows[0]);
+        assert_eq!(f.len(), 10, "{:?}", rows[0]);
+        assert!(
+            f[9].starts_with("https://"),
+            "every feed has the catalog mirror"
+        );
         assert_eq!(f[0], "feed");
         assert!(f[3].starts_with("http"));
         assert!(

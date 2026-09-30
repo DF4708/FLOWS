@@ -134,22 +134,27 @@ final class TransitUpgradeTests: XCTestCase {
     }
 
     func testRentalCompareLinksCarryThePartnerTag() throws {
-        let milwaukee = try XCTUnwrap(
-            RentalCars.compareURL(country: "US", region: "US-WI", city: "Milwaukee"))
+        // Near a point: the nearest DiscoverCars city, spelled their way.
+        let milwaukee = try XCTUnwrap(RentalCars.compareURL(
+            near: CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)))
         XCTAssertEqual(milwaukee.absoluteString,
                        "https://www.discovercars.com/usa-wisconsin/milwaukee?a_aid=FAWN")
-        // An airport from FLOWS's own table names its own landing page.
-        let evansGA = CLLocationCoordinate2D(latitude: 33.5337, longitude: -82.1307)
-        let augusta = try XCTUnwrap(AirTravel.nearest(to: evansGA, limit: 1).first)
-        let link = try XCTUnwrap(RentalCars.compareURL(country: augusta.country,
-                                                       region: augusta.region,
-                                                       city: augusta.city))
-        XCTAssertEqual(link.absoluteString,
-                       "https://www.discovercars.com/usa-georgia/augusta?a_aid=FAWN")
-        // A place FLOWS cannot name that way still carries the tag.
-        let plain = try XCTUnwrap(RentalCars.compareURL(country: "FR", region: "", city: "Paris"))
-        XCTAssertTrue(plain.absoluteString.contains("a_aid=FAWN"), plain.absoluteString)
-        XCTAssertEqual(plain, RentalCars.compareURL)
+        // A map would call it "Mexico City"; DiscoverCars' page is mexico/mexico,
+        // and the old name-built link was a 404.
+        let mexico = try XCTUnwrap(RentalCars.compareURL(
+            near: CLLocationCoordinate2D(latitude: 19.4326, longitude: -99.1332)))
+        XCTAssertEqual(mexico.absoluteString, "https://www.discovercars.com/mexico/mexico?a_aid=FAWN")
+        // An arrival airport gets its own page, under the city DiscoverCars
+        // files it in (Chicago, not Rosemont where O'Hare sits).
+        let ohare = try XCTUnwrap(RentalCars.compareURL(
+            airport: "ORD", at: CLLocationCoordinate2D(latitude: 41.9786, longitude: -87.9048)))
+        XCTAssertEqual(ohare.absoluteString,
+                       "https://www.discovercars.com/usa-illinois/chicago/ord?a_aid=FAWN")
+        // Nowhere DiscoverCars reaches: the partner homepage, still tagged.
+        let paris = try XCTUnwrap(RentalCars.compareURL(
+            near: CLLocationCoordinate2D(latitude: 48.8566, longitude: 2.3522)))
+        XCTAssertEqual(paris, RentalCars.compareURL)
+        XCTAssertTrue(paris.absoluteString.contains("a_aid=FAWN"))
     }
 
     func testWorthFlyingThreshold() {

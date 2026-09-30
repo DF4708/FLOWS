@@ -534,7 +534,8 @@ int64_t __swift_bridge__$flows_rides_rental_brand_rank(struct RustStr name, bool
 void* __swift_bridge__$flows_rides_rental_booking_site(struct RustStr name, bool has_name);
 void* __swift_bridge__$flows_rides_rental_compare_url(void);
 void* __swift_bridge__$flows_rides_rental_partner_program_url(void);
-void* __swift_bridge__$flows_rides_rental_landing_url(struct RustStr country, struct RustStr region, struct RustStr city);
+void* __swift_bridge__$flows_rides_rental_landing_near(double latitude, double longitude);
+void* __swift_bridge__$flows_rides_rental_landing_airport(struct RustStr code, double latitude, double longitude);
 void* __swift_bridge__$flows_rides_recommend_rentals(struct RustStr names, struct __private__FfiSlice name_lengths, struct __private__FfiSlice miles, int64_t count, int64_t limit);
 uint8_t __swift_bridge__$flows_rides_radio_purpose(struct RustStr channel);
 bool __swift_bridge__$flows_rides_radio_is_car_band(struct RustStr channel);

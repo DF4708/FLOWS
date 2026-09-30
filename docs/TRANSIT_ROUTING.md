@@ -185,6 +185,16 @@ What runs today:
     open GTFS.
   - **Size limit.** A feed's schedule files are totalled from the archive
     index before downloading: 80 MB on a phone, 250 MB on a Mac, or skipped.
+    A HEAD request comes first: a host that will not serve byte ranges must
+    send the WHOLE archive, so its length is checked before a byte arrives
+    (60 MB phone / 250 MB Mac). In a sample of 21 hosts, 17 served ranges.
+  - **Dead links.** Publisher links go stale — 2 of that 21 were 404s. Every
+    feed in the table also carries MobilityData's mirror of its latest copy
+    (`files.mobilitydatabase.org/<id>/latest.zip`, which serves ranges); a
+    failed publisher fetch retries the mirror, except when the refusal was
+    for size, since the mirror is the same feed. Proved live on Casco Bay
+    Lines: publisher 404, mirror fetched, and the build then correctly
+    refused a timetable that ended in June.
   - **Routing fixes found by running it live** (Chicago → UW-Milwaukee took
     3 changes, the last a one-stop ride, arriving 11:06): stops within one
     CITY feed are now walkable within 400 m (the first feed's stay as

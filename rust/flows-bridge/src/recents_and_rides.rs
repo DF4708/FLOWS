@@ -113,7 +113,8 @@ mod ffi {
         fn flows_rides_rental_booking_site(name: &str, has_name: bool) -> String;
         fn flows_rides_rental_compare_url() -> String;
         fn flows_rides_rental_partner_program_url() -> String;
-        fn flows_rides_rental_landing_url(country: &str, region: &str, city: &str) -> String;
+        fn flows_rides_rental_landing_near(latitude: f64, longitude: f64) -> String;
+        fn flows_rides_rental_landing_airport(code: &str, latitude: f64, longitude: f64) -> String;
         fn flows_rides_recommend_rentals(
             names: &str,
             name_lengths: &[i64],
@@ -362,11 +363,20 @@ pub fn flows_rides_rental_partner_program_url() -> String {
     contain(String::new(), || rr::RENTAL_PARTNER_PROGRAM_URL.to_string())
 }
 
-/// `RentalCars.compareURL(country:region:city:)`: the partner landing page
-/// for ONE place, or the plain partner link when the place has no address.
-pub fn flows_rides_rental_landing_url(country: &str, region: &str, city: &str) -> String {
+/// `RentalCars.compareURL(near:)`: the partner page for renting near a point —
+/// the nearest DiscoverCars city, its state, or the homepage. Built from
+/// DiscoverCars' own place list, so it never lands on a 404.
+pub fn flows_rides_rental_landing_near(latitude: f64, longitude: f64) -> String {
     contain(rr::RENTAL_COMPARE_URL.to_string(), || {
-        rr::rental_landing_url(country, region, city)
+        flows_core::rental_places::landing_near(latitude, longitude)
+    })
+}
+
+/// `RentalCars.compareURL(airport:at:)`: the arrival airport's own rental
+/// page when DiscoverCars lists it, else the best page near it.
+pub fn flows_rides_rental_landing_airport(code: &str, latitude: f64, longitude: f64) -> String {
+    contain(rr::RENTAL_COMPARE_URL.to_string(), || {
+        flows_core::rental_places::landing_for_airport(code, latitude, longitude)
     })
 }
 

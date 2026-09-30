@@ -85,6 +85,8 @@ pub mod places;
 pub mod places_text;
 pub mod polyline;
 pub mod recents_and_rides;
+pub mod rental_places;
+mod rental_places_table;
 pub mod risk;
 pub mod risk_field;
 pub mod risk_summary;

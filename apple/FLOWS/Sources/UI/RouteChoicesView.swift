@@ -278,9 +278,10 @@ struct RouteChoicesView: View {
             ticketLabel: ticketLabel, ticketURL: ticketURL,
             itinerary: itinerary,
             rentals: await rentalsNearDest,
-            // The city the traveller gets off in, not the one they set out
-            // for: that is where they would pick a car up.
-            rentalCompareURL: RentalCars.compareURL(near: alight?.placemark))
+            // Where the traveller gets off, not where they set out from: that
+            // is where they would pick a car up. No arrival station means the
+            // destination itself.
+            rentalCompareURL: RentalCars.compareURL(near: alight?.placemark.coordinate ?? ep.to))
 
         // The card is on screen with its estimate; now replace the estimate
         // with the operator's actual timetable if we can get one. Deliberately
@@ -503,11 +504,10 @@ struct RouteChoicesView: View {
             ticketLabel: ticket.label, ticketURL: ticket.url,
             itinerary: itinerary,
             rentals: await rentalsAtAirport,
-            // The city the flight lands in — FLOWS's own airport table knows
-            // its state, which the landing page is named for.
+            // The airport the flight lands at — its own rental page when
+            // DiscoverCars lists it ("…/chicago/ord"), else the best page near it.
             rentalCompareURL: ends.map {
-                RentalCars.compareURL(country: $0.alight.country, region: $0.alight.region,
-                                      city: $0.alight.city)
+                RentalCars.compareURL(airport: $0.alight.code, at: $0.alight.coordinate)
             } ?? RentalCars.compareURL)
     }
 

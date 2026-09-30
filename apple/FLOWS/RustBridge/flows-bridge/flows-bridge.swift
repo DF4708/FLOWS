@@ -2795,13 +2795,12 @@ public func flows_rides_rental_compare_url() -> RustString {
 public func flows_rides_rental_partner_program_url() -> RustString {
     RustString(ptr: __swift_bridge__$flows_rides_rental_partner_program_url())
 }
-public func flows_rides_rental_landing_url<GenericToRustStr: ToRustStr>(_ country: GenericToRustStr, _ region: GenericToRustStr, _ city: GenericToRustStr) -> RustString {
-    return city.toRustStr({ cityAsRustStr in
-        return region.toRustStr({ regionAsRustStr in
-        return country.toRustStr({ countryAsRustStr in
-        RustString(ptr: __swift_bridge__$flows_rides_rental_landing_url(countryAsRustStr, regionAsRustStr, cityAsRustStr))
-    })
-    })
+public func flows_rides_rental_landing_near(_ latitude: Double, _ longitude: Double) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_rides_rental_landing_near(latitude, longitude))
+}
+public func flows_rides_rental_landing_airport<GenericToRustStr: ToRustStr>(_ code: GenericToRustStr, _ latitude: Double, _ longitude: Double) -> RustString {
+    return code.toRustStr({ codeAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_rides_rental_landing_airport(codeAsRustStr, latitude, longitude))
     })
 }
 public func flows_rides_recommend_rentals<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ miles: UnsafeBufferPointer<Double>, _ count: Int64, _ limit: Int64) -> RustVec<Int64> {

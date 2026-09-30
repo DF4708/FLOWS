@@ -4122,6 +4122,8 @@ struct SettingsSheet: View {
                  + "MobilityData's free list of transit schedules. Each service's "
                  + "own terms apply.\n"
                  + "Airports: OurAirports, public domain.\n"
+                 + "Town locations for rental car links: GeoNames (geonames.org), "
+                 + "licensed CC BY 4.0.\n"
                  + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
                  + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
                  + "data. FLOWS is not affiliated with any of these agencies.")

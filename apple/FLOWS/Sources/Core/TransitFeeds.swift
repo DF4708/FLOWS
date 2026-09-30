@@ -43,6 +43,9 @@ actor TransitFeeds {
         /// every trip; a city feed is fetched only for trips that END inside
         /// its box, because that is the last leg it can carry.
         var area: Area?
+        /// The catalog's copy of the latest version, tried when the publisher's
+        /// own link fails. Nil for Amtrak, whose link has never needed one.
+        var mirror: URL? = nil
 
         /// Shown wherever its times are, because they are the operator's.
         var credit: String { TransitFeeds.credit(for: [operatorName]) }
@@ -89,14 +92,15 @@ actor TransitFeeds {
         for row in flows_transit_city_feeds(latitude, longitude, Int64(limit)) {
             let f = row.as_str().toString()
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
-            guard f.count == 9, f[0] == "feed", let url = URL(string: f[3]),
+            guard f.count == 10, f[0] == "feed", let url = URL(string: f[3]),
                   let minLat = Double(f[5]), let maxLat = Double(f[6]),
                   let minLon = Double(f[7]), let maxLon = Double(f[8])
             else { continue }
             out.append(Source(
                 name: f[1], url: url, operatorName: f[2],
                 area: Area(minLatitude: minLat, maxLatitude: maxLat,
-                           minLongitude: minLon, maxLongitude: maxLon)
+                           minLongitude: minLon, maxLongitude: maxLon),
+                mirror: f[9].isEmpty ? nil : URL(string: f[9])
             ))
         }
         return out
@@ -168,6 +172,10 @@ actor TransitFeeds {
         case notCachedAndOffline
         case feedUnavailable(String)
         case feedUnusable(String)
+        /// Refused before downloading: bigger than this device should parse.
+        /// Separate from `feedUnusable` because a mirror of the same feed would
+        /// be just as big, so it is never worth trying one.
+        case tooLarge(String)
     }
 
     /// Refetch the archive no more often than this. Operators republish weekly;
@@ -224,7 +232,7 @@ actor TransitFeeds {
         if !haveFeed || (allowNetwork && isStale(feed)) {
             guard allowNetwork else { throw Failure.notCachedAndOffline }
             do {
-                try await fetch(source, into: feed)
+                try await fetchPreferringPublisher(source, into: feed)
                 haveFeed = true
             } catch {
                 // A refresh that fails is survivable; a first fetch is not.
@@ -311,10 +319,37 @@ actor TransitFeeds {
 
     // MARK: fetching only the part we read
 
-    private func fetch(_ source: Source, into feed: URL) async throws {
+    /// The publisher's own link first — it is the freshest — then the catalog's
+    /// mirror of the latest copy if the publisher's link failed. Publisher links
+    /// go stale: in a sample of 21 from the table, two were 404s whose mirrors
+    /// answered. A feed refused for its size is not retried: the mirror holds
+    /// the same feed.
+    private func fetchPreferringPublisher(_ source: Source, into feed: URL) async throws {
+        do {
+            try await fetch(source, from: source.url, into: feed)
+        } catch Failure.tooLarge(let why) {
+            throw Failure.tooLarge(why)
+        } catch {
+            guard let mirror = source.mirror, mirror != source.url else { throw error }
+            try await fetch(source, from: mirror, into: feed)
+        }
+    }
+
+    private func fetch(_ source: Source, from url: URL, into feed: URL) async throws {
+        // 0. Ask first. A host that ignores byte ranges answers the next
+        //    request with the ENTIRE archive, before any size check can run —
+        //    for a big city, hundreds of megabytes into a phone's memory. A
+        //    HEAD request costs nothing and says both the length and whether
+        //    ranges are served; a whole archive too big for the device is
+        //    refused without downloading a byte of it.
+        if let (length, ranges) = try? await headOfArchive(url),
+           !Self.acceptsDownload(length: length, servesRanges: ranges) {
+            throw Failure.tooLarge("\(source.name) is too large to download whole on this device")
+        }
+
         // 1. The archive's last kilobyte, which holds the index of everything
         //    inside it. Asking for a range also tells us the full length.
-        let (tail, total, servedWhole) = try await tailOfArchive(source.url)
+        let (tail, total, servedWhole) = try await tailOfArchive(url)
         guard total > 0, total <= maxArchiveBytes else {
             throw Failure.feedUnavailable("the schedule archive is an unexpected size")
         }
@@ -327,19 +362,19 @@ actor TransitFeeds {
         if let whole {
             directory = whole.subdata(in: directoryRange.clamped(to: 0..<whole.count))
         } else {
-            directory = try await bytes(source.url, directoryRange)
+            directory = try await bytes(url, directoryRange)
         }
         let entries = try GTFSZip.entries(directory: directory)
         // Judged from the index alone: a timetable too big for this device is
         // refused before a byte of it is downloaded.
         guard Self.fitsDevice(entries) else {
-            throw Failure.feedUnusable("\(source.name) is too large to use on this device")
+            throw Failure.tooLarge("\(source.name) is too large to use on this device")
         }
 
         // 3. Each file we actually parse — and nothing else.
         try FileManager.default.createDirectory(at: feed, withIntermediateDirectories: true)
         for entry in entries {
-            let body = try await member(entry, of: source, whole: whole, total: total)
+            let body = try await member(entry, from: url, whole: whole, total: total)
             try body.write(to: feed.appendingPathComponent(entry.name), options: .atomic)
         }
         // Files we kept from an older copy that this archive no longer has
@@ -354,7 +389,7 @@ actor TransitFeeds {
     /// One file out of the archive. Asks for the range a real archive needs,
     /// and only widens to the format's legal maximum if that fell short.
     private func member(
-        _ entry: GTFSZip.Entry, of source: Source, whole: Data?, total: Int
+        _ entry: GTFSZip.Entry, from url: URL, whole: Data?, total: Int
     ) async throws -> Data {
         for range in [entry.likelyRange, entry.safeRange] {
             let want = range.clamped(to: 0..<total)
@@ -362,7 +397,7 @@ actor TransitFeeds {
             if let whole {
                 chunk = whole.subdata(in: want.clamped(to: 0..<whole.count))
             } else {
-                chunk = try await bytes(source.url, want)
+                chunk = try await bytes(url, want)
             }
             if let body = try GTFSZip.contents(of: entry, localHeaderChunk: chunk) {
                 return body
@@ -371,6 +406,44 @@ actor TransitFeeds {
             if whole != nil { break }
         }
         throw Failure.feedUnusable("\(entry.name) did not unpack")
+    }
+
+    /// The archive's length and whether its host serves byte ranges, from a
+    /// HEAD request. Either may be unknown; the caller decides what that means.
+    private func headOfArchive(_ url: URL) async throws -> (Int?, Bool) {
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        let (_, response) = try await ThrottledNet.fetch(request)
+        guard let http = response as? HTTPURLResponse else { return (nil, false) }
+        let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init)
+        let ranges = http.value(forHTTPHeaderField: "Accept-Ranges")?
+            .lowercased().contains("bytes") ?? false
+        return (length, ranges)
+    }
+
+    /// The most of a WHOLE archive this device will download when its host
+    /// will not serve just the part FLOWS reads. With ranges the size of the
+    /// archive barely matters — Amtrak's 19.5 MB costs 1.6 MB — so this only
+    /// bites hosts that force the whole thing down.
+    static var maxWholeArchiveBytes: Int {
+        #if os(macOS)
+        return 250 << 20
+        #else
+        return 60 << 20
+        #endif
+    }
+
+    /// Whether to go ahead with a download, judged before it starts. A host
+    /// serving ranges is always fine: only the index and the few files the
+    /// router reads come down, and those are size-checked from the index. A
+    /// host that does not must send it all, so its length decides; an
+    /// unknown length is allowed, because the session's 30-second resource
+    /// limit stops a runaway download anyway.
+    static func acceptsDownload(length: Int?, servesRanges: Bool,
+                                limit: Int = maxWholeArchiveBytes) -> Bool {
+        if servesRanges { return true }
+        guard let length else { return true }
+        return length <= limit
     }
 
     /// The end of the archive, plus its full length. Hosts that ignore `Range`

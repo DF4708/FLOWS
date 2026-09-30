@@ -354,6 +354,8 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertTrue(sources.dropFirst().allSatisfy {
             $0.area?.contains(latitude: 43.0389, longitude: -87.9065) ?? false
         })
+        XCTAssertTrue(sources.dropFirst().allSatisfy { $0.mirror?.host == "files.mobilitydatabase.org" },
+                      "every city feed carries the catalog's copy for when its own link dies")
     }
 
     func testATripAskesForNoMoreCityFeedsThanTheLimit() {
@@ -380,5 +382,16 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertFalse(TransitFeeds.fitsDevice([entry(60 << 20), entry(30 << 20)], limit: 80 << 20),
                        "the files add up")
         XCTAssertTrue(TransitFeeds.fitsDevice([], limit: 80 << 20))
+    }
+
+    func testAHostThatWillNotServeRangesIsJudgedByItsWholeSize() {
+        let limit = 60 << 20
+        XCTAssertTrue(TransitFeeds.acceptsDownload(length: 400 << 20, servesRanges: true, limit: limit),
+                      "with ranges only the index and a few files come down")
+        XCTAssertFalse(TransitFeeds.acceptsDownload(length: 400 << 20, servesRanges: false, limit: limit),
+                       "without them, 400 MB would land in a phone's memory")
+        XCTAssertTrue(TransitFeeds.acceptsDownload(length: 20 << 20, servesRanges: false, limit: limit))
+        XCTAssertTrue(TransitFeeds.acceptsDownload(length: nil, servesRanges: false, limit: limit),
+                      "unknown length: the session's resource limit is the backstop")
     }
 }

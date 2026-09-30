@@ -363,81 +363,6 @@ pub const RENTAL_PARTNER_CODE: &str = "FAWN";
 pub const RENTAL_PARTNER_PROGRAM_URL: &str =
     "https://discover-car-hire.postaffiliatepro.com/affiliates/signup.php?a_aid=FAWN";
 
-/// A part of a landing-page address: lowercase, accents dropped to their
-/// plain letters, anything else a hyphen, no hyphen doubled or dangling.
-/// "St. Louis" → "st-louis", "Montréal" → "montreal".
-fn slug(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in st::lowercased(text).chars() {
-        let plain = match ch {
-            'á' | 'à' | 'â' | 'ä' | 'ã' | 'å' => 'a',
-            'é' | 'è' | 'ê' | 'ë' => 'e',
-            'í' | 'ì' | 'î' | 'ï' => 'i',
-            'ó' | 'ò' | 'ô' | 'ö' | 'õ' => 'o',
-            'ú' | 'ù' | 'û' | 'ü' => 'u',
-            'ñ' => 'n',
-            'ç' => 'c',
-            other => other,
-        };
-        if plain.is_ascii_alphanumeric() {
-            out.push(plain);
-        } else if !out.ends_with('-') {
-            out.push('-');
-        }
-    }
-    while out.ends_with('-') {
-        out.pop();
-    }
-    out
-}
-
-/// The country part of a landing-page address: the US is split by STATE
-/// ("usa-wisconsin"), Canada and Mexico are whole. `region` is the state's
-/// name or its two-letter code; anything else has no address of its own.
-fn rental_country_slug(country: &str, region: &str) -> Option<String> {
-    match st::lowercased(country).as_str() {
-        "us" | "usa" | "united states" => {
-            let region = st::lowercased(region);
-            let region = region.trim().trim_start_matches("us-").trim();
-            if region.is_empty() {
-                return None;
-            }
-            // A code ("WI") resolves through the state table; a full name is
-            // already what the address wants.
-            let name = if region.len() == 2 {
-                crate::places_text::STATE_NAMES
-                    .iter()
-                    .find(|(_, code)| st::lowercased(code) == region)
-                    .map(|(name, _)| (*name).to_string())?
-            } else {
-                region.to_string()
-            };
-            Some(format!("usa-{}", slug(&name)))
-        }
-        "ca" | "canada" => Some("canada".to_string()),
-        "mx" | "mexico" => Some("mexico".to_string()),
-        _ => None,
-    }
-}
-
-/// Where to compare rental prices FOR ONE PLACE, with FLOWS's partner tag:
-/// "https://www.discovercars.com/usa-wisconsin/milwaukee?a_aid=FAWN".
-///
-/// The address is the one DiscoverCars' own landing-page generator builds
-/// (country or US state, then city). A place whose country or state FLOWS
-/// does not know falls back to [`RENTAL_COMPARE_URL`], which always works.
-///
-/// Deterministic; allocates the address; panics: none.
-#[must_use]
-pub fn rental_landing_url(country: &str, region: &str, city: &str) -> String {
-    let city = slug(city);
-    let Some(country_slug) = rental_country_slug(country, region).filter(|_| !city.is_empty())
-    else {
-        return RENTAL_COMPARE_URL.to_string();
-    };
-    format!("https://www.discovercars.com/{country_slug}/{city}?a_aid={RENTAL_PARTNER_CODE}")
-}
-
 /// The first brand whose name the lowercased office name contains, as an
 /// index into [`RENTAL_BRANDS`]; its length for no name, an empty one or an
 /// unknown agency.
@@ -743,57 +668,6 @@ mod tests {
     /// The address DiscoverCars' own landing-page generator builds for a
     /// place, with FLOWS's partner tag — checked against what that generator
     /// produced for Milwaukee, Wisconsin.
-    #[test]
-    fn a_rental_landing_page_is_named_for_its_place() {
-        use super::{rental_landing_url, RENTAL_COMPARE_URL};
-        assert_eq!(
-            rental_landing_url("US", "WI", "Milwaukee"),
-            "https://www.discovercars.com/usa-wisconsin/milwaukee?a_aid=FAWN"
-        );
-        // The state may arrive as a name, a code, or the way a placemark
-        // writes it; the city may carry punctuation or accents.
-        assert_eq!(
-            rental_landing_url("US", "Wisconsin", "Milwaukee"),
-            rental_landing_url("US", "US-WI", "milwaukee")
-        );
-        assert_eq!(
-            rental_landing_url("US", "MO", "St. Louis"),
-            "https://www.discovercars.com/usa-missouri/st-louis?a_aid=FAWN"
-        );
-        assert_eq!(
-            rental_landing_url("US", "NY", "New York"),
-            "https://www.discovercars.com/usa-new-york/new-york?a_aid=FAWN"
-        );
-        assert_eq!(
-            rental_landing_url("CA", "", "Montréal"),
-            "https://www.discovercars.com/canada/montreal?a_aid=FAWN"
-        );
-        assert_eq!(
-            rental_landing_url("MX", "", "Cancún"),
-            "https://www.discovercars.com/mexico/cancun?a_aid=FAWN"
-        );
-        // Nothing to name the place by: the plain partner link, never a
-        // guessed address that lands on nothing.
-        assert_eq!(
-            rental_landing_url("US", "", "Milwaukee"),
-            RENTAL_COMPARE_URL
-        );
-        assert_eq!(rental_landing_url("US", "WI", ""), RENTAL_COMPARE_URL);
-        assert_eq!(rental_landing_url("FR", "", "Paris"), RENTAL_COMPARE_URL);
-        assert_eq!(
-            rental_landing_url("US", "ZZ", "Milwaukee"),
-            RENTAL_COMPARE_URL
-        );
-        // Every address carries the tag that credits the booking.
-        for url in [
-            rental_landing_url("US", "GA", "Augusta"),
-            RENTAL_COMPARE_URL.to_string(),
-        ] {
-            assert!(url.contains("a_aid=FAWN"), "{url}");
-            assert!(url.starts_with("https://www.discovercars.com/"), "{url}");
-        }
-    }
-
     #[test]
     fn the_relay_directory_page_gives_its_relays_with_bundled_coordinates() {
         let option = |i: usize| {
