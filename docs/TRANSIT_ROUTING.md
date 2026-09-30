@@ -569,6 +569,23 @@ hash-mismatched shard is refused on mmap.
   service day.
 - **Expand `frequencies.txt`** (headway-based service) into concrete departures before
   the FRAPTOR even-headway re-compression.
+- **A service day holds the days before it too (2026-09-30).** GTFS files a trip
+  under the day it *starts*: the 11:50 PM bus is `24:10:00` at its last stop and
+  the 2 AM owl bus `26:00:00`, both on YESTERDAY's service. A timetable of the
+  day's own trips had nothing after midnight — no owl buses, and a Cleveland rider
+  at 1 AM was shown tomorrow's 5:50 AM Lake Shore Limited instead of this
+  morning's. So `parse_feed` also takes trips that ran up to `CARRY_DAYS` (3)
+  days before, keeps the part running after today's midnight, and moves it onto
+  today's clock (`carried`). A trip that ran only on an earlier day keeps just
+  its rows from today on, plus its last timed stop before as an anchor for the
+  untimed stops after it — memory and build time stay where they were (Chicago:
+  +1 MB, CPU within noise).
+- **Times run to hour 168, not 48.** Amtrak stores the Sunset Limited's arrival at
+  `56:35:00` and the Texas Eagle's through cars at `80:00:00`. A 48-hour cap
+  blanked those times, and a trip with a blank last stop is dropped: 70 Amtrak
+  trips, whole long-distance trains, were missing. `TransitClock.instant` takes
+  the same bound, and a ride that ends on a later day says so ("next day",
+  "2 days later").
 - **Agency timezone is load-bearing** — and the rule is narrower than it looks.
   GTFS times are **not** local to the stop: the reference requires every time in
   `stop_times.txt` to be measured from midnight in the *agency's* zone, so a

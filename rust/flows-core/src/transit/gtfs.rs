@@ -310,14 +310,34 @@ pub(crate) fn parse_gtfs_time(s: &str) -> Option<Time> {
     let h: u32 = h.trim().parse().ok()?;
     let m: u32 = m.trim().parse().ok()?;
     let sec: u32 = sec.trim().parse().ok()?;
-    // GTFS allows hours past 24 for trips after midnight, but never anywhere
-    // near this — cap at 48 h so h*3600 can't overflow u32 in release (which
-    // would wrap a garbage hour to a valid-looking time).
-    if h > 48 || m > 59 || sec > 59 {
+    // GTFS allows hours past 24 for trips after midnight. A cap keeps a garbage
+    // hour from wrapping u32 into a valid-looking time — but it must clear the
+    // longest real trip: a cap of 48 dropped every Amtrak train whose last stop
+    // is past 48:59:59 (70 trips, the Sunset Limited and Texas Eagle among
+    // them, whose through cars reach 80:00:00).
+    if h > MAX_GTFS_HOURS || m > 59 || sec > 59 {
         return None;
     }
     Some(h * 3600 + m * 60 + sec)
 }
+
+/// The latest hour a stop time may carry: a week, far past any real trip and
+/// far below where `h * 3600` could overflow.
+const MAX_GTFS_HOURS: u32 = 7 * 24;
+
+/// How many service days back a trip may still be running. GTFS files a trip
+/// under the day it starts, so a bus leaving at 11:50 PM is `24:10:00` at its
+/// last stop and the 2 AM owl bus is `26:00:00` — both on YESTERDAY's
+/// service. A timetable of today's trips alone had none of them after
+/// midnight. Amtrak's longest reach `80:00:00`, three days on.
+const CARRY_DAYS: u32 = 3;
+
+const DAY_SECS: Time = 86_400;
+
+/// In a trip's days mask (bit k: runs k days before the service date), the
+/// bit saying every row is kept whatever day it ran — a frequencies.txt
+/// template, whose windows say when it runs.
+const ALL_ROWS: u8 = 0x80;
 
 /// Parse a GTFS `YYYYMMDD` date. Validates month/day ranges.
 fn parse_date(s: &str) -> Option<u32> {
@@ -593,6 +613,30 @@ struct RawTrip {
     events: TripEvents,
 }
 
+/// The part of a trip that began `since` seconds before today's service day
+/// and is still running in it: the stops it leaves at or after today's
+/// midnight, on today's clock. None when fewer than two stops are left — a
+/// trip whose last stop is today's first can take no one anywhere.
+fn carried(pattern: &[u32], events: &[StopEvent], since: Time) -> Option<(Vec<u32>, TripEvents)> {
+    // Nearly every trip is over by midnight: answer those without a scan.
+    if events.last()?.dep < since {
+        return None;
+    }
+    let first = events.iter().position(|e| e.dep >= since)?;
+    if events.len() - first < 2 {
+        return None;
+    }
+    let events = events[first..]
+        .iter()
+        .map(|e| StopEvent {
+            // It pulled in before midnight and leaves after: boarded from 0.
+            arr: e.arr.max(since) - since,
+            dep: e.dep - since,
+        })
+        .collect();
+    Some((pattern[first..].to_vec(), events))
+}
+
 /// One feed's service day, parsed but not yet merged. Every index in here is
 /// LOCAL to the feed — stop 0 is this feed's first stop — and every time is
 /// in this feed's own agency zone. [`assemble`] offsets and shifts them.
@@ -852,19 +896,30 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             cal.max_date.unwrap_or(0)
         )));
     }
+    // The days before, whose trips may still be running today (CARRY_DAYS).
+    let earlier: Vec<std::collections::HashSet<String>> = (1..=CARRY_DAYS)
+        .map(|k| cal.active_on(days_to_date(date_to_days(service_date) - i64::from(k))))
+        .collect();
 
-    // --- trips.txt: keep only trips whose service runs on the date. ---
+    // --- trips.txt: keep trips whose service runs on the date, or on a day
+    // before it (bit k of the mask = runs k days before). ---
     let (h, mut r) =
         open_csv(dir, "trips.txt")?.ok_or_else(|| err("trips.txt missing or empty"))?;
     let c_trip = h.req("trip_id", "trips.txt")?;
     let c_route = h.req("route_id", "trips.txt")?;
     let c_service = h.req("service_id", "trips.txt")?;
-    // trip_id -> gtfs route index
-    let mut active_trips: HashMap<String, u32> = HashMap::new();
+    // trip_id -> (gtfs route index, days mask)
+    let mut active_trips: HashMap<String, (u32, u8)> = HashMap::new();
     let mut row = Record::default();
     while r.next_into(&mut row)? {
         let service = f(&row, Some(c_service));
-        if !active.contains(service) {
+        let mut days = u8::from(active.contains(service));
+        for (k, set) in earlier.iter().enumerate() {
+            if set.contains(service) {
+                days |= 1 << (k + 1);
+            }
+        }
+        if days == 0 {
             continue;
         }
         let trip = f(&row, Some(c_trip));
@@ -872,43 +927,26 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             continue; // trip references an unknown route
         };
         if !trip.is_empty() {
-            active_trips.insert(trip.to_string(), route);
+            // A trip id listed twice (malformed, but seen) keeps every day it
+            // runs, and today's row names its route, as it always did.
+            active_trips
+                .entry(trip.to_string())
+                .and_modify(|e| {
+                    if days & 1 != 0 {
+                        e.0 = route;
+                    }
+                    e.1 |= days;
+                })
+                .or_insert((route, days));
         }
     }
-    let n_gtfs_trips = active_trips.len();
+    let n_gtfs_trips = active_trips
+        .values()
+        .filter(|&&(_, days)| days & 1 != 0)
+        .count();
 
-    // --- stop_times.txt (streamed): rows for active trips only. ---
-    let (h, mut r) =
-        open_csv(dir, "stop_times.txt")?.ok_or_else(|| err("stop_times.txt missing or empty"))?;
-    let c_trip = h.req("trip_id", "stop_times.txt")?;
-    let c_stop = h.req("stop_id", "stop_times.txt")?;
-    let c_seq = h.req("stop_sequence", "stop_times.txt")?;
-    let (c_arr, c_dep) = (h.get("arrival_time"), h.get("departure_time"));
-    // trip_id -> rows of (seq, stop, arr?, dep?)
-    type StopTimeRow = (u32, u32, Option<Time>, Option<Time>);
-    let mut trip_rows: HashMap<String, Vec<StopTimeRow>> = HashMap::new();
-    let mut stop_visits = vec![0u32; stop_ids.len()];
-    let mut row = Record::default();
-    while r.next_into(&mut row)? {
-        let trip = f(&row, Some(c_trip));
-        if !active_trips.contains_key(trip) {
-            continue;
-        }
-        let Some(&stop) = stop_index.get(f(&row, Some(c_stop))) else {
-            continue; // row references an unknown stop
-        };
-        let Ok(seq) = f(&row, Some(c_seq)).trim().parse::<u32>() else {
-            continue;
-        };
-        let arr = parse_gtfs_time(f(&row, c_arr));
-        let dep = parse_gtfs_time(f(&row, c_dep));
-        trip_rows
-            .entry(trip.to_string())
-            .or_default()
-            .push((seq, stop, arr, dep));
-    }
-
-    // --- frequencies.txt (optional): trip -> (start, end, headway) windows. ---
+    // --- frequencies.txt (optional): trip -> (start, end, headway) windows.
+    // Read before stop_times, because a template trip's rows are all kept. ---
     // Expansion bounds: a headway under 10 s or over a day is not real
     // service, and a single window may not expand into more concrete trips
     // than any real route runs — one malformed row must not balloon the
@@ -945,6 +983,87 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             freq.entry(trip).or_default().push((start, end, head));
         }
     }
+    // A template's rows are all kept whatever day it ran: its windows, not
+    // its own times, say when it runs.
+    for trip in freq.keys() {
+        if let Some(v) = active_trips.get_mut(trip) {
+            v.1 |= ALL_ROWS;
+        }
+    }
+
+    // --- stop_times.txt (streamed): rows for active trips only. A trip that
+    // runs only on an earlier day keeps just the rows that can still be
+    // today, plus untimed ones to be filled in between: the rest of it has
+    // already run, and keeping it would hold every day-type's trips at once.
+    // Its last timed stop before today is kept as an anchor, so the untimed
+    // stops just after midnight are filled in from it. ---
+    let (h, mut r) =
+        open_csv(dir, "stop_times.txt")?.ok_or_else(|| err("stop_times.txt missing or empty"))?;
+    let c_trip = h.req("trip_id", "stop_times.txt")?;
+    let c_stop = h.req("stop_id", "stop_times.txt")?;
+    let c_seq = h.req("stop_sequence", "stop_times.txt")?;
+    let (c_arr, c_dep) = (h.get("arrival_time"), h.get("departure_time"));
+    // trip_id -> rows of (seq, stop, arr?, dep?)
+    type StopTimeRow = (u32, u32, Option<Time>, Option<Time>);
+    let mut trip_rows: HashMap<String, Vec<StopTimeRow>> = HashMap::new();
+    let mut anchors: HashMap<String, StopTimeRow> = HashMap::new();
+    // The anchor candidate of the trip being read, held in reused buffers
+    // until the trip turns out to reach today. Most earlier-day trips never
+    // do; a stop lookup and a map entry for each of their rows cost a big
+    // city's build a fifth more time. Every real feed lists a trip's rows
+    // together; one that interleaves them only loses the fill-in.
+    let mut candidate_trip = String::new();
+    let mut candidate_stop = String::new();
+    let mut candidate: Option<(u32, Option<Time>, Option<Time>)> = None;
+    let mut stop_visits = vec![0u32; stop_ids.len()];
+    let mut row = Record::default();
+    while r.next_into(&mut row)? {
+        let trip = f(&row, Some(c_trip));
+        let Some(&(_, days)) = active_trips.get(trip) else {
+            continue;
+        };
+        let earlier_only = days & (1 | ALL_ROWS) == 0;
+        let (arr, dep) = (
+            parse_gtfs_time(f(&row, c_arr)),
+            parse_gtfs_time(f(&row, c_dep)),
+        );
+        if earlier_only {
+            let today_starts = DAY_SECS * days.trailing_zeros();
+            if arr.max(dep).is_some_and(|t| t < today_starts) {
+                let Ok(seq) = f(&row, Some(c_seq)).trim().parse::<u32>() else {
+                    continue;
+                };
+                if candidate_trip != trip {
+                    candidate_trip.clear();
+                    candidate_trip.push_str(trip);
+                    candidate = None;
+                }
+                if candidate.is_none_or(|(s, _, _)| seq > s) {
+                    candidate = Some((seq, arr, dep));
+                    candidate_stop.clear();
+                    candidate_stop.push_str(f(&row, Some(c_stop)));
+                }
+                continue;
+            }
+        }
+        let Some(&stop) = stop_index.get(f(&row, Some(c_stop))) else {
+            continue; // row references an unknown stop
+        };
+        let Ok(seq) = f(&row, Some(c_seq)).trim().parse::<u32>() else {
+            continue;
+        };
+        if earlier_only && candidate_trip == trip {
+            if let (Some((s, a, d)), Some(&at)) =
+                (candidate.take(), stop_index.get(candidate_stop.as_str()))
+            {
+                anchors.insert(trip.to_string(), (s, at, a, d));
+            }
+        }
+        trip_rows
+            .entry(trip.to_string())
+            .or_default()
+            .push((seq, stop, arr, dep));
+    }
 
     // --- Assemble concrete trips: order stops, fill blank times, expand
     // frequencies. Deterministic: trips processed in sorted trip_id order. ---
@@ -953,10 +1072,27 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     let mut trip_ids_sorted: Vec<&String> = trip_rows.keys().collect();
     trip_ids_sorted.sort();
     for trip_id in trip_ids_sorted {
-        let route = active_trips[trip_id.as_str()];
+        let (route, days) = active_trips[trip_id.as_str()];
         let mut rows = trip_rows[trip_id.as_str()].clone();
+        if let Some(anchor) = anchors.remove(trip_id.as_str()) {
+            rows.push(anchor);
+        }
         rows.sort_by_key(|r| r.0);
         rows.dedup_by_key(|r| r.0); // duplicate stop_sequence: keep first
+        if days & (1 | ALL_ROWS) == 0 {
+            // Only its late rows (and the anchor) were kept, so it begins at
+            // the first timed one and ends at the last; fewer than two means
+            // it is not running today at all — not a broken trip.
+            let untimed = |r: &StopTimeRow| r.2.is_none() && r.3.is_none();
+            let lead = rows.iter().take_while(|r| untimed(r)).count();
+            rows.drain(..lead);
+            while rows.last().is_some_and(untimed) {
+                rows.pop();
+            }
+            if rows.len() < 2 {
+                continue;
+            }
+        }
         if rows.len() < 2 {
             n_dropped += 1;
             continue;
@@ -1010,11 +1146,42 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
         }
         let pattern: Vec<u32> = rows.iter().map(|r| r.1).collect();
 
+        // Each concrete trip goes in once for every day it runs: as it is for
+        // today, and for an earlier day as the part still running after
+        // today's midnight. Busyness counts CONCRETE trips: a headway shuttle
+        // serving a stop 200x/day must weigh 200, same as 200 scheduled trips.
+        let mut emit = |pattern: Vec<u32>, events: TripEvents| {
+            for k in 1..=CARRY_DAYS {
+                if days & (1 << k) == 0 {
+                    continue;
+                }
+                if let Some((pattern, events)) = carried(&pattern, &events, DAY_SECS * k) {
+                    for &s in &pattern {
+                        stop_visits[s as usize] += 1;
+                    }
+                    raw.push(RawTrip {
+                        route,
+                        pattern,
+                        events,
+                    });
+                }
+            }
+            if days & 1 != 0 {
+                for &s in &pattern {
+                    stop_visits[s as usize] += 1;
+                }
+                raw.push(RawTrip {
+                    route,
+                    pattern,
+                    events,
+                });
+            }
+        };
+
         if let Some(windows) = freq.get(trip_id.as_str()) {
             // frequencies.txt: the scheduled trip is a TEMPLATE; emit one
             // concrete trip per headway departure in [start, end).
             let first_dep = events[0].dep;
-            let mut emitted = 0u32;
             for &(start, end, headway) in windows {
                 let mut t = start;
                 while t < end {
@@ -1035,33 +1202,17 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
                         })
                         .collect();
                     if let Some(evs) = shifted {
-                        raw.push(RawTrip {
-                            route,
-                            pattern: pattern.clone(),
-                            events: evs,
-                        });
-                        emitted += 1;
+                        emit(pattern.clone(), evs);
                     }
                     t = t.saturating_add(headway);
                 }
             }
-            // Busyness counts CONCRETE trips: a headway shuttle serving a
-            // stop 200x/day must weigh 200, same as 200 scheduled trips.
-            for &s in &pattern {
-                stop_visits[s as usize] += emitted;
-            }
         } else {
-            for &s in &pattern {
-                stop_visits[s as usize] += 1;
-            }
-            raw.push(RawTrip {
-                route,
-                pattern,
-                events,
-            });
+            emit(pattern, events);
         }
     }
     drop(trip_rows);
+    drop(anchors);
 
     // --- transfers.txt (optional) → directed footpaths, kept in this feed's
     // own stop indices; they are resolved here because only this feed knows
@@ -1617,6 +1768,141 @@ mod tests {
             js[0].arrival, 91_800,
             "25:30:00 kept as 91800s, not wrapped"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn last_nights_bus_still_runs_after_midnight() {
+        // GTFS files the owl bus under the day it LEAVES: 23:30 at A, then
+        // 24:40 at B and 25:30 at C. At 12:30 AM on Wednesday, Tuesday's bus
+        // is still coming to B — a timetable of Wednesday's trips alone said
+        // the next bus to C was Wednesday night's.
+        let dir = write_feed(
+            "owlcarry",
+            &[
+                ("stops.txt", STOPS),
+                ("routes.txt", ROUTES),
+                ("calendar.txt", CALENDAR),
+                ("trips.txt", "route_id,service_id,trip_id\nR1,WK,owl\n"),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     owl,23:30:00,23:30:00,A,1\n\
+                     owl,24:40:00,24:40:00,B,2\n\
+                     owl,25:30:00,25:30:00,C,3\n",
+                ),
+            ],
+        );
+        let wed = load_gtfs(&dir, Some(20260708)).unwrap();
+        let js = plan(&wed.timetable, 1, 2, 30 * 60, 8);
+        assert_eq!(js[0].arrival, 5_400, "Tuesday's bus reaches C at 1:30 AM");
+        let js = plan(&wed.timetable, 0, 2, 23 * 3600, 8);
+        assert_eq!(js[0].arrival, 91_800, "Wednesday's own bus is still there");
+        assert_eq!(wed.n_gtfs_trips, 1, "trips counted are the day's own");
+        assert_eq!(wed.n_dropped_trips, 0);
+
+        // Monday: Sunday runs no WK service, so nothing carries over.
+        let mon = load_gtfs(&dir, Some(20260706)).unwrap();
+        let js = plan(&mon.timetable, 1, 2, 30 * 60, 8);
+        assert_eq!(js[0].arrival, 91_800, "only Monday night's bus");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_train_days_long_keeps_every_stop_and_every_day() {
+        // Amtrak's Sunset Limited ends at 56:35:00 and the Texas Eagle's
+        // through cars at 80:00:00. Hours past 48 used to blank the time,
+        // and a trip with a blank last stop was dropped — whole trains gone.
+        let dir = write_feed(
+            "longtrain",
+            &[
+                ("stops.txt", STOPS),
+                ("routes.txt", ROUTES),
+                (
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n\
+                     WK,1,1,1,1,1,0,0,20260706,20260731\n\
+                     TRI,1,0,1,0,1,0,0,20260706,20260731\n",
+                ),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1,WK,local\nR1,TRI,sunset\n",
+                ),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     local,08:00:00,08:00:00,A,1\n\
+                     local,08:10:00,08:10:00,B,2\n\
+                     sunset,10:00:00,10:00:00,A,1\n\
+                     sunset,50:00:00,50:00:00,B,2\n\
+                     sunset,56:35:00,56:35:00,C,3\n",
+                ),
+            ],
+        );
+        // Wednesday: its own train (A 10:00 → C 56:35), and Monday's, now two
+        // days out, due at B at 2:00 AM and C at 8:35 AM.
+        let wed = load_gtfs(&dir, Some(20260708)).unwrap();
+        assert_eq!(wed.n_dropped_trips, 0);
+        let js = plan(&wed.timetable, 0, 2, 9 * 3600, 8);
+        assert_eq!(js[0].arrival, 56 * 3600 + 35 * 60, "the day's own train");
+        let js = plan(&wed.timetable, 1, 2, 0, 8);
+        assert_eq!(
+            js[0].arrival,
+            8 * 3600 + 35 * 60,
+            "Monday's train, still running"
+        );
+
+        // Thursday runs no train of its own; Wednesday's passes B at 2:00
+        // AM Friday and reaches C at 8:35 AM Friday, both Thursday-relative.
+        let thu = load_gtfs(&dir, Some(20260709)).unwrap();
+        assert_eq!(thu.n_gtfs_trips, 1, "only the local runs Thursday");
+        assert_eq!(
+            thu.n_dropped_trips, 0,
+            "a train not running today is not broken"
+        );
+        let js = plan(&thu.timetable, 1, 2, 0, 8);
+        assert_eq!(js[0].arrival, 32 * 3600 + 35 * 60);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn untimed_stops_after_midnight_are_filled_from_the_last_timed_one() {
+        // Wednesday's owl bus is timed at A (23:00) and C (25:00) only; B,
+        // halfway, is untimed. On Thursday only its rows after midnight are
+        // kept, and B is still filled in from A — 24:00, midnight.
+        let dir = write_feed(
+            "owluntimed",
+            &[
+                ("stops.txt", STOPS),
+                ("routes.txt", ROUTES),
+                (
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,start_date,end_date\n\
+                     WK,1,1,1,1,1,0,0,20260706,20260731\n\
+                     WED,0,0,1,0,0,0,0,20260706,20260731\n",
+                ),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR1,WK,day\nR1,WED,owl\n",
+                ),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     day,08:00:00,08:00:00,A,1\n\
+                     day,08:10:00,08:10:00,C,2\n\
+                     owl,23:00:00,23:00:00,A,1\n\
+                     owl,,,B,2\n\
+                     owl,25:00:00,25:00:00,C,3\n",
+                ),
+            ],
+        );
+        let thu = load_gtfs(&dir, Some(20260709)).unwrap();
+        let js = plan(&thu.timetable, 1, 2, 0, 8);
+        assert_eq!(
+            js[0].arrival, 3_600,
+            "board at B at midnight, reach C at 1:00 AM"
+        );
+        assert_eq!(thu.n_dropped_trips, 0);
         let _ = fs::remove_dir_all(&dir);
     }
 

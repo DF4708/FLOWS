@@ -422,25 +422,29 @@ struct RouteChoicesView: View {
             ticketLabel = t.label
             ticketURL = t.url
         }
-        let rentals = await rentalsNearDest
+        var rentals = await rentalsNearDest
         // Where the traveller gets off, not where they set out from: that is
         // where they would pick a car up. No arrival station means the
         // destination itself.
-        let compare = RentalCars.compareURL(near: alight?.placemark.coordinate ?? ep.to)
+        var compare = RentalCars.compareURL(near: alight?.placemark.coordinate ?? ep.to)
 
         /// Put the trip on its card — once with what is quick to know, then
-        /// again as the timetables answer.
-        func publish(_ access: TripPart, _ egress: TripPart, train: TransitSchedule?) {
+        /// again as the timetables answer. `offName` is where the ride ends:
+        /// the map's station at first, the timetable's once it answers;
+        /// `offKnown` says it is a real station the last leg starts from.
+        func publish(_ access: TripPart, _ egress: TripPart, train: TransitSchedule?,
+                     offName: String, offKnown: Bool) {
             // Once the timetable answers, the ride takes the train's own time,
             // not the estimate scaled from the drive.
             let ride: TransitLeg? = rideLeg.map { leg in
-                guard let train, train.rideSeconds > 0 else { return leg }
+                let seconds = train.map(\.rideSeconds).flatMap { $0 > 0 ? $0 : nil }
+                guard seconds != nil || offName != leg.toName else { return leg }
                 return TransitLeg(
-                    kind: .ride, fromName: leg.fromName, toName: leg.toName,
-                    seconds: train.rideSeconds, miles: leg.miles, polyline: leg.polyline,
+                    kind: .ride, fromName: leg.fromName, toName: offName,
+                    seconds: seconds ?? leg.seconds, miles: leg.miles, polyline: leg.polyline,
                     steps: TransitPlanning.rideSteps(mode: kind, board: boardName,
-                                                     alight: alightName,
-                                                     seconds: train.rideSeconds))
+                                                     alight: offName,
+                                                     seconds: seconds ?? leg.seconds))
             }
             let legs = access.legs + (ride.map { [$0] } ?? []) + egress.legs
             let fare = mainFare + cityFare(legs)
@@ -451,14 +455,16 @@ struct RouteChoicesView: View {
             model.transitItinerary = itinerary   // latest computed draws on the map
             let accessVerb = access.legs.contains { $0.local } ? "City bus or train"
                 : access.legs.first?.kind == .drive ? "Drive" : "Walk"
-            let tail = egress.legs.contains { $0.rental } ? " · then a rental car from \(alightName)"
-                : egress.legs.contains { $0.local } ? " · then the city bus or train from \(alightName)"
-                : alight != nil ? " · then walk \(TransitPlanning.fmt(egress.seconds)) from \(alightName)"
+            let tail = egress.legs.contains { $0.rental } ? " · then a rental car from \(offName)"
+                : egress.legs.contains { $0.local } ? " · then the city bus or train from \(offName)"
+                : offKnown ? " · then walk \(TransitPlanning.fmt(egress.seconds)) from \(offName)"
                 : " · no arrival station found — plan the last mile at \(destName)"
+            // The ride as the legs show it: the timetable's time once known.
+            let rideShown = ride?.seconds ?? rideSec
             model.transitOptions[tMode] = TransitOption(
                 title: "\(kind) via \(boardName)",
                 detail: "\(accessVerb) \(TransitPlanning.fmt(access.seconds)) to \(boardName) · "
-                        + "\(kind.lowercased()) ride \(TransitPlanning.fmt(rideSec))\(tail) · est. fare "
+                        + "\(kind.lowercased()) ride \(TransitPlanning.fmt(rideShown))\(tail) · est. fare "
                         + String(format: "$%.2f (carriers set final pricing).", fare),
                 fare: fare, destination: dest,
                 ticketLabel: ticketLabel, ticketURL: ticketURL,
@@ -484,7 +490,7 @@ struct RouteChoicesView: View {
             from: alightC, stopName: alightName, stationFound: alight != nil,
             to: ep.to, destName: destName, walk: walkOut)
         if Task.isCancelled { return }
-        publish(quickAccess, quickEgress, train: nil)
+        publish(quickAccess, quickEgress, train: nil, offName: alightName, offKnown: alight != nil)
 
         // Then the timetables. Deliberately AFTER the card is up: reading one
         // may mean a download, and no one should watch a spinner to find out
@@ -507,15 +513,32 @@ struct RouteChoicesView: View {
                 departing: Date().addingTimeInterval(access.seconds ?? 0))
         }
         if Task.isCancelled { return }
+        // The station the train really stops at, when its timetable says —
+        // not always the one the map picked: for the towns Amtrak reaches by
+        // connecting coach, the timetable's stop is elsewhere, and the card
+        // walked the rider from a station the schedule never mentioned.
         var egress = quickEgress
+        var offName = alightName
+        var offKnown = alight != nil
+        var walk = walkOut
+        var offAt = alightC
+        if let train, let at = train.alightCoordinate, POIRanking.meters(at, alightC) > 200 {
+            offAt = at
+            offName = train.alightName
+            offKnown = true
+            walk = await transitWalk(at, ep.to)
+            egress = await egressPart(
+                shape.egress == .local ? shape.egressFallback : shape.egress,
+                from: at, stopName: offName, stationFound: true,
+                to: ep.to, destName: destName, walk: walk)
+            rentals = await transitRentals(near: at)
+            compare = RentalCars.compareURL(near: at)
+        }
         if shape.egress == .local {
-            // From the station the train really stops at, when it really gets
-            // in; the estimate stands in when there is no timetable.
-            let offAt = train?.alightCoordinate ?? alightC
-            let offName = train?.alightName ?? alightName
+            // From there, when it really gets in; the estimate stands in when
+            // there is no timetable.
             let arriving = train?.arrive
                 ?? Date().addingTimeInterval((access.seconds ?? 0) + (hasRide ? rideSec : 0))
-            let walk = train?.alightCoordinate != nil ? await transitWalk(offAt, ep.to) : walkOut
             if let city = await cityPart(shape, from: offAt, fromName: offName, to: ep.to,
                                          toName: destName, departing: arriving,
                                          walkSeconds: walk.seconds) {
@@ -524,7 +547,7 @@ struct RouteChoicesView: View {
         }
         if Task.isCancelled { return }
         if train != nil || access.schedule != nil || egress.schedule != nil {
-            publish(access, egress, train: train?.schedule)
+            publish(access, egress, train: train?.schedule, offName: offName, offKnown: offKnown)
         }
     }
 
@@ -988,8 +1011,9 @@ struct RouteChoicesView: View {
     /// "Walk legs are exact" only holds when every walk leg actually routed:
     /// a leg with no pedestrian route is a synthetic line. City bus and train
     /// legs are the other way round: their times are the city's timetable,
-    /// and only their lines are straight.
-    private func geometryNote(_ itinerary: TransitItinerary) -> String {
+    /// and only their lines are straight. Once the operator's timetable has
+    /// answered (`timetable`), the ride's time is its own, not a guess.
+    private func geometryNote(_ itinerary: TransitItinerary, timetable: Bool) -> String {
         let isRail = itinerary.mode == "Amtrak" || itinerary.mode == "Rail"
         let walksExact = itinerary.legs
             .filter { $0.kind == .walk }.allSatisfy { $0.polyline != nil }
@@ -1002,7 +1026,13 @@ struct RouteChoicesView: View {
             : ""
         guard itinerary.mainRide != nil else { return cityNote + walkNote }
         let rideNote: String
-        if !itinerary.rideGeometryIsReal {
+        if timetable {
+            rideNote = itinerary.rideGeometryIsReal
+                ? "Ride line follows the highway as a stand-in; its times are the "
+                    + "timetable's own. "
+                : "Ride line is drawn straight between stations; its times are the "
+                    + "timetable's own. "
+        } else if !itinerary.rideGeometryIsReal {
             rideNote = "Ride line couldn't be road-routed — drawn straight between "
                 + "stations; the time is an estimate. "
         } else if isRail {
@@ -1122,7 +1152,7 @@ struct RouteChoicesView: View {
                  + "and prices.")
                 .scaledFont(size: 9).foregroundStyle(.secondary)
         } else if itin.rideGeometryIsApproximate {
-            Text(geometryNote(itin))
+            Text(geometryNote(itin, timetable: t.schedule != nil))
                 .scaledFont(size: 9).foregroundStyle(.secondary)
         }
         // The EXACT ticket for this ride — carrier booking page in-line;

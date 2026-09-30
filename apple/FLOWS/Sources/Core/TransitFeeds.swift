@@ -266,8 +266,11 @@ actor TransitFeeds {
         _ sources: [Source], on day: Date = Date(), allowNetwork: Bool = true
     ) async throws -> Ready {
         guard !sources.isEmpty else { throw Failure.feedUnusable("no feeds asked for") }
+        // Two screens asking at once must not fetch twice — but a question
+        // about tomorrow (the bus from a station reached after midnight) is
+        // not answered by today's timetable, so the day is part of the key.
         let key = sources.map(\.name).joined(separator: "+")
-        // Two screens asking at once must not fetch twice.
+            + "@\(Self.serviceDate(day, zone: TimeZone.current.identifier))"
         if let running = building[key] {
             return try await running.value
         }
@@ -308,6 +311,18 @@ actor TransitFeeds {
         let primaryZone = TransitShard.agencyZone(feedDirectory: primaryFeed.path)
         let zone = primaryZone.isEmpty ? TimeZone.current.identifier : primaryZone
         let date = Self.serviceDate(day, zone: zone)
+
+        // Today's timetable for every feed asked, already built, needs no
+        // memory to build: answer from it before judging what a build would
+        // take. A phone short of memory for a moment refused Chicago's buses
+        // it had built that morning.
+        let wanted = [primary] + sources.dropFirst().filter { unusable[$0.name] != date }
+        let built = root().appendingPathComponent(Self.shardName(wanted, date: date)).path
+        if let stamp = TransitShard.stamp(prefix: built), stamp.serviceDate == date {
+            return Ready(prefix: built, stamp: stamp,
+                         credit: Self.credit(for: wanted.map(\.operatorName)),
+                         operators: wanted.map(\.operatorName))
+        }
 
         // A merged build holds every feed it reads at once, so they share one
         // memory budget, judged on what is on disk now — a feed kept last week
@@ -450,33 +465,54 @@ actor TransitFeeds {
         where leftover.hasSuffix(".part") || leftover.hasSuffix(".download") {
             try? FileManager.default.removeItem(at: feed.appendingPathComponent(leftover))
         }
-        var kept: Set<String> = []
-        for entry in entries {
-            kept.insert(try await keep(entry, from: url, whole: whole, total: total, into: feed))
+        // Every file comes down beside the copy in use, and only when all of
+        // them are here does the old copy give way. Replaced one by one, a
+        // refresh cut off halfway left last week's trips.txt beside this
+        // week's stop_times.txt — trip ids that match nothing, trains that
+        // silently vanish — and that mix was built into the day's timetable.
+        var staged: [(part: URL, name: String)] = []
+        do {
+            for entry in entries {
+                let piece = try await keep(entry, from: url, whole: whole, total: total,
+                                           into: feed)
+                // Two members with one name (a feed nested in two folders)
+                // share a .part file: the later one is what it now holds.
+                staged.removeAll { $0.name == piece.name }
+                staged.append(piece)
+            }
+        } catch {
+            for piece in staged { try? FileManager.default.removeItem(at: piece.part) }
+            throw error
         }
-        // Files we kept from an older copy that this archive no longer has —
-        // or kept in the other form — would otherwise linger and be parsed
-        // as current.
+        // The old copy goes whole — a file this archive no longer has, or
+        // kept in the other form, would otherwise linger and be parsed as
+        // current — and the new one takes its place.
         for name in GTFSZip.wanted {
-            for variant in [name, name + GTFSZip.packedSuffix] where !kept.contains(variant) {
+            for variant in [name, name + GTFSZip.packedSuffix] {
                 try? FileManager.default.removeItem(at: feed.appendingPathComponent(variant))
             }
+        }
+        for piece in staged {
+            try FileManager.default.moveItem(at: piece.part,
+                                             to: feed.appendingPathComponent(piece.name))
         }
         try? Data().write(to: stampFile(source), options: .atomic)
     }
 
-    /// Keep one member on disk as the archive stores it — a stored file as its
-    /// own bytes, a deflated one packed (`stop_times.txt.fz`) — replacing that
-    /// file in either form. It goes from the network to the disk a piece at a
-    /// time, never whole in memory. Returns the name it was kept under.
-    /// Asks for the range a real archive needs, and only widens to the
-    /// format's legal maximum if that fell short.
+    /// Download one member beside the feed, as the archive stores it — a
+    /// stored file as its own bytes, a deflated one packed
+    /// (`stop_times.txt.fz`) — into a `.part` file the caller moves into
+    /// place once every member is down. It goes from the network to the disk
+    /// a piece at a time, never whole in memory. Returns that file and the
+    /// name it is to be kept under. Asks for the range a real archive needs,
+    /// and only widens to the format's legal maximum if that fell short.
     private func keep(
         _ entry: GTFSZip.Entry, from url: URL, whole: Data?, total: Int, into feed: URL
-    ) async throws -> String {
+    ) async throws -> (part: URL, name: String) {
         let name = try GTFSZip.fileName(for: entry)
         let part = feed.appendingPathComponent(name + ".part")
-        defer { try? FileManager.default.removeItem(at: part) }
+        var done = false
+        defer { if !done { try? FileManager.default.removeItem(at: part) } }
         let prefix = GTFSZip.packedHeader(for: entry)
         if let whole {
             // The host sent the whole archive already — it serves no ranges,
@@ -506,11 +542,8 @@ actor TransitFeeds {
             }
             guard copied else { throw Failure.feedUnusable("\(entry.name) did not unpack") }
         }
-        for variant in [entry.name, entry.name + GTFSZip.packedSuffix] {
-            try? FileManager.default.removeItem(at: feed.appendingPathComponent(variant))
-        }
-        try FileManager.default.moveItem(at: part, to: feed.appendingPathComponent(name))
-        return name
+        done = true
+        return (part, name)
     }
 
     /// Bytes `range` of `file`.

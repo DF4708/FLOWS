@@ -69,9 +69,11 @@ enum TransitClock {
 
     /// The instant a stored time happens. `seconds` may exceed 24 hours — GTFS
     /// uses `25:30:00` for a train that leaves after midnight, and that is a
-    /// real departure on this service day, not the next one's.
+    /// real departure on this service day, not the next one's. Amtrak's
+    /// longest trips reach `80:00:00`, so the bound is the timetable
+    /// builder's own: hour 168, a week, and its last second.
     static func instant(serviceDate: Int, agencyZone: String, seconds: Int) -> Date? {
-        guard seconds >= 0, seconds <= 60 * 3600 else { return nil }
+        guard seconds >= 0, seconds < (7 * 24 + 1) * 3600 else { return nil }
         return dayStart(serviceDate: serviceDate, agencyZone: agencyZone)?
             .addingTimeInterval(TimeInterval(seconds))
     }
@@ -120,19 +122,39 @@ enum TransitClock {
 
     /// Two stations' times, said the way a rider needs to hear them: the zone
     /// is named only when the trip crosses one, because that is the only time
-    /// it changes what the numbers mean.
+    /// it changes what the numbers mean — and the day is named when the ride
+    /// ends on a later one. The Sunset Limited leaves New Orleans at 9:00 AM
+    /// and reaches Los Angeles at 5:35 AM two days on; "9:00 AM – 5:35 AM
+    /// Pacific time" hid a whole day.
     static func span(
         board: Date, boardZone: String, alight: Date, alightZone: String,
         locale: Locale = .current
     ) -> String {
         let a = clock(board, zone: boardZone, locale: locale)
         let b = clock(alight, zone: alightZone, locale: locale)
+        let days = daysLater(board, boardZone, alight, alightZone)
+        let later = days == 1 ? " next day" : days > 1 ? " \(days) days later" : ""
         guard boardZone != alightZone,
               TimeZone(identifier: boardZone)?.secondsFromGMT(for: board)
                 != TimeZone(identifier: alightZone)?.secondsFromGMT(for: alight)
-        else { return "\(a) – \(b)" }
+        else { return "\(a) – \(b)\(later)" }
         let word = zoneWord(alightZone, locale: locale)
-        return word.isEmpty ? "\(a) – \(b)" : "\(a) – \(b) \(word) time"
+        return word.isEmpty ? "\(a) – \(b)\(later)" : "\(a) – \(b) \(word) time\(later)"
+    }
+
+    /// How many calendar days after the boarding day, on each station's own
+    /// calendar, the ride ends.
+    static func daysLater(_ board: Date, _ boardZone: String,
+                          _ alight: Date, _ alightZone: String) -> Int {
+        func day(_ moment: Date, _ zone: String) -> Date? {
+            var local = Calendar(identifier: .gregorian)
+            local.timeZone = TimeZone(identifier: zone) ?? .current
+            var utc = Calendar(identifier: .gregorian)
+            utc.timeZone = TimeZone(identifier: "UTC") ?? .current
+            return utc.date(from: local.dateComponents([.year, .month, .day], from: moment))
+        }
+        guard let on = day(board, boardZone), let off = day(alight, alightZone) else { return 0 }
+        return max(0, Int((off.timeIntervalSince(on) / 86_400).rounded()))
     }
 
     /// "Times as of Sep 22" — how old the schedule is, for the rider deciding

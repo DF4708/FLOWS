@@ -85,6 +85,29 @@ final class TransitTimesTests: XCTestCase {
         )
     }
 
+    func testARideEndingOnALaterDaySaysSo() {
+        // The Sunset Limited, as Amtrak stores it (Eastern): New Orleans at
+        // 10:00, Los Angeles at 56:35 — 9:00 AM Central, 5:35 AM Pacific two
+        // days on. And an overnight train that gets in the next morning.
+        let board = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern, seconds: 10 * 3600)
+        let alight = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern,
+                                          seconds: 56 * 3600 + 35 * 60)
+        let overnight = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern,
+                                             seconds: 32 * 3600 + 53 * 60)
+        let latest = TransitClock.instant(serviceDate: 20260930, agencyZone: eastern,
+                                          seconds: 80 * 3600)
+        guard let board, let alight, let overnight else { return XCTFail("no instants") }
+        XCTAssertNotNil(latest, "Amtrak's longest trips reach 80:00:00")
+        XCTAssertEqual(
+            plain(TransitClock.span(board: board, boardZone: "America/Chicago",
+                                    alight: alight, alightZone: "America/Los_Angeles", locale: us)),
+            "9:00 AM – 5:35 AM Pacific time 2 days later")
+        XCTAssertEqual(
+            plain(TransitClock.span(board: board, boardZone: eastern,
+                                    alight: overnight, alightZone: eastern, locale: us)),
+            "10:00 AM – 8:53 AM next day")
+    }
+
     func testZoneWordsAreWordsARiderWouldUse() {
         XCTAssertEqual(TransitClock.zoneWord("America/Chicago", locale: us), "Central")
         XCTAssertEqual(TransitClock.zoneWord("America/Los_Angeles", locale: us), "Pacific")
