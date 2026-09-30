@@ -23,6 +23,7 @@
 //! connection.
 
 use super::feeds_table::CITY_FEEDS;
+use crate::seasonal::haversine_km;
 
 /// One city's timetable, as the catalog describes it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -64,6 +65,97 @@ impl CityFeed {
     pub fn area(&self) -> f64 {
         (self.max_lat - self.min_lat) * (self.max_lon - self.min_lon)
     }
+
+    /// How far a point is from the feed's box, in kilometres (0 inside it).
+    #[must_use]
+    pub fn km_from(&self, lat: f64, lon: f64) -> f64 {
+        let near_lat = lat.clamp(self.min_lat, self.max_lat);
+        let near_lon = lon.clamp(self.min_lon, self.max_lon);
+        haversine_km(lat, lon, near_lat, near_lon)
+    }
+
+    /// Whether the feed runs boats. The catalog does not say which vehicles
+    /// a feed carries, so this reads the operator's name — "Washington State
+    /// Ferries", "Chicago Water Taxi", "Hy-Line Cruises" — and knows the city
+    /// systems that run ferries under their own name ([`SHIP_SYSTEMS`]). A
+    /// ship query downloads only these: never a bus network, to look for a
+    /// ferry it does not run.
+    #[must_use]
+    pub fn carries_ships(&self) -> bool {
+        SHIP_SYSTEMS.contains(&self.id) || self.named_for_boats()
+    }
+
+    /// Whether the operator's own name says it runs boats — a ferry line,
+    /// not a city system that also runs one.
+    #[must_use]
+    pub fn named_for_boats(&self) -> bool {
+        let text = format!("{} {}", self.provider, self.name).to_ascii_lowercase();
+        let words: Vec<&str> = text
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .collect();
+        words.iter().any(|w| SHIP_WORDS.contains(w))
+            || words.windows(2).any(|p| p == ["water", "taxi"])
+    }
+}
+
+/// Words that name a boat operator. Whole words only: "Steamboat Springs
+/// Transit" and the "Corona Cruiser" are buses, and "Ferrocarriles" is a
+/// railway.
+const SHIP_WORDS: &[&str] = &[
+    "ferry",
+    "ferries",
+    "seabus",
+    "aquabus",
+    "steamship",
+    "cruise",
+    "cruises",
+    "boat",
+    "boats",
+    "ship",
+    "waterway",
+    "marine",
+];
+
+/// City systems whose feeds carry ferries though their names don't say so:
+/// Casco Bay Lines, Kitsap Transit's fast ferries, King County Metro's water
+/// taxi (in its own feed and Seattle's combined one), the MBTA's boats,
+/// Golden Gate Ferry, TransLink's SeaBus, Halifax Transit's harbour ferries,
+/// and the Catalina Flyer.
+const SHIP_SYSTEMS: &[&str] = &[
+    "mdb-1", "mdb-1304", "mdb-1330", "mdb-267", "mdb-437", "mdb-67", "mdb-696", "mdb-734",
+    "mdb-300",
+];
+
+/// The usable feeds that run boats within `reach_km` of a point, at most
+/// `limit`: nearest first, then a ferry line before a city system that also
+/// runs a boat, then official, active and the smaller box. A ferry terminal
+/// is often outside the box of the town it serves — Seattle's ferries' box
+/// stops at the water, and Redmond drives to them. Ranked by box size alone,
+/// Seattle's city buses (with the water taxi to West Seattle) came before
+/// Washington State Ferries, and a trip to Bainbridge Island was offered
+/// the water taxi.
+#[must_use]
+pub fn ships_near(lat: f64, lon: f64, reach_km: f64, limit: usize) -> Vec<&'static CityFeed> {
+    if !lat.is_finite() || !lon.is_finite() || reach_km.is_nan() || reach_km < 0.0 || limit == 0 {
+        return Vec::new();
+    }
+    let mut hits: Vec<(f64, &'static CityFeed)> = CITY_FEEDS
+        .iter()
+        .filter(|f| !f.needs_permission && f.carries_ships())
+        .map(|f| (f.km_from(lat, lon), f))
+        .filter(|(km, _)| *km <= reach_km)
+        .collect();
+    hits.sort_by(|(ka, a), (kb, b)| {
+        ka.total_cmp(kb)
+            .then(b.named_for_boats().cmp(&a.named_for_boats()))
+            .then(b.official.cmp(&a.official))
+            .then(b.active.cmp(&a.active))
+            .then(a.area().total_cmp(&b.area()))
+            .then(a.id.cmp(b.id))
+    });
+    hits.truncate(limit);
+    hits.into_iter().map(|(_, f)| f).collect()
 }
 
 /// Every feed in the table, for tests and tools.
@@ -158,6 +250,43 @@ mod tests {
         assert!(ids.iter().all(|id| id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')));
+    }
+
+    #[test]
+    fn boat_operators_are_known_by_name_and_buses_are_not_mistaken_for_them() {
+        let by_id = |id: &str| all().iter().find(|f| f.id == id).expect(id);
+        for id in [
+            "mdb-283", "mdb-518", "mdb-690", "mdb-306", "mdb-427", "mdb-1304",
+        ] {
+            assert!(by_id(id).carries_ships(), "{id} runs boats");
+        }
+        // "Corona Cruiser", "Steamboat Springs Transit", Mexico City's
+        // "Ferrocarriles Suburbanos" line-up, "Maritime Bus": no boats.
+        for id in ["mdb-104", "mdb-2051", "mdb-1830", "mdb-2417", "mdb-394"] {
+            assert!(!by_id(id).carries_ships(), "{id} runs no boats");
+        }
+    }
+
+    #[test]
+    fn a_ferry_near_seattle_is_found_from_both_shores() {
+        // Downtown Seattle and Winslow on Bainbridge Island: Washington State
+        // Ferries' own feed is near both, and every hit runs boats.
+        let seattle = ships_near(47.6062, -122.3321, 30.0, 8);
+        let bainbridge = ships_near(47.6262, -122.5212, 30.0, 8);
+        assert!(seattle.iter().any(|f| f.id == "mdb-283"), "{seattle:?}");
+        assert!(bainbridge.iter().any(|f| f.id == "mdb-283"));
+        assert!(seattle.iter().all(|f| f.carries_ships()));
+        // The two a trip asks are ferry lines, the state's own among them —
+        // not the city system whose water taxi only reaches West Seattle.
+        let asked: Vec<&str> = seattle.iter().take(2).map(|f| f.id).collect();
+        assert!(asked.contains(&"mdb-283"), "{asked:?}");
+        assert!(
+            seattle.iter().take(2).all(|f| f.named_for_boats()),
+            "{asked:?}"
+        );
+        // Nowhere near the water that boats cross.
+        assert!(ships_near(39.7392, -104.9903, 30.0, 8).is_empty(), "Denver");
+        assert!(ships_near(f64::NAN, 0.0, 30.0, 8).is_empty());
     }
 
     #[test]

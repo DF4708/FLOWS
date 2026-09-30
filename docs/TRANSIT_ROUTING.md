@@ -247,7 +247,7 @@ What runs today:
   airport and from it — unless the rental car is on too, which is then picked
   up where the plane lands. `flows_core::trip_shape::shape` reads a selection
   and the trip's length and returns one shape, with a test over every one of
-  the 31 selections at three distances:
+  the 63 selections (31 before the ship) at three distances:
 
   | Part | Rule |
   | --- | --- |
@@ -291,6 +291,39 @@ What runs today:
   day — see Size limit above); and MapKit's rental search from one city about
   another returned the first city's counters, 340 miles off — now a hard
   search box (iOS 18/macOS 15) plus a 20-mile cutoff.
+- **The ship (2026-09-30) — the owner's request: "a ship button that
+  includes ferries and any other sea transport such as cruises."** Boats now
+  have their own vehicle, `Mode::Ship` (byte 5; GTFS route_type 4, 1000–1099
+  and 1200–1299). Before, they fell through to `Bus`: the Staten Island Ferry
+  read "Bus" on a card and was boarded by riders who chose the bus.
+  `ALL_VEHICLES` gained the bit; `SHIP_VEHICLES` is the ship's mask and
+  `LAND_VEHICLES` (buses and trains) is what may stand in for a chosen bus or
+  train — never a boat. The `.ftt` reader accepts byte 5; the format version
+  is unchanged.
+
+  | Selection | Trip |
+  | --- | --- |
+  | Ship (with anything but a plane worth taking) | the ferry is the main ride, at any distance — the water decides, not the miles |
+  | Walk + bus + ship | the city bus to the terminal and from the far one, one card |
+  | Car + ship | drive and park at the terminal (or drive aboard — the operator says); rent or ride from the far one |
+  | Plane + ship, long trip | the plane is the ride; a ferry may carry an end |
+  | No ferry joins the two places | the ship card says so, with a ferry search and the cruises from the nearest cruise terminal, and the rest of the selection is planned without it |
+
+  Which feeds run boats: the catalog does not say, so
+  `feeds::CityFeed::carries_ships` reads the operator's name (whole words:
+  ferry, ferries, seabus, steamship, cruise, boats, water taxi, …; "Steamboat
+  Springs Transit" and the "Corona Cruiser" are buses) plus `SHIP_SYSTEMS`,
+  the city systems that run ferries under their own names (Kitsap Transit,
+  King County Metro's water taxi, the MBTA, Golden Gate, TransLink's SeaBus,
+  Halifax, Casco Bay Lines, the Catalina Flyer). `feeds::ships_near` reaches
+  40 km past a feed's box, because a terminal is often outside the town's;
+  `TransitFeeds.shipSources` keeps only operators near BOTH ends. The ship
+  card asks twice: once from the trip's ends to find the terminals, then from
+  the boarding terminal at the time the rider reaches it (tomorrow's first
+  sailing, said so, when none is left today). Cruise lines publish no
+  timetables: a cruise is a terminal MapKit finds within 150 km and a search
+  the rider can open — nothing booked, no fare guessed, and no "Less
+  pollution" chip on a ship.
 - **Still ahead:** `backbone.ftt` (Amtrak + VIA), `manifest.ftm`, and the
   mmap zero-copy reader.
 

@@ -46,6 +46,12 @@ mod ffi {
         ) -> Vec<String>;
         fn flows_transit_info(prefix: &str) -> Vec<String>;
         fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Vec<String>;
+        fn flows_transit_ship_feeds(
+            latitude: f64,
+            longitude: f64,
+            reach_km: f64,
+            limit: i64,
+        ) -> Vec<String>;
         fn flows_transit_departures(
             prefix: &str,
             from_latitude: f64,
@@ -63,6 +69,7 @@ mod ffi {
             bus: bool,
             plane: bool,
             rental: bool,
+            ship: bool,
             trip_miles: f64,
         ) -> i64;
         fn flows_transit_beats_walk(
@@ -76,6 +83,8 @@ mod ffi {
             other_seconds: f64,
         ) -> bool;
         fn flows_transit_all_vehicles() -> i64;
+        fn flows_transit_ship_vehicles() -> i64;
+        fn flows_transit_land_vehicles() -> i64;
         fn flows_transit_long_haul_miles() -> f64;
         fn flows_transit_far_walk_seconds() -> f64;
     }
@@ -86,7 +95,7 @@ use std::path::Path;
 use crate::contain;
 use flows_core::transit::gtfs::{FeedInput, LINK_WALK_MPS};
 use flows_core::transit::shard::{self, BuildReport, Departure, NearStop, Shard};
-use flows_core::transit::{Time, ALL_VEHICLES};
+use flows_core::transit::{Time, ALL_VEHICLES, LAND_VEHICLES, SHIP_VEHICLES};
 use flows_core::trip_shape::{self, Picked};
 
 /// The separator between fields. U+001F is not a character a station name,
@@ -147,22 +156,42 @@ pub fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Ve
         let limit = usize::try_from(limit).unwrap_or(0).min(8);
         flows_core::transit::feeds::covering(latitude, longitude, limit)
             .iter()
-            .map(|f| {
-                format!(
-                    "feed{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{}",
-                    f.id,
-                    flows_core::transit::feeds::operator_name(f.provider).replace(UNIT, " "),
-                    f.url,
-                    f.licence,
-                    f.min_lat,
-                    f.max_lat,
-                    f.min_lon,
-                    f.max_lon,
-                    f.mirror
-                )
-            })
+            .map(|f| feed_row(f))
             .collect()
     })
+}
+
+/// The timetables of operators that run boats within `reach_km` of a point,
+/// nearest first, in the same rows as [`flows_transit_city_feeds`]. A ship
+/// trip asks these alone (`flows_core::transit::feeds::ships_near`).
+pub fn flows_transit_ship_feeds(
+    latitude: f64,
+    longitude: f64,
+    reach_km: f64,
+    limit: i64,
+) -> Vec<String> {
+    contain(Vec::new(), || {
+        let limit = usize::try_from(limit).unwrap_or(0).min(8);
+        flows_core::transit::feeds::ships_near(latitude, longitude, reach_km, limit)
+            .iter()
+            .map(|f| feed_row(f))
+            .collect()
+    })
+}
+
+fn feed_row(f: &flows_core::transit::feeds::CityFeed) -> String {
+    format!(
+        "feed{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{}",
+        f.id,
+        flows_core::transit::feeds::operator_name(f.provider).replace(UNIT, " "),
+        f.url,
+        f.licence,
+        f.min_lat,
+        f.max_lat,
+        f.min_lon,
+        f.max_lon,
+        f.mirror
+    )
 }
 
 /// The most a feed's clock can sit from the reference's: two days. Any real
@@ -387,6 +416,7 @@ pub fn flows_transit_trip_shape(
     bus: bool,
     plane: bool,
     rental: bool,
+    ship: bool,
     trip_miles: f64,
 ) -> i64 {
     let picked = Picked {
@@ -395,6 +425,7 @@ pub fn flows_transit_trip_shape(
         bus,
         plane,
         rental,
+        ship,
     };
     contain(0, || {
         trip_shape::pack(trip_shape::shape(picked, trip_miles))
@@ -422,6 +453,17 @@ pub fn flows_transit_other_vehicle_wins(
 /// The mask that boards every vehicle — a rider who chose them all.
 pub fn flows_transit_all_vehicles() -> i64 {
     i64::from(ALL_VEHICLES)
+}
+
+/// The mask of the vehicles that float.
+pub fn flows_transit_ship_vehicles() -> i64 {
+    i64::from(SHIP_VEHICLES)
+}
+
+/// The city's buses and trains: what stands in for a chosen bus or train
+/// that cannot make a leg — never a ship.
+pub fn flows_transit_land_vehicles() -> i64 {
+    i64::from(LAND_VEHICLES)
 }
 
 /// Past this many miles a train or bus toggle means the intercity service.
@@ -508,9 +550,14 @@ mod tests {
         assert_eq!(vehicle_mask(-1), ALL_VEHICLES);
         assert_eq!(vehicle_mask(1 << 9), ALL_VEHICLES);
         assert_eq!(
-            vehicle_mask(0b10_0000),
+            vehicle_mask(0b100_0000),
             ALL_VEHICLES,
             "a bit no vehicle has"
+        );
+        assert_eq!(
+            vehicle_mask(SHIP_VEHICLES.into()),
+            SHIP_VEHICLES,
+            "the ship's own bit"
         );
         assert_eq!(vehicle_mask(i64::from(BUS_VEHICLES)), BUS_VEHICLES);
         assert_eq!(vehicle_mask(i64::from(TRAIN_VEHICLES)), TRAIN_VEHICLES);
@@ -518,7 +565,7 @@ mod tests {
 
     #[test]
     fn the_trip_shape_crosses_as_the_core_packs_it() {
-        let packed = flows_transit_trip_shape(false, true, true, false, false, 400.0);
+        let packed = flows_transit_trip_shape(false, true, true, false, false, false, 400.0);
         let core = trip_shape::pack(trip_shape::shape(
             Picked {
                 on_foot: false,
@@ -526,6 +573,7 @@ mod tests {
                 bus: true,
                 plane: false,
                 rental: false,
+                ship: false,
             },
             400.0,
         ));
@@ -536,6 +584,30 @@ mod tests {
         assert!(flows_transit_other_vehicle_wins(0.0, false, 60.0));
         assert!(!flows_transit_other_vehicle_wins(1_000.0, true, 900.0));
         assert_eq!(flows_transit_all_vehicles(), i64::from(ALL_VEHICLES));
+        let ship = flows_transit_trip_shape(true, false, true, false, false, true, 12.0);
+        assert_eq!(
+            ship & 0xFF,
+            trip_shape::Main::Ship as i64,
+            "the ship is the ride"
+        );
+        assert_eq!(
+            flows_transit_ship_vehicles() & flows_transit_land_vehicles(),
+            0
+        );
+        assert_eq!(
+            flows_transit_ship_vehicles() | flows_transit_land_vehicles(),
+            flows_transit_all_vehicles()
+        );
+        let rows = flows_transit_ship_feeds(47.6062, -122.3321, 30.0, 4);
+        assert!(
+            rows.iter()
+                .any(|r| r.starts_with("feed\u{1F}mdb-283\u{1F}")),
+            "{rows:?}"
+        );
+        assert!(
+            flows_transit_ship_feeds(39.7392, -104.9903, 30.0, 4).is_empty(),
+            "Denver"
+        );
         assert!(flows_transit_long_haul_miles() > 0.0);
         assert!(flows_transit_far_walk_seconds() > 0.0);
     }

@@ -70,6 +70,9 @@ pub enum Mode {
     Bus = 2,
     Coach = 3,
     Commuter = 4,
+    /// Anything that floats: ferries, water taxis, the boats GTFS files as
+    /// water transport. Its own toggle, so a bus rider is never put on one.
+    Ship = 5,
 }
 
 impl Mode {
@@ -83,11 +86,16 @@ impl Mode {
 }
 
 /// Every vehicle there is — the mask for a rider who named none.
-pub const ALL_VEHICLES: u8 = 0b1_1111;
+pub const ALL_VEHICLES: u8 = 0b11_1111;
 /// Trains of every kind: intercity, subway and tram, commuter.
 pub const TRAIN_VEHICLES: u8 = Mode::Rail.bit() | Mode::Subway.bit() | Mode::Commuter.bit();
 /// Buses of every kind: city buses and coaches.
 pub const BUS_VEHICLES: u8 = Mode::Bus.bit() | Mode::Coach.bit();
+/// Ships of every kind: ferries and water taxis.
+pub const SHIP_VEHICLES: u8 = Mode::Ship.bit();
+/// The city's buses and trains — what stands in for a chosen bus or train
+/// that cannot make a leg. Never a ship: one is boarded only when chosen.
+pub const LAND_VEHICLES: u8 = TRAIN_VEHICLES | BUS_VEHICLES;
 
 /// A RAPTOR "route": a maximal set of trips that visit the **identical ordered
 /// stop sequence** and do not overtake one another (so trips sort consistently by

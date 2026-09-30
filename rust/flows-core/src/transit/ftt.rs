@@ -266,6 +266,7 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
             2 => Mode::Bus,
             3 => Mode::Coach,
             4 => Mode::Commuter,
+            5 => Mode::Ship,
             m => return Err(bad(format!("ftt: unknown mode byte {m}"))),
         };
         if n_pat < 2 {
@@ -432,6 +433,18 @@ mod tests {
             std::process::id()
         ));
         p
+    }
+
+    #[test]
+    fn a_ferry_route_keeps_its_ship_mode() {
+        let mut b = TimetableBuilder::new();
+        let a = b.add_stop(40_701_000, -74_013_000);
+        let c = b.add_stop(40_643_000, -74_073_000);
+        b.add_route(&[a, c], vec![vec![ev(0, 0), ev(1500, 1500)]], Mode::Ship);
+        let tt = b.build();
+        let back = from_bytes(&to_bytes(&tt)).unwrap();
+        assert_eq!(back.route_mode(0), Mode::Ship);
+        assert_eq!(to_bytes(&back), to_bytes(&tt));
     }
 
     #[test]

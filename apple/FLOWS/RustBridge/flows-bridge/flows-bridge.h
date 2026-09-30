@@ -731,11 +731,14 @@ void* __swift_bridge__$flows_transit_build(struct RustStr gtfs_dir, struct RustS
 void* __swift_bridge__$flows_transit_build_many(struct RustStr gtfs_dirs, struct __private__FfiSlice shift_secs, struct RustStr prefix, int64_t service_date);
 void* __swift_bridge__$flows_transit_info(struct RustStr prefix);
 void* __swift_bridge__$flows_transit_city_feeds(double latitude, double longitude, int64_t limit);
+void* __swift_bridge__$flows_transit_ship_feeds(double latitude, double longitude, double reach_km, int64_t limit);
 void* __swift_bridge__$flows_transit_departures(struct RustStr prefix, double from_latitude, double from_longitude, double to_latitude, double to_longitude, double max_station_meters, int64_t depart_seconds, int64_t limit, int64_t vehicles);
-int64_t __swift_bridge__$flows_transit_trip_shape(bool on_foot, bool train, bool bus, bool plane, bool rental, double trip_miles);
+int64_t __swift_bridge__$flows_transit_trip_shape(bool on_foot, bool train, bool bus, bool plane, bool rental, bool ship, double trip_miles);
 bool __swift_bridge__$flows_transit_beats_walk(double walk_seconds, bool walk_known, double transit_seconds);
 bool __swift_bridge__$flows_transit_other_vehicle_wins(double chosen_seconds, bool chosen_known, double other_seconds);
 int64_t __swift_bridge__$flows_transit_all_vehicles(void);
+int64_t __swift_bridge__$flows_transit_ship_vehicles(void);
+int64_t __swift_bridge__$flows_transit_land_vehicles(void);
 double __swift_bridge__$flows_transit_long_haul_miles(void);
 double __swift_bridge__$flows_transit_far_walk_seconds(void);
 

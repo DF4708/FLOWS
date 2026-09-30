@@ -164,9 +164,14 @@ enum TransitPlanning {
         return numbered || trimmed.count <= 4 ? "the \(trimmed) \(word)" : "the \(trimmed)"
     }
 
-    /// The symbol for a city vehicle: a bus for "Bus", a train otherwise.
+    /// The symbol for a city vehicle: a bus for "Bus", a ferry for "Ferry", a
+    /// train otherwise.
     static func vehicleSymbol(_ vehicle: String?) -> String {
-        vehicle == "Bus" ? "bus.fill" : "tram.fill"
+        switch vehicle {
+        case "Bus": return "bus.fill"
+        case "Ferry": return "ferry.fill"
+        default: return "tram.fill"
+        }
     }
 
     /// The third line of a drive-and-park leg: what happens at the far end,
@@ -325,9 +330,10 @@ enum TransitTickets {
     }
 }
 
-/// The toggles on the Routes card: train, bus, plane and a rental car. Any
-/// mix of them is ONE trip — `TripShape` says how the pieces fit together.
-enum TransitMode: CaseIterable, Hashable { case rail, bus, plane, rental }
+/// The toggles on the Routes card: train, bus, plane, a ship and a rental
+/// car. Any mix of them is ONE trip — `TripShape` says how the pieces fit
+/// together.
+enum TransitMode: CaseIterable, Hashable { case rail, bus, plane, ship, rental }
 
 /// What the rider means by the toggles they switched on, read as one trip by
 /// `flows_core::trip_shape` — the owner's rule, pinned there by a test for
@@ -338,7 +344,7 @@ enum TransitMode: CaseIterable, Hashable { case rail, bus, plane, rental }
 struct TripShape: Equatable {
     /// The long way. `short` is a trip with none: the city's own buses and
     /// trains, or a rental car, go door to door.
-    enum Main: Int { case short = 0, plane, train, coach }
+    enum Main: Int { case short = 0, plane, train, coach, ship }
     /// How the rider reaches the main ride.
     enum Access: Int {
         /// Walk when the station is close, drive and park when it is not.
@@ -378,7 +384,7 @@ struct TripShape: Equatable {
     init(onFoot: Bool, modes: Set<TransitMode>, tripMiles: Double) {
         let packed = flows_transit_trip_shape(
             onFoot, modes.contains(.rail), modes.contains(.bus), modes.contains(.plane),
-            modes.contains(.rental), tripMiles)
+            modes.contains(.rental), modes.contains(.ship), tripMiles)
         func byte(_ index: Int64) -> Int { Int((packed >> (8 * index)) & 0xFF) }
         main = Main(rawValue: byte(0)) ?? .short
         access = Access(rawValue: byte(1)) ?? .ownCar
@@ -401,6 +407,7 @@ struct TripShape: Equatable {
         case .plane: return .plane
         case .train: return .rail
         case .coach: return .bus
+        case .ship: return .ship
         case .short: return nil
         }
     }
@@ -419,6 +426,7 @@ struct TripShape: Equatable {
         }
         switch key {
         case .plane: return [.plane]
+        case .ship: return [.ship]
         case .rental: return [.rental]
         case .rail, .bus: return active.intersection([.rail, .bus])
         }
@@ -432,6 +440,13 @@ struct TripShape: Equatable {
 
     /// The mask that boards every city vehicle.
     static var allVehicles: Int { Int(flows_transit_all_vehicles()) }
+
+    /// The mask of the vehicles that float — ferries, water taxis.
+    static var shipVehicles: Int { Int(flows_transit_ship_vehicles()) }
+
+    /// The city's buses and trains, never a ship: what stands in for a chosen
+    /// bus or train that cannot make a leg.
+    static var landVehicles: Int { Int(flows_transit_land_vehicles()) }
 
     /// Whether a city trip on any vehicle, taking `otherSeconds`, should
     /// replace the one on the chosen vehicles (nil: they cannot make it).
@@ -600,6 +615,83 @@ struct TransitOption {
     /// Plain lines the rider should read before the legs — a city train
     /// standing in for the bus they chose, and why.
     var notes: [String] = []
+    /// Searches a card can offer when FLOWS has no timetable to show — the
+    /// ferries and cruises the ship card points to.
+    var links: [LabeledLink] = []
+}
+
+/// A link with the words a card shows for it.
+struct LabeledLink: Hashable {
+    let label: String
+    let url: URL
+}
+
+/// Ships: ferries and water taxis publish timetables, and the ship card reads
+/// them (`TransitFeeds.shipSources`). Cruise lines publish none, so a cruise
+/// is a terminal the map can find and a search the rider can open — nothing
+/// booked for them, nothing guessed.
+enum ShipTravel {
+    /// How far from each end a ferry terminal may be: about a half-hour drive.
+    static let terminalReachMeters = 40_000.0
+    /// How far from the start a cruise terminal may be and still be offered.
+    static let cruiseReachMeters = 150_000.0
+
+    /// Whether a ferry that lands at `landing` is the way from `start` to
+    /// `end`: it must leave the rider well on — within 60% of the distance
+    /// they started from, or 2 km. Seattle's water taxi lands in West
+    /// Seattle, eleven kilometres from Bainbridge Island, and was offered
+    /// as the way there when no other boat's timetable was read.
+    static func sailingHelps(start: CLLocationCoordinate2D, landing: CLLocationCoordinate2D,
+                             end: CLLocationCoordinate2D) -> Bool {
+        func meters(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+            CLLocation(latitude: a.latitude, longitude: a.longitude)
+                .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+        }
+        return meters(landing, end) <= max(2_000, 0.6 * meters(start, end))
+    }
+
+    /// The rider's word for a place, or nil when it names no place ("Current
+    /// location", "your start"), which a search could not use.
+    static func placeWord(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let lower = trimmed.lowercased()
+        guard !trimmed.isEmpty, !lower.hasPrefix("current"), !lower.hasPrefix("your ") else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// A web search for ferries between two places — from the start when it
+    /// has a name, else to the destination alone.
+    static func ferrySearchURL(from: String, to: String) -> URL? {
+        guard let there = placeWord(to) else { return nil }
+        let query = placeWord(from).map { "ferry from \($0) to \(there)" } ?? "ferry to \(there)"
+        return search(query)
+    }
+
+    /// A web search for cruises leaving a terminal, toward a place when it
+    /// has a name.
+    static func cruiseSearchURL(from terminal: String, toward: String) -> URL? {
+        guard let port = placeWord(terminal) else { return nil }
+        return search(placeWord(toward).map { "cruises from \(port) to \($0)" }
+                      ?? "cruises from \(port)")
+    }
+
+    /// Whether a map result reads as a cruise terminal: it says "cruise", or
+    /// it is a port by name ("Port Everglades", "PortMiami") — and not an
+    /// airport, whose name holds "port" inside another word.
+    static func isCruiseTerminal(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        if lower.hasPrefix("portmiami") { return true }
+        let words = lower.split { !$0.isLetter }.map(String.init)
+        return words.contains("cruise") || words.contains("cruises") || words.contains("port")
+    }
+
+    private static func search(_ query: String) -> URL? {
+        var parts = URLComponents(string: "https://www.google.com/search")
+        parts?.queryItems = [URLQueryItem(name: "q", value: query)]
+        return parts?.url
+    }
 }
 
 /// The walk + paid-ride card's computed pieces (walking mode only). On the

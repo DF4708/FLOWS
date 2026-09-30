@@ -103,6 +103,8 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertEqual(TransitFeeds.credit(for: ["Amtrak", "Metra", "CTA"]),
                        "Schedules from Amtrak, Metra and CTA")
         XCTAssertEqual(TransitFeeds.credit(for: []), "")
+        XCTAssertEqual(TransitFeeds.credit(for: ["Washington State Ferries", "Washington State Ferries"]),
+                       "Schedule from Washington State Ferries", "one operator's two feeds: named once")
     }
 
     func testOnlyPastDaysShardsAreSwept() {
@@ -276,7 +278,7 @@ final class TransitMergeTests: XCTestCase {
                        "bus")
         XCTAssertNil(TripShape(onFoot: true, modes: [.bus, .rail], tripMiles: 6).cityChoice)
         XCTAssertEqual(TripShape(onFoot: true, modes: [.bus, .rail], tripMiles: 6).localVehicles,
-                       TripShape.allVehicles)
+                       TripShape.landVehicles, "every bus and train, and still no boat")
     }
 
     func testWalkBusAndPlaneRidesTheBusBothWaysUnlessARentalIsOn() {
@@ -292,6 +294,81 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertEqual(rental.egress, .rental, "and a car where the plane lands")
         XCTAssertEqual(rental.modes(ofCard: .plane, active: [.bus, .plane, .rental]),
                        [.bus, .plane, .rental])
+    }
+
+    func testTheShipIsTheRideAndItsCardStandsForTheTrip() {
+        // Walk, bus and ship: the bus to the ferry and from it, one card.
+        let s = TripShape(onFoot: true, modes: [.bus, .ship], tripMiles: 4)
+        XCTAssertEqual(s.main, .ship)
+        XCTAssertEqual(s.mainMode, .ship)
+        XCTAssertEqual(s.access, .local)
+        XCTAssertEqual(s.egress, .local)
+        XCTAssertEqual(s.egressFallback, .rentOrRide)
+        XCTAssertEqual(s.localVehicles & TripShape.shipVehicles, 0,
+                       "the ferry is the ride, not a city vehicle at its ends")
+        XCTAssertTrue(s.shows(TripShape.cardMain))
+        XCTAssertFalse(s.shows(TripShape.cardLocal))
+        XCTAssertEqual(s.modes(ofCard: .ship, active: [.bus, .ship]), [.bus, .ship])
+
+        // Beside a flight worth taking, the ship carries an end instead.
+        let fly = TripShape(onFoot: true, modes: [.plane, .ship], tripMiles: 600)
+        XCTAssertEqual(fly.main, .plane)
+        XCTAssertEqual(fly.localVehicles, TripShape.shipVehicles)
+        XCTAssertEqual(TripShape.shipVehicles & TripShape.landVehicles, 0,
+                       "a bus rider is never put on a boat")
+        XCTAssertEqual(TripShape.shipVehicles | TripShape.landVehicles, TripShape.allVehicles)
+    }
+
+    func testAFerryMustServeBothEndsOfTheTrip() {
+        let wsf = city("mdb-283", "Washington State Ferries", lat: 47.2...48.6, lon: -123.0 ... -122.3)
+        let water = city("mdb-306", "Chicago Water Taxi", lat: 41.87...41.9, lon: -87.65 ... -87.6)
+        let kitsap = city("mdb-1304", "Kitsap Transit", lat: 47.3...47.9, lon: -122.9 ... -122.5)
+        // Seattle to Bremerton: the state's ferries are near both ends;
+        // Kitsap's boats only near one, so they cannot carry this alone.
+        let both = TransitFeeds.shipSources(from: 47.60, -122.34, to: 47.56, -122.62, reachKm: 40,
+                                            start: [wsf, water], end: [kitsap, wsf])
+        XCTAssertEqual(both.map(\.name), ["mdb-283"])
+        XCTAssertTrue(TransitFeeds.shipSources(from: 41.88, -87.63, to: 47.56, -122.62,
+                                               reachKm: 40, start: [water], end: [kitsap]).isEmpty,
+                      "no boat joins Chicago to Puget Sound")
+
+        // A city leg for a rider who chose the ship asks the ferry too,
+        // past the city limit; one who did not never downloads it.
+        let metro = city("mdb-1080", "Puget Sound", lat: 47.0...48.3, lon: -122.7 ... -121.9)
+        let leg = TransitFeeds.citySources(from: 47.60, -122.34, to: 47.62, -122.52,
+                                           cities: [metro], ships: [wsf])
+        XCTAssertEqual(leg.map(\.name), ["mdb-1080", "mdb-283"])
+        XCTAssertEqual(TransitFeeds.citySources(from: 47.60, -122.34, to: 47.62, -122.52,
+                                                cities: [metro]).map(\.name), ["mdb-1080"])
+    }
+
+    func testTheShipCardSearchesForWhatItCannotShow() throws {
+        let ferry = try XCTUnwrap(ShipTravel.ferrySearchURL(from: "Seattle", to: "Bainbridge Island"))
+        XCTAssertEqual(URLComponents(url: ferry, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first?.value, "ferry from Seattle to Bainbridge Island")
+        let toOnly = try XCTUnwrap(ShipTravel.ferrySearchURL(from: "Current location", to: "Nantucket"))
+        XCTAssertEqual(URLComponents(url: toOnly, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first?.value, "ferry to Nantucket",
+                       "a start with no place name is left out of the search")
+        XCTAssertNil(ShipTravel.ferrySearchURL(from: "Seattle", to: "your destination"))
+        let cruise = try XCTUnwrap(ShipTravel.cruiseSearchURL(from: "PortMiami", toward: "Cozumel"))
+        XCTAssertEqual(URLComponents(url: cruise, resolvingAgainstBaseURL: false)?
+                        .queryItems?.first?.value, "cruises from PortMiami to Cozumel")
+        XCTAssertTrue(ShipTravel.isCruiseTerminal("PortMiami"))
+        XCTAssertTrue(ShipTravel.isCruiseTerminal("Port Everglades"))
+        XCTAssertTrue(ShipTravel.isCruiseTerminal("Smith Cove Cruise Terminal"))
+        XCTAssertFalse(ShipTravel.isCruiseTerminal("Miami International Airport"))
+        XCTAssertFalse(ShipTravel.isCruiseTerminal("Portillo's Hot Dogs"))
+    }
+
+    func testAFerryMustLeaveTheRiderWellOnTheirWay() {
+        let seattle = CLLocationCoordinate2D(latitude: 47.6097, longitude: -122.3331)
+        let winslow = CLLocationCoordinate2D(latitude: 47.6262, longitude: -122.5212)
+        let bainbridgeDock = CLLocationCoordinate2D(latitude: 47.6231, longitude: -122.5108)
+        let westSeattle = CLLocationCoordinate2D(latitude: 47.5905, longitude: -122.3805)
+        XCTAssertTrue(ShipTravel.sailingHelps(start: seattle, landing: bainbridgeDock, end: winslow))
+        XCTAssertFalse(ShipTravel.sailingHelps(start: seattle, landing: westSeattle, end: winslow),
+                       "the water taxi lands 11 km from Bainbridge: not the way there")
     }
 
     func testAShortTripKeepsItsCardsApart() {

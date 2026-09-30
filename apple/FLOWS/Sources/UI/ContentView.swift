@@ -1227,6 +1227,7 @@ struct ContentView: View {
                 let rail = itin.mode.lowercased().contains("rail")
                     || itin.mode.lowercased().contains("amtrak")
                 let rideSymbol = itin.mode == "Plane" ? "airplane"
+                    : itin.mode == "Ship" ? "ferry.fill"
                     : rail ? "tram.fill" : "bus.fill"
                 guard let here = model.location.coordinate,
                       let leg = Self.nearestLeg(of: itin, to: here) else {

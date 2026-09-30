@@ -446,5 +446,8 @@ final class TransitTimesTests: XCTestCase {
         XCTAssertEqual(TransitShard.vehicleWord(2), "Bus")
         XCTAssertEqual(TransitShard.vehicleWord(3), "Bus", "a coach is a bus to the person riding it")
         XCTAssertEqual(TransitShard.vehicleWord(4), "Train")
+        XCTAssertEqual(TransitShard.vehicleWord(5), "Ferry",
+                       "the Staten Island Ferry read \"Bus\" before boats had a mode of their own")
+        XCTAssertEqual(TransitPlanning.vehicleSymbol("Ferry"), "ferry.fill")
     }
 }

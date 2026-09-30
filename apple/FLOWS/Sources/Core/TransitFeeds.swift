@@ -90,8 +90,36 @@ actor TransitFeeds {
     /// day permission is on file.
     static func cityFeeds(near latitude: Double, _ longitude: Double,
                           limit: Int = cityFeedLimit) -> [Source] {
+        sources(flows_transit_city_feeds(latitude, longitude, Int64(limit)))
+    }
+
+    /// The timetables of operators that run boats — ferries, water taxis —
+    /// within `reachKm` of a point, nearest first. A terminal is often
+    /// outside the box of the town it serves, so this reaches past it.
+    static func shipFeeds(near latitude: Double, _ longitude: Double, reachKm: Double,
+                          limit: Int = cityFeedLimit) -> [Source] {
+        sources(flows_transit_ship_feeds(latitude, longitude, reachKm, Int64(limit)))
+    }
+
+    /// The boat operators that could carry a trip: those near BOTH ends,
+    /// because a sailing has to join them — nearest the start first. `start`
+    /// and `end` replace the compiled-in table (tests pass their own).
+    static func shipSources(
+        from startLatitude: Double, _ startLongitude: Double,
+        to endLatitude: Double, _ endLongitude: Double,
+        reachKm: Double, limit: Int = cityFeedLimit,
+        start: [Source]? = nil, end: [Source]? = nil
+    ) -> [Source] {
+        let nearStart = start ?? shipFeeds(near: startLatitude, startLongitude,
+                                           reachKm: reachKm, limit: 8)
+        let nearEnd = Set((end ?? shipFeeds(near: endLatitude, endLongitude,
+                                            reachKm: reachKm, limit: 8)).map(\.name))
+        return Array(nearStart.filter { nearEnd.contains($0.name) }.prefix(max(0, limit)))
+    }
+
+    private static func sources(_ rows: RustVec<RustString>) -> [Source] {
         var out: [Source] = []
-        for row in flows_transit_city_feeds(latitude, longitude, Int64(limit)) {
+        for row in rows {
             let f = row.as_str().toString()
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
             guard f.count == 10, f[0] == "feed", let url = URL(string: f[3]),
@@ -118,10 +146,14 @@ actor TransitFeeds {
     /// Amtrak is never here: the train is its own leg, asked separately, so
     /// the rider's choice of city vehicles can be held to without touching
     /// the connecting buses Amtrak runs as part of the train.
+    ///
+    /// `ships` are the boat operators near the leg (`shipSources`), passed
+    /// only when the rider chose the ship: the first one not already here is
+    /// added, past `limit`, so a ferry can carry the leg.
     static func citySources(
         from startLatitude: Double, _ startLongitude: Double,
         to endLatitude: Double, _ endLongitude: Double,
-        cities: [Source]? = nil, limit: Int = cityFeedLimit
+        cities: [Source]? = nil, limit: Int = cityFeedLimit, ships: [Source] = []
     ) -> [Source] {
         let nearStart = cities ?? cityFeeds(near: startLatitude, startLongitude, limit: limit)
         let nearEnd = cities ?? cityFeeds(near: endLatitude, endLongitude, limit: limit)
@@ -138,7 +170,11 @@ actor TransitFeeds {
         for s in nearStart + nearEnd where holdsStart(s) && holdsEnd(s) { add(s) }
         if let s = nearStart.first(where: holdsStart) { add(s) }
         if let s = nearEnd.first(where: holdsEnd) { add(s) }
-        return Array(out.prefix(max(0, limit)))
+        var picked = Array(out.prefix(max(0, limit)))
+        if let ferry = ships.first(where: { s in !picked.contains { $0.name == s.name } }) {
+            picked.append(ferry)
+        }
+        return picked
     }
 
     /// How much memory building a feed's timetable can take, at worst. The
@@ -191,8 +227,11 @@ actor TransitFeeds {
 
     /// "Schedule from Amtrak"; "Schedules from Amtrak and LA Metro"; a
     /// comma list before "and" for three or more. Every operator whose times
-    /// are on screen is named, because they are theirs.
-    static func credit(for operators: [String]) -> String {
+    /// are on screen is named, because they are theirs — once: Washington
+    /// State Ferries publishes two feeds, and the card read "Schedules from
+    /// Washington State Ferries and Washington State Ferries".
+    static func credit(for names: [String]) -> String {
+        let operators = distinct(names)
         switch operators.count {
         case 0: return ""
         case 1: return "Schedule from \(operators[0])"
@@ -200,6 +239,12 @@ actor TransitFeeds {
             let head = operators.dropLast().joined(separator: ", ")
             return "Schedules from \(head) and \(operators[operators.count - 1])"
         }
+    }
+
+    /// Each name once, in the order first seen.
+    static func distinct(_ names: [String]) -> [String] {
+        var seen = Set<String>()
+        return names.filter { seen.insert($0).inserted }
     }
 
     /// The cache name for a set of feeds on a day: "amtrak-20260929" for
@@ -321,7 +366,7 @@ actor TransitFeeds {
         if let stamp = TransitShard.stamp(prefix: built), stamp.serviceDate == date {
             return Ready(prefix: built, stamp: stamp,
                          credit: Self.credit(for: wanted.map(\.operatorName)),
-                         operators: wanted.map(\.operatorName))
+                         operators: Self.distinct(wanted.map(\.operatorName)))
         }
 
         // A merged build holds every feed it reads at once, so they share one
@@ -353,7 +398,7 @@ actor TransitFeeds {
         if let stamp = TransitShard.stamp(prefix: prefix.path), stamp.serviceDate == date {
             return Ready(prefix: prefix.path, stamp: stamp,
                          credit: Self.credit(for: used.map(\.operatorName)),
-                         operators: used.map(\.operatorName))
+                         operators: Self.distinct(used.map(\.operatorName)))
         }
         do {
             if parts.count == 1 {
@@ -386,7 +431,7 @@ actor TransitFeeds {
             sweepOldShards(before: date)
             return Ready(prefix: prefix.path, stamp: merged.stamp,
                          credit: Self.credit(for: used.map(\.operatorName)),
-                         operators: used.map(\.operatorName))
+                         operators: Self.distinct(used.map(\.operatorName)))
         } catch let failure as Failure {
             throw failure
         } catch {

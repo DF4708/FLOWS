@@ -311,10 +311,12 @@ extension TransitShard {
     /// Plain words for the engine's mode byte. Someone waits for a bus, not
     /// for a "coach" and certainly not for a "mode 3". Everything on rails is
     /// a train: mode 1 holds trams and light rail as well as subways, and
-    /// Minneapolis's airport light rail read "Subway" on the card.
+    /// Minneapolis's airport light rail read "Subway" on the card. A boat is
+    /// a ferry — what riders call the Staten Island Ferry and the water taxi.
     static func vehicleWord(_ mode: Int) -> String {
         switch mode {
         case 2, 3: return "Bus"
+        case 5: return "Ferry"
         default: return "Train"
         }
     }

@@ -105,7 +105,12 @@ struct RouteChoicesView: View {
                     // No flight fits (no airport with airline service near
                     // one end): the ground toggles still make a trip.
                     let flew = await computeAirTransit(shape)
-                    if !flew { groundInstead(of: active) }
+                    if !flew { groundInstead(of: active, without: .plane) }
+                case .ship:
+                    // No ferry sails between the two: the rest of the
+                    // selection still makes a trip, and the ship card says why.
+                    let sailed = await computeShipTransit(shape)
+                    if !sailed { groundInstead(of: active, without: .ship) }
                 case .train: await computeGroundTransit(rail: true, shape: shape)
                 case .coach: await computeGroundTransit(rail: false, shape: shape)
                 case .short: break
@@ -124,11 +129,12 @@ struct RouteChoicesView: View {
         }
     }
 
-    /// The plane was the main ride but no flight fits: plan the rest of the
-    /// selection without it, and leave the plane card to say why.
-    private func groundInstead(of active: Set<TransitMode>) {
+    /// The plane or the ship was the main ride but no flight or sailing fits:
+    /// plan the rest of the selection without it, and leave its card to say
+    /// why.
+    private func groundInstead(of active: Set<TransitMode>, without mode: TransitMode) {
         if Task.isCancelled { return }
-        let rest = active.subtracting([.plane])
+        let rest = active.subtracting([mode])
         guard !rest.isEmpty, let shape = currentShape(rest) else { return }
         launchCards(shape, active: rest)
     }
@@ -248,10 +254,13 @@ struct RouteChoicesView: View {
         let chosen = await cityTrip(from: start, fromName: fromName, to: end, toName: toName,
                                     departing: departing, vehicles: shape.localVehicles,
                                     mayFetch: mayFetch)
-        guard let word = shape.cityChoice, shape.localVehicles != TripShape.allVehicles,
+        // The other of the city's buses and trains may stand in — never a
+        // ship the rider did not choose.
+        let wider = shape.localVehicles | TripShape.landVehicles
+        guard let word = shape.cityChoice, wider != shape.localVehicles,
               !Task.isCancelled,
               let any = await cityTrip(from: start, fromName: fromName, to: end, toName: toName,
-                                       departing: departing, vehicles: TripShape.allVehicles,
+                                       departing: departing, vehicles: wider,
                                        mayFetch: mayFetch),
               TripShape.otherVehicleWins(chosenSeconds: chosen?.seconds,
                                          otherSeconds: any.seconds)
@@ -282,10 +291,15 @@ struct RouteChoicesView: View {
     }
 
     /// What city rides cost on top of the main fare: the usual local fare for
-    /// each bus or train boarded.
+    /// each bus or train boarded. A ferry's fare is anyone's guess — free on
+    /// Staten Island, dear to Nantucket — so none is added for one.
     private func cityFare(_ legs: [TransitLeg]) -> Double {
         legs.filter { $0.kind == .ride && $0.local }.reduce(0) {
-            $0 + ($1.vehicle == "Bus" ? TransitFares.localBus() : TransitFares.localRail())
+            switch $1.vehicle {
+            case "Bus": return $0 + TransitFares.localBus()
+            case "Ferry": return $0
+            default: return $0 + TransitFares.localRail()
+            }
         }
     }
 
@@ -709,6 +723,161 @@ struct RouteChoicesView: View {
             itinerary: itinerary, rentals: offices, rentalCompareURL: compare)
     }
 
+    /// Ship main ride: a ferry whose operator's own timetable joins a terminal
+    /// near the start to one near the destination, with the way there and
+    /// the way from as the toggles say — walk, drive and park, the city bus;
+    /// a rental at the far terminal. Returns whether a sailing was found.
+    /// Without one the card says so and points to the searches that might
+    /// find one — a ferry, and the cruises from the nearest cruise terminal —
+    /// and the rest of the selection is planned without the ship.
+    private func computeShipTransit(_ shape: TripShape) async -> Bool {
+        guard let ep = model.lastPlanEndpointsPublic else { return false }
+        let dest = MKMapItem(placemark: MKPlacemark(coordinate: ep.to))
+        let startName = ep.fromName.isEmpty ? "your start" : ep.fromName
+        let destName = ep.toName.isEmpty ? "your destination" : ep.toName
+        let mayFetch = model.mode != .navigating
+        model.transitOptions[.ship] = TransitOption(
+            title: "Ship", detail: "Looking up ferry times…", fare: 0, destination: dest)
+
+        // Which terminals a ferry joins. This first ask is from the trip's
+        // own ends and only finds them: its times assume the rider walks to
+        // the boat, and a driver does not — so it asks the whole day.
+        let now = Date()
+        guard let found = await ferrySailing(
+            from: ep.from, to: ep.to, day: now, after: now.addingTimeInterval(-86_400),
+            reachMeters: ShipTravel.terminalReachMeters, mayFetch: mayFetch),
+              ShipTravel.sailingHelps(start: ep.from, landing: found.alightCoordinate, end: ep.to)
+        else {
+            if Task.isCancelled { return false }
+            await showNoSailing(from: ep.from, startName: startName, destName: destName,
+                                dest: dest)
+            return false
+        }
+        if Task.isCancelled { return false }
+        let boardC = found.boardCoordinate, alightC = found.alightCoordinate
+        let boardName = found.boardName, alightName = found.alightName
+
+        async let w1 = transitWalk(ep.from, boardC)
+        async let w3 = transitWalk(alightC, ep.to)
+        async let rentalsNear = transitRentals(near: alightC)
+        let walkIn = await w1
+        let walkOut = await w3
+        let rentals = await rentalsNear
+        let compare = RentalCars.compareURL(near: alightC)
+
+        // The way there, then the first sailing the rider can make from it.
+        var access = await accessPart(
+            shape, from: ep.from, startName: startName, to: boardC, stopName: boardName,
+            place: "ferry terminal", walk: walkIn,
+            parkNote: "Or drive aboard, if this ferry carries cars — its operator says")
+        if shape.access == .local,
+           let city = await cityPart(shape, from: ep.from, fromName: startName, to: boardC,
+                                     toName: boardName, departing: now,
+                                     walkSeconds: walkIn.seconds) {
+            access = city
+        }
+        if Task.isCancelled { return false }
+        let leaving = now.addingTimeInterval(access.seconds ?? 0)
+        let pinned = 300.0   // the terminals found, not others nearby
+        var sailing = await ferrySailing(from: boardC, to: alightC, day: leaving, after: leaving,
+                                         reachMeters: pinned, mayFetch: mayFetch)
+        var note: String?
+        if sailing == nil {
+            // None left today from there: tomorrow's first, said plainly.
+            sailing = await ferrySailing(from: boardC, to: alightC,
+                                         day: leaving.addingTimeInterval(86_400),
+                                         after: leaving, reachMeters: pinned, mayFetch: mayFetch)
+            if sailing != nil {
+                note = "No more ferries today from \(boardName) — these are tomorrow's first."
+            }
+        }
+        let boat = sailing ?? found
+        if Task.isCancelled { return false }
+
+        /// Put the trip on its card: once with the walk, drive or rental at
+        /// the far end, and again if the city's buses carry it.
+        func publish(_ access: TripPart, _ egress: TripPart) {
+            let ride = TransitLeg(
+                kind: .ride, fromName: boardName, toName: alightName,
+                seconds: boat.schedule.rideSeconds,
+                miles: POIRanking.meters(boardC, alightC) / 1609.344,
+                polyline: TransitPlanning.connector(boardC, alightC),
+                steps: ["Board the ferry at \(boardName)",
+                        "Sail \(TransitPlanning.durationPhrase(boat.schedule.rideSeconds))",
+                        "Get off at \(alightName)"],
+                vehicle: "Ferry")
+            let legs = access.legs + [ride] + egress.legs
+            let schedule = TransitSchedule.joined(
+                [access.schedule, boat.schedule, egress.schedule].compactMap { $0 })
+            // No fare: a ferry's is anyone's guess, and the city's alone
+            // would read as the trip's.
+            var itinerary = TransitItinerary(
+                mode: "Ship", legs: legs, fare: 0, mapsDestination: dest,
+                rideGeometryIsApproximate: true, rideGeometryIsReal: false)
+            itinerary.doorToDoorSeconds = TransitItinerary.doorToDoor(
+                before: access.schedule != nil ? access.legs.first?.seconds : access.seconds,
+                schedule: schedule,
+                after: egress.schedule != nil ? egress.legs.last?.seconds : egress.seconds)
+            draw(itinerary)
+            let accessVerb = access.legs.contains { $0.local } ? "City bus or train"
+                : access.legs.first?.kind == .drive ? "Drive" : "Walk"
+            let tail = egress.legs.contains { $0.rental } ? " · then a rental car from \(alightName)"
+                : egress.legs.contains { $0.local } ? " · then the city bus or train from \(alightName)"
+                : " · then \(TransitPlanning.fmt(egress.seconds)) on to \(destName)"
+            model.transitOptions[.ship] = TransitOption(
+                title: "Ferry from \(boardName)",
+                detail: "\(accessVerb) \(TransitPlanning.fmt(access.seconds)) to \(boardName) · "
+                        + "ferry \(TransitPlanning.fmt(boat.schedule.rideSeconds))\(tail). "
+                        + "The ferry's operator sets its fare.",
+                fare: 0, destination: dest,
+                ticketLabel: "Ferry: \(boardName) → \(alightName)", ticketURL: nil,
+                itinerary: itinerary, schedule: schedule,
+                rentals: rentals, rentalCompareURL: compare,
+                notes: [note, access.note, egress.note].compactMap { $0 })
+        }
+
+        var egress = await egressPart(
+            shape.egress == .local ? shape.egressFallback : shape.egress,
+            from: alightC, stopName: alightName, stationFound: true,
+            to: ep.to, destName: destName, walk: walkOut)
+        if Task.isCancelled { return true }
+        publish(access, egress)
+        if shape.egress == .local {
+            let landed = boat.arrive
+                ?? leaving.addingTimeInterval(boat.schedule.rideSeconds)
+            if let city = await cityPart(shape, from: alightC, fromName: alightName, to: ep.to,
+                                         toName: destName, departing: landed,
+                                         walkSeconds: walkOut.seconds) {
+                egress = city
+                if Task.isCancelled { return true }
+                publish(access, egress)
+            }
+        }
+        return true
+    }
+
+    /// No ferry joins the two places: say so plainly, and point to the
+    /// searches that might find one — a ferry the timetables FLOWS reads do
+    /// not cover, and the cruises from the nearest cruise terminal.
+    private func showNoSailing(from start: CLLocationCoordinate2D, startName: String,
+                               destName: String, dest: MKMapItem) async {
+        let cruise = await cruiseTerminal(near: start)
+        if Task.isCancelled { return }
+        var links: [LabeledLink] = []
+        if let url = ShipTravel.ferrySearchURL(from: startName, to: destName) {
+            links.append(LabeledLink(label: "Look for a ferry to \(destName)", url: url))
+        }
+        var detail = "No ferry FLOWS knows of sails between these two places."
+        if let cruise, let url = ShipTravel.cruiseSearchURL(from: cruise.name, toward: destName) {
+            detail += String(format: " Cruises sail from %@, %.0f mi from the start.",
+                             cruise.name, cruise.miles)
+            links.append(LabeledLink(label: "Find cruises from \(cruise.name)", url: url))
+        }
+        model.transitOptions[.ship] = TransitOption(
+            title: "No ferry for this trip", detail: detail, fare: 0, destination: dest,
+            links: links)
+    }
+
     /// Plane main ride: board at the nearest airport with airline service to
     /// the start, land at the nearest to the destination. Airport time
     /// (arrive early, bags) is INSIDE the leg time so the total is honest; the
@@ -986,6 +1155,7 @@ struct RouteChoicesView: View {
         case .rail: .purple
         case .bus: .blue
         case .plane: .indigo
+        case .ship: .cyan
         case .rental: .teal
         }
         return Button {
@@ -1014,6 +1184,16 @@ struct RouteChoicesView: View {
     /// clears only when nothing drawable is left.
     private func dismissCard(_ key: TransitMode) {
         let active = model.activeTransitModes
+        // A plane or ship card with no trip on it — no flight or sailing fits,
+        // and the rest was planned without it — stands for its own toggle
+        // alone: closing it turned every toggle off and took the rest's trip
+        // with it. Only its toggle goes, and the rest is planned again.
+        if key == .plane || key == .ship, model.transitOptions[key]?.itinerary == nil,
+           !active.subtracting([key]).isEmpty {
+            model.activeTransitModes.remove(key)
+            reshapeTransit()
+            return
+        }
         let gone = currentShape()?.modes(ofCard: key, active: active) ?? [key]
         for mode in gone.union([key]) {
             model.transitTasks[mode]?.cancel()
@@ -1058,6 +1238,11 @@ struct RouteChoicesView: View {
                 + "their times are the city's own. "
             : ""
         guard itinerary.mainRide != nil else { return cityNote + walkNote }
+        if itinerary.mode == "Ship" {
+            // A ship card exists only once a ferry's timetable has answered.
+            return "The ferry's line is drawn straight from terminal to terminal; its times "
+                + "are its operator's own. " + cityNote + walkNote
+        }
         let rideNote: String
         if timetable {
             rideNote = itinerary.rideGeometryIsReal
@@ -1254,6 +1439,7 @@ struct RouteChoicesView: View {
         case .rail: "tram.fill"
         case .bus: "bus.fill"
         case .plane: "airplane"
+        case .ship: "ferry.fill"
         case .rental: "key.fill"
         }
         return VStack(alignment: .leading, spacing: 6) {
@@ -1275,7 +1461,9 @@ struct RouteChoicesView: View {
                             .background(Color.orange.opacity(0.9))
                             .foregroundStyle(.white).clipShape(Capsule())
                     }
-                    if mode != .plane, mode != .rental {
+                    // Nor does a ship: a ferry burns far more per rider than a
+                    // train, and a cruise more than a flight.
+                    if mode != .plane, mode != .rental, mode != .ship {
                         Text("Less pollution")
                             .scaledFont(size: 10, weight: .heavy)
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -1317,6 +1505,14 @@ struct RouteChoicesView: View {
                         .scaledFont(size: 10, weight: .semibold)
                 }
             }
+            // Searches the card points to when it has no timetable of its own
+            // — a ferry, and where cruises sail from.
+            ForEach(t.links, id: \.self) { link in
+                Link(destination: link.url) {
+                    Label(link.label, systemImage: "magnifyingglass")
+                        .scaledFont(size: 10, weight: .semibold)
+                }
+            }
         }
         .padding(8)
         .background(Color.blue.opacity(0.08))
@@ -1336,7 +1532,9 @@ struct RouteChoicesView: View {
     /// walk-hybrid card), or ride (board/alight — train, bus, or flight).
     private func transitLegRow(_ leg: TransitLeg, isLast: Bool,
                                plane: Bool = false, hail: Bool = false) -> some View {
-        let rideSymbol = leg.local ? TransitPlanning.vehicleSymbol(leg.vehicle)
+        // A ferry leads a ship trip and says so; a city vehicle says its own.
+        let sails = leg.vehicle == "Ferry"
+        let rideSymbol = leg.local || sails ? TransitPlanning.vehicleSymbol(leg.vehicle)
             : plane ? "airplane" : "tram.fill"
         let (symbol, color): (String, Color) = switch leg.kind {
         case .walk: ("figure.walk", .green)
@@ -1352,6 +1550,7 @@ struct RouteChoicesView: View {
                    : "Drive to \(leg.toName) — park & ride"
         case .ride: leg.local ? "\(leg.vehicle ?? "Bus") to \(leg.toName)"
                   : plane ? "Fly \(leg.fromName) → \(leg.toName)"
+                  : sails ? "Sail \(leg.fromName) → \(leg.toName)"
                           : "Ride the \(leg.fromName) → \(leg.toName)"
         }
         return HStack(alignment: .top, spacing: 8) {
@@ -1505,6 +1704,8 @@ struct RouteChoicesView: View {
                       help: "Bus option: local transit, or Greyhound for long trips")
         transitToggle(.plane, symbol: "airplane",
                       help: "Plane option: fly between the nearest airports with airline service")
+        transitToggle(.ship, symbol: "ferry.fill",
+                      help: "Ship: ferries and water taxis on their own timetables — and where cruises sail from")
         transitToggle(.rental, symbol: "key.fill",
                       help: "Rental car: pick one up where your train, bus or plane gets in — or near the start")
         // (Tourist stops live in the FILTER grid below — a route
@@ -1915,8 +2116,15 @@ private struct CityTrip {
 private func cityTrip(from start: CLLocationCoordinate2D, fromName: String,
                       to end: CLLocationCoordinate2D, toName: String,
                       departing: Date, vehicles: Int, mayFetch: Bool) async -> CityTrip? {
+    // A rider who chose the ship may ride a ferry on this leg — the one to
+    // the island an airport serves — so its operator's timetable is asked too.
+    let ships = vehicles & TripShape.shipVehicles != 0
+        ? TransitFeeds.shipSources(from: start.latitude, start.longitude,
+                                   to: end.latitude, end.longitude,
+                                   reachKm: ShipTravel.terminalReachMeters / 1000)
+        : []
     let sources = TransitFeeds.citySources(from: start.latitude, start.longitude,
-                                           to: end.latitude, end.longitude)
+                                           to: end.latitude, end.longitude, ships: ships)
     guard !sources.isEmpty,
           let ready = try? await TransitFeeds.shared.ready(
               sources, on: departing, allowNetwork: mayFetch),
@@ -1981,6 +2189,66 @@ private func cityTrip(from start: CLLocationCoordinate2D, fromName: String,
     let arrive = off.addingTimeInterval(walkOut.seconds ?? 0)
     return CityTrip(legs: legs, schedule: schedule,
                     seconds: max(0, arrive.timeIntervalSince(departing)))
+}
+
+/// One ferry's answer: the terminals it joins, its timetable, when it lands.
+private struct Sailing {
+    let boardName: String
+    let boardCoordinate: CLLocationCoordinate2D
+    let alightName: String
+    let alightCoordinate: CLLocationCoordinate2D
+    let schedule: TransitSchedule
+    let arrive: Date?
+}
+
+/// Ask the boat operators near both ends (`TransitFeeds.shipSources`) for a
+/// sailing from a terminal within `reachMeters` of `start` to one within it
+/// of `end`, leaving after `after` on `day`'s timetable — ferries only. Nil
+/// when no ferry joins the two, or their timetables cannot be read.
+private func ferrySailing(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D,
+                          day: Date, after: Date, reachMeters: Double,
+                          mayFetch: Bool) async -> Sailing? {
+    let sources = TransitFeeds.shipSources(
+        from: start.latitude, start.longitude, to: end.latitude, end.longitude,
+        reachKm: ShipTravel.terminalReachMeters / 1000)
+    guard !sources.isEmpty,
+          let ready = try? await TransitFeeds.shared.ready(sources, on: day, allowNetwork: mayFetch),
+          let answer = try? TransitShard.departures(
+              prefix: ready.prefix, from: start, to: end, departing: after,
+              stamp: ready.stamp, maxStationMeters: reachMeters, limit: 3,
+              vehicles: TripShape.shipVehicles),
+          let schedule = TransitShard.schedule(
+              from: answer, credit: ready.credit, operators: ready.operators),
+          let first = answer.departures.first,
+          let boarding = first.rides.first, let on = boarding.boardCoordinate,
+          let landing = first.rides.last, let off = landing.alightCoordinate
+    else { return nil }
+    return Sailing(boardName: boarding.boardName, boardCoordinate: on,
+                   alightName: landing.alightName, alightCoordinate: off,
+                   schedule: schedule,
+                   arrive: TransitShard.moment(first.arriveSeconds, answer.stamp))
+}
+
+/// The nearest cruise terminal to a point, from the map. Cruise lines publish
+/// no timetables, so where they sail from is what the ship card can offer.
+private func cruiseTerminal(near c: CLLocationCoordinate2D)
+    async -> (name: String, miles: Double)? {
+    let req = MKLocalSearch.Request()
+    req.naturalLanguageQuery = "cruise terminal"
+    req.region = MKCoordinateRegion(center: c,
+                                    latitudinalMeters: ShipTravel.cruiseReachMeters * 2,
+                                    longitudinalMeters: ShipTravel.cruiseReachMeters * 2)
+    // Where the OS allows it, the box is a hard limit rather than a hint.
+    if #available(iOS 18.0, macOS 15.0, *) {
+        req.regionPriority = .required
+    }
+    let items = (try? await MKLocalSearch(request: req).start())?.mapItems ?? []
+    return items.compactMap { item -> (name: String, miles: Double)? in
+        guard let name = item.name, ShipTravel.isCruiseTerminal(name) else { return nil }
+        let meters = POIRanking.meters(item.placemark.coordinate, c)
+        return meters <= ShipTravel.cruiseReachMeters ? (name, meters / 1609.344) : nil
+    }
+    .min { $0.miles < $1.miles }
 }
 
 /// Road route between two points: geometry + road miles + real drive time.

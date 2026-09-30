@@ -530,13 +530,16 @@ impl ServiceCalendar {
 /// Map a GTFS `route_type` to [`Mode`] (see `transit::Mode` — the `.ftt` mode
 /// byte). Base types 0–12 and the extended (Google/NeTEx) 3-digit ranges are
 /// covered; anything unknown degrades to `Bus` (the most conservative speed
-/// assumption). Suburban-railway extended codes map to `Commuter`.
+/// assumption). Suburban-railway extended codes map to `Commuter`. Boats are
+/// `Ship` — they fell through to `Bus`, and the Staten Island Ferry read "Bus"
+/// on a card and was boarded by riders who had chosen the bus.
 pub(crate) fn mode_for_route_type(rt: i64) -> Mode {
     match rt {
         106 | 109 => Mode::Commuter,            // suburban / commuter railway
         2 | 100..=199 => Mode::Rail,            // intercity/long-distance rail
         0 | 1 | 5 | 6 | 7 | 12 => Mode::Subway, // tram/metro/cable/funicular/monorail
         3 | 11 => Mode::Bus,                    // bus / trolleybus
+        4 | 1000..=1099 | 1200..=1299 => Mode::Ship, // ferry / water transport
         200..=299 => Mode::Coach,               // coach services
         400..=499 | 900..=999 => Mode::Subway,  // urban railway / tram services
         700..=899 => Mode::Bus,                 // bus / trolleybus services
@@ -2147,6 +2150,14 @@ mod tests {
         assert_eq!(mode_for_route_type(402), Mode::Subway); // underground service
         assert_eq!(mode_for_route_type(715), Mode::Bus); // demand & response bus
         assert_eq!(mode_for_route_type(-1), Mode::Bus); // junk → conservative
+        assert_eq!(mode_for_route_type(4), Mode::Ship); // ferry
+        assert_eq!(mode_for_route_type(1000), Mode::Ship); // water transport service
+        assert_eq!(mode_for_route_type(1200), Mode::Ship); // ferry service
+        assert_eq!(
+            mode_for_route_type(1100),
+            Mode::Bus,
+            "air service is not a ship"
+        );
     }
 
     #[test]
