@@ -6,7 +6,6 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
-import Compression
 import Foundation
 
 /// Just enough ZIP to take a schedule feed apart — and, more usefully, to take
@@ -20,8 +19,11 @@ import Foundation
 /// 19.5 — the difference between a refresh someone notices on their data plan
 /// and one they never do.
 ///
-/// Verified against the published Amtrak archive and a re-compressed copy of
-/// it: every member comes out byte-identical to `unzip`, stored or deflated.
+/// Members are not unpacked here: a deflated one is kept as the archive stores
+/// it and unpacked as the timetable builder reads it, so a big city's schedule
+/// never sits whole in a phone's memory. Verified on Chicago's own archive:
+/// every member, kept this way, builds a timetable byte-identical to the one
+/// built from `unzip`'s output.
 enum GTFSZip {
     /// The files the timetable builder reads. Everything else in the archive
     /// is downloaded by nobody.
@@ -41,6 +43,9 @@ enum GTFSZip {
         /// Where the file's LOCAL header starts — not its data, which sits past
         /// a name and an extra field whose lengths only that header knows.
         let headerOffset: Int
+        /// The CRC-32 of the unpacked file, as the directory records it —
+        /// checked when the timetable builder unpacks a packed member.
+        var crc32: UInt32 = 0
 
         /// A byte range certain to contain the whole member: its local header,
         /// whatever padding that header carries, and the data. 64 KiB is the
@@ -53,9 +58,9 @@ enum GTFSZip {
         /// hold 64 KiB, but real archives put almost nothing there — Amtrak's
         /// own is empty, and a `zip -9` archive uses 28 bytes for a timestamp.
         /// Reserving the legal maximum for every member would pull a needless
-        /// 448 KB down a phone's connection, so ask for a realistic margin and
-        /// let ``contents(of:localHeaderChunk:)`` say when it was not enough —
-        /// it returns nil rather than a half file, and the caller asks again.
+        /// 448 KB down a phone's connection, so ask for a realistic margin; when
+        /// ``dataRange(of:localHeader:)`` shows the data runs past what came
+        /// down, the caller asks again with ``safeRange``.
         var likelyRange: Range<Int> {
             headerOffset..<(headerOffset + 30 + name.utf8.count + 256 + compressedSize)
         }
@@ -111,6 +116,7 @@ enum GTFSZip {
         while i + 46 <= directory.count {
             guard u32(directory, i) == 0x0201_4B50 else { break }
             guard let method = u16(directory, i + 10),
+                  let crc = u32(directory, i + 16),
                   let compressed = u32(directory, i + 20),
                   let uncompressed = u32(directory, i + 24),
                   let nameLen = u16(directory, i + 28),
@@ -125,7 +131,8 @@ enum GTFSZip {
             let leaf = name.split(separator: "/").last.map(String.init) ?? name
             if wanted.contains(leaf) {
                 out.append(Entry(name: leaf, method: method, compressedSize: compressed,
-                                 uncompressedSize: uncompressed, headerOffset: offset))
+                                 uncompressedSize: uncompressed, headerOffset: offset,
+                                 crc32: UInt32(crc)))
             }
             i += 46 + nameLen + extraLen + commentLen
         }
@@ -133,45 +140,78 @@ enum GTFSZip {
         return out
     }
 
-    // MARK: reading one file
+    // MARK: keeping one file
 
-    /// The bytes of one member, given a buffer that starts at its local header
-    /// (what ``Entry/safeRange`` asks for). Returns nil when the buffer stops
-    /// short, so the caller can fetch the exact range rather than guess.
-    static func contents(of entry: Entry, localHeaderChunk chunk: Data) throws -> Data? {
-        guard u32(chunk, 0) == 0x0403_4B50 else { throw Failure.notAZip }
-        guard let nameLen = u16(chunk, 26), let extraLen = u16(chunk, 28) else { return nil }
-        let start = 30 + nameLen + extraLen
-        let end = start + entry.compressedSize
-        guard end <= chunk.count else { return nil }
-        let body = chunk.subdata(in: (chunk.startIndex + start)..<(chunk.startIndex + end))
+    /// A deflated member is kept exactly as the archive stores it, behind a
+    /// 16-byte header, and unpacked only as the timetable builder reads it
+    /// (`flows_core::transit::inflate`). Chicago's `stop_times.txt` is 367 MB
+    /// unpacked and 54 MB as stored: unpacking it here held all of it in a
+    /// phone's memory at once, and then on its disk.
+    static let packedSuffix = ".fz"
+    static let packedMagic = Data("FZ01".utf8)
+
+    /// The file a member is kept in: the publisher's name for a stored one,
+    /// the packed name (`stop_times.txt.fz`) for a deflated one.
+    static func fileName(for entry: Entry) throws -> String {
         switch entry.method {
-        case 0:
-            return body
-        case 8:
-            return inflate(body, expected: entry.uncompressedSize)
-        default:
-            throw Failure.unsupported("\(entry.name) uses an unknown compression")
+        case 0: return entry.name
+        case 8: return entry.name + packedSuffix
+        default: throw Failure.unsupported("\(entry.name) uses an unknown compression")
         }
     }
 
-    /// Raw DEFLATE — which is what `COMPRESSION_ZLIB` decodes here, the same
-    /// call `InternationalWeather.gunzip` makes once it has stripped a gzip
-    /// header.
-    static func inflate(_ body: Data, expected: Int) -> Data? {
-        guard !body.isEmpty else { return nil }
-        let capacity = max(expected, body.count * 4, 64_000)
-        var out = Data(count: capacity)
-        let written = out.withUnsafeMutableBytes { dst in
-            body.withUnsafeBytes { src in
-                compression_decode_buffer(
-                    dst.bindMemory(to: UInt8.self).baseAddress!, capacity,
-                    src.bindMemory(to: UInt8.self).baseAddress!, body.count,
-                    nil, COMPRESSION_ZLIB)
+    /// What goes before a packed member's data: the magic, the CRC-32 and the
+    /// unpacked length, little-endian — the builder checks both at the end.
+    /// Empty for a stored member, which is kept as its own bytes.
+    static func packedHeader(for entry: Entry) -> Data {
+        guard entry.method == 8 else { return Data() }
+        var header = packedMagic
+        withUnsafeBytes(of: entry.crc32.littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: UInt64(max(0, entry.uncompressedSize)).littleEndian) {
+            header.append(contentsOf: $0)
+        }
+        return header
+    }
+
+    /// Where a member's data sits, counted from the start of its LOCAL header,
+    /// given at least that header's first 30 bytes. Nil when fewer arrived.
+    static func dataRange(of entry: Entry, localHeader: Data) throws -> Range<Int>? {
+        guard localHeader.count >= 30 else { return nil }
+        guard u32(localHeader, 0) == 0x0403_4B50 else { throw Failure.notAZip }
+        guard let nameLen = u16(localHeader, 26), let extraLen = u16(localHeader, 28) else {
+            return nil
+        }
+        let start = 30 + nameLen + extraLen
+        return start..<(start + entry.compressedSize)
+    }
+
+    /// A kept file's unpacked size: its own length when stored, what a packed
+    /// member's header records when packed, 0 when absent. With both forms
+    /// present the larger counts — a budget should guess high.
+    static func unpackedSize(of name: String, in folder: URL) -> Int {
+        let plain = folder.appendingPathComponent(name).path
+        let plainSize = ((try? FileManager.default.attributesOfItem(atPath: plain))?[.size]
+            as? NSNumber)?.intValue ?? 0
+        var packedSize = 0
+        let packed = folder.appendingPathComponent(name + packedSuffix)
+        if let handle = try? FileHandle(forReadingFrom: packed) {
+            defer { try? handle.close() }
+            if let head = try? handle.read(upToCount: 16), head.count == 16,
+               head.prefix(4) == packedMagic {
+                var length: UInt64 = 0
+                for (i, byte) in head.suffix(8).enumerated() {
+                    length |= UInt64(byte) << (8 * UInt64(i))
+                }
+                packedSize = Int(min(length, UInt64(Int.max)))
             }
         }
-        guard written > 0 else { return nil }
-        out.removeSubrange(written..<out.count)
-        return out
+        return max(plainSize, packedSize)
+    }
+
+    /// Whether a feed folder holds a file, in either form.
+    static func hasMember(_ name: String, in folder: URL) -> Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: folder.appendingPathComponent(name).path)
+            || fm.fileExists(atPath: folder.appendingPathComponent(name + packedSuffix).path)
     }
 }

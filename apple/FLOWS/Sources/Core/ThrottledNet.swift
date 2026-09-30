@@ -68,14 +68,46 @@ enum ThrottledNet {
         try await fetchGuarded(host: request.url?.host) { try await session.data(for: request) }
     }
 
+    /// The session for BIG bodies — a city's schedule is tens of megabytes.
+    /// Written straight to disk, never held in memory; ten minutes to arrive
+    /// instead of thirty seconds, because 54 MB on a slow cellular link takes
+    /// longer than that; kept out of the HTTP cache it would flush; and it
+    /// stays off a connection the person has put in Low Data Mode.
+    static let bulkSession: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 600
+        cfg.httpMaximumConnectionsPerHost = 2
+        cfg.waitsForConnectivity = true
+        cfg.allowsConstrainedNetworkAccess = false
+        cfg.urlCache = nil
+        cfg.httpAdditionalHeaders = ["User-Agent": "FLOWS (wizeman555@gmail.com)"]
+        #if os(iOS)
+        cfg.multipathServiceType = Self.multipathService
+        #endif
+        return URLSession(configuration: cfg)
+    }()
+
+    /// Download a request's body into `destination` (replacing anything
+    /// there), through the same gate and host breaker as every fetch.
+    static func download(_ request: URLRequest, to destination: URL) async throws -> URLResponse {
+        try await fetchGuarded(host: request.url?.host) {
+            let (file, response) = try await bulkSession.download(for: request)
+            let fm = FileManager.default
+            try? fm.removeItem(at: destination)
+            try fm.moveItem(at: file, to: destination)
+            return response
+        }
+    }
+
     /// Permit + per-host breaker around one transport attempt. The breaker
     /// check happens AFTER permit acquisition — a queued call to a host that
     /// died while it waited must fast-fail and hand its permit on, not hold
     /// it for a full connect timeout. (EPQS outage: 300 queued elevation
     /// calls × 10 s timeouts starved every healthy feed for minutes.)
-    private static func fetchGuarded(
-        host: String?, _ op: @Sendable () async throws -> (Data, URLResponse)
-    ) async throws -> (Data, URLResponse) {
+    private static func fetchGuarded<T: Sendable>(
+        host: String?, _ op: @Sendable () async throws -> T
+    ) async throws -> T {
         try await RequestGate.shared.withPermit {
             let host = host ?? ""
             guard await HostBreaker.shared.admits(host) else {

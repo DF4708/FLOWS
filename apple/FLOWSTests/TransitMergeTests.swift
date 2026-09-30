@@ -532,16 +532,60 @@ final class TransitMergeTests: XCTestCase {
                       "mid-Atlantic has no buses")
     }
 
-    func testATimetableTooBigForThisDeviceIsRefusedFromItsIndex() {
-        func entry(_ bytes: Int) -> GTFSZip.Entry {
-            .init(name: "stop_times.txt", method: 8, compressedSize: bytes / 10,
-                  uncompressedSize: bytes, headerOffset: 0)
+    func testAFeedFitsByTheMemoryItsBuildCanTakeNotAFixedSize() {
+        func entry(_ unpacked: Int, _ packed: Int) -> GTFSZip.Entry {
+            .init(name: "stop_times.txt", method: 8, compressedSize: packed,
+                  uncompressedSize: unpacked, headerOffset: 0)
         }
-        XCTAssertTrue(TransitFeeds.fitsDevice([entry(1_600_000)], limit: 80 << 20),
-                      "Amtrak's whole network is 1.6 MB")
-        XCTAssertFalse(TransitFeeds.fitsDevice([entry(60 << 20), entry(30 << 20)], limit: 80 << 20),
-                       "the files add up")
-        XCTAssertTrue(TransitFeeds.fitsDevice([], limit: 80 << 20))
+        // Chicago's CTA: 367 MB of stop times, 54 MB as its archive stores
+        // them. The old fixed 80 MB line refused it on every phone.
+        let cta = [entry(367_361_926, 53_821_322)]
+        XCTAssertEqual(TransitFeeds.worstCaseBuildBytes(cta), 367_361_926)
+        XCTAssertTrue(TransitFeeds.fitsDevice(cta, budget: 1 << 30, maxDownload: 200 << 20),
+                      "a phone with a gigabyte to spare builds Chicago")
+        XCTAssertFalse(TransitFeeds.fitsDevice(cta, budget: 300 << 20, maxDownload: 200 << 20),
+                       "one with less than the worst case does not")
+        XCTAssertFalse(TransitFeeds.fitsDevice(cta, budget: 1 << 30, maxDownload: 50 << 20),
+                       "nor past the download limit")
+        XCTAssertTrue(TransitFeeds.fitsDevice([entry(1_600_000, 300_000), entry(60 << 20, 9 << 20)],
+                                              budget: 62 << 20, maxDownload: 10 << 20),
+                      "the files add up, and these fit")
+        XCTAssertFalse(TransitFeeds.fitsDevice([entry(1_600_000, 300_000), entry(61 << 20, 9 << 20)],
+                                               budget: 62 << 20, maxDownload: 10 << 20))
+        XCTAssertTrue(TransitFeeds.fitsDevice([], budget: 0, maxDownload: 0))
+        XCTAssertGreaterThan(TransitFeeds.buildMemoryBudget, 0)
+    }
+
+    func testAFeedOnDiskIsMeasuredInEitherForm() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows-fit-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(repeating: 0x41, count: 1_000).write(to: dir.appendingPathComponent("stops.txt"))
+        var packed = Data("FZ01".utf8) + Data([0, 0, 0, 0])
+        withUnsafeBytes(of: UInt64(5_000_000).littleEndian) { packed.append(contentsOf: $0) }
+        packed.append(Data(repeating: 0, count: 10))
+        try packed.write(to: dir.appendingPathComponent("stop_times.txt.fz"))
+        try Data("not ours".utf8).write(to: dir.appendingPathComponent("shapes.txt"))
+        XCTAssertEqual(TransitFeeds.worstCaseBuildBytes(feedDirectory: dir), 5_001_000,
+                       "the packed header's length and the plain file's; shapes.txt is never read")
+    }
+
+    func testAFileIsCopiedAPieceAtATimeAfterItsHeader() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows-copy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("chunk")
+        let bytes = Data((0..<3_000_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        try bytes.write(to: source)
+        let target = dir.appendingPathComponent("stop_times.txt.fz")
+        let range = 1_234..<2_600_000   // spans pieces of a megabyte
+        try TransitFeeds.copy(source, range, to: target, after: Data("HEAD".utf8))
+        XCTAssertEqual(try Data(contentsOf: target), Data("HEAD".utf8) + bytes.subdata(in: range))
+        XCTAssertThrowsError(
+            try TransitFeeds.copy(source, 2_999_000..<3_000_500, to: target, after: Data()),
+            "a download that came down short is not copied as if whole")
     }
 
     func testAHostThatWillNotServeRangesIsJudgedByItsWholeSize() {

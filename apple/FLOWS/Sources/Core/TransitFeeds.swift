@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+import os
 
 /// Keeps a real published timetable on the device: fetches the operator's own
 /// schedule feed, keeps the part of it we read, and builds the day's shard.
@@ -14,9 +15,10 @@ import Foundation
 /// The frugality here is deliberate. A GTFS archive is mostly the drawn shape
 /// of each route, which the router never looks at, so this fetches the
 /// archive's index and then only the files it parses — about 1.5 MB of
-/// Amtrak's 19.5 MB. The extracted files are kept, so tomorrow's timetable is
-/// built from disk with no network at all, and the feed itself is refetched
-/// only about once a week.
+/// Amtrak's 19.5 MB. Those files are kept on disk as the archive stores them
+/// (a deflated one stays compressed, and the builder unpacks it as it reads),
+/// so tomorrow's timetable is built from disk with no network at all, and the
+/// feed itself is refetched only about once a week.
 actor TransitFeeds {
     static let shared = TransitFeeds()
 
@@ -139,23 +141,52 @@ actor TransitFeeds {
         return Array(out.prefix(max(0, limit)))
     }
 
-    /// The most schedule text this device will read out of one feed. A big
-    /// city's full timetable can run to hundreds of megabytes of stop times,
-    /// and it is parsed into memory; past this a phone would be closed by
-    /// the system mid-plan. Amtrak's whole network is 1.6 MB, a city's rail
-    /// system tens. A feed over the line is skipped, like any unusable one.
-    static var maxFeedBytes: Int {
+    /// How much memory building a feed's timetable can take, at worst. The
+    /// builder streams each file and keeps one day's rows, so a real day is a
+    /// fraction of this — Chicago's CTA, 367 MB of stop times, peaks at 75 MB
+    /// — but with every trip made to run on the same day it peaked at 335 MB:
+    /// 0.91 bytes per unpacked byte. So the unpacked size of the files it
+    /// reads is the worst case, and that is what is held against the budget.
+    static func worstCaseBuildBytes(_ entries: [GTFSZip.Entry]) -> Int {
+        entries.reduce(0) { $0 + max(0, $1.uncompressedSize) }
+    }
+
+    /// The same worst case for a feed already on disk: each file's unpacked
+    /// size, whichever form it is kept in.
+    static func worstCaseBuildBytes(feedDirectory: URL) -> Int {
+        GTFSZip.wanted.reduce(0) { $0 + GTFSZip.unpackedSize(of: $1, in: feedDirectory) }
+    }
+
+    /// What one timetable build may use on this device: half of what the app
+    /// can still take before iOS would close it, over everything already
+    /// running. A Mac has no such limit, and neither does the simulator; a
+    /// quarter of the machine's memory keeps a build polite there.
+    static var buildMemoryBudget: Int {
+        #if os(iOS)
+        let available = os_proc_available_memory()
+        if available > 0 { return available / 2 }
+        #endif
+        return Int(min(ProcessInfo.processInfo.physicalMemory / 4, UInt64(Int.max)))
+    }
+
+    /// The most of one feed this device downloads — the compressed files the
+    /// builder reads, which is what crosses the network (Chicago's: 55 MB).
+    static var maxDownloadBytes: Int {
         #if os(macOS)
-        return 250 << 20
+        return 1 << 30
         #else
-        return 80 << 20
+        return 200 << 20
         #endif
     }
 
-    /// Whether a feed's schedule files fit this device, judged from the
-    /// archive's index before anything else is downloaded.
-    static func fitsDevice(_ entries: [GTFSZip.Entry], limit: Int = maxFeedBytes) -> Bool {
-        entries.reduce(0) { $0 + max(0, $1.uncompressedSize) } <= limit
+    /// Whether a feed fits this device, judged from the archive's index before
+    /// anything else is downloaded: its worst-case build within the memory
+    /// budget, and its download within the limit. A feed that does not is
+    /// skipped, like any unusable one.
+    static func fitsDevice(_ entries: [GTFSZip.Entry], budget: Int = buildMemoryBudget,
+                           maxDownload: Int = maxDownloadBytes) -> Bool {
+        worstCaseBuildBytes(entries) <= budget
+            && entries.reduce(0) { $0 + max(0, $1.compressedSize) } <= maxDownload
     }
 
     /// "Schedule from Amtrak"; "Schedules from Amtrak and LA Metro"; a
@@ -203,8 +234,10 @@ actor TransitFeeds {
     /// Refetch the archive no more often than this. Operators republish weekly;
     /// the calendar inside covers a year, so a week-old copy still has today.
     private let refetchAfter: TimeInterval = 6 * 24 * 3600
-    /// A schedule archive far larger than this is not one we asked for.
-    private let maxArchiveBytes = 300 << 20
+    /// A schedule archive far larger than this is not one we asked for. Only
+    /// the files the router reads come down (`maxDownloadBytes` bounds those),
+    /// so this is a sanity check on the index, not a download size.
+    private let maxArchiveBytes = 1 << 30
 
     private var building: [String: Task<Ready, Error>] = [:]
     /// Secondary feeds that would not load, by name, with the service day they
@@ -250,7 +283,7 @@ actor TransitFeeds {
     /// Returns the folder, or throws when there is nothing usable.
     private func feedOnDisk(_ source: Source, allowNetwork: Bool) async throws -> URL {
         let feed = feedDirectory(source)
-        var haveFeed = FileManager.default.fileExists(atPath: feed.appendingPathComponent("stops.txt").path)
+        var haveFeed = GTFSZip.hasMember("stops.txt", in: feed)
         if !haveFeed || (allowNetwork && isStale(feed)) {
             guard allowNetwork else { throw Failure.notCachedAndOffline }
             do {
@@ -276,14 +309,26 @@ actor TransitFeeds {
         let zone = primaryZone.isEmpty ? TimeZone.current.identifier : primaryZone
         let date = Self.serviceDate(day, zone: zone)
 
-        // The rest: on disk, and with a zone we can shift from, or left out.
+        // A merged build holds every feed it reads at once, so they share one
+        // memory budget, judged on what is on disk now — a feed kept last week
+        // is measured again today, when the phone may have less to spare.
+        var budget = Self.buildMemoryBudget - Self.worstCaseBuildBytes(feedDirectory: primaryFeed)
+        guard budget >= 0 else {
+            throw Failure.tooLarge("\(primary.name) needs more memory than this device can spare")
+        }
+
+        // The rest: on disk, within the budget, and with a zone we can shift
+        // from, or left out.
         var parts: [(source: Source, feed: URL, shift: Int)] = [(primary, primaryFeed, 0)]
         for source in sources.dropFirst() where unusable[source.name] != date {
             guard let feed = try? await feedOnDisk(source, allowNetwork: allowNetwork) else { continue }
+            let need = Self.worstCaseBuildBytes(feedDirectory: feed)
+            guard need <= budget else { continue }
             let own = TransitShard.agencyZone(feedDirectory: feed.path)
             guard !own.isEmpty,
                   let shift = TransitClock.shift(from: own, into: zone, serviceDate: date)
             else { continue } // a feed with no clock cannot be placed in ours
+            budget -= need
             parts.append((source, feed, shift))
         }
 
@@ -396,41 +441,127 @@ actor TransitFeeds {
             throw Failure.tooLarge("\(source.name) is too large to use on this device")
         }
 
-        // 3. Each file we actually parse — and nothing else.
+        // 3. Each file we actually parse — and nothing else — kept as the
+        //    archive stores it, straight to disk: a deflated one stays packed
+        //    and is unpacked only as the timetable builder reads it.
         try FileManager.default.createDirectory(at: feed, withIntermediateDirectories: true)
-        for entry in entries {
-            let body = try await member(entry, from: url, whole: whole, total: total)
-            try body.write(to: feed.appendingPathComponent(entry.name), options: .atomic)
+        // Pieces an interrupted fetch left behind.
+        for leftover in (try? FileManager.default.contentsOfDirectory(atPath: feed.path)) ?? []
+        where leftover.hasSuffix(".part") || leftover.hasSuffix(".download") {
+            try? FileManager.default.removeItem(at: feed.appendingPathComponent(leftover))
         }
-        // Files we kept from an older copy that this archive no longer has
-        // would otherwise linger and be parsed as current.
-        let kept = Set(entries.map(\.name))
-        for name in GTFSZip.wanted.subtracting(kept) {
-            try? FileManager.default.removeItem(at: feed.appendingPathComponent(name))
+        var kept: Set<String> = []
+        for entry in entries {
+            kept.insert(try await keep(entry, from: url, whole: whole, total: total, into: feed))
+        }
+        // Files we kept from an older copy that this archive no longer has —
+        // or kept in the other form — would otherwise linger and be parsed
+        // as current.
+        for name in GTFSZip.wanted {
+            for variant in [name, name + GTFSZip.packedSuffix] where !kept.contains(variant) {
+                try? FileManager.default.removeItem(at: feed.appendingPathComponent(variant))
+            }
         }
         try? Data().write(to: stampFile(source), options: .atomic)
     }
 
-    /// One file out of the archive. Asks for the range a real archive needs,
-    /// and only widens to the format's legal maximum if that fell short.
-    private func member(
-        _ entry: GTFSZip.Entry, from url: URL, whole: Data?, total: Int
-    ) async throws -> Data {
-        for range in [entry.likelyRange, entry.safeRange] {
-            let want = range.clamped(to: 0..<total)
-            let chunk: Data
-            if let whole {
-                chunk = whole.subdata(in: want.clamped(to: 0..<whole.count))
-            } else {
-                chunk = try await bytes(url, want)
+    /// Keep one member on disk as the archive stores it — a stored file as its
+    /// own bytes, a deflated one packed (`stop_times.txt.fz`) — replacing that
+    /// file in either form. It goes from the network to the disk a piece at a
+    /// time, never whole in memory. Returns the name it was kept under.
+    /// Asks for the range a real archive needs, and only widens to the
+    /// format's legal maximum if that fell short.
+    private func keep(
+        _ entry: GTFSZip.Entry, from url: URL, whole: Data?, total: Int, into feed: URL
+    ) async throws -> String {
+        let name = try GTFSZip.fileName(for: entry)
+        let part = feed.appendingPathComponent(name + ".part")
+        defer { try? FileManager.default.removeItem(at: part) }
+        let prefix = GTFSZip.packedHeader(for: entry)
+        if let whole {
+            // The host sent the whole archive already — it serves no ranges,
+            // and was small enough to accept whole — so cut the member out.
+            let at = entry.headerOffset
+            guard at >= 0, at + 30 <= whole.count,
+                  let data = try GTFSZip.dataRange(
+                      of: entry, localHeader: whole.subdata(in: at..<(at + 30))),
+                  at + data.upperBound <= whole.count
+            else { throw Failure.feedUnusable("\(entry.name) did not unpack") }
+            var body = prefix
+            body.append(whole.subdata(in: (at + data.lowerBound)..<(at + data.upperBound)))
+            try body.write(to: part)
+        } else {
+            let chunk = feed.appendingPathComponent(name + ".download")
+            defer { try? FileManager.default.removeItem(at: chunk) }
+            var copied = false
+            for range in [entry.likelyRange, entry.safeRange] {
+                try await download(url, range.clamped(to: 0..<total), to: chunk)
+                guard let data = try GTFSZip.dataRange(
+                          of: entry, localHeader: Self.read(chunk, 0..<30)),
+                      data.upperBound <= Self.fileSize(chunk)
+                else { continue } // the narrow range fell short: ask for the wide one
+                try Self.copy(chunk, data, to: part, after: prefix)
+                copied = true
+                break
             }
-            if let body = try GTFSZip.contents(of: entry, localHeaderChunk: chunk) {
-                return body
-            }
-            // The whole archive is already in hand; a wider range cannot help.
-            if whole != nil { break }
+            guard copied else { throw Failure.feedUnusable("\(entry.name) did not unpack") }
         }
-        throw Failure.feedUnusable("\(entry.name) did not unpack")
+        for variant in [entry.name, entry.name + GTFSZip.packedSuffix] {
+            try? FileManager.default.removeItem(at: feed.appendingPathComponent(variant))
+        }
+        try FileManager.default.moveItem(at: part, to: feed.appendingPathComponent(name))
+        return name
+    }
+
+    /// Bytes `range` of `file`.
+    private static func read(_ file: URL, _ range: Range<Int>) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(range.lowerBound))
+        return try handle.read(upToCount: range.count) ?? Data()
+    }
+
+    private static func fileSize(_ file: URL) -> Int {
+        ((try? FileManager.default.attributesOfItem(atPath: file.path))?[.size]
+            as? NSNumber)?.intValue ?? 0
+    }
+
+    /// A new file at `target`: `prefix`, then bytes `range` of `source`,
+    /// copied a megabyte at a time.
+    static func copy(_ source: URL, _ range: Range<Int>, to target: URL,
+                             after prefix: Data) throws {
+        guard FileManager.default.createFile(atPath: target.path, contents: prefix) else {
+            throw Failure.feedUnusable("could not write \(target.lastPathComponent)")
+        }
+        let output = try FileHandle(forWritingTo: target)
+        defer { try? output.close() }
+        try output.seekToEnd()
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+        try input.seek(toOffset: UInt64(range.lowerBound))
+        var left = range.count
+        while left > 0 {
+            try autoreleasepool {
+                guard let piece = try input.read(upToCount: min(left, 1 << 20)),
+                      !piece.isEmpty
+                else { throw Failure.feedUnusable("a schedule file came down short") }
+                try output.write(contentsOf: piece)
+                left -= piece.count
+            }
+        }
+    }
+
+    /// Bytes `range` of the archive, downloaded into `file`. Only a partial
+    /// answer (206) will do: a host that sent the whole archive instead would
+    /// put another member where this one was expected.
+    private func download(_ url: URL, _ range: Range<Int>, to file: URL) async throws {
+        var request = URLRequest(url: url)
+        request.setValue("bytes=\(range.lowerBound)-\(range.upperBound - 1)",
+                         forHTTPHeaderField: "Range")
+        let response = try await ThrottledNet.download(request, to: file)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 206 else {
+            throw Failure.feedUnavailable("the schedule host refused a range")
+        }
     }
 
     /// The archive's length and whether its host serves byte ranges, from a

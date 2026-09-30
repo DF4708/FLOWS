@@ -31,6 +31,7 @@ mod feeds_table;
 pub mod fts;
 pub mod ftt;
 pub mod gtfs;
+pub mod inflate;
 pub mod raptor;
 pub mod shard;
 

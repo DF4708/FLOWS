@@ -184,11 +184,47 @@ What runs today:
     MX 9/44 — and fewer in truth, since El Paso's and Yuma's boxes reach into
     Juárez and Mexicali without their buses doing so. Mexico publishes little
     open GTFS.
-  - **Size limit.** A feed's schedule files are totalled from the archive
-    index before downloading: 80 MB on a phone, 250 MB on a Mac, or skipped.
+  - **Size limit — by memory, not file size (2026-09-30).** The first rule
+    was a fixed 80 MB (phone) / 250 MB (Mac) of schedule text, because the
+    app unpacked each file whole in memory: for Chicago's `stop_times.txt`
+    that was the 54 MB download, a 367 MB buffer and a copy, so CTA — and
+    with it every Chicago city leg — was refused on every phone and on the
+    Mac. Measured, the timetable builder itself was never the problem: it
+    streams the file and keeps one day, 75 MB peak for CTA (with every trip
+    forced onto one day, 335 MB — 0.91 bytes per unpacked byte).
+
+    Now nothing is unpacked in memory. `ThrottledNet.download` writes each
+    member's byte range straight to disk (a bulk session: 10-minute limit,
+    no HTTP cache, off in Low Data Mode); `TransitFeeds.keep` copies the
+    member's data out of it a megabyte at a time and keeps a deflated member
+    PACKED — `stop_times.txt.fz`: `FZ01`, the directory's CRC-32 and the
+    unpacked length, then the archive's own DEFLATE bytes. Rust unpacks it as
+    it reads (`transit::inflate`: pure-std RFC 1951 + CRC-32, fixed memory —
+    64 KiB in, 32 KiB window, 256 KiB out — checked against the length and
+    CRC at the end, so a cut or corrupted download is an error, never a
+    shorter timetable). `open_member` reads either form; the newer wins.
+    CTA on disk: 54 MB instead of 367.
+
+    A feed is judged against memory: its worst case (the unpacked size of
+    the files it reads) must fit in half of `os_proc_available_memory()` on
+    iOS — a quarter of physical memory on a Mac or the simulator — and its
+    download under 200 MB (1 GB Mac). The check runs on the archive's index
+    before downloading and again, for the feeds of a merge together, before
+    each day's build. The CSV reader now reuses one record buffer instead of a
+    `String` per field: CTA's build went from 8.4 s to 4.7 s of CPU from
+    plain files, 9.5 s from packed ones (unpacking costs about what system
+    `unzip` does).
+
+    Proved: timetables built from packed files are byte-identical to those
+    from `unzip`'s output for Amtrak, MCTS, Metro Transit, the Metro
+    Transit + MVTA merge and CTA; in the simulator the app downloaded CTA
+    (its `stop_times.txt.fz` byte-identical to the member cut from the
+    archive by hand), built CTA + Pace in about 20 s at +95 MB, and planned
+    Wrigleyville → Midway on CTA 22, 36 and 62 and Pace 315.
     A HEAD request comes first: a host that will not serve byte ranges must
     send the WHOLE archive, so its length is checked before a byte arrives
-    (60 MB phone / 250 MB Mac). In a sample of 21 hosts, 17 served ranges.
+    (60 MB phone / 250 MB Mac; that archive is still held in memory, and cut
+    up without unpacking). In a sample of 21 hosts, 17 served ranges.
   - **Dead links.** Publisher links go stale — 2 of that 21 were 404s. Every
     feed in the table also carries MobilityData's mirror of its latest copy
     (`files.mobilitydatabase.org/<id>/latest.zip`, which serves ranges); a
@@ -250,9 +286,9 @@ What runs today:
   Milwaukee trip with bus and rental (Route 30 card, and a rental card from
   the nearest counter).
 
-  Two things the run showed that are not fixed here: CTA's timetable is over
-  the phone's 80 MB parse limit, so a Chicago city leg falls back to walking
-  or a ride share on a phone; and MapKit's rental search from one city about
+  Two things the run showed: CTA's timetable was over the old 80 MB limit, so
+  a Chicago city leg fell back to walking or a ride share (fixed the same
+  day — see Size limit above); and MapKit's rental search from one city about
   another returned the first city's counters, 340 miles off — now a hard
   search box (iOS 18/macOS 15) plus a 20-mile cutoff.
 - **Still ahead:** `backbone.ftt` (Amtrak + VIA), `manifest.ftm`, and the
@@ -603,6 +639,11 @@ planned split below still holds for the pieces not yet written.
   (`load_gtfs(dir, date) -> GtfsLoad { Timetable, names, zones, dates, stats }`).
   No longer offline-only: the device builds its own shards from downloaded
   feeds, so this code ships.
+  Every file is opened through `transit::inflate::open_member`, plain or packed.
+- `transit::inflate` — **built (2026-09-30)**: pure-std raw DEFLATE (RFC 1951)
+  and CRC-32, streaming at fixed memory, so a feed member stays compressed on
+  the device (`stop_times.txt.fz`) and is unpacked as it is parsed; the packed
+  header's length and CRC are checked when the stream ends.
 - `transit::fts` — **built**: `.fts` v1, the label sidecar (stop names, station
   codes, IANA zones, service + publication dates), paired to its `.ftt` by body
   hash and fully bounds-/UTF-8-checked on read.

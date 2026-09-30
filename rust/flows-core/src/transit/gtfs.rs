@@ -32,10 +32,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead};
 use std::path::Path;
 
+use super::inflate;
 use super::{Mode, StopEvent, Time, Timetable, TimetableBuilder, TripEvents};
 use crate::seasonal::haversine_km;
 
@@ -71,6 +71,45 @@ fn err(msg: impl Into<String>) -> GtfsError {
 /// is streaming, record-at-a-time memory).
 const MAX_FIELD_BYTES: usize = 1 << 20;
 
+/// One CSV record, held in buffers that are reused from row to row: the
+/// fields' text back to back, and where each one ends. Chicago's
+/// `stop_times.txt` is 5.9 million rows of eight fields; a fresh `String`
+/// per field was most of the time spent building its timetable.
+#[derive(Default)]
+pub(crate) struct Record {
+    text: String,
+    ends: Vec<usize>,
+}
+
+impl Record {
+    fn clear(&mut self) {
+        self.text.clear();
+        self.ends.clear();
+    }
+
+    /// Close a field: its bytes, as UTF-8 (lossy) and trimmed.
+    fn push(&mut self, bytes: &[u8]) {
+        self.text.push_str(String::from_utf8_lossy(bytes).trim());
+        self.ends.push(self.text.len());
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.ends.len()
+    }
+
+    pub(crate) fn get(&self, i: usize) -> Option<&str> {
+        let end = *self.ends.get(i)?;
+        let start = if i == 0 { 0 } else { self.ends[i - 1] };
+        Some(&self.text[start..end])
+    }
+
+    pub(crate) fn to_vec(&self) -> Vec<String> {
+        (0..self.len())
+            .filter_map(|i| self.get(i).map(str::to_string))
+            .collect()
+    }
+}
+
 /// Streaming RFC-4180 CSV record reader over any [`BufRead`]. Handles quoted
 /// fields containing commas, `""`-escaped quotes, and embedded newlines; CRLF
 /// and LF line endings; a UTF-8 BOM on the first record; and skips blank
@@ -79,39 +118,45 @@ const MAX_FIELD_BYTES: usize = 1 << 20;
 pub(crate) struct CsvReader<R: BufRead> {
     r: R,
     first: bool,
+    line: Vec<u8>,
+    field: Vec<u8>,
 }
 
 impl<R: BufRead> CsvReader<R> {
     pub(crate) fn new(r: R) -> Self {
-        CsvReader { r, first: true }
+        CsvReader {
+            r,
+            first: true,
+            line: Vec::new(),
+            field: Vec::new(),
+        }
     }
 
     /// Next record, or `None` at EOF. Blank lines are skipped.
     pub(crate) fn next_record(&mut self) -> io::Result<Option<Vec<String>>> {
+        let mut rec = Record::default();
+        Ok(self.next_into(&mut rec)?.then(|| rec.to_vec()))
+    }
+
+    /// Next record into `rec`, reusing its buffers; `false` at EOF. Blank
+    /// lines are skipped.
+    pub(crate) fn next_into(&mut self, rec: &mut Record) -> io::Result<bool> {
         loop {
-            match self.raw_record()? {
-                None => return Ok(None),
-                Some(rec) => {
-                    if rec.len() == 1 && rec[0].is_empty() {
-                        continue; // blank line
-                    }
-                    return Ok(Some(rec));
-                }
+            if !self.raw_into(rec)? {
+                return Ok(false);
             }
+            if rec.len() == 1 && rec.text.is_empty() {
+                continue; // blank line
+            }
+            return Ok(true);
         }
     }
 
-    fn raw_record(&mut self) -> io::Result<Option<Vec<String>>> {
-        let mut fields: Vec<String> = Vec::new();
-        let mut field: Vec<u8> = Vec::new();
+    fn raw_into(&mut self, rec: &mut Record) -> io::Result<bool> {
+        rec.clear();
+        self.field.clear();
         let mut in_quotes = false;
         let mut consumed_anything = false;
-
-        let finish = |bytes: &mut Vec<u8>| -> String {
-            let s = String::from_utf8_lossy(bytes).trim().to_string();
-            bytes.clear();
-            s
-        };
 
         loop {
             // Bound the READ, not just the field. `read_until` grows until it
@@ -120,13 +165,13 @@ impl<R: BufRead> CsvReader<R> {
             // whole — the MAX_FIELD_BYTES check below could only fire after
             // the bytes were already resident, which is the opposite of the
             // 1 MiB ceiling this reader advertises to its callers.
-            let mut line: Vec<u8> = Vec::new();
-            let budget = (MAX_FIELD_BYTES + 1).saturating_sub(field.len()) as u64;
+            self.line.clear();
+            let budget = (MAX_FIELD_BYTES + 1).saturating_sub(self.field.len()) as u64;
             // UFCS so the receiver is `&mut R` (which is `Read` by the
             // blanket impl) rather than auto-dereffing into `R` and moving it.
             let mut limited = std::io::Read::take(&mut self.r, budget);
-            let n = limited.read_until(b'\n', &mut line)?;
-            if n as u64 == budget && line.last() != Some(&b'\n') {
+            let n = limited.read_until(b'\n', &mut self.line)?;
+            if n as u64 == budget && self.line.last() != Some(&b'\n') {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "csv: record exceeds the 1 MiB cap (unbalanced quote?)",
@@ -135,20 +180,23 @@ impl<R: BufRead> CsvReader<R> {
             if n == 0 {
                 // EOF: emit the pending record, if any bytes were consumed.
                 if !consumed_anything {
-                    return Ok(None);
+                    return Ok(false);
                 }
-                fields.push(finish(&mut field));
-                return Ok(Some(fields));
+                rec.push(&self.field);
+                self.field.clear();
+                return Ok(true);
             }
             consumed_anything = true;
             let mut start = 0usize;
             if self.first {
                 self.first = false;
-                if line.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                if self.line.starts_with(&[0xEF, 0xBB, 0xBF]) {
                     start = 3; // strip UTF-8 BOM
                 }
             }
 
+            let line = &self.line;
+            let field = &mut self.field;
             let mut i = start;
             while i < line.len() {
                 let c = line[i];
@@ -166,11 +214,15 @@ impl<R: BufRead> CsvReader<R> {
                 } else {
                     match c {
                         b'"' => in_quotes = true,
-                        b',' => fields.push(finish(&mut field)),
+                        b',' => {
+                            rec.push(field);
+                            field.clear();
+                        }
                         b'\r' => {} // CRLF (or stray CR): dropped
                         b'\n' => {
-                            fields.push(finish(&mut field));
-                            return Ok(Some(fields));
+                            rec.push(field);
+                            field.clear();
+                            return Ok(true);
                         }
                         _ => field.push(c),
                     }
@@ -217,20 +269,21 @@ impl Header {
 }
 
 /// Field accessor tolerant of short rows and absent optional columns.
-fn f(row: &[String], i: Option<usize>) -> &str {
-    i.and_then(|i| row.get(i)).map(String::as_str).unwrap_or("")
+fn f(row: &Record, i: Option<usize>) -> &str {
+    i.and_then(|i| row.get(i)).unwrap_or("")
 }
 
 /// A named GTFS file, opened: its parsed header + a line reader (None when
 /// the file is absent — most GTFS extras are optional).
-type OpenedCsv = Option<(Header, CsvReader<BufReader<File>>)>;
+type OpenedCsv = Option<(Header, CsvReader<Box<dyn BufRead>>)>;
 
+/// The file as the publisher wrote it, or packed as their archive stored it
+/// (`stop_times.txt.fz`) and unpacked as it is read — see [`super::inflate`].
 fn open_csv(dir: &Path, name: &str) -> Result<OpenedCsv, GtfsError> {
-    let path = dir.join(name);
-    if !path.exists() {
+    let Some(reader) = inflate::open_member(dir, name)? else {
         return Ok(None);
-    }
-    let mut r = CsvReader::new(BufReader::new(File::open(&path)?));
+    };
+    let mut r = CsvReader::new(reader);
     match r.next_record()? {
         None => Ok(None), // empty file == absent
         Some(h) => Ok(Some((Header::new(&h), r))),
@@ -363,7 +416,8 @@ impl ServiceCalendar {
                 h.get("sunday"),
             ];
             let (cs, ce) = (h.get("start_date"), h.get("end_date"));
-            while let Some(row) = r.next_record()? {
+            let mut row = Record::default();
+            while r.next_into(&mut row)? {
                 let id = f(&row, Some(sid)).to_string();
                 if id.is_empty() {
                     continue;
@@ -386,7 +440,8 @@ impl ServiceCalendar {
             let sid = h.req("service_id", "calendar_dates.txt")?;
             let dcol = h.req("date", "calendar_dates.txt")?;
             let ecol = h.req("exception_type", "calendar_dates.txt")?;
-            while let Some(row) = r.next_record()? {
+            let mut row = Record::default();
+            while r.next_into(&mut row)? {
                 let id = f(&row, Some(sid)).to_string();
                 let Some(date) = parse_date(f(&row, Some(dcol))) else {
                     continue;
@@ -619,7 +674,8 @@ fn read_agency_timezone(dir: &Path) -> Result<Option<String>, GtfsError> {
     // on the zone, so the first non-empty one speaks for the file.
     if let Some((h, mut r)) = open_csv(dir, "agency.txt")? {
         let c_tz = h.get("agency_timezone");
-        while let Some(row) = r.next_record()? {
+        let mut row = Record::default();
+        while r.next_into(&mut row)? {
             let tz = f(&row, c_tz).trim();
             if !tz.is_empty() {
                 return Ok(Some(tz.to_string()));
@@ -687,7 +743,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     let mut feed_published = 0u32;
     if let Some((h, mut r)) = open_csv(dir, "feed_info.txt")? {
         let (c_ver, c_start) = (h.get("feed_version"), h.get("feed_start_date"));
-        if let Some(row) = r.next_record()? {
+        let mut row = Record::default();
+        if r.next_into(&mut row)? {
             // feed_version is free-form; Amtrak puts a YYYYMMDD in it, others
             // put "1.2.3". Take it only when it reads as a plausible date.
             feed_published = parse_date(f(&row, c_ver)).unwrap_or(0);
@@ -709,7 +766,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     let mut stop_zones: Vec<String> = Vec::new();
     let mut stop_latlon: Vec<(i32, i32)> = Vec::new();
     let mut stop_index: HashMap<String, u32> = HashMap::new();
-    while let Some(row) = r.next_record()? {
+    let mut row = Record::default();
+    while r.next_into(&mut row)? {
         let id = f(&row, Some(c_id));
         if id.is_empty() || stop_index.contains_key(id) {
             continue;
@@ -757,7 +815,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     let mut route_modes: Vec<Mode> = Vec::new();
     let mut gtfs_route_names: Vec<String> = Vec::new();
     let mut route_index: HashMap<String, u32> = HashMap::new();
-    while let Some(row) = r.next_record()? {
+    let mut row = Record::default();
+    while r.next_into(&mut row)? {
         let id = f(&row, Some(c_id));
         if id.is_empty() || route_index.contains_key(id) {
             continue;
@@ -802,7 +861,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     let c_service = h.req("service_id", "trips.txt")?;
     // trip_id -> gtfs route index
     let mut active_trips: HashMap<String, u32> = HashMap::new();
-    while let Some(row) = r.next_record()? {
+    let mut row = Record::default();
+    while r.next_into(&mut row)? {
         let service = f(&row, Some(c_service));
         if !active.contains(service) {
             continue;
@@ -828,7 +888,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     type StopTimeRow = (u32, u32, Option<Time>, Option<Time>);
     let mut trip_rows: HashMap<String, Vec<StopTimeRow>> = HashMap::new();
     let mut stop_visits = vec![0u32; stop_ids.len()];
-    while let Some(row) = r.next_record()? {
+    let mut row = Record::default();
+    while r.next_into(&mut row)? {
         let trip = f(&row, Some(c_trip));
         if !active_trips.contains_key(trip) {
             continue;
@@ -863,7 +924,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             h.get("end_time"),
             h.get("headway_secs"),
         );
-        while let Some(row) = r.next_record()? {
+        let mut row = Record::default();
+        while r.next_into(&mut row)? {
             let trip = f(&row, Some(c_trip)).to_string();
             let (Some(start), Some(end)) = (
                 parse_gtfs_time(f(&row, c_start)),
@@ -1013,7 +1075,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             h.get("min_transfer_time"),
         );
         const DEFAULT_TRANSFER_SECS: Time = 120;
-        while let Some(row) = r.next_record()? {
+        let mut row = Record::default();
+        while r.next_into(&mut row)? {
             // Types 0/1/2 are walkable; 3 = not possible; 4/5 are in-seat
             // (trip-level, not a footpath).
             let ty = f(&row, c_type).trim();
@@ -1372,8 +1435,14 @@ mod tests {
     fn csv_short_rows_and_missing_optional_columns_read_as_empty() {
         let rows = records("a,b,c\n1\n");
         assert_eq!(rows[1], vec!["1"]);
-        assert_eq!(f(&rows[1], Some(2)), ""); // short row
-        assert_eq!(f(&rows[1], None), ""); // absent optional column
+        let mut r = CsvReader::new(Cursor::new(b"a,b,c\n1\n".to_vec()));
+        let mut row = Record::default();
+        assert!(r.next_into(&mut row).unwrap(), "header");
+        assert!(r.next_into(&mut row).unwrap(), "the short row");
+        assert_eq!(f(&row, Some(0)), "1");
+        assert_eq!(f(&row, Some(2)), ""); // short row
+        assert_eq!(f(&row, None), ""); // absent optional column
+        assert!(!r.next_into(&mut row).unwrap(), "end of file");
     }
 
     #[test]
