@@ -55,6 +55,10 @@ pub struct BuildReport {
     pub agency_zone: String,
     pub ftt_bytes: usize,
     pub fts_bytes: usize,
+    /// Walking links joined between different operators' stops (0 for one feed).
+    pub n_feed_links: usize,
+    /// Secondary feeds left out, by position in the input, with the reason.
+    pub skipped: Vec<(usize, String)>,
 }
 
 /// Build a shard from an unzipped GTFS directory: `<prefix>.ftt` gets the CSR
@@ -64,6 +68,20 @@ pub struct BuildReport {
 /// stations.
 pub fn build(gtfs_dir: &Path, date: Option<u32>, prefix: &Path) -> Result<BuildReport, String> {
     let load = gtfs::load_gtfs(gtfs_dir, date).map_err(|e| e.to_string())?;
+    write(&load, prefix)
+}
+
+/// Build ONE shard from several feeds merged into one timetable, so a single
+/// query can ride a train and then a city bus — see [`gtfs::load_gtfs_many`]
+/// for the shift each feed needs and why the first feed is the reference.
+/// Feeds that could not be used come back in [`BuildReport::skipped`], so the
+/// caller can say which operator's times are missing instead of hiding it.
+pub fn build_many(
+    feeds: &[gtfs::FeedInput],
+    date: u32,
+    prefix: &Path,
+) -> Result<BuildReport, String> {
+    let load = gtfs::load_gtfs_many(feeds, date).map_err(|e| e.to_string())?;
     write(&load, prefix)
 }
 
@@ -114,6 +132,8 @@ pub fn write(load: &gtfs::GtfsLoad, prefix: &Path) -> Result<BuildReport, String
         agency_zone: load.agency_timezone.clone(),
         ftt_bytes: ftt_bytes.len(),
         fts_bytes: fts_bytes.len(),
+        n_feed_links: load.n_feed_links,
+        skipped: load.skipped_feeds.clone(),
     })
 }
 

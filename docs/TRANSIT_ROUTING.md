@@ -148,11 +148,25 @@ What runs today:
   proved byte-identical on three real Amtrak service days. Proved live:
   Amtrak + LA Metro Rail, Bakersfield → Hollywood/Highland = Thruway coach to
   LA Union Station, a 5½-minute walk to the B/D platform, then the B Line.
-- **Not yet built:** the Swift side of the merge (choosing and fetching a
-  city's feed, computing its shift, passing several feeds across the bridge)
-  — and WHICH city feeds are allowed is an owner decision still open: of the
+- **Built 2026-09-29 — the Swift side of the merge:**
+  `flows_transit_build_many` (U+001F-joined dirs + parallel `&[f64]` shifts;
+  rows `info`/`built`/`linked`/`skipped`); `TransitClock.shift(from:into:
+  serviceDate:)` — the gap between the two feeds' own GTFS day-starts, exact
+  on clock-change days and for Phoenix (no DST); `TransitShard.build(feeds:)`;
+  and `TransitFeeds.ready([Source])`, where the FIRST source must load and
+  the rest are best effort. A city feed Rust skips (lapsed calendar,
+  malformed files) is remembered as unusable for the day and the shard is
+  rebuilt without it, so a shard's name, contents and credit line always
+  agree. Amtrak alone keeps its old path and cache name byte for byte. The
+  rail card asks `TransitFeeds.sources(endingAt:)` — Amtrak plus any allowed
+  city feed whose area holds the destination — and credits every operator
+  shown ("Schedules from Amtrak and LA Metro").
+- **The one thing between this and city buses on the card:**
+  `TransitFeeds.cityFeeds` is EMPTY on purpose. Which operators' schedules
+  FLOWS may download and show is the owner's decision, still open — of the
   1,336 US/CA feeds in the MobilityData catalog, only 290 state a licence.
-  Also still ahead: `backbone.ftt` (Amtrak + VIA), `manifest.ftm`, and the
+  Switching it on is adding entries (name, URL, operator, area), not code.
+- **Still ahead:** `backbone.ftt` (Amtrak + VIA), `manifest.ftm`, and the
   mmap zero-copy reader.
 
 ## The shipped stopgap: MapKit itineraries, in FLOWS (superseded-by-design, still current UX)

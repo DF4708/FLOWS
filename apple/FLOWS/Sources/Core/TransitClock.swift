@@ -50,6 +50,23 @@ enum TransitClock {
         return noon.addingTimeInterval(-12 * 3600)
     }
 
+    /// Seconds to ADD to a feed's stored times so they read in `reference`'s
+    /// clock on `serviceDate` — what merging a city's bus timetable into
+    /// Amtrak's needs, since each counts from midnight in its own zone.
+    ///
+    /// It is the gap between the two feeds' own day-starts, not a difference
+    /// of UTC offsets taken at one moment. The two agree almost always; this
+    /// form is exact by construction, because it anchors each feed the way
+    /// GTFS itself does. Phoenix is the case that bites a fixed rule: it skips
+    /// daylight saving, so it sits an hour behind Denver in summer and level
+    /// with it in winter. Negative for a feed east of the reference.
+    static func shift(from zone: String, into reference: String, serviceDate: Int) -> Int? {
+        guard let feedStart = dayStart(serviceDate: serviceDate, agencyZone: zone),
+              let refStart = dayStart(serviceDate: serviceDate, agencyZone: reference)
+        else { return nil }
+        return Int(feedStart.timeIntervalSince(refStart))
+    }
+
     /// The instant a stored time happens. `seconds` may exceed 24 hours — GTFS
     /// uses `25:30:00` for a train that leaves after midnight, and that is a
     /// real departure on this service day, not the next one's.

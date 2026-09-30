@@ -34,6 +34,12 @@ mod ffi {
     extern "Rust" {
         fn flows_transit_agency_zone(gtfs_dir: &str) -> String;
         fn flows_transit_build(gtfs_dir: &str, prefix: &str, service_date: i64) -> Vec<String>;
+        fn flows_transit_build_many(
+            gtfs_dirs: &str,
+            shift_secs: &[f64],
+            prefix: &str,
+            service_date: i64,
+        ) -> Vec<String>;
         fn flows_transit_info(prefix: &str) -> Vec<String>;
         fn flows_transit_departures(
             prefix: &str,
@@ -51,7 +57,8 @@ mod ffi {
 use std::path::Path;
 
 use crate::contain;
-use flows_core::transit::shard::{self, Departure, NearStop, Shard};
+use flows_core::transit::gtfs::FeedInput;
+use flows_core::transit::shard::{self, BuildReport, Departure, NearStop, Shard};
 
 /// The separator between fields. U+001F is not a character a station name,
 /// route name or zone id carries.
@@ -78,20 +85,77 @@ pub fn flows_transit_build(gtfs_dir: &str, prefix: &str, service_date: i64) -> V
         let date = u32::try_from(service_date).ok().filter(|d| *d >= 19000101);
         match shard::build(Path::new(gtfs_dir), date, Path::new(prefix)) {
             Err(e) => err_rows(e),
-            Ok(r) => vec![
-                format!(
-                    "info{UNIT}{}{UNIT}{}{UNIT}{}",
-                    r.service_date, r.feed_published, r.agency_zone
-                ),
-                format!(
-                    "built{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}",
-                    r.n_stops,
-                    r.n_routes,
-                    r.n_trips,
-                    r.n_events,
-                    r.ftt_bytes + r.fts_bytes
-                ),
-            ],
+            Ok(r) => report_rows(&r),
+        }
+    })
+}
+
+fn report_rows(r: &BuildReport) -> Vec<String> {
+    vec![
+        format!(
+            "info{UNIT}{}{UNIT}{}{UNIT}{}",
+            r.service_date, r.feed_published, r.agency_zone
+        ),
+        format!(
+            "built{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}",
+            r.n_stops,
+            r.n_routes,
+            r.n_trips,
+            r.n_events,
+            r.ftt_bytes + r.fts_bytes
+        ),
+    ]
+}
+
+/// The most a feed's clock can sit from the reference's: two days. Any real
+/// pair of zones is within 26 hours; a shift past this is a caller's bug,
+/// and refusing it beats building a timetable of nonsense times.
+const MAX_SHIFT_SECS: f64 = 48.0 * 3600.0;
+
+/// Build ONE shard from several feeds, so a trip can ride one operator's
+/// train and another's bus. `gtfs_dirs` is the unzipped directories joined by
+/// U+001F; `shift_secs` holds, for each, the seconds that move its times into
+/// the FIRST feed's clock (Swift works these out — it has the timezone
+/// database). The first feed must load; later ones that cannot are reported
+/// as `skipped␟index␟reason` rows rather than failing the trains.
+///
+/// Rows: `info`, `built`, `linked␟pairs`, then any `skipped` rows.
+pub fn flows_transit_build_many(
+    gtfs_dirs: &str,
+    shift_secs: &[f64],
+    prefix: &str,
+    service_date: i64,
+) -> Vec<String> {
+    contain(err_rows("transit: build panicked"), || {
+        let Some(date) = u32::try_from(service_date).ok().filter(|d| *d >= 19000101) else {
+            return err_rows("transit: a merged timetable needs its service date");
+        };
+        let dirs: Vec<&str> = gtfs_dirs.split(UNIT).collect();
+        if dirs.len() != shift_secs.len() {
+            return err_rows("transit: each feed needs exactly one shift");
+        }
+        let mut feeds = Vec::with_capacity(dirs.len());
+        for (dir, &shift) in dirs.iter().zip(shift_secs) {
+            if dir.is_empty() || !shift.is_finite() || shift.abs() > MAX_SHIFT_SECS {
+                return err_rows("transit: a feed has no directory or an impossible shift");
+            }
+            feeds.push(FeedInput {
+                dir: Path::new(dir),
+                shift_secs: shift as i32,
+            });
+        }
+        match shard::build_many(&feeds, date, Path::new(prefix)) {
+            Err(e) => err_rows(e),
+            Ok(r) => {
+                let mut rows = report_rows(&r);
+                rows.push(format!("linked{UNIT}{}", r.n_feed_links));
+                for (index, why) in &r.skipped {
+                    // A reason is free text from a parser; keep it one field.
+                    let why = why.replace(UNIT, " ");
+                    rows.push(format!("skipped{UNIT}{index}{UNIT}{why}"));
+                }
+                rows
+            }
         }
     })
 }
@@ -216,4 +280,64 @@ pub fn flows_transit_departures(
         }
         err_rows("transit: no ride between those stations today")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn is_err(rows: &[String]) -> bool {
+        rows.len() == 1 && rows[0].starts_with("err\u{1F}")
+    }
+
+    #[test]
+    fn a_merge_refuses_inputs_it_cannot_place() {
+        let two = format!("/a{UNIT}/b");
+        assert!(
+            is_err(&flows_transit_build_many(&two, &[0.0], "/tmp/x", 20260929)),
+            "two feeds, one shift"
+        );
+        assert!(
+            is_err(&flows_transit_build_many(
+                &two,
+                &[0.0, f64::NAN],
+                "/tmp/x",
+                20260929
+            )),
+            "a shift that is not a number"
+        );
+        assert!(
+            is_err(&flows_transit_build_many(
+                &two,
+                &[0.0, 49.0 * 3600.0],
+                "/tmp/x",
+                20260929
+            )),
+            "no two real zones are two days apart"
+        );
+        assert!(
+            is_err(&flows_transit_build_many(&two, &[0.0, 3600.0], "/tmp/x", 0)),
+            "a merge must be told its day"
+        );
+        assert!(
+            is_err(&flows_transit_build_many(
+                &format!("/a{UNIT}"),
+                &[0.0, 0.0],
+                "/tmp/x",
+                20260929
+            )),
+            "an empty directory name"
+        );
+    }
+
+    #[test]
+    fn a_missing_first_feed_is_an_error_row_not_a_panic() {
+        let rows = flows_transit_build_many(
+            "/definitely/not/a/feed",
+            &[0.0],
+            "/tmp/flows_bridge_no_shard",
+            20260929,
+        );
+        assert!(is_err(&rows), "got {rows:?}");
+    }
 }

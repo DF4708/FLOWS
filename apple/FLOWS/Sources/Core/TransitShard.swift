@@ -104,6 +104,52 @@ enum TransitShard {
         return stamp
     }
 
+    /// One feed going into a merged timetable, and how far its times move to
+    /// read in the first feed's clock (see `TransitClock.shift`).
+    struct FeedPart: Equatable {
+        let directory: String
+        let shiftSeconds: Int
+    }
+
+    /// What a merged build produced.
+    struct Merged: Equatable {
+        let stamp: Stamp
+        /// Stop pairs joined by a walk between different operators — zero
+        /// means the city's stops were nowhere near a station.
+        let links: Int
+        /// Feeds left out, by position in the input, with the reason. The
+        /// first feed is never here: if it fails, the build throws.
+        let skipped: [Int: String]
+    }
+
+    /// Build ONE timetable from several feeds — a train operator's and a
+    /// city's — so a single trip can ride one and then the other.
+    static func build(feeds: [FeedPart], prefix: String, serviceDate: Int) throws -> Merged {
+        // swift-bridge's first rule: never hand Rust an empty buffer. No feeds
+        // is a caller's mistake with an obvious answer, so answer it here.
+        guard !feeds.isEmpty else { throw Failure.notBuilt("no feeds to build from") }
+        let joined = feeds.map(\.directory).joined(separator: "\u{1F}")
+        let shifts = feeds.map { Double($0.shiftSeconds) }
+        let rows = decode(shifts.withUnsafeBufferPointer {
+            flows_transit_build_many(joined, $0, prefix, Int64(serviceDate))
+        })
+        if let message = firstError(rows) { throw Failure.notBuilt(message) }
+        guard let stamp = stamp(rows) else { throw Failure.notBuilt("the feeds produced no timetable") }
+        var links = 0
+        var skipped: [Int: String] = [:]
+        for row in rows {
+            switch row.first {
+            case "linked" where row.count >= 2:
+                links = Int(row[1]) ?? 0
+            case "skipped" where row.count >= 3:
+                if let index = Int(row[1]) { skipped[index] = row[2] }
+            default:
+                continue
+            }
+        }
+        return Merged(stamp: stamp, links: links, skipped: skipped)
+    }
+
     /// What a built shard says about itself, or nil when there is none.
     static func stamp(prefix: String) -> Stamp? {
         stamp(decode(flows_transit_info(prefix)))

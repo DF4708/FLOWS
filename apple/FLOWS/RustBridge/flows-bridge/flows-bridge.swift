@@ -3836,6 +3836,13 @@ public func flows_transit_build<GenericToRustStr: ToRustStr>(_ gtfs_dir: Generic
     })
     })
 }
+public func flows_transit_build_many<GenericToRustStr: ToRustStr>(_ gtfs_dirs: GenericToRustStr, _ shift_secs: UnsafeBufferPointer<Double>, _ prefix: GenericToRustStr, _ service_date: Int64) -> RustVec<RustString> {
+    return prefix.toRustStr({ prefixAsRustStr in
+        return gtfs_dirs.toRustStr({ gtfs_dirsAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_transit_build_many(gtfs_dirsAsRustStr, shift_secs.toFfiSlice(), prefixAsRustStr, service_date))
+    })
+    })
+}
 public func flows_transit_info<GenericToRustStr: ToRustStr>(_ prefix: GenericToRustStr) -> RustVec<RustString> {
     return prefix.toRustStr({ prefixAsRustStr in
         RustVec(ptr: __swift_bridge__$flows_transit_info(prefixAsRustStr))

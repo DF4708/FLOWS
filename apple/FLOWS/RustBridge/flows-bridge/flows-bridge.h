@@ -725,6 +725,7 @@ void* __swift_bridge__$flows_tags_ranked_nearest(struct __private__FfiSlice lats
 #include <stdint.h>
 void* __swift_bridge__$flows_transit_agency_zone(struct RustStr gtfs_dir);
 void* __swift_bridge__$flows_transit_build(struct RustStr gtfs_dir, struct RustStr prefix, int64_t service_date);
+void* __swift_bridge__$flows_transit_build_many(struct RustStr gtfs_dirs, struct __private__FfiSlice shift_secs, struct RustStr prefix, int64_t service_date);
 void* __swift_bridge__$flows_transit_info(struct RustStr prefix);
 void* __swift_bridge__$flows_transit_departures(struct RustStr prefix, double from_latitude, double from_longitude, double to_latitude, double to_longitude, double max_station_meters, int64_t depart_seconds, int64_t limit);
 

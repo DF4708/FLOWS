@@ -313,8 +313,12 @@ struct RouteChoicesView: View {
         // A driver's connection belongs to the road ahead, not to a schedule
         // refresh; mid-drive we use a timetable only if one is already here.
         let mayFetch = model.mode != .navigating
+        // Amtrak, plus any allowed city feed where the trip ends — so the last
+        // leg can be the city's bus from the station, walked to on a real
+        // connection. With no city feeds allowed this is Amtrak alone.
         guard let ready = try? await TransitFeeds.shared.ready(
-            TransitFeeds.amtrak, on: Date(), allowNetwork: mayFetch
+            TransitFeeds.sources(endingAt: ep.to.latitude, ep.to.longitude),
+            on: Date(), allowNetwork: mayFetch
         ) else { return nil }
         guard let answer = try? TransitShard.departures(
             prefix: ready.prefix, from: ep.from, to: ep.to,
