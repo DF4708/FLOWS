@@ -1459,9 +1459,10 @@ final class AppModel: ObservableObject {
         didSet { UserDefaults.standard.set(show3DMap, forKey: "flows.show3DMap") }
     }
 
-    /// The DEDICATED trucker route: ALWAYS designated — the option that
-    /// best accommodates a truck (highways, clearances above 13'6",
-    /// gentle grades, low wind exposure), ETA breaking ties.
+    /// The DEDICATED trucker route: ALWAYS designated among drives — the
+    /// option that best accommodates a truck (highways, clearances above
+    /// 13'6", gentle grades, low wind exposure), ETA breaking ties. Never a
+    /// walk.
     var truckerRouteID: UUID? {
         let semi = FilterLimits(vehicleHeightMeters: 13.5 * 0.3048,
                                 maxGradePercent: FilterLimits.degreesToPercent(6))
@@ -1484,7 +1485,8 @@ final class AppModel: ObservableObject {
                 avoidsHighways: r.planKind == .avoidHighways,
                 gradeOK: semi.passesGrade(r.maxGradePercent),
                 windOK: (r.familyPeaks["wind"] ?? 0) < FlowsCore.riskYellowMin,
-                eta: r.eta)
+                eta: r.eta,
+                isWalk: r.isWalk)
         }
         // Designate from the FILTERED list so the badge follows the routes
         // the driver can actually see (it used to vanish when a filter
@@ -1500,7 +1502,9 @@ final class AppModel: ObservableObject {
         // silence is honest; badging an impassable route is not.
         let candidates = pool.map(candidate)
         let picked = TruckerDesignation.pick(candidates)
-        if picked == nil, !pool.isEmpty {
+        // Walks never compete for the badge, so a list of walks says nothing
+        // about clearances.
+        if picked == nil, candidates.contains(where: { !$0.isWalk }) {
             FlowsDiag.logThrottled(
                 key: "trucker.noClearance", .warn, "routing",
                 "no candidate clears 13'6\" — trucker badge withheld")

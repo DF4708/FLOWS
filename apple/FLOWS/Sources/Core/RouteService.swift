@@ -922,7 +922,9 @@ enum EfficientRoute {
 /// route, i.e. the badge could point a semi at a bridge it cannot clear.
 /// Unknown clearance data still passes (the app-wide "unknown never
 /// excludes" rule). If nothing clears, no route earns the badge: silence
-/// is honest, badging an impassable route is not. Pure, pinned by tests.
+/// is honest, badging an impassable route is not. A walk is never a truck
+/// route — a 408-mile walk wore the badge — so walks do not compete. Pure,
+/// pinned by tests.
 enum TruckerDesignation {
     struct Candidate: Equatable {
         let id: UUID
@@ -933,6 +935,7 @@ enum TruckerDesignation {
         let gradeOK: Bool
         let windOK: Bool
         let eta: TimeInterval
+        var isWalk = false
     }
 
     static func score(_ c: Candidate) -> Double {
@@ -943,10 +946,10 @@ enum TruckerDesignation {
         return s
     }
 
-    /// Best score, then shortest ETA; nil when no candidate clears.
+    /// Best score, then shortest ETA; nil when no drive clears.
     static func pick(_ candidates: [Candidate]) -> UUID? {
         candidates
-            .filter(\.clearsBridges)
+            .filter { $0.clearsBridges && !$0.isWalk }
             .map { (id: $0.id, score: score($0), eta: $0.eta) }
             .min { $0.score != $1.score ? $0.score > $1.score : $0.eta < $1.eta }?
             .id

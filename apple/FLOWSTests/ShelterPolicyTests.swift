@@ -569,6 +569,18 @@ final class TruckerDesignationTests: XCTestCase {
         XCTAssertNil(TruckerDesignation.pick([]))
     }
 
+    func testAWalkNeverWearsTheTruckBadge() {
+        // A 408-mile walk wore "best route for trucks". Walks score the same
+        // facts as drives, so the rule itself has to keep them out.
+        var walk = cand(a)
+        walk.isWalk = true
+        var slowerWalk = cand(b, eta: 7200)
+        slowerWalk.isWalk = true
+        XCTAssertNil(TruckerDesignation.pick([walk, slowerWalk]))
+        XCTAssertEqual(TruckerDesignation.pick([walk, cand(c, grade: false)]), c,
+                       "beside a drive, only the drive can earn it")
+    }
+
     func testHighwaysGradeAndWindScoreInThatWeight() {
         XCTAssertEqual(TruckerDesignation.score(cand(a)), 6)
         XCTAssertEqual(TruckerDesignation.score(cand(a, highways: false)), 3)
