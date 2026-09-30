@@ -738,6 +738,7 @@ bool __swift_bridge__$flows_transit_beats_walk(double walk_seconds, bool walk_kn
 bool __swift_bridge__$flows_transit_other_vehicle_wins(double chosen_seconds, bool chosen_known, double other_seconds);
 int64_t __swift_bridge__$flows_transit_all_vehicles(void);
 int64_t __swift_bridge__$flows_transit_ship_vehicles(void);
+void* __swift_bridge__$flows_transit_ferry_crossings(double from_latitude, double from_longitude, double to_latitude, double to_longitude, double reach_meters, int64_t limit);
 int64_t __swift_bridge__$flows_transit_land_vehicles(void);
 double __swift_bridge__$flows_transit_long_haul_miles(void);
 double __swift_bridge__$flows_transit_far_walk_seconds(void);

@@ -110,6 +110,7 @@ pub fn write(load: &gtfs::GtfsLoad, prefix: &Path) -> Result<BuildReport, String
         stop_codes: load.stop_ids.clone(),
         stop_zones: load.stop_zones.clone(),
         route_names: load.route_names.clone(),
+        route_fares: load.route_fares.clone(),
         agency_zone: load.agency_timezone.clone(),
         service_date: load.service_date,
         feed_published: load.feed_published,
@@ -162,6 +163,7 @@ pub fn open(prefix: &Path) -> io::Result<Shard> {
     let labels = fts::read_fts(&with_ext(prefix, "fts"), hash)?;
     if labels.stop_names.len() != timetable.n_stops()
         || labels.route_names.len() != timetable.n_routes()
+        || !(labels.route_fares.is_empty() || labels.route_fares.len() == timetable.n_routes())
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -201,6 +203,8 @@ pub struct RideLeg {
     pub board_lon: f64,
     pub alight_lat: f64,
     pub alight_lon: f64,
+    /// What this ride costs by the feed's own fare files, when they say.
+    pub fare: Option<fts::Fare>,
 }
 
 /// A departure the app can show: the rides, the walking between them, and the
@@ -429,6 +433,12 @@ impl Shard {
                 board_lon: self.degrees(l.from_stop).1,
                 alight_lat: self.degrees(l.to_stop).0,
                 alight_lon: self.degrees(l.to_stop).1,
+                fare: self
+                    .labels
+                    .route_fares
+                    .get(l.route as usize)
+                    .cloned()
+                    .flatten(),
             })
             .collect();
         let dep = legs.first()?.dep;

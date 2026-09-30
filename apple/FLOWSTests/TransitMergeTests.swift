@@ -361,6 +361,34 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertFalse(ShipTravel.isCruiseTerminal("Portillo's Hot Dogs"))
     }
 
+    func testTheFerryCensusKnowsFerriesNoTimetableCovers() throws {
+        // Juneau to Haines: the Alaska Marine Highway publishes no GTFS.
+        let juneau = CLLocationCoordinate2D(latitude: 58.3019, longitude: -134.4197)
+        let haines = CLLocationCoordinate2D(latitude: 59.2358, longitude: -135.4453)
+        let marine = try XCTUnwrap(ShipTravel.crossings(from: juneau, to: haines).first)
+        XCTAssertTrue(marine.operatorName.contains("Alaska Marine Highway"), marine.operatorName)
+        XCTAssertEqual(marine.operatorURL?.host, "dot.alaska.gov")
+        XCTAssertGreaterThan(marine.minutes ?? 0, 60)
+
+        // The SS Badger sails May to October, and says so.
+        let ludington = CLLocationCoordinate2D(latitude: 43.9553, longitude: -86.4526)
+        let manitowoc = CLLocationCoordinate2D(latitude: 44.0886, longitude: -87.6576)
+        let badger = try XCTUnwrap(ShipTravel.crossings(from: ludington, to: manitowoc).first)
+        XCTAssertEqual(badger.seasonText(locale: us), "May 17 – Oct 6")
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let july = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 7, day: 4)))
+        let january = try XCTUnwrap(utc.date(from: DateComponents(year: 2026, month: 1, day: 15)))
+        XCTAssertTrue(badger.sails(on: july, calendar: utc))
+        XCTAssertFalse(badger.sails(on: january, calendar: utc), "not in January")
+        XCTAssertNil(badger.cars, "the census left its car count blank: unknown, not no")
+
+        XCTAssertTrue(ShipTravel.crossings(
+            from: CLLocationCoordinate2D(latitude: 39.7392, longitude: -104.9903),
+            to: CLLocationCoordinate2D(latitude: 38.8339, longitude: -104.8214)).isEmpty,
+                      "Denver has no ferry")
+    }
+
     func testAFerryMustLeaveTheRiderWellOnTheirWay() {
         let seattle = CLLocationCoordinate2D(latitude: 47.6097, longitude: -122.3331)
         let winslow = CLLocationCoordinate2D(latitude: 47.6262, longitude: -122.5212)

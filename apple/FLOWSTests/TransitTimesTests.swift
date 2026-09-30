@@ -118,7 +118,7 @@ final class TransitTimesTests: XCTestCase {
 
     /// A feed shaped like Amtrak's: the agency keeps Eastern time while the
     /// stations are in Central and Mountain.
-    private func writeFeed() throws -> String {
+    private func writeFeed(fares: Bool = false) throws -> String {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("flows-transit-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -149,7 +149,57 @@ final class TransitTimesTests: XCTestCase {
         for (name, body) in files {
             try body.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
         }
+        if fares {
+            // The operator's own fare for the Hiawatha; none for the other.
+            try "fare_id,price,currency_type,payment_method,transfers\nH,10.25,USD,1,0\n"
+                .write(to: dir.appendingPathComponent("fare_attributes.txt"),
+                       atomically: true, encoding: .utf8)
+            try "fare_id,route_id,origin_id,destination_id,contains_id\nH,R1,,,\n"
+                .write(to: dir.appendingPathComponent("fare_rules.txt"),
+                       atomically: true, encoding: .utf8)
+        }
         return dir.path
+    }
+
+    func testAFarePublishedInTheFeedRidesWithItsTrain() throws {
+        let feed = try writeFeed(fares: true)
+        defer { try? FileManager.default.removeItem(atPath: feed) }
+        let prefix = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows-transit-fare-\(UUID().uuidString)").path
+        defer {
+            try? FileManager.default.removeItem(atPath: prefix + ".ftt")
+            try? FileManager.default.removeItem(atPath: prefix + ".fts")
+        }
+        let stamp = try TransitShard.build(feedDirectory: feed, prefix: prefix,
+                                           serviceDate: 20260923)
+        let six = try XCTUnwrap(
+            TransitClock.instant(serviceDate: 20260923, agencyZone: eastern, seconds: 6 * 3600))
+        let toChicago = try TransitShard.departures(
+            prefix: prefix, from: CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065),
+            to: CLLocationCoordinate2D(latitude: 41.8781, longitude: -87.6298),
+            departing: six, stamp: stamp)
+        let ride = try XCTUnwrap(toChicago.departures.first?.rides.first)
+        XCTAssertEqual(ride.fare, TransitFare(cents: 1025, currency: "USD"))
+        XCTAssertEqual(ride.fare?.text(locale: us), "$10.25")
+
+        let toDenver = try TransitShard.departures(
+            prefix: prefix, from: CLLocationCoordinate2D(latitude: 41.8789, longitude: -87.6399),
+            to: CLLocationCoordinate2D(latitude: 39.7525, longitude: -105.0), departing: six,
+            stamp: stamp)
+        XCTAssertNil(toDenver.departures.first?.rides.first?.fare,
+                     "no fare published for it: none shown, none guessed")
+    }
+
+    func testFaresAreSaidPlainlyAndAddedOnlyWhenAllAreKnown() {
+        XCTAssertEqual(TransitFare(cents: 0, currency: "USD").text(locale: us), "free")
+        XCTAssertEqual(TransitFare(cents: 1000, currency: "USD", from: true).text(locale: us),
+                       "from $10.00")
+        let bus = TransitFare(cents: 250, currency: "USD")
+        let ferry = TransitFare(cents: 1025, currency: "USD")
+        XCTAssertEqual(TransitFare.total([bus, ferry]), TransitFare(cents: 1275, currency: "USD"))
+        XCTAssertNil(TransitFare.total([bus, nil]), "one unknown fare: no total")
+        XCTAssertNil(TransitFare.total([bus, TransitFare(cents: 400, currency: "CAD")]))
+        XCTAssertNil(TransitFare.total([]))
     }
 
     func testAFeedOnDiskBecomesRealDepartureTimes() throws {

@@ -49,6 +49,17 @@
 //!   TEXT     utf-8 bytes
 //! ```
 //!
+//! **v2 adds fares** (2026-09-30), written only when the feed published any —
+//! a shard without fares keeps its v1 bytes. Header 56..60 holds n_currencies,
+//! and two sections sit between ROUTES and TEXT:
+//!
+//! ```text
+//!   CURRENCIES n_currencies x (off u32, len u32)   -- ISO 4217 codes, into TEXT
+//!   FARES      n_routes     x (cents u32, currency u32, flags u32)
+//!              currency u32::MAX = no known fare; flags bit 0 = "from" (several
+//!              fares fit and this is the least)
+//! ```
+//!
 //! Pure std, no external crates. Every offset is bounds-checked and every
 //! string UTF-8-validated on read: a truncated or tampered sidecar is refused,
 //! never half-trusted.
@@ -59,8 +70,21 @@ use std::path::Path;
 
 /// File magic: the first four bytes of every `.fts`.
 pub const FTS_MAGIC: [u8; 4] = *b"FTS1";
-/// Format version this module writes and the only one it accepts.
+/// Format version of a shard with no fares — byte for byte what it always was.
 pub const FTS_VERSION: u32 = 1;
+/// Format version of a shard whose feed published fares.
+pub const FTS_VERSION_FARES: u32 = 2;
+
+/// What one ride on a route costs, from the feed's own fare files.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fare {
+    /// In the currency's smallest unit — cents.
+    pub cents: u32,
+    /// ISO 4217, as the feed wrote it: "USD".
+    pub currency: String,
+    /// Several fares fit and this is the least of them: say "from".
+    pub from: bool,
+}
 /// Fixed header size in bytes.
 pub const FTS_HEADER_LEN: usize = 64;
 
@@ -77,6 +101,9 @@ pub struct Labels {
     pub stop_zones: Vec<String>,
     /// Engine route index → display name ("Southwest Chief").
     pub route_names: Vec<String>,
+    /// Engine route index → what a ride costs, when the feed says. Empty
+    /// when it published no fares.
+    pub route_fares: Vec<Option<Fare>>,
     /// The zone every stop time in this shard is measured from.
     pub agency_zone: String,
     /// Service date the shard was built for (YYYYMMDD).
@@ -158,6 +185,30 @@ pub fn to_bytes(labels: &Labels, ftt_body_hash: u64) -> Vec<u8> {
         .collect();
     let route_spans: Vec<(u32, u32)> = labels.route_names.iter().map(|r| text.intern(r)).collect();
 
+    // Fares go in only when the feed published some (v2): a shard without
+    // them keeps its v1 bytes exactly.
+    let with_fares = labels.route_fares.iter().any(Option::is_some);
+    let mut currencies: Vec<String> = Vec::new();
+    let mut fare_rows: Vec<(u32, u32, u32)> = Vec::new();
+    if with_fares {
+        for i in 0..n_routes {
+            match labels.route_fares.get(i).cloned().flatten() {
+                Some(fare) => {
+                    let c = match currencies.iter().position(|c| *c == fare.currency) {
+                        Some(c) => c,
+                        None => {
+                            currencies.push(fare.currency.clone());
+                            currencies.len() - 1
+                        }
+                    };
+                    fare_rows.push((fare.cents, c as u32, u32::from(fare.from)));
+                }
+                None => fare_rows.push((0, u32::MAX, 0)),
+            }
+        }
+    }
+    let currency_spans: Vec<(u32, u32)> = currencies.iter().map(|c| text.intern(c)).collect();
+
     let mut body = Vec::new();
     for (off, len) in &zone_spans {
         put_u32(&mut body, *off);
@@ -174,11 +225,27 @@ pub fn to_bytes(labels: &Labels, ftt_body_hash: u64) -> Vec<u8> {
         put_u32(&mut body, *off);
         put_u32(&mut body, *len);
     }
+    for (off, len) in &currency_spans {
+        put_u32(&mut body, *off);
+        put_u32(&mut body, *len);
+    }
+    for (cents, currency, flags) in &fare_rows {
+        put_u32(&mut body, *cents);
+        put_u32(&mut body, *currency);
+        put_u32(&mut body, *flags);
+    }
     body.extend_from_slice(&text.bytes);
 
     let mut out = Vec::with_capacity(FTS_HEADER_LEN + body.len());
     out.extend_from_slice(&FTS_MAGIC);
-    put_u32(&mut out, FTS_VERSION);
+    put_u32(
+        &mut out,
+        if with_fares {
+            FTS_VERSION_FARES
+        } else {
+            FTS_VERSION
+        },
+    );
     put_u32(&mut out, n_stops as u32);
     put_u32(&mut out, n_routes as u32);
     put_u32(&mut out, zone_ids.len() as u32);
@@ -188,7 +255,8 @@ pub fn to_bytes(labels: &Labels, ftt_body_hash: u64) -> Vec<u8> {
     out.extend_from_slice(&ftt_body_hash.to_le_bytes());
     out.extend_from_slice(&(body.len() as u64).to_le_bytes());
     out.extend_from_slice(&fnv1a64(&body).to_le_bytes());
-    out.extend_from_slice(&[0u8; FTS_HEADER_LEN - 56]); // reserved
+    put_u32(&mut out, currencies.len() as u32); // 0 in v1: reserved
+    out.extend_from_slice(&[0u8; FTS_HEADER_LEN - 60]); // reserved
     debug_assert_eq!(out.len(), FTS_HEADER_LEN);
     out.extend_from_slice(&body);
     out
@@ -230,9 +298,14 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
         return Err(bad("fts: bad magic"));
     }
     let version = u32_at(bytes, 4);
-    if version != FTS_VERSION {
+    if version != FTS_VERSION && version != FTS_VERSION_FARES {
         return Err(bad("fts: unsupported format version"));
     }
+    let n_currencies = if version == FTS_VERSION_FARES {
+        u32_at(bytes, 56) as usize
+    } else {
+        0
+    };
     let n_stops = u32_at(bytes, 8) as usize;
     let n_routes = u32_at(bytes, 12) as usize;
     let n_zones = u32_at(bytes, 16) as usize;
@@ -261,9 +334,21 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
     let routes_len = n_routes
         .checked_mul(8)
         .ok_or_else(|| bad("fts: n_routes overflows"))?;
+    let currencies_len = n_currencies
+        .checked_mul(8)
+        .ok_or_else(|| bad("fts: n_currencies overflows"))?;
+    let fares_len = if version == FTS_VERSION_FARES {
+        n_routes
+            .checked_mul(12)
+            .ok_or_else(|| bad("fts: n_routes overflows"))?
+    } else {
+        0
+    };
     let text_start = zones_len
         .checked_add(stops_len)
         .and_then(|v| v.checked_add(routes_len))
+        .and_then(|v| v.checked_add(currencies_len))
+        .and_then(|v| v.checked_add(fares_len))
         .ok_or_else(|| bad("fts: sections overflow"))?;
     if body.len() < text_start {
         return Err(bad("fts: sections do not fit the body"));
@@ -311,11 +396,38 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
         route_names.push(span(u32_at(body, o), u32_at(body, o + 4))?);
     }
 
+    let mut currencies = Vec::with_capacity(n_currencies);
+    for i in 0..n_currencies {
+        let o = zones_len + stops_len + routes_len + i * 8;
+        currencies.push(span(u32_at(body, o), u32_at(body, o + 4))?);
+    }
+    let mut route_fares = Vec::new();
+    if version == FTS_VERSION_FARES {
+        route_fares.reserve(n_routes);
+        for i in 0..n_routes {
+            let o = zones_len + stops_len + routes_len + currencies_len + i * 12;
+            let currency = u32_at(body, o + 4);
+            route_fares.push(if currency == u32::MAX {
+                None
+            } else {
+                Some(Fare {
+                    cents: u32_at(body, o),
+                    currency: currencies
+                        .get(currency as usize)
+                        .cloned()
+                        .ok_or_else(|| bad("fts: currency index out of range"))?,
+                    from: u32_at(body, o + 8) & 1 != 0,
+                })
+            });
+        }
+    }
+
     Ok(Labels {
         stop_names,
         stop_codes,
         stop_zones,
         route_names,
+        route_fares,
         agency_zone: zone_at(agency_zone_idx)?,
         service_date,
         feed_published,

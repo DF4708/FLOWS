@@ -3876,6 +3876,9 @@ public func flows_transit_all_vehicles() -> Int64 {
 public func flows_transit_ship_vehicles() -> Int64 {
     __swift_bridge__$flows_transit_ship_vehicles()
 }
+public func flows_transit_ferry_crossings(_ from_latitude: Double, _ from_longitude: Double, _ to_latitude: Double, _ to_longitude: Double, _ reach_meters: Double, _ limit: Int64) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_transit_ferry_crossings(from_latitude, from_longitude, to_latitude, to_longitude, reach_meters, limit))
+}
 public func flows_transit_land_vehicles() -> Int64 {
     __swift_bridge__$flows_transit_land_vehicles()
 }

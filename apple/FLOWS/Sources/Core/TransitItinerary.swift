@@ -26,6 +26,44 @@ import MapKit
 /// the drive time. The exact rail shape and stop-by-stop schedule still need
 /// GTFS (Amtrak / VIA Rail / Mobility Database); until that lands the ride is
 /// labelled honestly as corridor-approximate.
+/// A fare the operator published in its own timetable files — not an
+/// estimate. `from` marks the least of several that fit (Cape May–Lewes:
+/// adult fares by season).
+struct TransitFare: Equatable {
+    let cents: Int
+    /// ISO 4217: "USD", "CAD".
+    let currency: String
+    var from: Bool = false
+
+    var amount: Double { Double(cents) / 100 }
+
+    /// "$10.25", "from $10.00", "free" — in the rider's own way of writing
+    /// money, for the operator's currency.
+    func text(locale: Locale = .current) -> String {
+        if cents == 0 && !from { return "free" }
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.locale = locale
+        f.currencyCode = currency
+        let money = f.string(from: NSNumber(value: amount)) ?? String(format: "%.2f", amount)
+        return from ? "from \(money)" : money
+    }
+
+    /// Several rides' fares as one, when every one is known and in one
+    /// currency — nil otherwise, so a total is never half a guess.
+    static func total(_ fares: [TransitFare?]) -> TransitFare? {
+        guard let first = fares.first ?? nil else { return nil }
+        var cents = 0
+        var from = false
+        for fare in fares {
+            guard let fare, fare.currency == first.currency else { return nil }
+            cents += fare.cents
+            from = from || fare.from
+        }
+        return TransitFare(cents: cents, currency: first.currency, from: from)
+    }
+}
+
 struct TransitLeg: Identifiable {
     enum Kind { case walk, drive, ride }
     let id = UUID()
@@ -46,6 +84,8 @@ struct TransitLeg: Identifiable {
     var vehicle: String? = nil
     /// A DRIVE leg in a rental car the rider picks up at its start.
     var rental = false
+    /// A RIDE's fare as its operator published it; nil when it did not.
+    var fare: TransitFare? = nil
 }
 
 struct TransitItinerary {
@@ -61,6 +101,8 @@ struct TransitItinerary {
     /// station-to-station connector fallback (false). Gates the "follows the
     /// roads/corridor" claim so it never overstates a straight-line fallback.
     var rideGeometryIsReal: Bool = true
+    /// Every fare in `fare` is the operators' own, published — none estimated.
+    var fareIsPublished = false
     /// Door to door once the timetables have answered — see
     /// ``doorToDoor(before:schedule:after:)``. Nil on an estimate.
     var doorToDoorSeconds: TimeInterval? = nil
@@ -635,6 +677,98 @@ enum ShipTravel {
     static let terminalReachMeters = 40_000.0
     /// How far from the start a cruise terminal may be and still be offered.
     static let cruiseReachMeters = 150_000.0
+
+    /// A ferry the federal ferry census lists (BTS, 2024, public domain)
+    /// between a terminal near the start and one near the destination — for
+    /// the water no timetable feed covers. It says who runs it, how long a
+    /// crossing takes, when in the year it sails and whether cars go aboard;
+    /// never the times, which the card sends the rider to the operator for.
+    struct Crossing: Equatable {
+        let route: String
+        let operatorName: String
+        let operatorURL: URL?
+        let boardName: String
+        let boardCoordinate: CLLocationCoordinate2D
+        let alightName: String
+        let alightCoordinate: CLLocationCoordinate2D
+        /// A typical crossing; nil when the census has none.
+        let minutes: Int?
+        /// [first month, day, last month, day]; nil when not reported.
+        let season: (Int, Int, Int, Int)?
+        let crossingsADay: Double
+        /// Cars aboard: yes, no, or not reported.
+        let cars: Bool?
+
+        static func == (a: Crossing, b: Crossing) -> Bool {
+            a.route == b.route && a.operatorName == b.operatorName && a.boardName == b.boardName
+        }
+
+        /// Whether it sails on a date, by its season in the rider's calendar.
+        /// A season the census did not report counts as sailing.
+        func sails(on date: Date, calendar: Calendar = .current) -> Bool {
+            guard let (m1, d1, m2, d2) = season else { return true }
+            let p = calendar.dateComponents([.month, .day], from: date)
+            let at = (p.month ?? 1) * 100 + (p.day ?? 1)
+            let (start, end) = (m1 * 100 + d1, m2 * 100 + d2)
+            return start <= end ? (start...end).contains(at) : at >= start || at <= end
+        }
+
+        /// "May 17 – Oct 6"; nil when it sails all year or the census did
+        /// not say.
+        func seasonText(locale: Locale = .current) -> String? {
+            guard let (m1, d1, m2, d2) = season, !(m1 == 1 && d1 == 1 && m2 == 12 && d2 == 31)
+            else { return nil }
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "UTC") ?? .current
+            let f = DateFormatter()
+            f.locale = locale
+            f.timeZone = cal.timeZone
+            f.setLocalizedDateFormatFromTemplate("MMMd")
+            func day(_ m: Int, _ d: Int) -> String? {
+                cal.date(from: DateComponents(year: 2025, month: m, day: d)).map(f.string(from:))
+            }
+            guard let a = day(m1, d1), let b = day(m2, d2) else { return nil }
+            return "\(a) – \(b)"
+        }
+    }
+
+    /// The census ferries from a terminal within `reachMeters` of `start`
+    /// to one within it of `end`, least ground to cover first.
+    static func crossings(from start: CLLocationCoordinate2D, to end: CLLocationCoordinate2D,
+                          reachMeters: Double = terminalReachMeters,
+                          limit: Int = 3) -> [Crossing] {
+        var out: [Crossing] = []
+        for row in flows_transit_ferry_crossings(start.latitude, start.longitude,
+                                                 end.latitude, end.longitude,
+                                                 reachMeters, Int64(limit)) {
+            let f = row.as_str().toString()
+                .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
+            guard f.count == 20, f[0] == "ferry",
+                  let bLat = Double(f[6]), let bLon = Double(f[7]),
+                  let aLat = Double(f[10]), let aLon = Double(f[11])
+            else { continue }
+            let minutes = Int(f[12]).flatMap { $0 > 0 ? $0 : nil }
+            let season: (Int, Int, Int, Int)? = {
+                guard let m1 = Int(f[14]), let d1 = Int(f[15]), let m2 = Int(f[16]),
+                      let d2 = Int(f[17]), m1 > 0, m2 > 0 else { return nil }
+                return (m1, d1, m2, d2)
+            }()
+            func place(_ name: String, _ city: String) -> String {
+                city.isEmpty || name.localizedCaseInsensitiveContains(city) ? name : "\(name), \(city)"
+            }
+            out.append(Crossing(
+                route: f[1], operatorName: f[2],
+                operatorURL: f[3].isEmpty ? nil : URL(string: f[3]),
+                boardName: place(f[4], f[5]),
+                boardCoordinate: CLLocationCoordinate2D(latitude: bLat, longitude: bLon),
+                alightName: place(f[8], f[9]),
+                alightCoordinate: CLLocationCoordinate2D(latitude: aLat, longitude: aLon),
+                minutes: minutes, season: season,
+                crossingsADay: Double(f[18]) ?? 0,
+                cars: f[19] == "1" ? true : f[19] == "0" ? false : nil))
+        }
+        return out
+    }
 
     /// Whether a ferry that lands at `landing` is the way from `start` to
     /// `end`: it must leave the rider well on — within 60% of the distance

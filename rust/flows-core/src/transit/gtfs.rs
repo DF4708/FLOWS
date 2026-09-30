@@ -35,6 +35,7 @@ use std::fmt;
 use std::io::{self, BufRead};
 use std::path::Path;
 
+use super::fts::Fare;
 use super::inflate;
 use super::{Mode, StopEvent, Time, Timetable, TimetableBuilder, TripEvents};
 use crate::seasonal::haversine_km;
@@ -575,6 +576,10 @@ pub struct GtfsLoad {
     pub stop_zones: Vec<String>,
     /// Engine route index → human label ("28 Route 28" style).
     pub route_names: Vec<String>,
+    /// Engine route index → what a ride costs, from the feed's own fare
+    /// files; None where it did not say, or where the fare depends on the
+    /// stops (see `read_route_fares`).
+    pub route_fares: Vec<Option<Fare>>,
     /// The service date actually built (YYYYMMDD).
     pub service_date: u32,
     /// `agency.txt`'s `agency_timezone` — the zone EVERY stop time in the feed
@@ -651,6 +656,8 @@ struct FeedParts {
     stop_visits: Vec<u32>,
     route_modes: Vec<Mode>,
     route_names: Vec<String>,
+    /// By this feed's GTFS route index.
+    route_fares: Vec<Option<Fare>>,
     raw: Vec<RawTrip>,
     /// transfers.txt, as (from, to, seconds) in local stop indices.
     transfers: Vec<(u32, u32, Time)>,
@@ -730,6 +737,218 @@ fn read_agency_timezone(dir: &Path) -> Result<Option<String>, GtfsError> {
         }
     }
     Ok(None)
+}
+
+// -----------------------------------------------------------------------------
+// Fares — GTFS Fares v1 (`fare_attributes.txt` + `fare_rules.txt`), per route.
+// -----------------------------------------------------------------------------
+
+/// Words in a fare id that mark a reduced category — never the fare a card
+/// shows as "the" fare when an adult one is not named.
+const REDUCED_FARE_WORDS: &[&str] = &[
+    "child",
+    "youth",
+    "senior",
+    "student",
+    "reduced",
+    "discount",
+    "military",
+    "veteran",
+    "disab",
+    "honored",
+    "infant",
+    "kid",
+    "low_income",
+    "low income",
+    "lowincome",
+];
+
+/// One `fare_attributes.txt` row.
+struct Offer {
+    cents: u32,
+    currency: String,
+    agency: String,
+}
+
+/// A price as cents: "10.25", "10", "4.5". None for anything else, negative,
+/// or past $100,000 (not a fare).
+fn price_cents(s: &str) -> Option<u32> {
+    let v: f64 = s.trim().parse().ok()?;
+    if !(0.0..=100_000.0).contains(&v) {
+        return None;
+    }
+    Some((v * 100.0).round() as u32)
+}
+
+/// What a ride on each of a feed's routes costs, by GTFS route index, read
+/// from the feed's own fare files — public, and published by the operator.
+///
+/// A route gets a fare when the rules give one for the route itself, or for
+/// the whole feed (or the route's agency), or the feed has no rules and its
+/// fares apply everywhere (New York City Ferry: one $4.50 fare). A fare that
+/// depends on where the rider boards and alights — origin, destination or
+/// contains zones — is not guessed: that route stays unknown, and so does
+/// every route a zone rule could reach. Fares never cost a feed its trips:
+/// an unreadable fare file leaves every fare unknown.
+fn read_route_fares(
+    dir: &Path,
+    route_index: &HashMap<String, u32>,
+    route_agency: &[String],
+) -> Vec<Option<Fare>> {
+    route_fares_of(dir, route_index, route_agency)
+        .unwrap_or_else(|_| vec![None; route_agency.len()])
+}
+
+fn route_fares_of(
+    dir: &Path,
+    route_index: &HashMap<String, u32>,
+    route_agency: &[String],
+) -> Result<Vec<Option<Fare>>, GtfsError> {
+    let n = route_agency.len();
+    let Some((h, mut r)) = open_csv(dir, "fare_attributes.txt")? else {
+        return Ok(vec![None; n]);
+    };
+    let c_id = h.req("fare_id", "fare_attributes.txt")?;
+    let (c_price, c_currency, c_agency) =
+        (h.get("price"), h.get("currency_type"), h.get("agency_id"));
+    let mut offers: HashMap<String, Offer> = HashMap::new();
+    let mut in_order: Vec<String> = Vec::new();
+    let mut row = Record::default();
+    while r.next_into(&mut row)? {
+        let id = f(&row, Some(c_id));
+        let currency = f(&row, c_currency).trim().to_ascii_uppercase();
+        let Some(cents) = price_cents(f(&row, c_price)) else {
+            continue;
+        };
+        if id.is_empty() || offers.contains_key(id) || currency.len() != 3 {
+            continue;
+        }
+        offers.insert(
+            id.to_string(),
+            Offer {
+                cents,
+                currency,
+                agency: f(&row, c_agency).to_string(),
+            },
+        );
+        in_order.push(id.to_string());
+    }
+    if offers.is_empty() {
+        return Ok(vec![None; n]);
+    }
+
+    let mut by_route: Vec<Vec<String>> = vec![Vec::new(); n];
+    let mut by_zone = vec![false; n];
+    let mut feed_wide: Vec<String> = Vec::new();
+    let mut zones_anywhere = false;
+    let mut any_rule = false;
+    if let Some((h, mut r)) = open_csv(dir, "fare_rules.txt")? {
+        let c_id = h.req("fare_id", "fare_rules.txt")?;
+        let (c_route, c_from, c_to, c_through) = (
+            h.get("route_id"),
+            h.get("origin_id"),
+            h.get("destination_id"),
+            h.get("contains_id"),
+        );
+        while r.next_into(&mut row)? {
+            let id = f(&row, Some(c_id));
+            if !offers.contains_key(id) {
+                continue;
+            }
+            any_rule = true;
+            let route = f(&row, c_route);
+            let zoned = !f(&row, c_from).is_empty()
+                || !f(&row, c_to).is_empty()
+                || !f(&row, c_through).is_empty();
+            match (route.is_empty(), zoned) {
+                (false, _) => {
+                    if let Some(&g) = route_index.get(route) {
+                        if zoned {
+                            by_zone[g as usize] = true;
+                        } else {
+                            by_route[g as usize].push(id.to_string());
+                        }
+                    }
+                }
+                (true, true) => zones_anywhere = true,
+                (true, false) => feed_wide.push(id.to_string()),
+            }
+        }
+    }
+    if !any_rule {
+        // No rules: the feed's fares apply to every route.
+        feed_wide = in_order;
+    }
+
+    Ok((0..n)
+        .map(|g| {
+            if by_zone[g] {
+                return None;
+            }
+            if !by_route[g].is_empty() {
+                return pick_fare(&by_route[g], &offers);
+            }
+            if zones_anywhere {
+                return None;
+            }
+            let agency = &route_agency[g];
+            let fits: Vec<String> = feed_wide
+                .iter()
+                .filter(|id| {
+                    let a = &offers[id.as_str()].agency;
+                    a.is_empty() || agency.is_empty() || a == agency
+                })
+                .cloned()
+                .collect();
+            pick_fare(&fits, &offers)
+        })
+        .collect())
+}
+
+/// The fare a card shows among those that fit: the adult ones when the feed
+/// names categories — Cape May–Lewes lists adult, senior, child and under-six
+/// fares for every season, and the least of them is free — else those not
+/// marked reduced, else all. One price when they agree; the least, said
+/// "from", when they do not. None when they are in different currencies.
+fn pick_fare(ids: &[String], offers: &HashMap<String, Offer>) -> Option<Fare> {
+    let mut fits: Vec<(&str, &Offer)> = Vec::new();
+    for id in ids {
+        if !fits.iter().any(|(seen, _)| *seen == id.as_str()) {
+            fits.push((id.as_str(), offers.get(id.as_str())?));
+        }
+    }
+    let lower = |id: &str| id.to_ascii_lowercase();
+    let adult: Vec<(&str, &Offer)> = fits
+        .iter()
+        .copied()
+        .filter(|(id, _)| lower(id).contains("adult"))
+        .collect();
+    let full: Vec<(&str, &Offer)> = fits
+        .iter()
+        .copied()
+        .filter(|(id, _)| {
+            let id = lower(id);
+            !REDUCED_FARE_WORDS.iter().any(|w| id.contains(w))
+        })
+        .collect();
+    let chosen = if !adult.is_empty() {
+        adult
+    } else if !full.is_empty() {
+        full
+    } else {
+        fits
+    };
+    let (_, first) = *chosen.first()?;
+    if chosen.iter().any(|(_, o)| o.currency != first.currency) {
+        return None;
+    }
+    let least = chosen.iter().map(|(_, o)| o.cents).min()?;
+    let most = chosen.iter().map(|(_, o)| o.cents).max()?;
+    Some(Fare {
+        cents: least,
+        currency: first.currency.clone(),
+        from: least != most,
+    })
 }
 
 /// Load an unzipped GTFS directory into a single-service-day [`Timetable`].
@@ -861,7 +1080,9 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     );
     let mut route_modes: Vec<Mode> = Vec::new();
     let mut gtfs_route_names: Vec<String> = Vec::new();
+    let mut route_agency: Vec<String> = Vec::new();
     let mut route_index: HashMap<String, u32> = HashMap::new();
+    let c_agency = h.get("agency_id");
     let mut row = Record::default();
     while r.next_into(&mut row)? {
         let id = f(&row, Some(c_id));
@@ -881,7 +1102,9 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
         route_index.insert(id.to_string(), route_modes.len() as u32);
         route_modes.push(mode_for_route_type(rt));
         gtfs_route_names.push(name);
+        route_agency.push(f(&row, c_agency).to_string());
     }
+    let route_fares = read_route_fares(dir, &route_index, &route_agency);
 
     // --- calendar → the service date and its active service_ids. ---
     let cal = ServiceCalendar::load(dir)?;
@@ -1262,6 +1485,7 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
         stop_visits,
         route_modes,
         route_names: gtfs_route_names,
+        route_fares,
         raw,
         transfers,
         service_date,
@@ -1298,6 +1522,7 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
     let mut stop_feed: Vec<u16> = Vec::new();
     let mut route_modes: Vec<Mode> = Vec::new();
     let mut gtfs_route_names: Vec<String> = Vec::new();
+    let mut gtfs_route_fares: Vec<Option<Fare>> = Vec::new();
     let mut raw: Vec<RawTrip> = Vec::new();
     let mut transfers: Vec<(u32, u32, Time)> = Vec::new();
     let mut n_gtfs_trips = 0usize;
@@ -1316,6 +1541,7 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
         stop_visits.extend(p.stop_visits);
         route_modes.extend(p.route_modes);
         gtfs_route_names.extend(p.route_names);
+        gtfs_route_fares.extend(p.route_fares);
         for (from, to, secs) in p.transfers {
             transfers.push((stop_base + from, stop_base + to, secs));
         }
@@ -1372,6 +1598,7 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
     }
 
     let mut route_names: Vec<String> = Vec::new();
+    let mut route_fares: Vec<Option<Fare>> = Vec::new();
     let mut n_trips = 0usize;
     let mut n_events = 0usize;
     let mut n_overtake_splits = 0usize;
@@ -1413,6 +1640,7 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
             n_events += chain.len() * pattern.len();
             builder.add_route(&pattern, chain, route_modes[gtfs_route as usize]);
             route_names.push(label.clone());
+            route_fares.push(gtfs_route_fares.get(gtfs_route as usize).cloned().flatten());
         }
     }
 
@@ -1430,6 +1658,7 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
         stop_names,
         stop_zones,
         route_names,
+        route_fares,
         service_date,
         agency_timezone,
         feed_published,
@@ -1866,6 +2095,202 @@ mod tests {
         let js = plan(&thu.timetable, 1, 2, 0, 8);
         assert_eq!(js[0].arrival, 32 * 3600 + 35 * 60);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn a_feed_with_fares(name: &str, attributes: &str, rules: Option<&str>) -> PathBuf {
+        let mut files = vec![
+            ("stops.txt", STOPS),
+            (
+                "routes.txt",
+                "route_id,agency_id,route_short_name,route_long_name,route_type\n\
+                 R1,A1,,Seattle - Bainbridge Island,4\n\
+                 R2,A1,,Seattle - Bremerton,4\n\
+                 R3,A2,,Water Taxi,4\n",
+            ),
+            ("calendar.txt", CALENDAR),
+            (
+                "trips.txt",
+                "route_id,service_id,trip_id\nR1,WK,t1\nR2,WK,t2\nR3,WK,t3\n",
+            ),
+            (
+                "stop_times.txt",
+                "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                 t1,08:00:00,08:00:00,A,1\nt1,08:35:00,08:35:00,B,2\n\
+                 t2,09:00:00,09:00:00,A,1\nt2,10:00:00,10:00:00,C,2\n\
+                 t3,10:00:00,10:00:00,B,1\nt3,10:15:00,10:15:00,C,2\n",
+            ),
+            ("fare_attributes.txt", attributes),
+        ];
+        if let Some(rules) = rules {
+            files.push(("fare_rules.txt", rules));
+        }
+        write_feed(name, &files)
+    }
+
+    fn fare_of(load: &GtfsLoad, route_name: &str) -> Option<Fare> {
+        let i = load.route_names.iter().position(|n| n == route_name)?;
+        load.route_fares[i].clone()
+    }
+
+    #[test]
+    fn a_route_takes_the_fare_its_own_rule_gives() {
+        // Washington State Ferries' shape: one fare per group of routes.
+        let dir = a_feed_with_fares(
+            "fare_routes",
+            "fare_id,price,currency_type,payment_method,transfers\n\
+             CSR,10.25,USD,1,0\nSJIR,0.00,USD,1,0\n",
+            Some("fare_id,route_id,origin_id,destination_id,contains_id\nCSR,R1,,,\nCSR,R2,,,\n"),
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        let usd = |cents| {
+            Some(Fare {
+                cents,
+                currency: "USD".into(),
+                from: false,
+            })
+        };
+        assert_eq!(fare_of(&load, "Seattle - Bainbridge Island"), usd(1025));
+        assert_eq!(fare_of(&load, "Seattle - Bremerton"), usd(1025));
+        assert_eq!(
+            fare_of(&load, "Water Taxi"),
+            None,
+            "no rule names it: unknown, not guessed"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn one_flat_fare_with_no_rules_covers_every_route() {
+        // New York City Ferry: $4.50, no fare_rules.txt at all.
+        let dir = a_feed_with_fares(
+            "fare_flat",
+            "fare_id,price,currency_type,payment_method,transfers,agency_id\n1,4.50,USD,1,,A1\n",
+            None,
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        let flat = Some(Fare {
+            cents: 450,
+            currency: "USD".into(),
+            from: false,
+        });
+        assert_eq!(fare_of(&load, "Seattle - Bainbridge Island"), flat);
+        assert_eq!(fare_of(&load, "Water Taxi"), None, "another agency's route");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_adult_fare_is_the_fare_and_seasons_make_it_a_from() {
+        // Cape May–Lewes: every category, every season, all feed-wide. The
+        // least of them is the under-six fare, $0.
+        let dir = a_feed_with_fares(
+            "fare_categories",
+            "fare_id,price,currency_type,payment_method,transfers\n\
+             Spring_Pax_Adult,10,USD,1,0\nSpring_Pax_Child_U6,0,USD,1,0\n\
+             Spring_Pax_Senior,8,USD,1,0\nSummer_Pax_Adult,14,USD,1,0\n",
+            Some(
+                "fare_id,route_id,origin_id,destination_id,contains_id\n\
+                 Spring_Pax_Adult,,,,\nSpring_Pax_Child_U6,,,,\nSpring_Pax_Senior,,,,\n\
+                 Summer_Pax_Adult,,,,\n",
+            ),
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        assert_eq!(
+            fare_of(&load, "Seattle - Bremerton"),
+            Some(Fare {
+                cents: 1000,
+                currency: "USD".into(),
+                from: true
+            }),
+            "from $10: an adult fare, and the season decides the rest"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fare_that_depends_on_the_stops_is_not_guessed() {
+        let dir = a_feed_with_fares(
+            "fare_zones",
+            "fare_id,price,currency_type,payment_method,transfers\nZ1,2.85,USD,0,0\nR,5.20,USD,0,0\n",
+            Some(
+                "fare_id,route_id,origin_id,destination_id,contains_id\n\
+                 R,R1,,,\nZ1,,9955,9955,\nR,R2,1,2,\n",
+            ),
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        assert_eq!(
+            fare_of(&load, "Seattle - Bainbridge Island"),
+            Some(Fare {
+                cents: 520,
+                currency: "USD".into(),
+                from: false
+            }),
+            "its own rule names it"
+        );
+        assert_eq!(
+            fare_of(&load, "Seattle - Bremerton"),
+            None,
+            "its rule has zones"
+        );
+        assert_eq!(
+            fare_of(&load, "Water Taxi"),
+            None,
+            "a zone rule could reach it"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fares_ride_through_a_shard_and_a_feed_without_them_keeps_its_bytes() {
+        let dir = a_feed_with_fares(
+            "fare_shard",
+            "fare_id,price,currency_type,payment_method,transfers\nCSR,10.25,USD,1,0\n",
+            Some("fare_id,route_id,origin_id,destination_id,contains_id\nCSR,R1,,,\n"),
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        let labels = super::super::fts::Labels {
+            stop_names: load.stop_names.clone(),
+            stop_codes: load.stop_ids.clone(),
+            stop_zones: load.stop_zones.clone(),
+            route_names: load.route_names.clone(),
+            route_fares: load.route_fares.clone(),
+            agency_zone: load.agency_timezone.clone(),
+            service_date: load.service_date,
+            feed_published: load.feed_published,
+        };
+        let bytes = super::super::fts::to_bytes(&labels, 7);
+        assert_eq!(
+            u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+            2,
+            "v2"
+        );
+        assert_eq!(super::super::fts::from_bytes(&bytes, 7).unwrap(), labels);
+
+        let without = super::super::fts::Labels {
+            route_fares: vec![None; labels.route_names.len()],
+            ..labels.clone()
+        };
+        let plain = super::super::fts::Labels {
+            route_fares: Vec::new(),
+            ..labels
+        };
+        assert_eq!(
+            super::super::fts::to_bytes(&without, 7),
+            super::super::fts::to_bytes(&plain, 7),
+            "no known fare: the v1 bytes a shard always had"
+        );
+        let back = super::super::fts::from_bytes(&super::super::fts::to_bytes(&plain, 7), 7);
+        assert!(back.unwrap().route_fares.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prices_read_as_cents() {
+        assert_eq!(price_cents("10.25"), Some(1025));
+        assert_eq!(price_cents("10"), Some(1000));
+        assert_eq!(price_cents(" 4.5 "), Some(450));
+        assert_eq!(price_cents("0.00"), Some(0));
+        assert_eq!(price_cents("-1"), None);
+        assert_eq!(price_cents("free"), None);
     }
 
     #[test]

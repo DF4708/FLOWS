@@ -363,7 +363,7 @@ actor TransitFeeds {
         // it had built that morning.
         let wanted = [primary] + sources.dropFirst().filter { unusable[$0.name] != date }
         let built = root().appendingPathComponent(Self.shardName(wanted, date: date)).path
-        if let stamp = TransitShard.stamp(prefix: built), stamp.serviceDate == date {
+        if let stamp = current(built, date: date, feeds: wanted) {
             return Ready(prefix: built, stamp: stamp,
                          credit: Self.credit(for: wanted.map(\.operatorName)),
                          operators: Self.distinct(wanted.map(\.operatorName)))
@@ -395,7 +395,7 @@ actor TransitFeeds {
         let used = parts.map(\.source)
         let name = Self.shardName(used, date: date)
         let prefix = root().appendingPathComponent(name)
-        if let stamp = TransitShard.stamp(prefix: prefix.path), stamp.serviceDate == date {
+        if let stamp = current(prefix.path, date: date, feeds: used) {
             return Ready(prefix: prefix.path, stamp: stamp,
                          credit: Self.credit(for: used.map(\.operatorName)),
                          operators: Self.distinct(used.map(\.operatorName)))
@@ -437,6 +437,24 @@ actor TransitFeeds {
         } catch {
             throw Failure.feedUnusable(String(describing: error))
         }
+    }
+
+    /// The shard at `prefix` when it is today's and was built after every
+    /// feed in it last came down. A refresh mid-day brings new files — the
+    /// fares, a timetable change — and the shard built that morning from the
+    /// old copy kept answering until the next day.
+    private func current(_ prefix: String, date: Int, feeds: [Source]) -> TransitShard.Stamp? {
+        guard let stamp = TransitShard.stamp(prefix: prefix), stamp.serviceDate == date else {
+            return nil
+        }
+        func modified(_ path: String) -> Date? {
+            (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        }
+        guard let built = modified(prefix + ".fts") else { return nil }
+        for source in feeds {
+            if let fetched = modified(stampFile(source).path), fetched > built { return nil }
+        }
+        return stamp
     }
 
     /// YYYYMMDD for a moment, as the operator's calendar counts days.
@@ -541,7 +559,7 @@ actor TransitFeeds {
             try FileManager.default.moveItem(at: piece.part,
                                              to: feed.appendingPathComponent(piece.name))
         }
-        try? Data().write(to: stampFile(source), options: .atomic)
+        try? Data(GTFSZip.wantedSignature.utf8).write(to: stampFile(source), options: .atomic)
     }
 
     /// Download one member beside the feed, as the archive stores it — a
@@ -723,12 +741,16 @@ actor TransitFeeds {
         feedDirectory(source).appendingPathComponent(".fetched")
     }
 
+    /// Due for a refetch: a week old, or fetched when FLOWS read fewer files
+    /// than it does now (the stamp holds the list it was fetched for).
     private func isStale(_ feed: URL) -> Bool {
         let marker = feed.appendingPathComponent(".fetched")
         guard let modified = try? FileManager.default
             .attributesOfItem(atPath: marker.path)[.modificationDate] as? Date
         else { return true }
-        return Date().timeIntervalSince(modified) > refetchAfter
+        let fetchedFor = (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
+        return fetchedFor != GTFSZip.wantedSignature
+            || Date().timeIntervalSince(modified) > refetchAfter
     }
 
     /// Yesterday's timetable is dead weight the moment today's exists — for

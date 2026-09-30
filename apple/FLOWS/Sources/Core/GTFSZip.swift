@@ -26,12 +26,18 @@ import Foundation
 /// built from `unzip`'s output.
 enum GTFSZip {
     /// The files the timetable builder reads. Everything else in the archive
-    /// is downloaded by nobody.
+    /// is downloaded by nobody. The two fare files are the operator's own
+    /// published fares — a few kilobytes, and the public price a card shows.
     static let wanted: Set<String> = [
-        "agency.txt", "calendar.txt", "calendar_dates.txt", "feed_info.txt",
-        "frequencies.txt", "routes.txt", "stops.txt", "stop_times.txt",
-        "transfers.txt", "trips.txt",
+        "agency.txt", "calendar.txt", "calendar_dates.txt", "fare_attributes.txt",
+        "fare_rules.txt", "feed_info.txt", "frequencies.txt", "routes.txt", "stops.txt",
+        "stop_times.txt", "transfers.txt", "trips.txt",
     ]
+
+    /// The wanted set as one line, kept in a feed's refresh stamp: a copy
+    /// fetched before a file joined the set (the fares, 2026-09-30) is
+    /// refetched at once rather than a week later.
+    static var wantedSignature: String { wanted.sorted().joined(separator: ",") }
 
     /// One file inside the archive, as the central directory describes it.
     struct Entry: Equatable {

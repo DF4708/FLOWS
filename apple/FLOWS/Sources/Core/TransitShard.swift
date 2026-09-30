@@ -27,7 +27,8 @@ enum TransitShard {
         let alightZone: String
         /// What the operator calls the service — "Hiawatha Service".
         let routeName: String
-        /// The engine's mode byte: 0 rail, 1 subway, 2 bus, 3 coach, 4 commuter.
+        /// The engine's mode byte: 0 rail, 1 subway, 2 bus, 3 coach, 4 commuter,
+        /// 5 ship.
         let mode: Int
         /// Seconds from the service day's start, in the AGENCY's zone.
         let departSeconds: Int
@@ -38,6 +39,8 @@ enum TransitShard {
         var boardLongitude: Double? = nil
         var alightLatitude: Double? = nil
         var alightLongitude: Double? = nil
+        /// The fare its operator published for this ride; nil when it did not.
+        var fare: TransitFare? = nil
 
         var boardCoordinate: CLLocationCoordinate2D? {
             guard let boardLatitude, let boardLongitude else { return nil }
@@ -289,6 +292,9 @@ enum TransitShard {
                     ride.boardLongitude = Double(row[12])
                     ride.alightLatitude = Double(row[13])
                     ride.alightLongitude = Double(row[14])
+                }
+                if row.count >= 18, let cents = Int(row[15]), !row[16].isEmpty {
+                    ride.fare = TransitFare(cents: cents, currency: row[16], from: row[17] == "1")
                 }
                 rides.append(ride)
             default:

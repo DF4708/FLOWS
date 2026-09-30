@@ -22,6 +22,7 @@
 //!      ␟ alight_name ␟ alight_code ␟ alight_zone
 //!      ␟ route_name ␟ mode ␟ dep_secs ␟ arr_secs
 //!      ␟ board_lat ␟ board_lon ␟ alight_lat ␟ alight_lon
+//!      ␟ fare_cents ␟ currency ␟ from   (empty when the feed published no fare)
 //! ```
 //!
 //! A departures query also takes a vehicle mask — `transit::Mode` bits, 0 for
@@ -84,6 +85,14 @@ mod ffi {
         ) -> bool;
         fn flows_transit_all_vehicles() -> i64;
         fn flows_transit_ship_vehicles() -> i64;
+        fn flows_transit_ferry_crossings(
+            from_latitude: f64,
+            from_longitude: f64,
+            to_latitude: f64,
+            to_longitude: f64,
+            reach_meters: f64,
+            limit: i64,
+        ) -> Vec<String>;
         fn flows_transit_land_vehicles() -> i64;
         fn flows_transit_long_haul_miles() -> f64;
         fn flows_transit_far_walk_seconds() -> f64;
@@ -286,9 +295,19 @@ fn dep_rows(d: &Departure, out: &mut Vec<String>) {
         d.legs.len()
     ));
     for l in &d.legs {
+        // The fare, when the feed published one: cents, currency, and "from"
+        // when several fit. Empty fields when it did not.
+        let (cents, currency, from) = match &l.fare {
+            Some(fare) => (
+                fare.cents.to_string(),
+                fare.currency.as_str(),
+                if fare.from { "1" } else { "0" },
+            ),
+            None => (String::new(), "", ""),
+        };
         out.push(format!(
             "leg{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}\
-             {UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}",
+             {UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{}{UNIT}{}{UNIT}{}",
             l.board_name,
             l.board_code,
             l.board_zone,
@@ -302,7 +321,10 @@ fn dep_rows(d: &Departure, out: &mut Vec<String>) {
             l.board_lat,
             l.board_lon,
             l.alight_lat,
-            l.alight_lon
+            l.alight_lon,
+            cents,
+            currency,
+            from
         ));
     }
 }
@@ -460,6 +482,61 @@ pub fn flows_transit_ship_vehicles() -> i64 {
     i64::from(SHIP_VEHICLES)
 }
 
+/// Ferries the federal census lists between a terminal near the start and
+/// one near the destination (`flows_core::ferries::crossings`), for the ship
+/// card where no timetable feed covers the water. One row each:
+/// `ferry␟route␟operator␟url␟board␟board_city␟board_lat␟board_lon␟alight␟
+/// alight_city␟alight_lat␟alight_lon␟minutes␟miles␟m1␟d1␟m2␟d2␟a_day␟cars`
+/// — minutes 0 and a season of zeros when not reported; cars 1, 0, or empty.
+pub fn flows_transit_ferry_crossings(
+    from_latitude: f64,
+    from_longitude: f64,
+    to_latitude: f64,
+    to_longitude: f64,
+    reach_meters: f64,
+    limit: i64,
+) -> Vec<String> {
+    contain(Vec::new(), || {
+        let limit = usize::try_from(limit).unwrap_or(0).min(8);
+        flows_core::ferries::crossings(
+            (from_latitude, from_longitude),
+            (to_latitude, to_longitude),
+            reach_meters,
+            limit,
+        )
+        .iter()
+        .map(|c| {
+            let clean = |s: &str| s.replace(UNIT, " ");
+            let [m1, d1, m2, d2] = c.route.season;
+            format!(
+                "ferry{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}\
+                 {UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{}{UNIT}{:.1}\
+                 {UNIT}{m1}{UNIT}{d1}{UNIT}{m2}{UNIT}{d2}{UNIT}{:.1}{UNIT}{}",
+                clean(c.route.name),
+                clean(c.operator.name),
+                clean(c.operator.url),
+                clean(c.board.name),
+                clean(c.board.city),
+                c.board.lat,
+                c.board.lon,
+                clean(c.alight.name),
+                clean(c.alight.city),
+                c.alight.lat,
+                c.alight.lon,
+                c.route.minutes,
+                c.route.miles,
+                c.route.crossings_a_day(),
+                match c.route.cars {
+                    Some(true) => "1",
+                    Some(false) => "0",
+                    None => "",
+                },
+            )
+        })
+        .collect()
+    })
+}
+
 /// The city's buses and trains: what stands in for a chosen bus or train
 /// that cannot make a leg — never a ship.
 pub fn flows_transit_land_vehicles() -> i64 {
@@ -598,6 +675,13 @@ mod tests {
             flows_transit_ship_vehicles() | flows_transit_land_vehicles(),
             flows_transit_all_vehicles()
         );
+        let ferries =
+            flows_transit_ferry_crossings(47.6097, -122.3331, 47.6262, -122.5212, 5_000.0, 2);
+        let first = ferries.first().expect("Seattle to Bainbridge");
+        let f: Vec<&str> = first.split(UNIT).collect();
+        assert_eq!(f.len(), 20, "{first}");
+        assert_eq!((f[0], f[12], f[19]), ("ferry", "35", "1"));
+        assert!(flows_transit_ferry_crossings(f64::NAN, 0.0, 1.0, 1.0, 5_000.0, 2).is_empty());
         let rows = flows_transit_ship_feeds(47.6062, -122.3321, 30.0, 4);
         assert!(
             rows.iter()

@@ -74,6 +74,8 @@ pub mod climate;
 pub mod distance;
 pub mod families;
 pub mod fcmp;
+pub mod ferries;
+pub mod ferries_table;
 pub(crate) mod fmath;
 pub mod forecast;
 pub mod geo;
