@@ -4128,8 +4128,9 @@ struct SettingsSheet: View {
                  + "Transportation Statistics' National Census of Ferry Operators, "
                  + "public domain.\n"
                  + "Airports: OurAirports, public domain.\n"
-                 + "Town locations for rental car links: GeoNames (geonames.org), "
-                 + "licensed CC BY 4.0.\n"
+                 + "Town locations for rental car links: U.S. Census Bureau, USGS "
+                 + "Geographic Names Information System, Natural Earth and NGA "
+                 + "GEOnet Names Server, public domain.\n"
                  + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
                  + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
                  + "data. FLOWS is not affiliated with any of these agencies.")
