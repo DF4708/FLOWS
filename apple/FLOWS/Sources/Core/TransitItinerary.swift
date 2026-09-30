@@ -168,6 +168,18 @@ enum RentalCars {
         URL(string: flows_rides_rental_compare_url().text)
     }
 
+    /// Where every disclosure of the rental partnership points — the owner's
+    /// rule: terms, sources and the Settings disclosure all use this link.
+    static var partnerProgramURL: URL? {
+        URL(string: flows_rides_rental_partner_program_url().text)
+    }
+
+    /// The disclosure, in plain words. FLOWS is paid when someone books
+    /// through its links, and anyone reading about the app's sources is told.
+    static let partnerDisclosure =
+        "FLOWS is paid a fee when you book a rental car through its "
+        + "DiscoverCars links."
+
     /// The same, for ONE place: the partner's own landing page for that city
     /// ("…/usa-wisconsin/milwaukee?a_aid=FAWN"), built the way their
     /// landing-page generator builds it. A place FLOWS cannot name that way

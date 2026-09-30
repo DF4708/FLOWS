@@ -35,6 +35,14 @@ use crate::seasonal::haversine_km;
 /// every real intercity itinerary while keeping a query bounded.
 pub const DEFAULT_MAX_ROUNDS: u32 = 4;
 
+/// What a change of vehicle costs when choosing between journeys: five minutes.
+/// Riders will wait a little longer to avoid getting off and finding another
+/// stop, so a journey with fewer changes wins unless it arrives more than five
+/// minutes later per change saved. Without this the fastest journey wins by a
+/// minute with a string of one-stop rides (seen live: three changes, the last
+/// a single stop, to save a two-minute walk).
+pub const TRANSFER_PENALTY_SECS: Time = 300;
+
 /// A timetable and its labels, read from `<prefix>.ftt` and `<prefix>.fts`.
 pub struct Shard {
     pub timetable: Timetable,
@@ -201,6 +209,15 @@ pub struct Departure {
     pub walk_secs: Time,
 }
 
+impl Departure {
+    /// How good a journey is, lower being better: when it gets there, plus
+    /// [`TRANSFER_PENALTY_SECS`] for each change.
+    #[must_use]
+    pub fn cost(&self) -> u64 {
+        u64::from(self.arr) + u64::from(TRANSFER_PENALTY_SECS) * u64::from(self.n_transfers)
+    }
+}
+
 impl Shard {
     /// The service date these times belong to (YYYYMMDD).
     pub fn service_date(&self) -> u32 {
@@ -312,17 +329,18 @@ impl Shard {
     /// — a Pareto set trading arrival time against transfers, all of which may
     /// ride the SAME train. A rider reading a card wants the other question:
     /// "when does one go, and when is the next?". So each round takes the
-    /// earliest-departing journey and asks again from one second later.
+    /// BEST journey leaving at or after the time — earliest arrival, with five
+    /// minutes charged per change ([`Departure::cost`]) — and asks again from
+    /// one second after it leaves.
     pub fn board(&self, source: u32, target: u32, after: Time, count: usize) -> Vec<Departure> {
         let mut out = Vec::new();
         let mut from_time = after;
         for _ in 0..count {
-            // Among journeys that leave at the same moment, the one that gets
-            // there soonest is the one to name.
+            // The best journey on offer; between equals, the one leaving first.
             let best = self
                 .departures(source, target, from_time)
                 .into_iter()
-                .min_by_key(|d| (d.dep, d.arr));
+                .min_by_key(|d| (d.cost(), d.dep));
             let Some(d) = best else { break };
             from_time = d.dep.saturating_add(1);
             out.push(d);

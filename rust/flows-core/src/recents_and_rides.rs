@@ -355,6 +355,14 @@ pub const RENTAL_COMPARE_URL: &str = "https://www.discovercars.com/?a_aid=FAWN";
 /// FLOWS's partner code, the tag that credits a booking to the app.
 pub const RENTAL_PARTNER_CODE: &str = "FAWN";
 
+/// Where FLOWS points anyone who wants to see the terms behind its rental
+/// links: DiscoverCars' partner program, under FLOWS's own code. The owner's
+/// rule (2026-09-29): every disclosure, terms or sources mention of the
+/// partnership uses this link. A partner who joins through it is FLOWS's
+/// referral (the program pays a lifetime share of their sales).
+pub const RENTAL_PARTNER_PROGRAM_URL: &str =
+    "https://discover-car-hire.postaffiliatepro.com/affiliates/signup.php?a_aid=FAWN";
+
 /// A part of a landing-page address: lowercase, accents dropped to their
 /// plain letters, anything else a hyphen, no hyphen doubled or dangling.
 /// "St. Louis" → "st-louis", "Montréal" → "montreal".

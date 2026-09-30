@@ -341,4 +341,44 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertTrue(exists(root, "amtrak+citybus-20260929.ftt"))
         XCTAssertTrue(exists(root, "amtrak"), "the feed folders are never swept")
     }
+
+    // MARK: the compiled-in table — key-free feeds on by default
+
+    func testATripEndingInMilwaukeeIsOfferedMilwaukeesBuses() {
+        let sources = TransitFeeds.sources(endingAt: 43.0389, -87.9065)
+        XCTAssertEqual(sources.first?.name, "amtrak", "Amtrak is always first: it must load")
+        XCTAssertGreaterThanOrEqual(sources.count, 2, "Milwaukee has a key-free feed")
+        // "Milwaukee County Transit System (MCTS)" — named as riders say it.
+        XCTAssertTrue(sources.dropFirst().contains { $0.operatorName == "MCTS" },
+                      "\(sources.map(\.operatorName))")
+        XCTAssertTrue(sources.dropFirst().allSatisfy {
+            $0.area?.contains(latitude: 43.0389, longitude: -87.9065) ?? false
+        })
+    }
+
+    func testATripAskesForNoMoreCityFeedsThanTheLimit() {
+        // Downtown Los Angeles sits inside dozens of feeds' boxes.
+        let sources = TransitFeeds.sources(endingAt: 34.0522, -118.2437)
+        XCTAssertLessThanOrEqual(sources.count, 1 + TransitFeeds.cityFeedLimit)
+        XCTAssertEqual(Set(sources.map(\.name)).count, sources.count, "no feed twice")
+    }
+
+    func testTheOpenOceanAsksForAmtrakAlone() {
+        // Not a lake: some feeds' boxes span Lake Superior. A box is where a
+        // feed's service ends up, not where it runs.
+        XCTAssertEqual(TransitFeeds.sources(endingAt: 35.0, -40.0).map(\.name), ["amtrak"],
+                       "mid-Atlantic has no buses")
+    }
+
+    func testATimetableTooBigForThisDeviceIsRefusedFromItsIndex() {
+        func entry(_ bytes: Int) -> GTFSZip.Entry {
+            .init(name: "stop_times.txt", method: 8, compressedSize: bytes / 10,
+                  uncompressedSize: bytes, headerOffset: 0)
+        }
+        XCTAssertTrue(TransitFeeds.fitsDevice([entry(1_600_000)], limit: 80 << 20),
+                      "Amtrak's whole network is 1.6 MB")
+        XCTAssertFalse(TransitFeeds.fitsDevice([entry(60 << 20), entry(30 << 20)], limit: 80 << 20),
+                       "the files add up")
+        XCTAssertTrue(TransitFeeds.fitsDevice([], limit: 80 << 20))
+    }
 }

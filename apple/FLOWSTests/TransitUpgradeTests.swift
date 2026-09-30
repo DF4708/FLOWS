@@ -121,6 +121,18 @@ final class TransitUpgradeTests: XCTestCase {
 
     /// Rental hand-offs carry FLOWS's partner tag, and name the city the
     /// traveller actually gets off in.
+    func testEveryDisclosureOfThePartnershipUsesTheProgramLink() throws {
+        // The owner's rule: terms, sources and the Settings disclosure link to
+        // DiscoverCars' partner program under FLOWS's code.
+        let program = try XCTUnwrap(RentalCars.partnerProgramURL)
+        XCTAssertEqual(
+            program.absoluteString,
+            "https://discover-car-hire.postaffiliatepro.com/affiliates/signup.php?a_aid=FAWN"
+        )
+        XCTAssertTrue(RentalCars.partnerDisclosure.contains("DiscoverCars"))
+        XCTAssertTrue(RentalCars.partnerDisclosure.contains("paid"), "says plainly that FLOWS is paid")
+    }
+
     func testRentalCompareLinksCarryThePartnerTag() throws {
         let milwaukee = try XCTUnwrap(
             RentalCars.compareURL(country: "US", region: "US-WI", city: "Milwaukee"))

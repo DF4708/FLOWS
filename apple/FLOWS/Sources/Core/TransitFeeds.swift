@@ -68,26 +68,70 @@ actor TransitFeeds {
         area: nil
     )
 
-    /// City and regional feeds FLOWS may fetch to carry the last leg of a
-    /// train trip by local bus or rail.
-    ///
-    /// EMPTY ON PURPOSE. Which operators' schedules FLOWS downloads and shows
-    /// is the owner's decision, and it is still open: of the 1,336 US and
-    /// Canadian feeds in the MobilityData catalog, only 290 state a licence.
-    /// Everything else — fetching, merging with Amtrak, the walk between a
-    /// station and the bus stop outside it, each operator's own clock, the
-    /// credit line — is built and tested, so switching city buses on is
-    /// adding entries here, not writing code.
-    static let cityFeeds: [Source] = []
+    /// How many city timetables a trip may pull in. Two covers the common
+    /// case — a city's buses and its rail — without turning one trip into a
+    /// string of downloads.
+    static let cityFeedLimit = 2
 
-    /// The feeds to ask for a trip ending at a point: Amtrak, then any
-    /// allowed city feed whose service area holds the destination.
-    static func sources(
-        endingAt latitude: Double, _ longitude: Double, from cities: [Source] = cityFeeds
-    ) -> [Source] {
-        [amtrak] + cities.filter {
-            $0.area?.contains(latitude: latitude, longitude: longitude) ?? false
+    /// The city timetables that could carry the last leg of a trip ending at
+    /// a point, best first.
+    ///
+    /// The owner's rule (2026-09-29): every feed downloadable WITHOUT an API
+    /// key is on by default. The table is compiled into flows-core from
+    /// MobilityData's catalog — 1,341 feeds across the US, Canada and Mexico —
+    /// so this asks no server anything. Nine feeds are held back because
+    /// their own licences forbid commercial use without written permission,
+    /// and FLOWS earns referral fees; they stay in the table, marked, for the
+    /// day permission is on file.
+    static func cityFeeds(near latitude: Double, _ longitude: Double,
+                          limit: Int = cityFeedLimit) -> [Source] {
+        var out: [Source] = []
+        for row in flows_transit_city_feeds(latitude, longitude, Int64(limit)) {
+            let f = row.as_str().toString()
+                .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
+            guard f.count == 9, f[0] == "feed", let url = URL(string: f[3]),
+                  let minLat = Double(f[5]), let maxLat = Double(f[6]),
+                  let minLon = Double(f[7]), let maxLon = Double(f[8])
+            else { continue }
+            out.append(Source(
+                name: f[1], url: url, operatorName: f[2],
+                area: Area(minLatitude: minLat, maxLatitude: maxLat,
+                           minLongitude: minLon, maxLongitude: maxLon)
+            ))
         }
+        return out
+    }
+
+    /// The feeds to ask for a trip ending at a point: Amtrak, then the city
+    /// feeds whose service area holds the destination. `cities` replaces the
+    /// compiled-in table (tests pass their own); nil asks the table.
+    static func sources(
+        endingAt latitude: Double, _ longitude: Double, from cities: [Source]? = nil,
+        limit: Int = cityFeedLimit
+    ) -> [Source] {
+        let candidates = cities ?? cityFeeds(near: latitude, longitude, limit: limit)
+        return [amtrak] + candidates.filter {
+            $0.area?.contains(latitude: latitude, longitude: longitude) ?? false
+        }.prefix(limit)
+    }
+
+    /// The most schedule text this device will read out of one feed. A big
+    /// city's full timetable can run to hundreds of megabytes of stop times,
+    /// and it is parsed into memory; past this a phone would be closed by
+    /// the system mid-plan. Amtrak's whole network is 1.6 MB, a city's rail
+    /// system tens. A feed over the line is skipped, like any unusable one.
+    static var maxFeedBytes: Int {
+        #if os(macOS)
+        return 250 << 20
+        #else
+        return 80 << 20
+        #endif
+    }
+
+    /// Whether a feed's schedule files fit this device, judged from the
+    /// archive's index before anything else is downloaded.
+    static func fitsDevice(_ entries: [GTFSZip.Entry], limit: Int = maxFeedBytes) -> Bool {
+        entries.reduce(0) { $0 + max(0, $1.uncompressedSize) } <= limit
     }
 
     /// "Schedule from Amtrak"; "Schedules from Amtrak and LA Metro"; a
@@ -286,6 +330,11 @@ actor TransitFeeds {
             directory = try await bytes(source.url, directoryRange)
         }
         let entries = try GTFSZip.entries(directory: directory)
+        // Judged from the index alone: a timetable too big for this device is
+        // refused before a byte of it is downloaded.
+        guard Self.fitsDevice(entries) else {
+            throw Failure.feedUnusable("\(source.name) is too large to use on this device")
+        }
 
         // 3. Each file we actually parse — and nothing else.
         try FileManager.default.createDirectory(at: feed, withIntermediateDirectories: true)

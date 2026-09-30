@@ -4117,12 +4117,31 @@ struct SettingsSheet: View {
                  + "and lane guidance: © OpenStreetMap contributors, available "
                  + "under the Open Database License (ODbL) — "
                  + "openstreetmap.org/copyright.\n"
+                 + "Train and bus times: Amtrak and each city's own bus and rail "
+                 + "service, from the schedules they publish, found through "
+                 + "MobilityData's free list of transit schedules. Each service's "
+                 + "own terms apply.\n"
+                 + "Airports: OurAirports, public domain.\n"
                  + "Government feeds (NWS, USGS, FEMA, SPC, NOAA, Census TIGER, "
                  + "EPA, DOT WZDx, ECCC, SMN) are public-domain or open government "
                  + "data. FLOWS is not affiliated with any of these agencies.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+
+            Divider()
+            // The rental partnership, said where anyone looking at the app's
+            // sources and terms will find it — with the partner program's own
+            // link, under FLOWS's code (the owner's rule for every disclosure).
+            Text("Partner links")
+                .scaledFont(size: 14, weight: .semibold)
+            Text(RentalCars.partnerDisclosure)
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+            if let program = RentalCars.partnerProgramURL {
+                Link("DiscoverCars partner program", destination: program)
+                    .scaledFont(.caption, weight: .semibold)
+            }
 
             Divider()
 

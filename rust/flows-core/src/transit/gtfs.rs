@@ -521,9 +521,10 @@ pub struct GtfsLoad {
     /// Dense stop index → which input feed it came from (always 0 for
     /// [`load_gtfs`]). A merged timetable credits each operator by this.
     pub stop_feed: Vec<u16>,
-    /// Walking links added BETWEEN feeds — each one a pair of stops close
-    /// enough to change from one operator to another (see
-    /// [`MAX_LINK_METERS`]). Counted as pairs; each is two footpaths.
+    /// Walking links FLOWS added: stops of different feeds close enough to
+    /// change operator, and stops within a city feed close enough to change
+    /// route on foot (see `link_feeds`). Counted as pairs; each is two
+    /// footpaths. Always 0 for a single feed.
     pub n_feed_links: usize,
     /// Secondary feeds that could not be used, with the reason. The first
     /// feed is never skipped: if it fails, the whole load fails.
@@ -563,6 +564,15 @@ struct FeedParts {
 /// stop across the street from the station, not one in the next district.
 /// Past this, a "connection" is really a separate walk the rider should plan.
 pub const MAX_LINK_METERS: f64 = 400.0;
+
+/// The farthest FLOWS asks someone to walk from one OPERATOR's stop to
+/// another's — a train station to the city bus. Longer than a hop between
+/// bus stops ([`MAX_LINK_METERS`]) because stations are few and their bus
+/// stops are often a block or two off: Milwaukee's station is ~550 m from
+/// Wisconsin Avenue, and with a 400 m reach the planner rode a two-minute bus
+/// to cover it. Stations are few, so the wider reach adds few links; the
+/// planner still prefers a ride when it is genuinely better.
+pub const MAX_STATION_LINK_METERS: f64 = 800.0;
 
 /// Walking pace for a connection, in metres a second. Slower than a free walk
 /// (about 1.4) on purpose: this is someone with a bag, leaving a platform and
@@ -1218,8 +1228,24 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
     }
 }
 
-/// Join stops from DIFFERENT feeds that stand within [`MAX_LINK_METERS`] of
-/// each other with a footpath both ways. Returns how many pairs were joined.
+/// Join nearby stops with a footpath both ways, where a rider would walk and
+/// no publisher said so. Returns how many pairs were joined.
+///
+/// Two kinds of pair:
+///
+/// - stops of DIFFERENT feeds within [`MAX_STATION_LINK_METERS`] — Amtrak's platform and the city bus bay
+///   across the street, which two unrelated publishers never connect; and
+/// - stops of the same CITY feed (any feed after the first) within
+///   [`MAX_LINK_METERS`]. A bus network is
+///   full of stops a few steps apart — the two sides of a street, the corner
+///   where two routes cross — and publishers rarely list them as transfers.
+///   Without these, the only way from one bus line to a stop 150 m away was
+///   a one-minute ride on a third (seen live: Chicago to UW-Milwaukee took
+///   three changes, the last a single stop, instead of a two-minute walk).
+///
+/// The FIRST feed's own stops are left exactly as its publisher described
+/// them: Amtrak models each station deliberately, and a shard of Amtrak alone
+/// stays byte-identical to what it has always been.
 ///
 /// Stops are sorted by latitude and each one scans only the band a link could
 /// reach, so a city of ten thousand stops beside Amtrak's six hundred is a
@@ -1247,7 +1273,7 @@ fn link_feeds(
 
     // One degree of latitude is 111.32 km everywhere, so a fixed band in
     // micro-degrees bounds the scan; longitude is checked by true distance.
-    let band_e6 = (MAX_LINK_METERS / 111_320.0 * 1e6).ceil() as i32;
+    let band_e6 = (MAX_STATION_LINK_METERS.max(MAX_LINK_METERS) / 111_320.0 * 1e6).ceil() as i32;
     let mut pairs = 0usize;
     for (i, &(lat_a, a)) in served.iter().enumerate() {
         let (la, lo) = latlon[a as usize];
@@ -1255,8 +1281,8 @@ fn link_feeds(
             if lat_b - lat_a > band_e6 {
                 break;
             }
-            if feed[a as usize] == feed[b as usize] {
-                continue; // a feed's own walks are its publisher's business
+            if feed[a as usize] == feed[b as usize] && feed[a as usize] == 0 {
+                continue; // the first feed's own walks are its publisher's business
             }
             let (lb, lob) = latlon[b as usize];
             let meters = haversine_km(
@@ -1265,7 +1291,12 @@ fn link_feeds(
                 lb as f64 / 1e6,
                 lob as f64 / 1e6,
             ) * 1000.0;
-            if meters > MAX_LINK_METERS {
+            let reach = if feed[a as usize] == feed[b as usize] {
+                MAX_LINK_METERS
+            } else {
+                MAX_STATION_LINK_METERS
+            };
+            if meters > reach {
                 continue;
             }
             let secs = LINK_BUFFER_SECS + (meters / LINK_WALK_MPS).ceil() as Time;
@@ -2183,6 +2214,104 @@ mod tests {
         )
         .unwrap();
         assert_eq!(load.feed_published, 20260915, "warn about the staler one");
+        let _ = fs::remove_dir_all(&rail);
+        let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn a_city_feeds_neighbouring_stops_are_walkable_but_the_first_feeds_are_not() {
+        // Two rail stops 100 m apart in the FIRST feed stay unjoined (Amtrak
+        // models its stations on purpose); two bus stops 100 m apart in a
+        // CITY feed are joined, so a rider can walk across the street.
+        let calendar_wk = CALENDAR;
+        let rail = write_feed(
+            "many_intra_rail",
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Rail,America/New_York\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n\
+                     R1,Rail One,41.00000,-88.00000\n\
+                     R2,Rail Two,41.00090,-88.00000\n\
+                     R3,Rail Far,42.00000,-88.00000\n",
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\nR,,Line,2\n",
+                ),
+                ("calendar.txt", calendar_wk),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nR,WK,r1\nR,WK,r2\n",
+                ),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     r1,09:00:00,09:00:00,R1,1\nr1,10:00:00,10:00:00,R3,2\n\
+                     r2,09:00:00,09:00:00,R2,1\nr2,10:00:00,10:00:00,R3,2\n",
+                ),
+            ],
+        );
+        let bus = write_feed(
+            "many_intra_bus",
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Bus,America/New_York\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n\
+                     B1,North Side,30.00000,-90.00000\n\
+                     B2,South Side,30.00090,-90.00000\n\
+                     B3,Away,31.00000,-90.00000\n",
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\nB,1,One,3\n",
+                ),
+                ("calendar.txt", calendar_wk),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nB,WK,b1\nB,WK,b2\n",
+                ),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     b1,09:00:00,09:00:00,B1,1\nb1,09:30:00,09:30:00,B3,2\n\
+                     b2,09:00:00,09:00:00,B2,1\nb2,09:30:00,09:30:00,B3,2\n",
+                ),
+            ],
+        );
+        let load = load_gtfs_many(
+            &[
+                FeedInput {
+                    dir: &rail,
+                    shift_secs: 0,
+                },
+                FeedInput {
+                    dir: &bus,
+                    shift_secs: 0,
+                },
+            ],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(load.n_feed_links, 1, "only the bus stops across the street");
+        let tt = &load.timetable;
+        let walks_from = |id: &str| {
+            let s = stop(&load, id);
+            (0..tt.n_stops() as u32).filter(|&t| t != s).any(|t| {
+                plan(tt, s, t, 0, 1)
+                    .iter()
+                    .any(|j| j.legs.iter().all(|l| l.kind == LegKind::Walk))
+            })
+        };
+        assert!(walks_from("B1"), "north side to south side on foot");
+        assert!(!walks_from("R1"), "Amtrak's stops are as published");
         let _ = fs::remove_dir_all(&rail);
         let _ = fs::remove_dir_all(&bus);
     }

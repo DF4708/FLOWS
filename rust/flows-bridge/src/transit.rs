@@ -41,6 +41,7 @@ mod ffi {
             service_date: i64,
         ) -> Vec<String>;
         fn flows_transit_info(prefix: &str) -> Vec<String>;
+        fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Vec<String>;
         fn flows_transit_departures(
             prefix: &str,
             from_latitude: f64,
@@ -57,8 +58,9 @@ mod ffi {
 use std::path::Path;
 
 use crate::contain;
-use flows_core::transit::gtfs::FeedInput;
+use flows_core::transit::gtfs::{FeedInput, LINK_WALK_MPS};
 use flows_core::transit::shard::{self, BuildReport, Departure, NearStop, Shard};
+use flows_core::transit::Time;
 
 /// The separator between fields. U+001F is not a character a station name,
 /// route name or zone id carries.
@@ -105,6 +107,33 @@ fn report_rows(r: &BuildReport) -> Vec<String> {
             r.ftt_bytes + r.fts_bytes
         ),
     ]
+}
+
+/// The city timetables that could carry the last leg of a trip ending at a
+/// point, best first: `feed␟id␟operator␟url␟licence␟minLat␟maxLat␟minLon␟maxLon`.
+/// The table is compiled in (see `flows_core::transit::feeds`), so this never
+/// touches the network. Feeds whose licence needs written permission for
+/// commercial use are never returned.
+pub fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Vec<String> {
+    contain(Vec::new(), || {
+        let limit = usize::try_from(limit).unwrap_or(0).min(8);
+        flows_core::transit::feeds::covering(latitude, longitude, limit)
+            .iter()
+            .map(|f| {
+                format!(
+                    "feed{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}",
+                    f.id,
+                    flows_core::transit::feeds::operator_name(f.provider).replace(UNIT, " "),
+                    f.url,
+                    f.licence,
+                    f.min_lat,
+                    f.max_lat,
+                    f.min_lon,
+                    f.max_lon
+                )
+            })
+            .collect()
+    })
 }
 
 /// The most a feed's clock can sit from the reference's: two days. Any real
@@ -241,7 +270,7 @@ pub fn flows_transit_departures(
         let depart = u32::try_from(depart_seconds.max(0)).unwrap_or(0);
         let want = usize::try_from(limit).unwrap_or(0).clamp(1, 8);
 
-        const CANDIDATES: usize = 4;
+        const CANDIDATES: usize = 5;
         let boards = s.nearest_stops(
             from_latitude,
             from_longitude,
@@ -253,32 +282,43 @@ pub fn flows_transit_departures(
             return err_rows("transit: no station near one end of this trip");
         }
 
-        // Try pairs by how far the rider walks in TOTAL, not board-first:
-        // iterating the boards in order would pit the nearest station against
-        // the farthest arrival before trying the second-nearest against the
-        // closest one, and send someone across town to save a block.
-        let mut pairs: Vec<(&NearStop, &NearStop)> = boards
-            .iter()
-            .flat_map(|b| alights.iter().map(move |a| (b, a)))
-            .filter(|(b, a)| b.stop != a.stop)
-            .collect();
-        pairs.sort_by(|x, y| (x.0.meters + x.1.meters).total_cmp(&(y.0.meters + y.1.meters)));
-
-        for (b, a) in pairs {
-            let found = s.board(b.stop, a.stop, depart, want);
-            if found.is_empty() {
-                continue;
+        // Choose the pair of stops by the whole TRIP, not by which is closest:
+        // the walk to the first stop (it delays when you can board), the
+        // ride with five minutes charged per change, and the walk from the
+        // last stop. The stop nearest a destination is often the one needing
+        // an extra one-minute bus — seen live: Chicago to UW-Milwaukee chose
+        // the closest campus stop and paid for it with a third change.
+        let walk = |meters: f64| -> Time { (meters.max(0.0) / LINK_WALK_MPS).ceil() as Time };
+        let mut best: Option<(&NearStop, &NearStop, Time, u64)> = None;
+        for b in &boards {
+            for a in &alights {
+                if b.stop == a.stop {
+                    continue;
+                }
+                let leave = depart.saturating_add(walk(b.meters));
+                let Some(d) = s.board(b.stop, a.stop, leave, 1).into_iter().next() else {
+                    continue;
+                };
+                let total = d.cost() + u64::from(walk(a.meters));
+                // Strictly better only: on a tie the nearer pair, tried
+                // first, stands — the same answer every time.
+                if best.is_none_or(|(_, _, _, c)| total < c) {
+                    best = Some((b, a, leave, total));
+                }
             }
-            let mut out = vec![
-                info_row(&s),
-                format!("od{UNIT}{}{UNIT}{}", near_fields(b), near_fields(a)),
-            ];
-            for d in found.iter().take(want) {
-                dep_rows(d, &mut out);
-            }
-            return out;
         }
-        err_rows("transit: no ride between those stations today")
+        let Some((b, a, leave, _)) = best else {
+            return err_rows("transit: no ride between those stations today");
+        };
+        let found = s.board(b.stop, a.stop, leave, want);
+        let mut out = vec![
+            info_row(&s),
+            format!("od{UNIT}{}{UNIT}{}", near_fields(b), near_fields(a)),
+        ];
+        for d in found.iter().take(want) {
+            dep_rows(d, &mut out);
+        }
+        out
     })
 }
 
@@ -328,6 +368,21 @@ mod tests {
             )),
             "an empty directory name"
         );
+    }
+
+    #[test]
+    fn a_trip_ending_in_milwaukee_is_offered_its_buses() {
+        let rows = flows_transit_city_feeds(43.0389, -87.9065, 3);
+        assert!(!rows.is_empty());
+        let f: Vec<&str> = rows[0].split(UNIT).collect();
+        assert_eq!(f.len(), 9, "{:?}", rows[0]);
+        assert_eq!(f[0], "feed");
+        assert!(f[3].starts_with("http"));
+        assert!(
+            flows_transit_city_feeds(35.0, -40.0, 3).is_empty(),
+            "mid-Atlantic"
+        );
+        assert!(flows_transit_city_feeds(43.0, -87.9, 0).is_empty());
     }
 
     #[test]

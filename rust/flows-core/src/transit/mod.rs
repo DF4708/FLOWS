@@ -26,6 +26,8 @@
 //! layout here is exactly what the `.ftt` sections deserialize into, so the engine
 //! does not change when real feeds arrive.
 
+pub mod feeds;
+mod feeds_table;
 pub mod fts;
 pub mod ftt;
 pub mod gtfs;

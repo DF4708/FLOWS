@@ -533,6 +533,7 @@ void* __swift_bridge__$flows_rides_rental_brand_lengths(void);
 int64_t __swift_bridge__$flows_rides_rental_brand_rank(struct RustStr name, bool has_name);
 void* __swift_bridge__$flows_rides_rental_booking_site(struct RustStr name, bool has_name);
 void* __swift_bridge__$flows_rides_rental_compare_url(void);
+void* __swift_bridge__$flows_rides_rental_partner_program_url(void);
 void* __swift_bridge__$flows_rides_rental_landing_url(struct RustStr country, struct RustStr region, struct RustStr city);
 void* __swift_bridge__$flows_rides_recommend_rentals(struct RustStr names, struct __private__FfiSlice name_lengths, struct __private__FfiSlice miles, int64_t count, int64_t limit);
 uint8_t __swift_bridge__$flows_rides_radio_purpose(struct RustStr channel);
@@ -727,6 +728,7 @@ void* __swift_bridge__$flows_transit_agency_zone(struct RustStr gtfs_dir);
 void* __swift_bridge__$flows_transit_build(struct RustStr gtfs_dir, struct RustStr prefix, int64_t service_date);
 void* __swift_bridge__$flows_transit_build_many(struct RustStr gtfs_dirs, struct __private__FfiSlice shift_secs, struct RustStr prefix, int64_t service_date);
 void* __swift_bridge__$flows_transit_info(struct RustStr prefix);
+void* __swift_bridge__$flows_transit_city_feeds(double latitude, double longitude, int64_t limit);
 void* __swift_bridge__$flows_transit_departures(struct RustStr prefix, double from_latitude, double from_longitude, double to_latitude, double to_longitude, double max_station_meters, int64_t depart_seconds, int64_t limit);
 
 

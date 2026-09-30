@@ -112,6 +112,7 @@ mod ffi {
         fn flows_rides_rental_brand_rank(name: &str, has_name: bool) -> i64;
         fn flows_rides_rental_booking_site(name: &str, has_name: bool) -> String;
         fn flows_rides_rental_compare_url() -> String;
+        fn flows_rides_rental_partner_program_url() -> String;
         fn flows_rides_rental_landing_url(country: &str, region: &str, city: &str) -> String;
         fn flows_rides_recommend_rentals(
             names: &str,
@@ -353,6 +354,12 @@ pub fn flows_rides_rental_booking_site(name: &str, has_name: bool) -> String {
 /// carrying FLOWS's partner tag.
 pub fn flows_rides_rental_compare_url() -> String {
     contain(String::new(), || rr::RENTAL_COMPARE_URL.to_string())
+}
+
+/// `RentalCars.partnerProgramURL`: the page every disclosure of the rental
+/// partnership links to.
+pub fn flows_rides_rental_partner_program_url() -> String {
+    contain(String::new(), || rr::RENTAL_PARTNER_PROGRAM_URL.to_string())
 }
 
 /// `RentalCars.compareURL(country:region:city:)`: the partner landing page

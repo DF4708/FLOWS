@@ -2792,6 +2792,9 @@ public func flows_rides_rental_booking_site<GenericToRustStr: ToRustStr>(_ name:
 public func flows_rides_rental_compare_url() -> RustString {
     RustString(ptr: __swift_bridge__$flows_rides_rental_compare_url())
 }
+public func flows_rides_rental_partner_program_url() -> RustString {
+    RustString(ptr: __swift_bridge__$flows_rides_rental_partner_program_url())
+}
 public func flows_rides_rental_landing_url<GenericToRustStr: ToRustStr>(_ country: GenericToRustStr, _ region: GenericToRustStr, _ city: GenericToRustStr) -> RustString {
     return city.toRustStr({ cityAsRustStr in
         return region.toRustStr({ regionAsRustStr in
@@ -3847,6 +3850,9 @@ public func flows_transit_info<GenericToRustStr: ToRustStr>(_ prefix: GenericToR
     return prefix.toRustStr({ prefixAsRustStr in
         RustVec(ptr: __swift_bridge__$flows_transit_info(prefixAsRustStr))
     })
+}
+public func flows_transit_city_feeds(_ latitude: Double, _ longitude: Double, _ limit: Int64) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_transit_city_feeds(latitude, longitude, limit))
 }
 public func flows_transit_departures<GenericToRustStr: ToRustStr>(_ prefix: GenericToRustStr, _ from_latitude: Double, _ from_longitude: Double, _ to_latitude: Double, _ to_longitude: Double, _ max_station_meters: Double, _ depart_seconds: Int64, _ limit: Int64) -> RustVec<RustString> {
     return prefix.toRustStr({ prefixAsRustStr in

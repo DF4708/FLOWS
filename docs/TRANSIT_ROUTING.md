@@ -161,11 +161,38 @@ What runs today:
   rail card asks `TransitFeeds.sources(endingAt:)` — Amtrak plus any allowed
   city feed whose area holds the destination — and credits every operator
   shown ("Schedules from Amtrak and LA Metro").
-- **The one thing between this and city buses on the card:**
-  `TransitFeeds.cityFeeds` is EMPTY on purpose. Which operators' schedules
-  FLOWS may download and show is the owner's decision, still open — of the
-  1,336 US/CA feeds in the MobilityData catalog, only 290 state a licence.
-  Switching it on is adding entries (name, URL, operator, area), not code.
+- **City buses ON (2026-09-29) — the owner's rule: every API-key-free feed
+  by default.** `flows-train`'s `feeds-table` compiles MobilityData's current
+  export (`files.mobilitydatabase.org/feeds_v2.csv`; the older bit.ly
+  `sources.csv` lacks the Transitland- and NTD-sourced entries its own
+  redirects point to) into `transit/feeds_table.rs`: **1,341 static feeds**
+  (US 1,186 · CA 149 · MX 6). Kept: key-free, not deprecated, not redirected,
+  a usable box; "inactive" feeds stay but rank last (the catalog stopped
+  maintaining them — Milwaukee's is one — and the app already skips a lapsed
+  or unreachable feed); the mirror link stands in when a publisher gives none.
+  `transit::feeds::covering` ranks official → active → smallest box.
+  - **Licences.** All are free to download. 204 state terms; read by hand,
+    nine forbid commercial use without written permission (Kitsap, Whitehorse,
+    STL Laval, RTC Washoe, RABA ×2, Metrobus St. John's, and two feeds served
+    through BusOne). FLOWS earns referral fees, so those nine are marked
+    `needs_permission` and never offered — kept in the table for the day
+    permission is on file.
+  - **Coverage of every state/province/territory capital and largest city**
+    (146 places, GeoNames): US 83/84 (Frankfort KY missing), CA 15/18
+    (Iqaluit has no transit; Whitehorse and St. John's are among the nine),
+    MX 9/44 — and fewer in truth, since El Paso's and Yuma's boxes reach into
+    Juárez and Mexicali without their buses doing so. Mexico publishes little
+    open GTFS.
+  - **Size limit.** A feed's schedule files are totalled from the archive
+    index before downloading: 80 MB on a phone, 250 MB on a Mac, or skipped.
+  - **Routing fixes found by running it live** (Chicago → UW-Milwaukee took
+    3 changes, the last a one-stop ride, arriving 11:06): stops within one
+    CITY feed are now walkable within 400 m (the first feed's stay as
+    published, so Amtrak-only shards are unchanged); a station-to-city walk
+    reaches 800 m; journeys cost arrival + 5 min per change; and the stop pair
+    is chosen by the whole trip (access walk delays boarding, egress walk
+    adds). Result: 1 change — the Hiawatha, a 10-minute walk, Route 30 —
+    arriving 10:39.
 - **Still ahead:** `backbone.ftt` (Amtrak + VIA), `manifest.ftm`, and the
   mmap zero-copy reader.
 
