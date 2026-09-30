@@ -42,6 +42,8 @@
 //!   Still several: the one other rental cities crowd around, when the crowd
 //!   is eight times any rival's (Queens' Elmhurst, not the one by Jamestown).
 //!   Still nothing: an airport serving the city.
+//!   Towns DiscoverCars files under the wrong state were checked by hand
+//!   against its own pages (`REFILED`, `LEFT_OUT`).
 //! A city none of them places is left out: a traveller near it gets the
 //! nearest placed city, or the state or country page.
 //!
@@ -279,11 +281,171 @@ fn by_airport(anchors: &[(f64, f64)], cands: &[(f64, f64, f64)]) -> Option<usize
         .map(|(_, _, i)| i)
 }
 
-/// Names whose only public-domain match is another town: GNS lists just a
-/// Prince Edward Island hamlet called Surrey, not the BC city DiscoverCars
-/// rents in. Better unplaced (a traveller there gets the nearest placed city)
-/// than 4,400 km off.
-const WRONG_TOWN: &[(&str, &str)] = &[("CA", "surrey")];
+/// Towns DiscoverCars files under the wrong state, checked by hand against
+/// its own pages (2026-09-30), each placed at the town it means: (region,
+/// slug, that town, its GNIS centre). The pages are live, and a traveller in
+/// that town gets its page.
+///
+/// HOW THEY WERE CHECKED: each page lists the 20 nearest rental cities in its
+/// region, nearest first. The town whose distances to them fall in that
+/// order is the one DiscoverCars means — Tryon, North Carolina puts
+/// Jacksonville, Tallahassee and Gainesville first, the order its "Tryon,
+/// Florida" page gives. A similarly named town in the filed state never fit
+/// (Hampton, Florida for "Westhampton": 32 of 190 pairs out of order;
+/// Westhampton, New York: 2). A close call went to the one real town among
+/// hamlets (Millville, New Jersey, not the Connecticut crossroads). Found by
+/// checking every town placed without a population behind it and every town
+/// new in the 2026-09-30 table.
+const REFILED: &[(&str, &str, &str, f64, f64)] = &[
+    (
+        "usa-florida",
+        "aberdeen",
+        "Aberdeen, North Carolina",
+        35.131547,
+        -79.4294789,
+    ),
+    (
+        "usa-florida",
+        "buchanan",
+        "Buchanan, New York",
+        41.2620383,
+        -73.9381943,
+    ),
+    (
+        "usa-florida",
+        "chatham",
+        "Chatham, Illinois",
+        39.676163,
+        -89.7045439,
+    ),
+    (
+        "usa-florida",
+        "columbia-city",
+        "Columbia City, Indiana",
+        41.1572686,
+        -85.4883127,
+    ),
+    (
+        "usa-florida",
+        "fox-run",
+        "Fox Run, Pennsylvania",
+        40.7022885,
+        -80.0828374,
+    ),
+    (
+        "usa-florida",
+        "greenville",
+        "Greenville, Illinois",
+        38.8922687,
+        -89.4131356,
+    ),
+    (
+        "usa-florida",
+        "hillsboro",
+        "Hillsboro, Ohio",
+        39.2022866,
+        -83.611587,
+    ),
+    (
+        "usa-florida",
+        "howard",
+        "Howard, Virginia",
+        38.9148334,
+        -77.2252591,
+    ),
+    (
+        "usa-florida",
+        "lumberton",
+        "Lumberton, Texas",
+        30.2657655,
+        -94.1996286,
+    ),
+    (
+        "usa-florida",
+        "marysville",
+        "Marysville, Michigan",
+        42.9125306,
+        -82.48686,
+    ),
+    (
+        "usa-florida",
+        "millville",
+        "Millville, New Jersey",
+        39.4020596,
+        -75.0393438,
+    ),
+    (
+        "usa-florida",
+        "morgantown",
+        "Morgantown, Kentucky",
+        37.2256023,
+        -86.6835998,
+    ),
+    (
+        "usa-florida",
+        "piedmont",
+        "Piedmont, Alabama",
+        33.9245454,
+        -85.6113501,
+    ),
+    (
+        "usa-florida",
+        "tryon",
+        "Tryon, North Carolina",
+        35.2081695,
+        -82.2384479,
+    ),
+    (
+        "usa-florida",
+        "westhampton",
+        "Westhampton, New York",
+        40.8245437,
+        -72.6662075,
+    ),
+    // Right state, other town: Southampton by Philadelphia, not the
+    // Southampton Township 210 km west.
+    (
+        "usa-pennsylvania",
+        "southampton",
+        "Southampton, Bucks County, Pennsylvania",
+        40.1742759,
+        -75.0437814,
+    ),
+];
+
+/// Pages left out, with why: the checked order cannot tell two towns apart,
+/// DiscoverCars also files the town under its right state (a traveller in
+/// Rye gets `usa-new-york/rye`), or no public-domain source has the town.
+/// A traveller there gets the nearest placed city instead.
+const LEFT_OUT: &[(&str, &str, &str)] = &[
+    (
+        "usa-florida",
+        "rye",
+        "Rye, New York, which is also filed there",
+    ),
+    (
+        "usa-washington",
+        "appleton",
+        "Appleton, Wisconsin, which is also filed there",
+    ),
+    ("usa-florida", "benton", "Benton, Illinois or Kentucky"),
+    (
+        "usa-florida",
+        "oxford",
+        "Oxford, Connecticut or Massachusetts",
+    ),
+    (
+        "usa-pennsylvania",
+        "jackson",
+        "one of two Jackson Townships by Wilkes-Barre",
+    ),
+    ("canada", "summerville", "no Summerville fits its page"),
+    (
+        "canada",
+        "surrey",
+        "GNS lists only a Prince Edward Island hamlet, not the BC city",
+    ),
+];
 
 /// The one spot `points` all mark — every one within 10 km of the first (a
 /// place listed twice) — or None.
@@ -639,9 +801,6 @@ fn run(args: &[String]) -> Result<(), String> {
     // A Canadian or Mexican name; `anchors` are airports serving the city.
     let in_camx = |country: &str, n: &str, anchors: &[(f64, f64)]| -> Found {
         let k = (country.to_string(), n.to_string());
-        if WRONG_TOWN.contains(&(country, n)) {
-            return Found::Nothing;
-        }
         let ne = natural.get(&k).cloned().unwrap_or_default();
         let named = gns[0]
             .get(&k)
@@ -719,6 +878,15 @@ fn run(args: &[String]) -> Result<(), String> {
             among: Vec::new(),
             airport: None,
         };
+        if LEFT_OUT.iter().any(|&(r, s, _)| (r, s) == (region, slug)) {
+            cities.push(city);
+            continue;
+        }
+        if let Some(&(_, _, _, lat, lon)) = REFILED.iter().find(|c| (c.0, c.1) == (region, slug)) {
+            city.at = Some(((lat, lon), "checked by hand", 0.0));
+            cities.push(city);
+            continue;
+        }
         for n in names(name) {
             let anchors = if filed_here.is_empty() {
                 named_for(&n)
@@ -934,6 +1102,25 @@ mod tests {
         );
         assert_eq!(one_spot(&[(49.18, -57.43), (52.63, -94.07)]), None);
         assert_eq!(one_spot(&[]), None);
+    }
+
+    #[test]
+    fn the_hand_checked_towns_are_each_listed_once_and_on_the_map() {
+        let mut seen = Vec::new();
+        for (region, slug) in REFILED
+            .iter()
+            .map(|c| (c.0, c.1))
+            .chain(LEFT_OUT.iter().map(|c| (c.0, c.1)))
+        {
+            assert!(!seen.contains(&(region, slug)), "{region}/{slug} twice");
+            seen.push((region, slug));
+        }
+        for &(region, slug, town, lat, lon) in REFILED {
+            assert!(
+                (24.0..50.0).contains(&lat) && (-125.0..-66.0).contains(&lon),
+                "{region}/{slug} ({town}) is off the US map"
+            );
+        }
     }
 
     #[test]

@@ -13,7 +13,7 @@
 
 use super::rental_places::{RentalAirport, RentalCity};
 
-/// DiscoverCars' rental cities, sorted by region then slug (3631 cities).
+/// DiscoverCars' rental cities, sorted by region then slug (3627 cities).
 pub static RENTAL_CITIES: &[RentalCity] = &[
     RentalCity {
         country: "CA",
@@ -126,6 +126,14 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         slug: "calgary",
         lat: 51.08494,
         lon: -114.08194,
+    },
+    RentalCity {
+        country: "CA",
+        region: "canada",
+        name: "Cambridge",
+        slug: "cambridge",
+        lat: 43.37333,
+        lon: -80.31857,
     },
     RentalCity {
         country: "CA",
@@ -318,6 +326,14 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         slug: "dryden",
         lat: 49.78333,
         lon: -92.83334,
+    },
+    RentalCity {
+        country: "CA",
+        region: "canada",
+        name: "Dundas",
+        slug: "dundas",
+        lat: 43.26648,
+        lon: -79.95686,
     },
     RentalCity {
         country: "CA",
@@ -1278,14 +1294,6 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         slug: "sudbury",
         lat: 46.49999,
         lon: -80.96664,
-    },
-    RentalCity {
-        country: "CA",
-        region: "canada",
-        name: "Summerville",
-        slug: "summerville",
-        lat: 46.21375,
-        lon: -62.75751,
     },
     RentalCity {
         country: "CA",
@@ -6780,8 +6788,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Aberdeen",
         slug: "aberdeen",
-        lat: 26.55063,
-        lon: -80.14866,
+        lat: 35.13155,
+        lon: -79.42948,
     },
     RentalCity {
         country: "US",
@@ -6858,14 +6866,6 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
     RentalCity {
         country: "US",
         region: "usa-florida",
-        name: "Benton",
-        slug: "benton",
-        lat: 30.48661,
-        lon: -82.66068,
-    },
-    RentalCity {
-        country: "US",
-        region: "usa-florida",
         name: "Big Pine Key",
         slug: "big-pine-key",
         lat: 24.66987,
@@ -6924,8 +6924,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Buchanan",
         slug: "buchanan",
-        lat: 27.41199,
-        lon: -81.79258,
+        lat: 41.26204,
+        lon: -73.93819,
     },
     RentalCity {
         country: "US",
@@ -6956,8 +6956,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Chatham",
         slug: "chatham",
-        lat: 25.71427,
-        lon: -81.24397,
+        lat: 39.67616,
+        lon: -89.70454,
     },
     RentalCity {
         country: "US",
@@ -7020,8 +7020,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Columbia City",
         slug: "columbia-city",
-        lat: 30.07384,
-        lon: -82.69568,
+        lat: 41.15727,
+        lon: -85.48831,
     },
     RentalCity {
         country: "US",
@@ -7276,8 +7276,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Fox Run",
         slug: "fox-run",
-        lat: 28.13900,
-        lon: -82.43310,
+        lat: 40.70229,
+        lon: -80.08284,
     },
     RentalCity {
         country: "US",
@@ -7316,8 +7316,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Greenville",
         slug: "greenville",
-        lat: 30.46937,
-        lon: -83.63015,
+        lat: 38.89227,
+        lon: -89.41314,
     },
     RentalCity {
         country: "US",
@@ -7380,8 +7380,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Hillsboro",
         slug: "hillsboro",
-        lat: 26.29397,
-        lon: -80.07893,
+        lat: 39.20229,
+        lon: -83.61159,
     },
     RentalCity {
         country: "US",
@@ -7428,8 +7428,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Howard",
         slug: "howard",
-        lat: 25.64733,
-        lon: -80.33422,
+        lat: 38.91483,
+        lon: -77.22526,
     },
     RentalCity {
         country: "US",
@@ -7676,8 +7676,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Lumberton",
         slug: "lumberton",
-        lat: 28.26612,
-        lon: -82.13647,
+        lat: 30.26577,
+        lon: -94.19963,
     },
     RentalCity {
         country: "US",
@@ -7756,8 +7756,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Marysville",
         slug: "marysville",
-        lat: 30.29464,
-        lon: -85.09825,
+        lat: 42.91253,
+        lon: -82.48686,
     },
     RentalCity {
         country: "US",
@@ -7812,8 +7812,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Millville",
         slug: "millville",
-        lat: 30.15131,
-        lon: -85.63048,
+        lat: 39.40206,
+        lon: -75.03934,
     },
     RentalCity {
         country: "US",
@@ -7844,8 +7844,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Morgantown",
         slug: "morgantown",
-        lat: 27.00617,
-        lon: -81.96759,
+        lat: 37.22560,
+        lon: -86.68360,
     },
     RentalCity {
         country: "US",
@@ -8010,14 +8010,6 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
     RentalCity {
         country: "US",
         region: "usa-florida",
-        name: "Oxford",
-        slug: "oxford",
-        lat: 28.92748,
-        lon: -82.03731,
-    },
-    RentalCity {
-        country: "US",
-        region: "usa-florida",
         name: "Pace",
         slug: "pace",
         lat: 30.59936,
@@ -8124,8 +8116,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Piedmont",
         slug: "piedmont",
-        lat: 28.63805,
-        lon: -81.45785,
+        lat: 33.92455,
+        lon: -85.61135,
     },
     RentalCity {
         country: "US",
@@ -8262,14 +8254,6 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         slug: "ruskin",
         lat: 27.72086,
         lon: -82.43315,
-    },
-    RentalCity {
-        country: "US",
-        region: "usa-florida",
-        name: "Rye",
-        slug: "rye",
-        lat: 27.51448,
-        lon: -82.36787,
     },
     RentalCity {
         country: "US",
@@ -8500,8 +8484,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Tryon",
         slug: "tryon",
-        lat: 27.24810,
-        lon: -81.95314,
+        lat: 35.20817,
+        lon: -82.23845,
     },
     RentalCity {
         country: "US",
@@ -8580,8 +8564,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-florida",
         name: "Westhampton",
         slug: "westhampton",
-        lat: 28.07190,
-        lon: -82.64490,
+        lat: 40.82454,
+        lon: -72.66621,
     },
     RentalCity {
         country: "US",
@@ -23554,14 +23538,6 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
     RentalCity {
         country: "US",
         region: "usa-pennsylvania",
-        name: "Jackson",
-        slug: "jackson",
-        lat: 40.38223,
-        lon: -76.32552,
-    },
-    RentalCity {
-        country: "US",
-        region: "usa-pennsylvania",
         name: "Jefferson Hills",
         slug: "jefferson-hills",
         lat: 40.29118,
@@ -24060,8 +24036,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-pennsylvania",
         name: "Southampton",
         slug: "southampton",
-        lat: 40.02419,
-        lon: -77.54533,
+        lat: 40.17428,
+        lon: -75.04378,
     },
     RentalCity {
         country: "US",
@@ -27886,14 +27862,6 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         slug: "anacortes",
         lat: 48.51260,
         lon: -122.61267,
-    },
-    RentalCity {
-        country: "US",
-        region: "usa-washington",
-        name: "Appleton",
-        slug: "appleton",
-        lat: 45.81179,
-        lon: -121.27118,
     },
     RentalCity {
         country: "US",

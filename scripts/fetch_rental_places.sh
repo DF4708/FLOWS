@@ -140,7 +140,9 @@ inb && /\}/      { if (iata!="") print iata"\t"region"\t"city; inb=0 }
 ' "$REPO/rust/flows-core/src/rental_places_table.rs" > "$OUT/table_airports.tsv"
 
 # 5. A position for each city (`rental-positions`): country, region slug,
-#    name, slug, then the id passed through.
+#    name, slug, then the id passed through. Towns DiscoverCars files under
+#    the wrong state are placed by hand there (`REFILED`, `LEFT_OUT`),
+#    checked against the nearest-cities list on its own pages.
 awk -F'\t' '{ region = tolower($2); gsub(/ - /, "-", region); gsub(/ /, "-", region)
               print $1"\t"region"\t"$3"\t"$4"\t"$5 }' "$OUT/dc_cities.tsv" > "$OUT/dc_cities_keyed.tsv"
 positions() { # positions <cities> <rental_airports> <out>
