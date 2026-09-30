@@ -89,6 +89,15 @@ final class StoresAndCostsTests: XCTestCase {
                                                 pricePerUnit: 3.0))
     }
 
+    // A walk burns no fuel: a 408-mile walk read "~$51 fuel est." on its card.
+    func testAWalkCostsNoFuel() {
+        XCTAssertNil(TripCosts.routeFuelCostUSD(isWalk: true, miles: 408, milesPerUnit: 30,
+                                                pricePerUnit: 3.75))
+        XCTAssertEqual(TripCosts.routeFuelCostUSD(isWalk: false, miles: 300, milesPerUnit: 30,
+                                                  pricePerUnit: 3.0)!,
+                       30, accuracy: 1e-9, "a drive still costs what it did")
+    }
+
     // CO₂: a 25-mpg gas car ≈ 355 g/mi; transit per-passenger-mile beats it.
     func testCO2PerMile() {
         let car = TripCosts.driveGramsCO2PerMile(fuel: .gas, milesPerUnit: 25)!

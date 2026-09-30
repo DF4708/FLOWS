@@ -867,18 +867,22 @@ enum RouteError: LocalizedError {
 /// alone "Cheapest" always went to the shortest road — tolls and all, the
 /// same card as "Efficient". A toll is money the estimate can't see, so a
 /// tolled route gives the chip up to a toll-free one that costs no more
-/// than `tollAllowanceUSD` extra in fuel. Pure, pinned by tests.
+/// than `tollAllowanceUSD` extra in fuel. Walks cost nothing FLOWS can price
+/// and burn no fuel, so a list of walks has no "Cheapest". Pure, pinned by
+/// tests.
 enum CheapestRoute {
     struct Candidate: Equatable {
         let id: UUID
         let fuelUSD: Double
         let hasTolls: Bool
+        var isWalk = false
     }
 
     static let tollAllowanceUSD = 5.0
 
-    /// Lowest fuel, ties to toll-free; nil for no candidates.
+    /// Lowest fuel, ties to toll-free; nil for no candidates or for walks.
     static func pick(_ candidates: [Candidate]) -> UUID? {
+        guard !candidates.contains(where: \.isWalk) else { return nil }
         func cheaper(_ a: Candidate, _ b: Candidate) -> Bool {
             if abs(a.fuelUSD - b.fuelUSD) > 0.01 { return a.fuelUSD < b.fuelUSD }
             return !a.hasTolls && b.hasTolls
@@ -889,6 +893,24 @@ enum CheapestRoute {
               tollFree.fuelUSD - lowest.fuelUSD <= tollAllowanceUSD
         else { return lowest.id }
         return tollFree.id
+    }
+}
+
+/// Which route earns the "Efficient" chip: the least fuel burned, which with
+/// one vehicle is the shortest road. A walk burns none, so walks earn no fuel
+/// chip at all — the key points already say which walk is shortest. Pure,
+/// pinned by tests.
+enum EfficientRoute {
+    struct Candidate: Equatable {
+        let id: UUID
+        let meters: Double
+        var isWalk = false
+    }
+
+    /// The shortest drive; nil for no candidates or for walks.
+    static func pick(_ candidates: [Candidate]) -> UUID? {
+        guard !candidates.contains(where: \.isWalk) else { return nil }
+        return candidates.min { $0.meters < $1.meters }?.id
     }
 }
 

@@ -1198,8 +1198,9 @@ struct RouteChoicesView: View {
                 Label(t.title, systemImage: symbol)
                     .scaledFont(size: 13, weight: .bold)
                 // Cross-mode banners: transit is "Cheapest" when its estimated
-                // fare undercuts every drive option's fuel estimate, and rail/
-                // bus are effectively always the CO₂ winner per passenger-mile
+                // fare undercuts every drive option's fuel estimate (never beside
+                // a walk, which costs nothing), and rail/bus are effectively
+                // always the CO₂ winner per passenger-mile
                 // — say so. Flying is NOT (per-seat emissions rival driving),
                 // so the plane card never wears the green chip.
                 if let itin = t.itinerary {
@@ -1335,7 +1336,8 @@ struct RouteChoicesView: View {
             truckerID: model.truckerRouteID)
     }
 
-    /// "$12 fuel est." line for a card; nil when economy/price are unknowable.
+    /// "$12 fuel est." line for a card; nil when economy/price are unknowable,
+    /// and for a walk, which burns none.
     private func fuelCostText(_ route: PlannedRoute) -> String? {
         let cost = fuelCost(route)
         guard cost > 0.5 else { return nil }
@@ -1365,14 +1367,16 @@ struct RouteChoicesView: View {
 
     /// Estimated out-of-pocket fuel cost for a drive route: the driver's own
     /// vehicle economy when a profile exists, else the EPA-average car so
-    /// routes stay comparable. State fuel price from the current locale.
+    /// routes stay comparable. State fuel price from the current locale. A
+    /// walk costs nothing — so it shows no fuel line, and a transit fare is
+    /// never "Cheapest" beside it.
     private func fuelCost(_ route: PlannedRoute) -> Double {
         let mpu = model.vehicle.profile?.ratedMilesPerUnit ?? TripCosts.defaultMilesPerUnit
         let fuel = model.vehicle.profile?.fuelType ?? TripCosts.defaultFuel
         let price = FuelPrices.estimate(fuel: fuel, state: model.currentStateCode)
-        return TripCosts.driveFuelCostUSD(
-            miles: route.distanceMeters / 1609.344, milesPerUnit: mpu,
-            pricePerUnit: price) ?? 0
+        return TripCosts.routeFuelCostUSD(
+            isWalk: route.isWalk, miles: route.distanceMeters / 1609.344,
+            milesPerUnit: mpu, pricePerUnit: price) ?? 0
     }
 
     /// "Cheapest" = lowest estimated fuel cost, with a toll counted against
@@ -1382,17 +1386,21 @@ struct RouteChoicesView: View {
         let scored = choices.filter(\.weatherScored)
         guard scored.count == choices.count, scored.count > 1 else { return nil }
         return CheapestRoute.pick(scored.map {
-            CheapestRoute.Candidate(id: $0.id, fuelUSD: fuelCost($0), hasTolls: $0.hasTolls)
+            CheapestRoute.Candidate(id: $0.id, fuelUSD: fuelCost($0), hasTolls: $0.hasTolls,
+                                    isWalk: $0.isWalk)
         })
     }
 
     /// "Efficient" = least fuel burned (car) — with one vehicle the shortest
-    /// distance wins; CO₂-efficiency for mass transit is flagged on the
-    /// transit card instead (per-passenger-mile emissions beat any car).
+    /// distance wins (EfficientRoute; walks burn none and earn no chip);
+    /// CO₂-efficiency for mass transit is flagged on the transit card instead
+    /// (per-passenger-mile emissions beat any car).
     private func efficientID(in choices: [PlannedRoute]) -> UUID? {
         let scored = choices.filter(\.weatherScored)
         guard scored.count == choices.count, scored.count > 1 else { return nil }
-        return scored.min(by: { $0.distanceMeters < $1.distanceMeters })?.id
+        return EfficientRoute.pick(scored.map {
+            EfficientRoute.Candidate(id: $0.id, meters: $0.distanceMeters, isWalk: $0.isWalk)
+        })
     }
 
     private var routesTitle: some View {

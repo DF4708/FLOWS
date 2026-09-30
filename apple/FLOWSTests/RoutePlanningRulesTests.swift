@@ -100,6 +100,25 @@ final class RoutePlanningRulesTests: XCTestCase {
         XCTAssertNil(CheapestRoute.pick([]))
     }
 
+    func testWalksEarnNoFuelChips() {
+        let short = UUID(), long = UUID()
+        // A walker buys no gas: no "Cheapest", no "Efficient" among walks.
+        XCTAssertNil(CheapestRoute.pick([
+            .init(id: short, fuelUSD: 0, hasTolls: false, isWalk: true),
+            .init(id: long, fuelUSD: 0, hasTolls: false, isWalk: true),
+        ]))
+        XCTAssertNil(EfficientRoute.pick([
+            .init(id: short, meters: 4_000, isWalk: true),
+            .init(id: long, meters: 6_000, isWalk: true),
+        ]))
+        // Drives: the shortest burns least.
+        XCTAssertEqual(EfficientRoute.pick([
+            .init(id: long, meters: 6_000),
+            .init(id: short, meters: 4_000),
+        ]), short)
+        XCTAssertNil(EfficientRoute.pick([]))
+    }
+
     // MARK: the planner's error line
 
     /// A route that doesn't exist won't appear on a retry, so its message

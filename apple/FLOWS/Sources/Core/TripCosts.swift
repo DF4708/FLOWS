@@ -34,6 +34,15 @@ enum TripCosts {
         flows_trip_vehicle_drive_fuel_cost_usd(miles, milesPerUnit, pricePerUnit).some
     }
 
+    /// The fuel a ROUTE costs, as its card shows it: nil for a walk — a walker
+    /// buys no gas, and a 408-mile walk read "~$51 fuel est." — and nil when
+    /// the economy is unknown.
+    static func routeFuelCostUSD(isWalk: Bool, miles: Double, milesPerUnit: Double,
+                                 pricePerUnit: Double) -> Double? {
+        isWalk ? nil : driveFuelCostUSD(miles: miles, milesPerUnit: milesPerUnit,
+                                        pricePerUnit: pricePerUnit)
+    }
+
     /// Drive CO₂ grams per mile from the vehicle's economy.
     static func driveGramsCO2PerMile(fuel: FuelType, milesPerUnit: Double) -> Double? {
         flows_trip_vehicle_drive_grams_co2_per_mile(fuel.rustCode, milesPerUnit).some
