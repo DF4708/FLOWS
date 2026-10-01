@@ -88,8 +88,11 @@ final class AppModel: ObservableObject {
             ?? routeChoices.first else { return }
         poi.beginCorridorSearch(along: route)
         let origin = lastPlanEndpoints?.from
-        Task { await poi.request(.tourist, aheadOf: origin) }
+        touristListTask = Task { await poi.request(.tourist, aheadOf: origin) }
     }
+
+    /// The highlighted route's own tourist sweep — the counts wait for it.
+    private var touristListTask: Task<Void, Never>?
 
     /// Each route's own count of attractions near ITS road, from a sweep
     /// along that route (POIService.touristCount) — what the tourist order
@@ -105,6 +108,11 @@ final class AppModel: ObservableObject {
         let pending = routeChoices.filter { touristCounts[$0.id] == nil }
         guard !pending.isEmpty else { return }
         touristCountTask = Task { [weak self] in
+            // The list on screen goes first: the counts share MapKit's paced
+            // search queue, and running beside it kept the list waiting about
+            // a minute.
+            await self?.touristListTask?.value
+            guard !Task.isCancelled else { return }
             for route in pending {
                 // A plan left for Edit or GO needs no more counts.
                 guard let self, self.mode == .choosing else { return }
@@ -531,6 +539,21 @@ final class AppModel: ObservableObject {
         onboarded = true
         UserDefaults.standard.set(true, forKey: "flows.onboarded")
         location.requestAuthorization()
+        // The vehicle link is on by default (owner, 2026-10-01): it starts
+        // now that the welcome card has said Bluetooth will be asked for.
+        startVehicleLinkIfWanted()
+    }
+
+    /// Bluetooth vehicle link (tire sensors, plug-in fuel readers): ON by
+    /// default — the owner's call, 2026-10-01 — and off only when the driver
+    /// turned it off. It starts once onboarding is done, never before:
+    /// creating the scanner fires the Bluetooth permission dialog, and a
+    /// dialog before the welcome card says what it is for came out of
+    /// nowhere.
+    func startVehicleLinkIfWanted() {
+        guard onboarded else { return }
+        vehicleLink.scanning =
+            UserDefaults.standard.object(forKey: "flows.vehicleLinkScanning") as? Bool ?? true
     }
 
     /// Word-finding help (on-device Apple Intelligence): when a spoken
@@ -725,8 +748,15 @@ final class AppModel: ObservableObject {
         didSet {
             // Touching the filters brings back a slider card a map click hid.
             if oldValue != routeFilters { filterCardsHidden = false }
+            // No limit filter on, no limits card — and so no icon for one
+            // waiting in the corner.
+            if routeFilters.isDisjoint(with: Self.limitFilters) {
+                collapsedPanels.remove("sliders")
+            }
         }
     }
+    /// The filters the vehicle-limits card sets the numbers for.
+    static let limitFilters: Set<RouteFilter> = [.lowBridges, .mountainGrades, .bridgeWeight]
     /// Click-off state for the height/grade slider card: a click on the map
     /// hides it; changing any filter shows it again.
     @Published var filterCardsHidden = false
@@ -843,7 +873,10 @@ final class AppModel: ObservableObject {
         if announce {
             VoiceAnnouncer.shared.announce(
                 (spokenPrefix.map { $0 + " " } ?? "") + "Playing \(genre) — \(name). "
-                + "Say next for another \(genre) station.")
+                // The words that really work: Siri's "skip" in FLOWS moves
+                // to the next station. "Say next" named a command that
+                // does not exist.
+                + "For another \(genre) station, say: Hey Siri, skip in FLOWS.")
         }
         return name
     }
@@ -1525,6 +1558,19 @@ final class AppModel: ObservableObject {
     /// (PlannerPick) — kept here with the text so Edit round-trips them too.
     var plannerSourcePick: PlannerPick?
     var plannerDestinationPick: PlannerPick?
+    /// Start from the GPS fix (on) or from a typed place (off: the planner
+    /// shows "From where?" above "Where to?"). Here so Edit keeps it.
+    @Published var plannerUseGPS = true
+    /// Plan the way back too: GO drives to the destination, and arriving
+    /// there offers "Head back" to where the trip began.
+    @Published var roundTrip = false
+    /// Where a round trip goes back to once its destination is reached.
+    @Published private(set) var roundTripHome: (coordinate: CLLocationCoordinate2D, name: String)?
+    /// The way back is being planned ("Head back" was pressed).
+    @Published private(set) var headingBack = false
+    /// A stop added on the route screen (a tourist stop, a place tapped on
+    /// the map): GO drives there first, then on to the destination.
+    @Published var plannedStop: MKMapItem?
 
     /// Set when the final destination is reached; HUD shows the arrived
     /// banner until the driver dismisses it.
@@ -2121,7 +2167,7 @@ final class AppModel: ObservableObject {
     /// and passes the array down (reading it per card multiplied the filter
     /// pass and its ARC traffic ~50× per render).
     var filteredChoices: [PlannedRoute] {
-        var out = RouteFilter.listed(routeChoices, judged: judgingFilters, limits: filterLimits)
+        var out = RouteFilter.listed(routeChoices, judged: judgingFilters, limits: judgingLimits)
         // Tourist filter CHANGES the ordering: the route with more attractions
         // within reach leads (ties fall back to ETA) — scenic beats fast while
         // the driver is explicitly asking for tourist stops. Only once every
@@ -2158,6 +2204,14 @@ final class AppModel: ObservableObject {
             }
         } else {
             routeFilters.insert(filter)
+            // A limit chip turned on by hand: the driver wants the limits
+            // card, whatever the habit says.
+            if Self.limitFilters.contains(filter) {
+                collapsedPanels.remove("sliders")
+                if mode == .choosing, let last = limitsHabit.last {
+                    limitsHabit[limitsHabit.count - 1] = last | LimitsCardHabit.touched
+                }
+            }
             // Tourist stops: pin parks/monuments/museums along the corridor
             // the moment the filter lights up — the map immediately shows what
             // the trip could include (Mammoth Cave on a Louisville→Nashville
@@ -2190,7 +2244,7 @@ final class AppModel: ObservableObject {
     /// The active filters a route breaks, in chip order: the closest-match
     /// card names them above its GO — a count alone hid a low bridge.
     func brokenFilters(_ route: PlannedRoute) -> [RouteFilter] {
-        let limits = filterLimits
+        let limits = judgingLimits
         let judged = judgingFilters
         let peers = RouteFilter.trafficPeers(routeChoices, judged: judged, limits: limits)
         return RouteFilter.allCases.filter {
@@ -2212,11 +2266,18 @@ final class AppModel: ObservableObject {
     /// Debounced: a slider sends a value for every pixel it is dragged, and
     /// each one would otherwise start its own plan.
     func limitsChanged() {
-        ensureHighlightValid()   // the highlight follows the cards at once
+        // A limit moved on the route screen: the driver is using the limits
+        // (LimitsCardHabit).
+        if mode == .choosing, let last = limitsHabit.last {
+            limitsHabit[limitsHabit.count - 1] = last | LimitsCardHabit.touched
+        }
         limitReplanTask?.cancel()
         limitReplanTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
-            guard let self, !Task.isCancelled, self.mode == .choosing else { return }
+            guard let self, !Task.isCancelled else { return }
+            // The list and the map judge by the slider once it rests.
+            self.settledLimits = self.filterLimits
+            guard self.mode == .choosing else { return }
             self.ensureHighlightValid()
             // Only when the limits have emptied the list: otherwise the
             // driver still has roads that fit and a replan would just churn.
@@ -2225,6 +2286,24 @@ final class AppModel: ObservableObject {
         }
     }
     private var limitReplanTask: Task<Void, Never>?
+
+    /// The limits the route list, the map and the closest match judge by:
+    /// the sliders' values once they stop moving (`limitsChanged`). Judged
+    /// live, every step of a towing-weight drag across a posted bridge limit
+    /// took routes off the list and put them back, and the highlighted road
+    /// on the map swapped with them — the screen flashed while the weights
+    /// were being set.
+    @Published private var settledLimits: FilterLimits?
+    var judgingLimits: FilterLimits { settledLimits ?? filterLimits }
+
+    /// The last ten plans' use of the vehicle limits (LimitsCardHabit):
+    /// trucker mode, towing, or a limit moved. Learned about the driver, so
+    /// the erase button clears it.
+    private(set) var limitsHabit: [UInt8] =
+        (UserDefaults.standard.array(forKey: "flows.limitsHabit") as? [Int])?
+            .map { UInt8(clamping: $0) } ?? [] {
+        didSet { UserDefaults.standard.set(limitsHabit.map(Int.init), forKey: "flows.limitsHabit") }
+    }
 
     /// Nothing passes → replan with every request-level preference the
     /// active filters imply, hydrate, and let the relative filters resolve.
@@ -2550,11 +2629,9 @@ final class AppModel: ObservableObject {
         // Location: on onboarded launches, request right away (a no-op once
         // granted). First launch waits for the welcome card's Get started.
         if onboarded { location.requestAuthorization() }
-        // Bluetooth vehicle link: OFF until the driver turns it on in
-        // Settings — creating the scanner at launch fired the Bluetooth
-        // permission dialog on first open, before any explanation.
-        vehicleLink.scanning =
-            UserDefaults.standard.bool(forKey: "flows.vehicleLinkScanning")
+        // Bluetooth vehicle link: on by default, started only once the
+        // welcome card has explained it (startVehicleLinkIfWanted).
+        startVehicleLinkIfWanted()
         // Populate the price column with state-average ESTIMATES (labeled
         // "est."); a licensed station feed replaces this same hook.
         poi.priceProvider = { item, fuel in
@@ -2911,6 +2988,8 @@ final class AppModel: ObservableObject {
         roadEfficiency.erase()
         shareHistory.erase()
         ShowerAvailability.eraseReports()
+        limitsHabit = []
+        UserDefaults.standard.removeObject(forKey: "flows.limitsHabit")
         dailyDrive = DailyDriveLog.empty()
         dailyDrivePersistedMeters = 0
         UserDefaults.standard.removeObject(forKey: "flows.dailyDrive")
@@ -3567,6 +3646,18 @@ final class AppModel: ObservableObject {
         touristCountTask?.cancel()   // counts belong to the routes they swept
         touristCounts = [:]
         restoreTransientPanels()   // fresh choices bring the trip menus back
+        // The vehicle-limits card opens on its own only for a driver who
+        // uses it (trucker mode, towing, or the limits on 3 of the last 10
+        // plans — the owner, 2026-10-01); for anyone else it waits under its
+        // round icon.
+        limitsHabit = LimitsCardHabit.recorded(
+            limitsHabit,
+            plan: (truckerUI ? LimitsCardHabit.trucker : 0)
+                | (towingActive ? LimitsCardHabit.towing : 0))
+        if !LimitsCardHabit.opensByDefault(limitsHabit),
+           !routeFilters.isDisjoint(with: Self.limitFilters) {
+            _ = collapsedPanels.insert("sliders")
+        }
         // mode BEFORE the highlight: highlightedRouteID's didSet re-searches
         // tourist stops only while .choosing, and it used to run one line
         // too early, while mode was still .planning.
@@ -3576,7 +3667,10 @@ final class AppModel: ObservableObject {
         // fastest often fails Avoid traffic, and highlighting it framed and
         // coloured a route no card showed. Nothing passing keeps the old
         // first pick until scoring settles the list.
-        highlightedRouteID = filteredChoices.first?.id ?? routeChoices.first?.id
+        // With nothing passing (No highways where every road touches one),
+        // the list's closest match — never the fastest road by default.
+        highlightedRouteID = filteredChoices.first?.id ?? closestChoice?.id
+            ?? routeChoices.first?.id
         if routeFilters.contains(.tourist) { refreshTouristCounts() }
         filterCardsHidden = false   // fresh choices bring the slider card back
         // A fresh plan invalidates any staged spoken yes. Without this, a
@@ -3680,9 +3774,7 @@ final class AppModel: ObservableObject {
     /// route the driver could have picked on screen. Judged as the cards are:
     /// on foot the raw filters picked a walk other than the list's.
     private var tripOfferPick: PlannedRoute? {
-        filteredChoices.first
-            ?? RouteFilter.closestMatch(in: routeChoices, filters: judgingFilters,
-                                        limits: filterLimits)
+        filteredChoices.first ?? closestChoice
     }
 
     /// Stage the planned trip for a spoken yes (Siri's Start a trip,
@@ -3888,8 +3980,21 @@ final class AppModel: ObservableObject {
         let visible = filteredChoices
         if highlightIsDriverChoice, let hl = highlightedRouteID,
            visible.contains(where: { $0.id == hl }) { return }
+        // No route fits every filter: the map shows the list's closest match
+        // (the road the card under "No route fits" offers), never nothing —
+        // and, with No highways on, the local-roads road rather than the
+        // interstate (RouteFilter.closestMatch).
+        let pick = visible.first ?? (routeChoices.isEmpty ? nil : closestChoice)
+        if highlightIsDriverChoice, let hl = highlightedRouteID, visible.isEmpty,
+           hl == pick?.id { return }
         highlightIsDriverChoice = false
-        if highlightedRouteID != visible.first?.id { highlightedRouteID = visible.first?.id }
+        if highlightedRouteID != pick?.id { highlightedRouteID = pick?.id }
+    }
+
+    /// The closest match the choices list shows when no route fits every
+    /// filter — the same one the map highlights and a spoken yes takes.
+    var closestChoice: PlannedRoute? {
+        RouteFilter.closestMatch(in: routeChoices, filters: judgingFilters, limits: judgingLimits)
     }
 
     /// Full FLOWS scoring for ONE route — alerts, field blend, segments,
@@ -4327,10 +4432,9 @@ final class AppModel: ObservableObject {
             table.sort { $0.startMile < $1.startMile }
         }
         r.gradeProfile = table
-        // Resolve the 3D grade overlay's draw geometry here, once — the map
-        // used to slice the full polyline per segment per frame.
-        (r.gradeRibbonSlices, r.steepMarkers) = RouteService.gradeDisplayGeometry(
-            of: r.route.polyline, profile: table)
+        // Where the steep-grade signs stand, resolved here once — the map
+        // used to walk the full polyline per frame.
+        r.steepMarkers = RouteService.steepMarkers(of: r.route.polyline, profile: table)
         let fema = (await femaHits).compactMap { $0 }
         r.femaFloodFraction = fema.isEmpty ? nil
             : Double(fema.filter { $0 }.count) / Double(fema.count)
@@ -4556,6 +4660,17 @@ final class AppModel: ObservableObject {
         tripLearningErased = false
         mode = .navigating
         startLeg(route, resetsNeeds: !drivingOn)
+        // A round trip heads back from the destination once it is reached
+        // ("Head back" on the arrival banner), to where this leg begins.
+        roundTripHome = roundTrip
+            ? Self.firstCoordinate(of: route).map { ($0, Self.homeName(route.sourceName)) }
+            : nil
+        // A stop chosen on the route screen: drive there first, then on —
+        // the same chaining as a stop added while driving.
+        if let stop = plannedStop {
+            plannedStop = nil
+            Task { [weak self] in _ = await self?.addStop(stop) }
+        }
         askForTripPermissionsIfNeeded()   // lock-screen warnings + crash reply, at the first GO
         maybeOfferTripShare()   // a 200+ mile route triggers right at GO
         checkTowingSignal()   // trailer signal checked at trip start, not per tick
@@ -4629,6 +4744,8 @@ final class AppModel: ObservableObject {
         pendingStopName = nil
         pendingStopKind = nil
         upcomingLeg = nil
+        roundTripHome = nil
+        headingBack = false
         // Drive-time advisories are only recomputed inside the navigating GPS
         // sink — clear them here or they freeze on screen into planning mode
         // and the start of the next trip (a stale refuel prompt answered
@@ -6202,6 +6319,66 @@ final class AppModel: ObservableObject {
         var c = CLLocationCoordinate2D()
         poly.getCoordinates(&c, range: NSRange(location: 0, length: 1))
         return c
+    }
+
+    /// A place tapped on the map or a tourist stop ("Add it to your trip?"
+    /// → yes): a stop on the trip being driven, the first stop of the route
+    /// being chosen (GO drives there first), or — with no trip yet — the
+    /// destination to plan to. Says what happened, in plain words.
+    func addToTrip(_ item: MKMapItem) async -> String {
+        let name = item.name ?? "That place"
+        switch mode {
+        case .navigating:
+            return await addStop(item)
+                ? "\(name) added — the route now stops there first."
+                : "Couldn't add \(name) to the route from here."
+        case .choosing:
+            plannedStop = item
+            return "\(name) added — GO drives there first, then on."
+        case .planning:
+            plannerDestination = name
+            plannerDestinationPick = PlannerPick(text: name, coordinate: item.placemark.coordinate,
+                                                 name: name)
+            collapsedPanels.remove("planner")
+            return "\(name) is your destination — press Plan route."
+        }
+    }
+
+    /// What the way back of a round trip is called: the start's own name,
+    /// or "where you started" for a trip that began at the GPS fix.
+    private static func homeName(_ sourceName: String) -> String {
+        let trimmed = sourceName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed.localizedCaseInsensitiveContains("current location")
+            ? "where you started" : trimmed
+    }
+
+    /// Round trip: the destination is reached. Plan the way back to where
+    /// the trip began, the way the trip there was planned (roads, filters,
+    /// walking), and drive it as a trip of its own.
+    func headBack() async {
+        guard let home = roundTripHome, let leg = navigation.route, !headingBack else { return }
+        headingBack = true
+        defer { headingBack = false }
+        let from = effectivePosition ?? Self.lastCoordinate(of: leg) ?? home.coordinate
+        let back = await withAttributesIfFiltered(await routes(
+            like: leg, from: from, fromName: leg.destinationName,
+            to: home.coordinate, toName: home.name))
+        guard mode == .navigating else { return }
+        guard var way = FasterRoutePolicy.swapPick(back, leg: leg, filters: routeFilters,
+                                                   limits: filterLimits, calmest: false)
+        else {
+            arrivedAt = nil
+            continuationFailure = "Can't find a way back to \(home.name) from here. Plan again."
+            return
+        }
+        way.planKind = leg.planKind
+        let scored = await scoredBurst(way)
+        guard mode == .navigating else { return }
+        // The way there is a finished trip: its arrival teaches the delay
+        // model before the way back replaces it.
+        learnTripDuration()
+        roundTrip = false   // the way back has no way back of its own
+        select(route: scored)
     }
 }
 

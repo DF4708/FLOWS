@@ -171,17 +171,16 @@ final class CameraZoomTests: XCTestCase {
     /// A tucked-menu icon shows only on a screen where its menu comes back.
     func testTuckedIconsShowOnlyWhereTheirMenuComesBack() {
         let screens: [ChromeScreen] = [.planning, .choosing, .driving]
-        func shown(_ id: String, hasStops: Bool = true, mapKey: Bool = true) -> [ChromeScreen] {
+        func shown(_ id: String, mapKey: Bool = true) -> [ChromeScreen] {
             screens.filter {
-                TuckedMenus.comesBack(id, on: $0, hasStops: hasStops, mapKeyComesBack: mapKey)
+                TuckedMenus.comesBack(id, on: $0, mapKeyComesBack: mapKey)
             }
         }
         XCTAssertEqual(shown("planner"), [.planning])
         XCTAssertEqual(shown("routes"), [.choosing])
         XCTAssertEqual(shown("sliders"), [.choosing])
         XCTAssertEqual(shown("fuel"), [.driving])
-        XCTAssertEqual(shown("stops"), [.driving])
-        XCTAssertEqual(shown("stops", hasStops: false), [], "a cleared stop list has nothing to bring back")
+        XCTAssertEqual(shown("stops"), [], "the stop list comes back from its own drive-bar button")
         XCTAssertEqual(shown("legend"), screens, "the map key comes back wherever it has room")
         XCTAssertEqual(shown("legend", mapKey: false), [], "no icon where the key cannot show")
     }

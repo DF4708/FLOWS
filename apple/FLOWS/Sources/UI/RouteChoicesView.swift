@@ -224,7 +224,7 @@ struct RouteChoicesView: View {
                 kind: .drive, fromName: stopName, toName: destName,
                 seconds: seconds, miles: miles, polyline: poly,
                 steps: ["Rent a car or get a ride at \(stopName)",
-                        "Go to \(destName) — rental counters listed below"])],
+                        "Go to \(destName) — compare rental prices below"])],
                 seconds: seconds)
         case .walk, .local:
             // The rider rode transit, so the last mile is never a drive. With
@@ -413,12 +413,6 @@ struct RouteChoicesView: View {
         async let w1 = transitWalk(ep.from, boardC)
         async let rideG = transitDrive(boardC, alightC)
         async let w3 = transitWalkIf(alight != nil, alightC, ep.to)
-        // Rentals at the ARRIVAL STATION, not at the trip's destination: the
-        // traveller steps off the train there and the miles they read are
-        // the walk to the counter. Measured from the same point, so a "0.3
-        // mi" office is 0.3 mi from the platform. (The plane card already
-        // searched around its arrival airport.)
-        async let rentalsNearDest = transitRentals(near: alightC)
         let walkIn = await w1
         let (ridePolyOpt, rideRoadMi, driveSec) = await rideG
         let walkOut = await w3
@@ -466,11 +460,11 @@ struct RouteChoicesView: View {
             ticketLabel = t.label
             ticketURL = t.url
         }
-        var rentals = await rentalsNearDest
         // Where the traveller gets off, not where they set out from: that is
         // where they would pick a car up. No arrival station means the
         // destination itself.
         var compare = RentalCars.compareURL(near: alight?.placemark.coordinate ?? ep.to)
+        var rentalPlace = RentalCars.pickup(near: alight?.placemark.coordinate ?? ep.to)?.name
 
         /// Put the trip on its card — once with what is quick to know, then
         /// again as the timetables answer. `offName` is where the ride ends:
@@ -517,17 +511,18 @@ struct RouteChoicesView: View {
                 : " · no arrival station found — plan the last mile at \(destName)"
             // The ride as the legs show it: the timetable's time once known.
             let rideShown = ride?.seconds ?? rideSec
+            let shown = TransitPlanning.shownName(kind)
             model.transitOptions[tMode] = TransitOption(
-                title: "\(kind) via \(boardName)",
+                title: "\(shown.prefix(1).uppercased() + shown.dropFirst()) via \(boardName)",
                 detail: "\(accessVerb) \(TransitPlanning.fmt(access.seconds)) to \(boardName) · "
-                        + "\(kind.lowercased()) ride \(TransitPlanning.fmt(rideShown))\(tail) · est. fare "
+                        + "\(shown.lowercased()) ride \(TransitPlanning.fmt(rideShown))\(tail) · est. fare "
                         + String(format: "$%.2f (carriers set final pricing).", fare),
                 fare: fare, destination: dest,
                 ticketLabel: ticketLabel, ticketURL: ticketURL,
                 itinerary: itinerary,
                 schedule: schedule,
-                rentals: rentals,
                 rentalCompareURL: compare,
+                rentalPlace: rentalPlace,
                 notes: [access.note, egress.note].compactMap { $0 })
         }
 
@@ -582,8 +577,8 @@ struct RouteChoicesView: View {
                 shape.egress == .local ? shape.egressFallback : shape.egress,
                 from: at, stopName: offName, stationFound: true,
                 to: ep.to, destName: destName, walk: walk)
-            rentals = await transitRentals(near: at)
             compare = RentalCars.compareURL(near: at)
+            rentalPlace = RentalCars.pickup(near: at)?.name
         }
         if shape.egress == .local {
             // From there, when it really gets in; the estimate stands in when
@@ -594,12 +589,27 @@ struct RouteChoicesView: View {
                                          toName: destName, departing: arriving,
                                          walkSeconds: walk.seconds) {
                 egress = city
+            } else {
+                // Say why the city's buses are not on the card: a rider who
+                // chose the bus saw only the coach between cities and
+                // wondered where the local buses were.
+                egress.note = Self.cityBusNote(from: offAt, to: ep.to, place: destName)
             }
         }
         if Task.isCancelled { return }
-        if train != nil || access.schedule != nil || egress.schedule != nil {
+        if train != nil || access.schedule != nil || egress.schedule != nil || egress.note != nil {
             publish(access, egress, train: train?.schedule, offName: offName, offKnown: offKnown)
         }
+    }
+
+    /// Why a trip's last part is not on the city's buses: no timetable FLOWS
+    /// can read there, or the walk is as quick.
+    private static func cityBusNote(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D,
+                                    place: String) -> String {
+        TransitFeeds.citySources(from: from.latitude, from.longitude,
+                                 to: to.latitude, to.longitude).isEmpty
+            ? "FLOWS has no city bus timetable for \(place), so the last part is shown as a walk."
+            : "\(place)'s city buses are no quicker than walking from the stop, so the last part is a walk."
     }
 
     /// Amtrak's own answer for a train leaving near `from` for near `to`
@@ -687,38 +697,42 @@ struct RouteChoicesView: View {
 
     /// A rental car picked up near the start and driven the whole way — the
     /// rental toggle on a trip with no train, bus or plane for it to meet.
+    ///
+    /// The car comes from wherever the rider books it on the partner page
+    /// for the DiscoverCars city near the start, so the card names that
+    /// place, never a company: "Rental car from Avis" was the nearest
+    /// counter the map knew, for a car that might be booked from Hertz.
     private func computeRentalTrip(_ shape: TripShape) async {
         guard let ep = model.lastPlanEndpointsPublic else { return }
         let dest = MKMapItem(placemark: MKPlacemark(coordinate: ep.to))
         let startName = ep.fromName.isEmpty ? "your start" : ep.fromName
         let destName = ep.toName.isEmpty ? "your destination" : ep.toName
         let compare = RentalCars.compareURL(near: ep.from)
-        let offices = await transitRentals(near: ep.from)
-        if Task.isCancelled { return }
-        // The nearest counter of the brands worth showing is the one to walk
-        // to; the rest stay listed with their miles.
-        guard let office = offices.filter({ $0.coordinate != nil })
-                .min(by: { $0.miles < $1.miles }),
-              let officeC = office.coordinate else {
+        guard let pickup = RentalCars.pickup(near: ep.from) else {
             model.transitOptions[.rental] = TransitOption(
                 title: "Rent a car",
-                detail: "FLOWS found no rental counter near \(startName). "
-                        + "Compare prices near there below.",
-                fare: 0, destination: dest, rentals: [], rentalCompareURL: compare)
+                detail: "Compare rental car prices near \(startName) and book below — "
+                        + "your booking says where to pick the car up.",
+                fare: 0, destination: dest, rentalCompareURL: compare)
             return
         }
-        async let walkTask = transitWalk(ep.from, officeC)
-        async let driveTask = transitDrive(officeC, ep.to)
-        let access = await accessPart(
-            shape, from: ep.from, startName: startName, to: officeC, stopName: office.name,
-            place: "rental counter", walk: await walkTask,
-            parkNote: "Your car stays here while you have the rental")
+        // A start in the rental city itself picks the car up in town; one
+        // farther out gets there first, the way the toggles say.
+        let farOut = POIRanking.meters(ep.from, pickup.coordinate) > Self.inTownMeters
+        async let walkTask = farOut ? transitWalk(ep.from, pickup.coordinate) : (nil, nil, [], nil)
+        async let driveTask = transitDrive(farOut ? pickup.coordinate : ep.from, ep.to)
+        let access: TripPart? = farOut
+            ? await accessPart(
+                shape, from: ep.from, startName: startName, to: pickup.coordinate,
+                stopName: pickup.name, place: "rental pick-up", walk: await walkTask,
+                parkNote: "Your car stays here while you have the rental")
+            : nil
         let (poly, miles, seconds) = await driveTask
         if Task.isCancelled { return }
-        let legs = access.legs + [TransitLeg(
-            kind: .drive, fromName: office.name, toName: destName,
+        let legs = (access?.legs ?? []) + [TransitLeg(
+            kind: .drive, fromName: pickup.name, toName: destName,
             seconds: seconds, miles: miles, polyline: poly,
-            steps: ["Pick up a rental car at \(office.name)",
+            steps: ["Pick up the rental car you book in \(pickup.name) — the booking says where",
                     "Drive to \(destName)",
                     "Compare prices and book below"],
             rental: true)]
@@ -726,14 +740,21 @@ struct RouteChoicesView: View {
             mode: "Rental car", legs: legs, fare: 0, mapsDestination: dest,
             rideGeometryIsApproximate: false)
         draw(itinerary)
+        let getThere = access.map {
+            "\($0.legs.first?.kind == .drive ? "Drive" : "Walk") "
+                + "\(TransitPlanning.fmt($0.seconds)) to \(pickup.name) · "
+        } ?? ""
         model.transitOptions[.rental] = TransitOption(
-            title: "Rental car from \(office.name)",
-            detail: "\(access.legs.first?.kind == .drive ? "Drive" : "Walk") "
-                    + "\(TransitPlanning.fmt(access.seconds)) to \(office.name) · "
-                    + "drive \(TransitPlanning.fmt(seconds)) to \(destName).",
+            title: "Rental car from \(pickup.name)",
+            detail: getThere + "pick up the car you book there · "
+                + "drive \(TransitPlanning.fmt(seconds)) to \(destName).",
             fare: 0, destination: dest,
-            itinerary: itinerary, rentals: offices, rentalCompareURL: compare)
+            itinerary: itinerary, rentalCompareURL: compare, rentalPlace: pickup.name)
     }
+
+    /// Closer than this to its rental city, a start picks the car up in
+    /// town: no "walk 12 min to Milwaukee" from downtown Milwaukee.
+    private static let inTownMeters = 8_000.0
 
     /// Ship main ride: a ferry whose operator's own timetable joins a terminal
     /// near the start to one near the destination, with the way there and
@@ -780,10 +801,8 @@ struct RouteChoicesView: View {
 
         async let w1 = transitWalk(ep.from, boardC)
         async let w3 = transitWalk(alightC, ep.to)
-        async let rentalsNear = transitRentals(near: alightC)
         let walkIn = await w1
         let walkOut = await w3
-        let rentals = await rentalsNear
         let compare = RentalCars.compareURL(near: alightC)
 
         // The way there, then the first sailing the rider can make from it.
@@ -866,7 +885,8 @@ struct RouteChoicesView: View {
                     : "Tickets: \(listed?.operatorName ?? boardName)",
                 ticketURL: listed?.operatorURL,
                 itinerary: itinerary, schedule: schedule,
-                rentals: rentals, rentalCompareURL: compare,
+                rentalCompareURL: compare,
+                rentalPlace: RentalCars.pickup(near: alightC)?.name,
                 notes: [note, access.note, egress.note].compactMap { $0 })
         }
 
@@ -901,10 +921,8 @@ struct RouteChoicesView: View {
         let now = Date()
         async let w1 = transitWalk(start, c.boardCoordinate)
         async let w3 = transitWalk(c.alightCoordinate, end)
-        async let rentalsNear = transitRentals(near: c.alightCoordinate)
         let walkIn = await w1
         let walkOut = await w3
-        let rentals = await rentalsNear
         let park = switch c.cars {
         case true: "Or drive aboard — this ferry carries cars"
         case false: "This ferry takes no cars — park here"
@@ -969,8 +987,9 @@ struct RouteChoicesView: View {
             title: "Ferry from \(c.boardName)", detail: facts, fare: 0, destination: dest,
             ticketLabel: c.operatorURL == nil ? nil : "Sailings and fares: \(c.operatorName)",
             ticketURL: c.operatorURL,
-            itinerary: itinerary, rentals: rentals,
-            rentalCompareURL: RentalCars.compareURL(near: c.alightCoordinate), notes: notes)
+            itinerary: itinerary,
+            rentalCompareURL: RentalCars.compareURL(near: c.alightCoordinate),
+            rentalPlace: RentalCars.pickup(near: c.alightCoordinate)?.name, notes: notes)
         return sails
     }
 
@@ -1007,11 +1026,13 @@ struct RouteChoicesView: View {
     /// plane lands. Nil for a plane toggled onto a trip too short to fly,
     /// whose card only says so. Returns whether a flight card was made, so a
     /// trip with no airport in reach can be planned on the ground instead.
-    private func computeAirTransit(_ shape: TripShape?) async -> Bool {
+    private func computeAirTransit(_ shape: TripShape?, anyway: Bool = false) async -> Bool {
         guard let ep = model.lastPlanEndpointsPublic else { return false }
         let tripMiles = POIRanking.meters(ep.from, ep.to) / 1609.344
         let dest = MKMapItem(placemark: MKPlacemark(coordinate: ep.to))
-        guard AirTravel.worthFlying(tripMiles: tripMiles) else {
+        // Too short to be worth flying: the card says so — and a rider who
+        // wants the flights anyway asks for them from the card.
+        guard anyway || AirTravel.worthFlying(tripMiles: tripMiles) else {
             if Task.isCancelled { return false }
             model.transitOptions[.plane] = TransitOption(
                 title: "Flying won't help here",
@@ -1019,7 +1040,7 @@ struct RouteChoicesView: View {
                                + "airport time added, a flight only beats the "
                                + "road past %.0f miles.",
                                tripMiles, AirTravel.minTripMiles),
-                fare: 0, destination: dest)
+                fare: 0, destination: dest, offersFlightsAnyway: true)
             return false
         }
         let shape = shape ?? TripShape(onFoot: model.walkingMode, modes: [.plane],
@@ -1084,12 +1105,9 @@ struct RouteChoicesView: View {
         let destName = ep.toName.isEmpty ? "your destination" : ep.toName
         let airportMiles = POIRanking.meters(boardC, alightC) / 1609.344
 
-        // Airport access, the last mile, and rentals at the ARRIVAL airport
-        // (the flyer lands car-less — same reuse as the train cards), all
-        // independent, all concurrent.
+        // Airport access and the last mile, independent, concurrent.
         async let w1 = transitWalk(ep.from, boardC)
         async let w3 = transitWalk(alightC, ep.to)
-        async let rentalsAtAirport = transitRentals(near: alightC)
         let walkIn = await w1
         let walkOut = await w3
 
@@ -1108,7 +1126,6 @@ struct RouteChoicesView: View {
                                       boardCode: ends?.board.code,
                                       alightCode: ends?.alight.code,
                                       airportURL: boardItem?.url)
-        let rentals = await rentalsAtAirport
         // The airport the flight lands at — its own rental page when
         // DiscoverCars lists it ("…/chicago/ord"), else the best page near it.
         let compare = ends.map {
@@ -1133,8 +1150,8 @@ struct RouteChoicesView: View {
                 fare: fare, destination: dest,
                 ticketLabel: ticket.label, ticketURL: ticket.url,
                 itinerary: itinerary,
-                rentals: rentals,
                 rentalCompareURL: compare,
+                rentalPlace: alightName,
                 notes: [access.note, egress.note].compactMap { $0 })
         }
 
@@ -1400,7 +1417,13 @@ struct RouteChoicesView: View {
     /// taken from the start, the start). "At the destination" read as miles
     /// from the trip's end, which is not what a traveller standing on the
     /// platform needs.
-    private func rentalHeading(_ itinerary: TransitItinerary) -> String {
+    private func rentalHeading(_ itinerary: TransitItinerary, place: String?) -> String {
+        // The DiscoverCars place the link books in, when there is one: the
+        // car is picked up wherever the booking says, in that place.
+        if let place, !place.isEmpty {
+            return itinerary.mainRide == nil ? "Rental cars in \(place)"
+                                             : "Need a car there? Rental cars in \(place)"
+        }
         guard let alight = itinerary.mainRide?.toName, !alight.isEmpty else {
             if itinerary.mainRide == nil, let start = itinerary.legs.first?.fromName,
                !start.isEmpty {
@@ -1408,7 +1431,7 @@ struct RouteChoicesView: View {
             }
             return "Rental cars where you get off"
         }
-        return "Rental cars near \(alight)"
+        return "Need a car there? Rental cars near \(alight)"
     }
 
     /// The timetable's own words: when it leaves, when it gets in, what it is
@@ -1512,45 +1535,18 @@ struct RouteChoicesView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        // Wheels at the far end: the traveller arrives WITHOUT a car
-        // (leg 3 is a walk by design). Nearest office per brand,
-        // biggest brands first — any operator MapKit knows, with the
-        // office's own page (or the brand's booking site) linked.
-        // Shown whenever the rider asked for a rental car, too — with no
-        // counter found nearby, the partner page still lists who rents there.
-        if !t.rentals.isEmpty || itin.legs.contains(where: \.rental) {
+        // Wheels at the far end: the traveller arrives WITHOUT a car — and
+        // the rider who asked for a rental car. ONE link, the partner page
+        // for the place they get off in (code FAWN): every company renting
+        // there is on it, so there is no list of brands to pick from, and
+        // the booking — not FLOWS — says which counter.
+        if itin.mainRide != nil || itin.legs.contains(where: \.rental),
+           let compare = t.rentalCompareURL {
             Divider()
-            // Named for where the miles are measured FROM — the stop
-            // the traveller steps off at. "At the destination" read
-            // as miles from the trip's end, which is not what a
-            // traveller standing on the platform needs.
-            Label(rentalHeading(itin), systemImage: "car.2.fill")
+            Label(rentalHeading(itin, place: t.rentalPlace), systemImage: "car.2.fill")
                 .scaledFont(.caption2, weight: .bold)
-            ForEach(Array(t.rentals.enumerated()), id: \.offset) { _, office in
-                HStack(spacing: 4) {
-                    Text("\(office.name) · \(String(format: "%.1f mi", office.miles))")
-                        .scaledFont(size: 10)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Spacer(minLength: 4)
-                    // Every booking is FLOWS's partner link (code FAWN) for
-                    // this place — the owner's rule for results as well as
-                    // searches. The partner page lists this company's cars
-                    // beside the rest.
-                    if let url = t.rentalCompareURL {
-                        Link("Book", destination: url)
-                            .scaledFont(size: 10, weight: .bold)
-                    }
-                }
-            }
-            // One place to compare the companies against each other, on the
-            // same partner page.
-            if let compare = t.rentalCompareURL {
-                Link(t.rentals.isEmpty ? "Compare rental car prices and book"
-                                       : "Compare prices at all of them",
-                     destination: compare)
-                    .scaledFont(size: 10, weight: .semibold)
-            }
+            Link("Compare rental car prices and book", destination: compare)
+                .scaledFont(size: 10, weight: .semibold)
         }
     }
 
@@ -1622,6 +1618,22 @@ struct RouteChoicesView: View {
                 itineraryDetail(itin, t, mode: mode)
             } else {
                 Text(t.detail).scaledFont(.caption).foregroundStyle(.secondary)
+                if t.offersFlightsAnyway {
+                    Button {
+                        model.transitTasks[.plane]?.cancel()
+                        model.transitTasks[.plane] = Task {
+                            _ = await computeAirTransit(currentShape([.plane]), anyway: true)
+                        }
+                    } label: {
+                        Label("Show flights anyway", systemImage: "airplane")
+                            .scaledFont(.caption, weight: .bold)
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(Color.indigo.opacity(0.9))
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
                 // No counter found near the start: the partner page for the
                 // place still lists every company that rents there.
                 if mode == .rental, let compare = t.rentalCompareURL {
@@ -1733,16 +1745,9 @@ struct RouteChoicesView: View {
         return String(format: "~$%.0f fuel est.", cost)
     }
 
-    /// Least-violating route when filters empty the list — ties broken by
-    /// weather risk then ETA.
-    private var closestMatch: PlannedRoute? {
-        model.routeChoices.min { a, b in
-            let va = model.violationCount(a), vb = model.violationCount(b)
-            if va != vb { return va < vb }
-            if a.weatherRisk != b.weatherRisk { return a.weatherRisk < b.weatherRisk }
-            return a.eta < b.eta
-        }
-    }
+    /// Least-violating route when filters empty the list — the one the map
+    /// highlights too (AppModel.closestChoice).
+    private var closestMatch: PlannedRoute? { model.closestChoice }
 
     /// "Safest" = lowest normalized corridor risk, decided once every route
     /// has been scored (mirrors the web router's safest profile).
@@ -1825,7 +1830,7 @@ struct RouteChoicesView: View {
         transitToggle(.rail, symbol: "tram.fill",
                       help: "Rail option: local rail/subway, or Amtrak for long trips")
         transitToggle(.bus, symbol: "bus.fill",
-                      help: "Bus option: local transit, or Greyhound for long trips")
+                      help: "Bus: the city's own buses, or an intercity bus between cities")
         transitToggle(.plane, symbol: "airplane",
                       help: "Plane option: fly between the nearest airports with airline service")
         transitToggle(.ship, symbol: "ferry.fill",
@@ -1884,11 +1889,23 @@ struct RouteChoicesView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
             if !model.walkingMode { filterChips }
+            // A stop added here (a tourist stop, a place tapped on the map):
+            // GO drives there first, then on.
+            if let stop = model.plannedStop {
+                plannedStopRow(stop)
+            }
             ScrollView {
                 // One snapshot for the whole list — every derived value the
                 // cards share is computed here exactly once per render.
                 let ctx = makeCardContext()
                 VStack(spacing: 8) {
+                    // Tourist stops on: the attractions along the highlighted
+                    // route, each one tap from being a stop on the way. They
+                    // were pins on the map with no list and no way to add
+                    // them, so the chip seemed to do nothing.
+                    if model.routeFilters.contains(.tourist), !model.walkingMode {
+                        touristList
+                    }
                     // Transit cards scroll WITH the route cards: three open
                     // itineraries stack taller than a phone screen, and
                     // outside the scroll they pushed the route list off the
@@ -1927,6 +1944,15 @@ struct RouteChoicesView: View {
                                      + model.brokenFilters(closest).map(\.rawValue)
                                         .joined(separator: ", "))
                                     .scaledFont(.caption, weight: .semibold)
+                                // Apple's maps give no road with no highway
+                                // at all here; say which one this is.
+                                if model.brokenFilters(closest).contains(.noHighways),
+                                   closest.planKind == .avoidHighways {
+                                    Text("Every road here uses some highway — this one "
+                                         + "uses the least.")
+                                        .scaledFont(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                                 RouteCard(
                                     route: closest,
                                     keyPoints: keyPoints(for: closest, ctx: ctx),
@@ -1974,6 +2000,96 @@ struct RouteChoicesView: View {
         // (same id) skips recomputing what the model already holds.
         .task(id: hybridKey) {
             await computeHybrid(key: hybridKey)
+        }
+    }
+
+    /// The stop the rider added for this trip, with the way to take it back.
+    private func plannedStopRow(_ stop: MKMapItem) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "mappin.and.ellipse")
+                .scaledFont(size: 13, weight: .bold)
+                .foregroundStyle(Theme.cta)
+            Text("Stop on the way: \(stop.name ?? "your stop") — GO drives there first")
+                .scaledFont(.caption, weight: .semibold)
+                .lineLimit(2)
+            Spacer(minLength: 4)
+            Button("Remove") { model.plannedStop = nil }
+                .scaledFont(.caption, weight: .bold)
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+        }
+        .padding(8)
+        .background(Theme.fill(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    /// The tourist stops along the highlighted route, spread over the whole
+    /// drive (one per stretch, nearest the road first), each with Add.
+    @ViewBuilder
+    private var touristList: some View {
+        // Already spread over the whole drive (POIService's tourist search).
+        let stops = model.poi.activeKind == .tourist ? Array(model.poi.results.prefix(8)) : []
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Tourist stops along this route", systemImage: "star.fill")
+                .scaledFont(.caption, weight: .bold)
+                .foregroundStyle(Theme.riskGreen)
+            if model.poi.isSearching, stops.isEmpty {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Looking along the route…")
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if stops.isEmpty {
+                Text(model.poi.emptyResultMessage
+                     ?? "None found within a short detour of this route.")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(stops) { stop in
+                touristRow(stop)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.riskGreen.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func touristRow(_ stop: POIService.RankedPOI) -> some View {
+        let added = model.plannedStop.map { $0.placemark.coordinate.latitude
+            == stop.item.placemark.coordinate.latitude
+            && $0.placemark.coordinate.longitude == stop.item.placemark.coordinate.longitude
+        } ?? false
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(stop.item.name ?? "Stop")
+                    .scaledFont(size: 13, weight: .semibold)
+                    .lineLimit(1)
+                Text(String(format: "%.0f mi along · about +%.0f min off the route",
+                            max(stop.aheadMeters, 0) / 1609.344,
+                            2 * stop.detourMeters / POIRanking.detourSpeedMps / 60))
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            Button(added ? "Added" : "Add") {
+                Task { _ = await model.addToTrip(stop.item) }
+            }
+            .scaledFont(size: 12, weight: .heavy)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 30)
+            .background(added ? Theme.riskGreen : Theme.cta)
+            .foregroundStyle(added ? Color.white : Theme.onCTA)
+            .clipShape(Capsule())
+            .disabled(added)
+        }
+        .contentShape(Rectangle())
+        // Tapping the row shows where it is and what it costs to get in.
+        .onTapGesture {
+            model.poi.choose(stop)
+            model.poi.touristDetail = stop
         }
     }
 
@@ -2398,36 +2514,6 @@ private func transitDrive(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate
     return (route.polyline, route.distance / 1609.344, route.expectedTravelTime)
 }
 
-/// Rental counters near a point — any operator MapKit knows (Hertz,
-/// Enterprise, a local independent), keyless like every other POI source.
-/// The traveller arrives car-less; three biggest-brand offices with their
-/// distance answer "now what?", and the partner page books one. Transit
-/// cards center this on the arrival station, the plane card on the arrival
-/// airport, a rental taken from the start on the start.
-private func transitRentals(near dest: CLLocationCoordinate2D)
-    async -> [RentalCars.Office] {
-    let req = MKLocalSearch.Request()
-    req.naturalLanguageQuery = "car rental"
-    req.pointOfInterestFilter = MKPointOfInterestFilter(including: [.carRental])
-    req.region = MKCoordinateRegion(center: dest,
-                                    latitudinalMeters: 30_000,
-                                    longitudinalMeters: 30_000)
-    // Where the OS allows it, the box is a hard limit rather than a hint.
-    if #available(iOS 18.0, macOS 15.0, *) {
-        req.regionPriority = .required
-    }
-    let items = (try? await MKLocalSearch(request: req).start())?.mapItems ?? []
-    // The region is a relevance BIAS, not a filter: a search at the Minneapolis
-    // airport from a phone in Chicago listed Chicago counters 340 miles off.
-    // A counter past the search box is not one to pick a car up at.
-    return RentalCars.recommend(items.map { item in
-        RentalCars.Office(
-            name: item.name ?? "Car rental",
-            miles: POIRanking.meters(item.placemark.coordinate, dest) / 1609.344,
-            coordinate: item.placemark.coordinate)
-    }.filter { $0.miles <= RentalCars.maxOfficeMiles })
-}
-
 private struct RouteCard: View {
     @EnvironmentObject var model: AppModel
     let route: PlannedRoute
@@ -2642,7 +2728,7 @@ private struct RouteCard: View {
             HStack(spacing: 0) {
                 ForEach(Array(route.riskFractions.enumerated()), id: \.offset) { _, item in
                     Rectangle()
-                        .fill(item.band.color.opacity(item.band == .clear ? 0.35 : 0.9))
+                        .fill(item.band.color.opacity(0.9))
                         .frame(width: geo.size.width * item.fraction)
                 }
             }
@@ -2660,7 +2746,7 @@ private struct RouteCard: View {
             HStack(spacing: 0) {
                 ForEach(Array(route.provisionalFractions.enumerated()), id: \.offset) { _, item in
                     Rectangle()
-                        .fill(item.band.map { $0.color.opacity($0 == .clear ? 0.35 : 0.9) }
+                        .fill(item.band.map { $0.color.opacity(0.9) }
                               ?? Color.secondary.opacity(0.15))
                         .frame(width: geo.size.width * item.fraction)
                 }
@@ -2687,6 +2773,13 @@ private struct RouteCard: View {
                     .foregroundStyle(.secondary)
             }
             .scaledFont(.footnote, weight: .semibold)
+
+            // What makes the route its colour, in plain words — "Flood zone
+            // 0%" under a green route read as a contradiction: the green
+            // came from rain chance and wind, the 0% from FEMA's flood maps.
+            Text(whyLine)
+                .scaledFont(.caption, weight: .semibold)
+                .foregroundStyle(.secondary)
 
             // Physical attributes (verifiable data: USGS grades, OSM
             // clearances, FEMA flood zones) — "checking…" while hydrating.
@@ -2834,12 +2927,50 @@ private struct RouteCard: View {
             parts.append("Weight limits: checking…")
         }
         if let f = route.femaFloodFraction {
-            parts.append(String(format: "Flood zone %.0f%%", f * 100))
+            // FEMA's mapped flood zones, not today's weather: said so, so a
+            // 0% beside a rainy green route is not a contradiction.
+            parts.append(f < 0.005 ? "No FEMA flood zones on this road"
+                         : String(format: "FEMA flood zones: %.0f%% of this road", f * 100))
         } else {
             parts.append(route.attributesScored
                          ? "Floodplain: no data" : "Floodplain: checking…")
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// "Why Green: rain chance and wind" — the weather that lifts the route
+    /// to its band, worst first; for a Clear route, that nothing does.
+    private var whyLine: String {
+        let band = route.riskBand
+        guard band != .clear else { return "Why Clear: no weather here rises to Green." }
+        let named = route.familyPeaks
+            .filter { $0.value >= FlowsCore.riskGreenMin }
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .map { Self.plainFamily($0.key) }
+        var words: [String] = []
+        for w in named where !words.contains(w) { words.append(w) }
+        let alerts = route.alertEvents.isEmpty ? [] : ["weather warnings in force"]
+        let reasons = Array((alerts + words).prefix(3))
+        guard !reasons.isEmpty else {
+            return "Why \(band.rawValue): this road's usual weather risk for the season."
+        }
+        let list = reasons.count == 1 ? reasons[0]
+            : reasons.dropLast().joined(separator: ", ") + " and " + reasons[reasons.count - 1]
+        return "Why \(band.rawValue): \(list)."
+    }
+
+    /// A risk family as a driver would say it. The flood family on a route
+    /// is mostly the CHANCE of rain (flooding itself is a warning or a
+    /// river at flood stage, named above), so it reads as rain.
+    private static func plainFamily(_ family: String) -> String {
+        switch family {
+        case "qpf_flood", "precip": return "rain chance"
+        case "wind": return "wind"
+        case "winter": return "snow or ice"
+        case "convective": return "storms"
+        case "closure": return "a closed road"
+        default: return HazardStyle.kind(forFamily: family).title.lowercased()
+        }
     }
 
     private func profileChip(_ label: String, _ color: Color) -> some View {

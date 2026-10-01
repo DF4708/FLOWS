@@ -156,20 +156,24 @@ enum ChromeScreen: Equatable {
 enum TuckedMenus {
     /// Whether a tucked menu comes back on this screen: the planner while
     /// planning, the route list and the limits card while choosing, the
-    /// instruments and a stop list that still has stops while driving, and
+    /// instruments while driving (a stop list comes back from its own button
+    /// on the drive bar), and
     /// the map key where the screen has room for it (never while driving).
     /// An icon for a menu the screen does not have used to sit in the column
     /// doing nothing (the route list's after Edit went back to planning, the
     /// stop list's after its stops were cleared), and every extra icon made
     /// the column longer. The pile itself is unchanged: a hidden icon shows
     /// again where its menu lives.
-    static func comesBack(_ id: String, on screen: ChromeScreen, hasStops: Bool,
+    static func comesBack(_ id: String, on screen: ChromeScreen,
                           mapKeyComesBack: Bool, hasWarning: Bool = false) -> Bool {
         switch id {
         case "planner": return screen == .planning
         case "routes", "sliders": return screen == .choosing
         case "fuel": return screen == .driving
-        case "stops": return screen == .driving && hasStops
+        // The stop list's own icon is its button on the drive bar ("Fuel",
+        // "Food"): the owner asked twice that closing it put no second icon
+        // up in the corner (2026-08 and 2026-10-01).
+        case "stops": return false
         case "legend": return mapKeyComesBack
         // A tucked warning keeps its icon on every screen for as long as the
         // warning is in force, and goes when it clears.

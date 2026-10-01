@@ -201,6 +201,21 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         XCTAssertNil(RouteFilter.closestMatch(in: [], filters: filters, limits: FilterLimits()))
     }
 
+    /// Milwaukee to Madison: every road Apple offers touches a highway, so
+    /// all break No highways once. The closest match — the road the map
+    /// highlights — is the local-roads one, not the calm fast interstate.
+    func testWithNoHighwaysTheClosestMatchIsTheLocalRoadsRoute() {
+        let interstate = route(Road(highways: true), risk: 0.1, eta: 4_800)
+        let local = route(Road(highways: true), kind: .avoidHighways, risk: 0.3, eta: 6_900)
+        XCTAssertEqual(RouteFilter.closestMatch(in: [interstate, local], filters: [.noHighways],
+                                                limits: FilterLimits())?.id,
+                       local.id)
+        // Without No highways the calmer road still wins.
+        XCTAssertEqual(RouteFilter.closestMatch(in: [interstate, local], filters: [.noTolls],
+                                                limits: FilterLimits())?.id,
+                       interstate.id)
+    }
+
     // MARK: the needs clock across a reroute
 
     /// A reroute 110 miles in keeps the rest stop at mile 120 — 10 miles

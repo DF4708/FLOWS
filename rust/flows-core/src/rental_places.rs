@@ -97,6 +97,19 @@ pub fn path_near(lat: f64, lon: f64) -> String {
     }
 }
 
+/// Where a traveller near a point picks a rental car up, by DiscoverCars'
+/// own list: its nearest city within [`NEAR_CITY_KM`], the place the partner
+/// page books in. The counter is whichever company the traveller books
+/// there, so FLOWS names the place, never a brand. `None` when no city is
+/// that close.
+#[must_use]
+pub fn pickup_near(lat: f64, lon: f64) -> Option<&'static RentalCity> {
+    match nearest_city(lat, lon) {
+        Some((c, km)) if km <= NEAR_CITY_KM => Some(c),
+        _ => None,
+    }
+}
+
 /// The partner link for renting near a point. See [`path_near`].
 #[must_use]
 pub fn landing_near(lat: f64, lon: f64) -> String {
@@ -131,6 +144,17 @@ pub fn landing_for_airport(iata: &str, lat: f64, lon: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pickup_is_the_discovercars_city_not_a_brand() {
+        // Downtown Milwaukee books in Milwaukee; the middle of Lake
+        // Michigan is no city's.
+        let city = pickup_near(43.0389, -87.9065).expect("Milwaukee is a rental city");
+        assert_eq!(city.name, "Milwaukee");
+        assert_eq!(city.region, "usa-wisconsin");
+        assert!(pickup_near(43.5, -86.9).is_none());
+        assert!(pickup_near(f64::NAN, 0.0).is_none());
+    }
 
     #[test]
     fn the_places_that_used_to_404_now_land() {

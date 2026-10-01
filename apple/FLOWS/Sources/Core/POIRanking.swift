@@ -62,6 +62,22 @@ enum POIRanking {
             let hit = handle.nearest(coord.latitude, coord.longitude)
             return hit.has ? (Int(hit.index), hit.off_route) : nil
         }
+
+        /// The stops to rank when the eight rows must cover the whole drive
+        /// (tourist stops): one per stretch of road, nearest the road first —
+        /// item indices, in road order (places.rs `spread_along`).
+        func spreadAlong(_ items: [CLLocationCoordinate2D], kind: UInt8, trucker: Bool,
+                         from position: CLLocationCoordinate2D?) -> [Int] {
+            // swift-bridge must never see an empty buffer.
+            guard !items.isEmpty else { return [] }
+            let lats = items.map(\.latitude), lons = items.map(\.longitude)
+            return lats.withUnsafeBufferPointer { la in
+                lons.withUnsafeBufferPointer { lo in
+                    handle.spread_along(kind, trucker, position != nil,
+                                        position?.latitude ?? 0, position?.longitude ?? 0, la, lo)
+                }
+            }.map { Int($0) }
+        }
     }
 
     struct Candidate<Item> {
@@ -401,6 +417,14 @@ extension POIRanking {
     static func centerPicks(count: Int, cap: Int) -> [Int] {
         guard count > 0 else { return [] }
         return flows_places_center_picks(Int64(count), Int64(cap)).map { Int($0) }
+    }
+
+    /// `cap` corridor points from the first to the LAST, for a sweep that
+    /// must reach the end of the drive (tourist stops): places.rs
+    /// `end_to_end_picks`.
+    static func endToEndPicks(count: Int, cap: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        return flows_places_end_to_end_picks(Int64(count), Int64(cap)).map { Int($0) }
     }
 }
 

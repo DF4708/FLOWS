@@ -660,6 +660,21 @@ pub fn center_picks(count: usize, cap: usize) -> Vec<usize> {
     (0..count).step_by(step).take(slots).collect()
 }
 
+/// The corridor points a whole-drive sweep searches around (tourist stops):
+/// `cap` of them, evenly from the first to the LAST, so the end of the drive
+/// is searched too — [`center_picks`] stops a stride or more short of it
+/// (Madison to Milwaukee never searched Milwaukee). All of them when they
+/// fit.
+#[must_use]
+pub fn end_to_end_picks(count: usize, cap: usize) -> Vec<usize> {
+    if count <= cap || cap < 2 {
+        return (0..count.min(cap)).collect();
+    }
+    (0..cap)
+        .map(|k| (k * (count - 1) + (cap - 1) / 2) / (cap - 1))
+        .collect()
+}
+
 /// `min(by:)` on straight-line meters to `target`: the first point no later
 /// point is strictly nearer than. `None` for no points.
 #[must_use]
@@ -894,6 +909,86 @@ pub fn rank_along(
             rating: cands[c].rating,
         })
         .collect()
+}
+
+/// Stops that cover the WHOLE drive (tourist stops). Of the items the route
+/// places ahead of the vehicle and within the kind's detour cap, the stretch
+/// of road they cover is cut into `count` equal parts; the one nearest the
+/// road from each part comes first, then the next-nearest from each again,
+/// until `count` are picked — their item indices, in road order. Handed to
+/// [`rank_along`] in place of every hit, all of them survive its first-eight
+/// cap: soonest-first alone filled every row with the starting city's own
+/// museums (Madison to Milwaukee listed only Madison's). Empty for a kind
+/// code past the kinds.
+#[must_use]
+pub fn spread_along(
+    route: &RoutePath,
+    k: u8,
+    trucker: bool,
+    position: Option<Point>,
+    items: &[Point],
+    count: usize,
+) -> Vec<usize> {
+    let Some(policy) = kind_policy(k) else {
+        return Vec::new();
+    };
+    let cap = if trucker {
+        policy.max_detour_trucker_meters
+    } else {
+        policy.max_detour_meters
+    };
+    let vehicle_along = position
+        .and_then(|p| route.nearest(p))
+        .map_or(0.0, |(i, _)| route.cumulative[i]);
+    let kept: Vec<(usize, Candidate)> = items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &p)| annotate(route, p, vehicle_along, None, None).map(|c| (i, c)))
+        .filter(|(_, c)| admissible(c, cap))
+        .collect();
+    let Some(lo) = kept.iter().map(|(_, c)| c.ahead_meters).reduce(f64::min) else {
+        return Vec::new();
+    };
+    if count == 0 {
+        return Vec::new();
+    }
+    let hi = kept.iter().map(|(_, c)| c.ahead_meters).fold(lo, f64::max);
+    let span = (hi - lo).max(1.0);
+    let mut parts: Vec<Vec<usize>> = vec![Vec::new(); count];
+    for (j, (_, c)) in kept.iter().enumerate() {
+        let part = ((c.ahead_meters - lo) / span * count as f64) as usize;
+        parts[part.min(count - 1)].push(j);
+    }
+    for part in &mut parts {
+        part.sort_by(|&a, &b| {
+            kept[a]
+                .1
+                .detour_meters
+                .total_cmp(&kept[b].1.detour_meters)
+                .then(a.cmp(&b))
+        });
+    }
+    let want = count.min(kept.len());
+    let mut picked = Vec::with_capacity(want);
+    let mut round = 0;
+    while picked.len() < want {
+        for part in &parts {
+            if let Some(&j) = part.get(round) {
+                if picked.len() < want {
+                    picked.push(j);
+                }
+            }
+        }
+        round += 1;
+    }
+    picked.sort_by(|&a, &b| {
+        kept[a]
+            .1
+            .ahead_meters
+            .total_cmp(&kept[b].1.ahead_meters)
+            .then(a.cmp(&b))
+    });
+    picked.into_iter().map(|j| kept[j].0).collect()
 }
 
 // ============================================================ the FPS1 shard
@@ -1313,6 +1408,16 @@ mod tests {
         assert_eq!(center_picks(10, 3), vec![0, 5]);
         assert_eq!(center_picks(4, 1), Vec::<usize>::new());
         assert_eq!(center_picks(0, 1), Vec::<usize>::new());
+        assert_eq!(end_to_end_picks(3, 5), vec![0, 1, 2]);
+        assert_eq!(
+            end_to_end_picks(10, 5),
+            vec![0, 2, 5, 7, 9],
+            "the last point too"
+        );
+        assert_eq!(end_to_end_picks(6, 5), vec![0, 1, 3, 4, 5]);
+        assert_eq!(end_to_end_picks(10, 2), vec![0, 9]);
+        assert_eq!(end_to_end_picks(4, 1), vec![0]);
+        assert_eq!(end_to_end_picks(0, 5), Vec::<usize>::new());
         assert_eq!(
             first_nearest(&[(1.0, 1.0), (0.0, 0.0), (0.0, 0.0)], (0.0, 0.0)),
             Some(1)
@@ -1420,6 +1525,63 @@ mod tests {
         );
         assert_eq!(short.len(), 3, "zipped to the shortest");
         assert!(rank_along(&route, 99, None, false, None, &items, &none, &none, &names).is_empty());
+    }
+
+    #[test]
+    fn tourist_stops_are_spread_over_the_whole_drive() {
+        let route = straight();
+        // Ten museums in the starting city, one halfway, one near the end
+        // and one too far off the road.
+        let mut items: Vec<Point> = (0..10)
+            .map(|k| (43.0 + f64::from(k) * 0.001, -89.99 + f64::from(k) * 0.002))
+            .collect();
+        items.push((43.01, -89.3)); // 10: halfway
+        items.push((43.02, -88.65)); // 11: near the end
+        items.push((44.0, -89.3)); // 12: 111 km off the road
+        let start = Some((43.0, -89.995));
+        let picked = spread_along(&route, kind::TOURIST, false, start, &items, RANKED_ROWS);
+        assert_eq!(picked.len(), RANKED_ROWS);
+        assert!(picked.contains(&10), "the middle of the drive is listed");
+        assert!(picked.contains(&11), "the end of the drive is listed");
+        assert!(!picked.contains(&12), "past the detour cap");
+        assert!(picked.contains(&0), "the start's nearest-the-road museum");
+        let along = |i: usize| route.nearest(items[i]).map(|(v, _)| v).unwrap();
+        assert!(
+            picked.windows(2).all(|w| along(w[0]) <= along(w[1])),
+            "in road order"
+        );
+        // Handed to rank_along, every one of them survives its cap.
+        let chosen: Vec<Point> = picked.iter().map(|&i| items[i]).collect();
+        let none = vec![None; chosen.len()];
+        let names: Vec<Option<&str>> = vec![None; chosen.len()];
+        let rows = rank_along(
+            &route,
+            kind::TOURIST,
+            None,
+            false,
+            start,
+            &chosen,
+            &none,
+            &none,
+            &names,
+        );
+        assert_eq!(rows.len(), chosen.len());
+        assert_eq!(
+            spread_along(
+                &route,
+                kind::TOURIST,
+                false,
+                start,
+                &items[..2],
+                RANKED_ROWS
+            )
+            .len(),
+            2,
+            "fewer stops than rows: all of them"
+        );
+        assert!(spread_along(&route, kind::TOURIST, false, start, &[], RANKED_ROWS).is_empty());
+        assert!(spread_along(&route, 99, false, start, &items, RANKED_ROWS).is_empty());
+        assert!(spread_along(&route, kind::TOURIST, false, start, &items, 0).is_empty());
     }
 
     fn shard(recs: &[(f32, f32, u8, &str)]) -> Vec<u8> {

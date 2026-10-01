@@ -113,10 +113,8 @@ struct PlannedRoute: Identifiable {
     /// (coarse pass + fine refinement) — localized steepness, inspectable
     /// on the card and consulted for the steep-hill chip while driving.
     var gradeProfile: [GradeSegment] = []
-    /// Draw geometry for the 3D-terrain grade overlay, resolved ONCE when
-    /// the grade profile hydrates (RouteService.gradeDisplayGeometry) —
-    /// the map body just strokes these.
-    var gradeRibbonSlices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)] = []
+    /// Where the steep-grade signs stand with 3D terrain on, resolved ONCE
+    /// when the grade profile hydrates (RouteService.steepMarkers).
     var steepMarkers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] = []
     /// All posted clearances (meters) found near the corridor below ~5.5 m —
     /// compared against the driver's vehicle-height slider.
@@ -240,7 +238,6 @@ struct PlannedRoute: Identifiable {
     mutating func takeAttributes(from hydrated: PlannedRoute) {
         maxGradePercent = hydrated.maxGradePercent
         gradeProfile = hydrated.gradeProfile
-        gradeRibbonSlices = hydrated.gradeRibbonSlices
         steepMarkers = hydrated.steepMarkers
         clearancesMeters = hydrated.clearancesMeters
         weightLimitsLbs = hydrated.weightLimitsLbs
@@ -387,14 +384,24 @@ extension RouteFilter {
         [.mountainGrades, .lowBridges, .bridgeWeight, .noHighWinds]
 
     /// The route the choices list shows when no route passes every filter:
-    /// the fewest broken filters, then the lowest weather risk, then the
-    /// sooner arrival (the list's "Closest match" card).
+    /// the fewest broken filters, then — with No highways on — Apple's
+    /// local-roads route, then the lowest weather risk, then the sooner
+    /// arrival (the list's "Closest match" card, and the one the map
+    /// highlights). Between Milwaukee and Madison every road Apple offers
+    /// touches some highway, so every route broke No highways once, the
+    /// calmest-then-fastest tie-break picked the interstate, and the map
+    /// highlighted a highway under a lit No highways chip.
     static func closestMatch(in routes: [PlannedRoute], filters: Set<RouteFilter>,
                              limits: FilterLimits) -> PlannedRoute? {
         func broken(_ r: PlannedRoute) -> Int { filters.filter { !$0.passes(r, limits: limits) }.count }
+        func onHighways(_ r: PlannedRoute) -> Int {
+            filters.contains(.noHighways) && r.planKind != .avoidHighways ? 1 : 0
+        }
         return routes.min { a, b in
             let (va, vb) = (broken(a), broken(b))
             if va != vb { return va < vb }
+            let (ha, hb) = (onHighways(a), onHighways(b))
+            if ha != hb { return ha < hb }
             if a.weatherRisk != b.weatherRisk { return a.weatherRisk < b.weatherRisk }
             return a.eta < b.eta
         }
@@ -691,19 +698,17 @@ final class RouteService: ObservableObject {
         }
     }
 
-    /// Precomputed draw geometry for the 3D-terrain grade overlay: the
-    /// ribbon's per-segment polyline slices and the steep-marker (≥6%, first
-    /// 12) midpoints. One pass extracts the coordinates and their cumulative
-    /// meters; each segment then resolves by binary search. The map body
-    /// used to re-extract and re-walk the WHOLE polyline for every segment
-    /// on every frame — ~100 segments × thousands of vertices at GPS-fix
-    /// cadence whenever 3D terrain was on.
-    nonisolated static func gradeDisplayGeometry(
+    /// Where the steep-grade signs stand when 3D terrain is on: the midpoint
+    /// of each stretch at 6% or steeper (the first 12). One pass extracts the
+    /// coordinates and their cumulative meters; each stretch then resolves by
+    /// binary search, so the map body never re-walks the polyline per frame.
+    /// (The steepness-coloured edge these once rode with is gone: the owner
+    /// wants the chosen road in its risk colour and nothing else.)
+    nonisolated static func steepMarkers(
         of polyline: MKPolyline, profile: [GradeSegment]
-    ) -> (slices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)],
-          markers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)]) {
+    ) -> [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] {
         let n = polyline.pointCount
-        guard n > 1, !profile.isEmpty else { return ([], []) }
+        guard n > 1, !profile.isEmpty else { return [] }
         var coords = [CLLocationCoordinate2D](repeating: kCLLocationCoordinate2DInvalid, count: n)
         polyline.getCoordinates(&coords, range: NSRange(location: 0, length: n))
         var prefix = [Double](repeating: 0, count: n)
@@ -719,18 +724,6 @@ final class RouteService: ObservableObject {
             return lo
         }
 
-        var slices: [(coords: [CLLocationCoordinate2D], gradePercent: Double)] = []
-        slices.reserveCapacity(profile.count)
-        for seg in profile {
-            let a = seg.startMile * 1609.344, b = seg.endMile * 1609.344
-            var i = firstIndex(atOrAbove: a)
-            var pts: [CLLocationCoordinate2D] = []
-            while i < n, prefix[i] <= b {
-                pts.append(coords[i])
-                i += 1
-            }
-            if pts.count >= 2 { slices.append((pts, seg.gradePercent)) }
-        }
         var markers: [(coordinate: CLLocationCoordinate2D, gradePercent: Double)] = []
         for seg in profile where abs(seg.gradePercent) >= 6 {
             if markers.count >= 12 { break }
@@ -738,7 +731,7 @@ final class RouteService: ObservableObject {
             let i = min(max(firstIndex(atOrAbove: target), 1), n - 1)
             markers.append((coords[i], seg.gradePercent))
         }
-        return (slices, markers)
+        return markers
     }
 
     /// Sample coordinates along a polyline roughly every `everyMeters`.

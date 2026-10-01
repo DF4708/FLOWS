@@ -176,9 +176,18 @@ enum TransitPlanning {
     static func rideSteps(
         mode: String, board: String, alight: String, seconds: TimeInterval?
     ) -> [String] {
-        ["Board the \(mode) at \(board)",
+        ["Board the \(shownName(mode)) at \(board)",
          "Ride \(durationPhrase(seconds))",
          "Get off at \(alight)"]
+    }
+
+    /// What a ride is called on a card. Every coach between cities was
+    /// called "Greyhound", though Badger Bus, Jefferson Lines and others run
+    /// many of those routes (Badger Bus is Milwaukee to Madison) — "intercity
+    /// bus" is true of all of them. The mode key stays, for the fares and
+    /// times it selects.
+    static func shownName(_ mode: String) -> String {
+        mode == "Greyhound" ? "intercity bus" : mode
     }
 
     static func durationPhrase(_ s: TimeInterval?) -> String {
@@ -239,37 +248,21 @@ enum TransitPlanning {
 /// the owner's rule (2026-09-29) for searches and results alike. The offices
 /// say who rents cars there and how far away; the partner page is where the
 /// rider compares them and books.
+/// Rental cars, through FLOWS's DiscoverCars partner links. Every booking
+/// goes through the partner page for a PLACE — the counter is whichever
+/// company the traveller books there — so FLOWS names the place and never a
+/// brand. (The cards once named the nearest counter the map knew, "Rental
+/// car from Avis", for a car the traveller might book from Hertz.)
 enum RentalCars {
-    struct Office {
-        let name: String
-        let miles: Double        // from where the rider picks the car up
-        /// Where the counter is, so a rider can be routed to it.
-        var coordinate: CLLocationCoordinate2D? = nil
-    }
-
-    /// How far a counter may be from where the rider picks the car up and
-    /// still be listed — the edge of the 30 km box the map is asked about.
-    static let maxOfficeMiles = 20.0
-
-    /// US rental-brand order (fleet size / market share; lower = bigger).
-    /// Enterprise Holdings brands lead (Enterprise/National/Alamo), then
-    /// Hertz group (Hertz/Dollar/Thrifty), then Avis Budget, then the rest;
-    /// unknown local agencies sort after every recognized brand.
-    static let brandOrder: [String] = {
-        // flows_core::recents_and_rides::RENTAL_BRANDS, split by UTF-8 length.
-        let joined = Array(flows_rides_rental_brands().text.utf8)
-        var at = 0
-        return flows_rides_rental_brand_lengths().map { length in
-            let end = at + Int(length)
-            defer { at = end }
-            return String(decoding: joined[at..<end], as: UTF8.self)
-        }
-    }()
-
-    /// Index into the brand table (case-insensitive substring), or count
-    /// (= after every known brand) when unrecognized.
-    static func brandRank(name: String?) -> Int {
-        Int(flows_rides_rental_brand_rank(name ?? "", name != nil))
+    /// The DiscoverCars city a traveller near a point books a car in — its
+    /// name and where it is — or nil when no rental city is near.
+    static func pickup(near c: CLLocationCoordinate2D)
+        -> (name: String, coordinate: CLLocationCoordinate2D)? {
+        let parts = flows_rides_rental_pickup_near(c.latitude, c.longitude).text
+            .split(separator: "\u{1F}", omittingEmptySubsequences: false)
+        guard parts.count == 3, !parts[0].isEmpty,
+              let lat = Double(parts[1]), let lon = Double(parts[2]) else { return nil }
+        return (String(parts[0]), CLLocationCoordinate2D(latitude: lat, longitude: lon))
     }
 
     /// Compare prices across brands in one place — FLOWS's partner link, so a
@@ -309,26 +302,6 @@ enum RentalCars {
             ?? compareURL
     }
 
-    /// Pick the offices worth showing: nearest office PER BRAND (an
-    /// Enterprise downtown and one at the airport are the same booking),
-    /// ordered by brand size then distance, capped at three. Unknown local
-    /// agencies keep their own name as the dedupe key so two different
-    /// independents both survive.
-    static func recommend(_ offices: [Office], limit: Int = 3) -> [Office] {
-        // flows_core::recents_and_rides::recommend_rentals. Offices that do
-        // not order (same brand rank, equal or unknown miles) keep the order
-        // their brands first appeared; Swift's Dictionary left them to the
-        // launch's hash seed.
-        let names = RustTextColumn(offices.map(\.name))
-        let miles = offices.isEmpty ? [0] : offices.map(\.miles)
-        let picks = names.with { joined, lengths, _ in
-            miles.withUnsafeBufferPointer { m in
-                Array(flows_rides_recommend_rentals(joined, lengths, m, Int64(offices.count),
-                                                    Int64(limit)))
-            }
-        }
-        return picks.map { offices[Int($0)] }
-    }
 }
 
 /// The EXACT ticket to buy for a transit itinerary — carrier booking page +
@@ -353,7 +326,7 @@ enum TransitTickets {
                     amtrakStationURL(stationURL) ?? URL(string: "https://www.amtrak.com"))
         case "Greyhound":
             // Where Greyhound itself says to buy, in its own schedule feed.
-            return ("Buy Greyhound ticket: \(ride)",
+            return ("Bus tickets, Greyhound and partner lines: \(ride)",
                     URL(string: "https://shop.greyhound.com"))
         case "Rail":
             return ("Rail fare: \(ride)", stationURL)
@@ -647,19 +620,21 @@ struct TransitOption {
     /// until then — the card shows its estimate immediately and this arrives
     /// after, so a schedule download never holds the choices up.
     var schedule: TransitSchedule?
-    /// Rental counters near the destination — the traveller arrives
-    /// WITHOUT a car (that's the whole point of leg 3 being a walk).
-    var rentals: [RentalCars.Office] = []
-    /// Compare those counters' prices in one place — the partner's landing
-    /// page for the city the traveller gets off in, so a booking made from
-    /// the card is credited to FLOWS.
+    /// Where to book a car at the far end — the traveller arrives WITHOUT
+    /// one: the partner's page for the city (or airport) they get off in, so
+    /// a booking made from the card is credited to FLOWS.
     var rentalCompareURL: URL? = RentalCars.compareURL
+    /// The DiscoverCars place that page books in ("Madison"), when known.
+    var rentalPlace: String? = nil
     /// Plain lines the rider should read before the legs — a city train
     /// standing in for the bus they chose, and why.
     var notes: [String] = []
     /// Searches a card can offer when FLOWS has no timetable to show — the
     /// ferries and cruises the ship card points to.
     var links: [LabeledLink] = []
+    /// The plane card for a trip too short to fly: it says so, and offers
+    /// the flights anyway for a rider who wants to see them.
+    var offersFlightsAnyway = false
 }
 
 /// A link with the words a card shows for it.

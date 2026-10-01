@@ -123,6 +123,16 @@ mod ffi {
             name_lens: &[i64],
             name_present: &[u8],
         ) -> Vec<f64>;
+        fn spread_along(
+            self: &FlowsRoutePath,
+            kind: u8,
+            trucker: bool,
+            has_position: bool,
+            lat: f64,
+            lon: f64,
+            item_lats: &[f64],
+            item_lons: &[f64],
+        ) -> Vec<i64>;
         fn flows_places_route_decimation_step(count: i64) -> i64;
 
         // ---- the rankers ----
@@ -188,6 +198,7 @@ mod ffi {
         fn flows_places_kind_policy(kind: u8) -> FlowsPlacesKindPolicy;
         fn flows_places_search_center_cap(query_count: i64) -> i64;
         fn flows_places_center_picks(count: i64, cap: i64) -> Vec<i64>;
+        fn flows_places_end_to_end_picks(count: i64, cap: i64) -> Vec<i64>;
         fn flows_places_first_nearest(lats: &[f64], lons: &[f64], lat: f64, lon: f64) -> i64;
         fn flows_places_rank_by_distance(
             lats: &[f64],
@@ -396,6 +407,31 @@ impl FlowsRoutePath {
             .collect()
         })
     }
+
+    /// The first-eight rows spread over the whole drive (tourist stops):
+    /// the item indices to hand `rank_along`, in road order.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spread_along(
+        &self,
+        kind: u8,
+        trucker: bool,
+        has_position: bool,
+        lat: f64,
+        lon: f64,
+        item_lats: &[f64],
+        item_lons: &[f64],
+    ) -> Vec<i64> {
+        contain(Vec::new(), || {
+            indices(pl::spread_along(
+                &self.0,
+                kind,
+                trucker,
+                has_position.then_some((lat, lon)),
+                &points(item_lats, item_lons),
+                pl::RANKED_ROWS,
+            ))
+        })
+    }
 }
 
 pub fn flows_places_admissible(ahead_meters: f64, detour_meters: f64, max_detour: f64) -> bool {
@@ -591,6 +627,15 @@ pub fn flows_places_search_center_cap(query_count: i64) -> i64 {
 pub fn flows_places_center_picks(count: i64, cap: i64) -> Vec<i64> {
     contain(Vec::new(), || {
         indices(pl::center_picks(
+            usize::try_from(count).unwrap_or(0),
+            usize::try_from(cap).unwrap_or(0),
+        ))
+    })
+}
+
+pub fn flows_places_end_to_end_picks(count: i64, cap: i64) -> Vec<i64> {
+    contain(Vec::new(), || {
+        indices(pl::end_to_end_picks(
             usize::try_from(count).unwrap_or(0),
             usize::try_from(cap).unwrap_or(0),
         ))
@@ -831,6 +876,10 @@ mod tests {
             &[0],
         );
         assert_eq!(rows.len(), 3);
+        assert_eq!(
+            route.spread_along(3, false, false, 0.0, 0.0, &[43.0, 43.0], &[-88.95, -88.9]),
+            vec![0, 1]
+        );
         assert!(!flows_places_kind_policy(13).has);
         assert_eq!(flows_places_limits().ranked_rows, 8);
     }

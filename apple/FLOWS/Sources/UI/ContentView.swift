@@ -177,7 +177,7 @@ struct ContentView: View {
         // drives both the risk-level stripe (score) and the hazard-type stripe.
         zctaOverlays = zctaRings.keys.sorted().compactMap { code in
             guard let ring = zctaRings[code] else { return nil }
-            let c = Self.centroid(of: ring)
+            let c = RiskAreaFallback.centroid(of: ring)
             // The ring's WORST hazard, which is what the stripes claim to
             // show — the code used to take the merely NEAREST one, so a mild
             // reading beside the centroid could name a ZIP that had something
@@ -206,7 +206,7 @@ struct ContentView: View {
         // risk area — drawing a hull on top of the ZIP boundary painted the
         // "multiple overlapping risks" the map must not show. Blobs remain for
         // Canada/Mexico and for US points whose ZIP truly hasn't resolved.
-        let ringCentroids = zctaRings.values.map { Self.centroid(of: $0) }
+        let ringCentroids = zctaRings.values.map { RiskAreaFallback.centroid(of: $0) }
         let unresolved = elevated.filter { pt in
             if zctaRings.values.contains(where: {
                 HazardFeedScores.pointInPolygon(pt.coordinate, $0)
@@ -233,20 +233,57 @@ struct ContentView: View {
             return true
         }
         if ringsResolved { zipPlacedPoints = Set(elevated.map(\.id)) }
-        let blobs = RiskBlob.clusters(unresolved.map(\.coordinate),
-                                      adjacencyMeters: viewportHazardRadius * 3)
-        blobOverlays = blobs.enumerated().map { bi, blob in
-            let members = elevated.filter { pt in blob.contains(where: {
+        // No ZIP under these points — open water, Canada, Mexico: a CIRCLE
+        // around each group of neighbouring points, never a box. (A padded
+        // hull of one point was a square: "squares over the water".)
+        let groups = RiskBlob.clusters(unresolved.map(\.coordinate),
+                                       adjacencyMeters: viewportHazardRadius * 3)
+        blobOverlays = groups.map { group in
+            let members = elevated.filter { pt in group.contains(where: {
                 $0.latitude == pt.coordinate.latitude
                     && $0.longitude == pt.coordinate.longitude }) }
             let worstMember = members.max(by: { $0.realized < $1.realized })
-            let ring = RiskBlob.hull(blob, padMeters: viewportHazardRadius)
+            let center = CLLocationCoordinate2D(
+                latitude: group.map(\.latitude).reduce(0, +) / Double(max(group.count, 1)),
+                longitude: group.map(\.longitude).reduce(0, +) / Double(max(group.count, 1)))
+            let reach = group.map { POIRanking.meters($0, center) }.max() ?? 0
+            let ring = RiskAreaFallback.circleRing(center: center,
+                                                   radiusMeters: reach + viewportHazardRadius)
             let hatch = Self.boundedHatch(ring, minSpacing: 0.02, region: visibleRegion)
-            return RiskAreaOverlay(id: "blob-\(bi)", ring: ring,
-                                   score: worstMember?.realized ?? 0.25,
-                                   kind: worstMember?.kind ?? fallbackKind,
-                                   riskStripes: hatch.even, typeStripes: hatch.odd)
+            // Named by where it stands, so the map keeps the same circle
+            // from sweep to sweep instead of redrawing it under a new id.
+            return RiskAreaOverlay(
+                id: String(format: "circle-%.3f|%.3f", center.latitude, center.longitude),
+                ring: ring,
+                score: worstMember?.realized ?? 0.25,
+                kind: worstMember?.kind ?? fallbackKind,
+                riskStripes: hatch.even, typeStripes: hatch.odd)
         }
+        rebuildViewportBadges()
+    }
+
+    /// One icon per risky area — every ZIP, and every circle off the ZIP
+    /// map, whose risk reaches the icon floor — thinned so the screen never
+    /// crowds (BadgeClustering.declutter): worst first, none nearer than a
+    /// sixth of the visible map to one already placed. Zooming in leaves
+    /// room for more. Each icon stands inside its own area.
+    private func rebuildViewportBadges() {
+        let candidates = (zctaOverlays + blobOverlays)
+            .filter { $0.score >= model.riskIconFloor }
+            .map { BadgeClustering.Item(coordinate: RiskAreaFallback.iconAnchor(of: $0.ring),
+                                        kind: $0.kind, score: $0.score) }
+        clusteredBadgesCache = BadgeClustering.declutter(candidates,
+                                                         minSeparationMeters: badgeSpacingMeters)
+        refreshViewportBadgeEvents()
+    }
+
+    /// How far apart the map's icons stand: a sixth of the shorter side of
+    /// the visible map.
+    private var badgeSpacingMeters: CLLocationDistance {
+        guard let r = visibleRegion else { return 30_000 }
+        let tall = r.span.latitudeDelta * 111_320
+        let wide = r.span.longitudeDelta * 111_320 * cos(r.center.latitude * .pi / 180)
+        return max(min(tall, wide) / 6, 400)
     }
     struct ViewportHazard: Identifiable {
         /// Stable id from the grid coordinate, so MapKit diffs overlays by
@@ -294,8 +331,32 @@ struct ContentView: View {
         var sourceURL: URL? = nil
         /// The live warning that put this badge here, when there is one.
         var event: String? = nil
+        /// A tap on the long-term risk map (20 years of storm records), not
+        /// on today's weather — the card says which.
+        var longTerm = false
     }
     @State private var hazardInfo: HazardTapInfo?
+    /// A place on the map itself the driver tapped (Apple's own points of
+    /// interest), waiting on "Add it to your trip?".
+    @State private var pickedRaw: AnyHashable?
+
+    /// The tapped place, from the selection the map holds.
+    private var pickedFeature: MapFeature? {
+        if #available(iOS 18.0, macOS 15.0, *) {
+            return (pickedRaw as? MapSelection<Int>)?.feature
+        }
+        return nil
+    }
+
+    /// The map's selection: Apple's own places only (FLOWS's pins and
+    /// badges are buttons of their own).
+    @available(iOS 18.0, macOS 15.0, *)
+    private var featureSelection: Binding<MapSelection<Int>?> {
+        Binding(get: { pickedRaw as? MapSelection<Int> },
+                set: { pickedRaw = $0.map(AnyHashable.init) })
+    }
+    /// What adding a tapped place did — shown for a few seconds.
+    @State private var placeNote: String?
     /// The map key steps aside while any chrome would sit on it
     /// (ChromeOverlapReporter decides).
     @State private var legendYields = false
@@ -312,6 +373,10 @@ struct ContentView: View {
     /// ZIP lookups placed: each sits in a ZIP outline, or is a blob for good
     /// (outside every ZIP, past the lookup cap, or its lookup failed).
     @State private var zipPlacedPoints: Set<String> = []
+    /// The ZIP each elevated sweep point was last found in (point id → ZIP),
+    /// so a lookup past the per-sweep cap, or one still loading, keeps the
+    /// outline it had instead of blinking it off the map.
+    @State private var zipOfPoint: [String: String] = [:]
 
     /// Cached (see `clusteredBadgesCache`) so the O(n²) clustering runs once per
     /// sweep, not on every view-body evaluation (camera ticks, timers, gestures).
@@ -386,7 +451,7 @@ struct ContentView: View {
     /// chrome, never inside the cards' scroll.)
     private var hasDetailCards: Bool {
         model.poi.touristDetail != nil || hazardInfo != nil
-            || model.showTowingCard
+            || model.showTowingCard || pickedFeature != nil || placeNote != nil
     }
 
     /// The detail cards, stacked in one column with the most urgent last, so
@@ -411,7 +476,84 @@ struct ContentView: View {
             if model.showTowingCard {
                 TowingCard()
             }
+            if let feature = pickedFeature {
+                placeCard(feature)
+            } else if let note = placeNote {
+                placeNoteChip(note)
+            }
         }
+    }
+
+    /// A place the driver tapped on the map itself (Apple's own points of
+    /// interest — a Starbucks, a park): "Add it to your trip?" — yes makes
+    /// it a stop (or, with no trip yet, the destination).
+    private func placeCard(_ feature: MapFeature) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "mappin.circle.fill")
+                .scaledFont(size: 22, weight: .bold)
+                .foregroundStyle(Theme.cta)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(feature.title ?? "This place")
+                    .scaledFont(size: 15, weight: .bold)
+                    .lineLimit(2)
+                Text(model.mode == .planning ? "Make it your destination?"
+                                             : "Add it to your trip?")
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            Button(model.mode == .planning ? "Go there" : "Add") {
+                Task {
+                    let item = Self.mapItem(for: feature)
+                    pickedRaw = nil
+                    showPlaceNote(await model.addToTrip(item))
+                }
+            }
+            .scaledFont(size: 14, weight: .heavy)
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 36)
+            .background(Theme.cta)
+            .foregroundStyle(Theme.onCTA)
+            .clipShape(Capsule())
+            Button("No") { pickedRaw = nil }
+                .scaledFont(size: 14, weight: .bold)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 36)
+                .background(Theme.fill(0.06))
+                .clipShape(Capsule())
+        }
+        .floatingCard()
+        .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+    }
+
+    /// What adding the place did, for a few seconds.
+    private func placeNoteChip(_ note: String) -> some View {
+        Label(note, systemImage: "checkmark.circle.fill")
+            .scaledFont(.footnote, weight: .semibold)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Theme.cardBackground)
+            .clipShape(Capsule())
+            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+    }
+
+    private func showPlaceNote(_ note: String) {
+        placeNote = note
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            if placeNote == note { placeNote = nil }
+        }
+    }
+
+    /// A tapped map place as a stop: its name, its point and its kind (a
+    /// fuel stop added this way still counts as a fill-up on arrival).
+    private static func mapItem(for feature: MapFeature) -> MKMapItem {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: feature.coordinate))
+        item.name = feature.title
+        item.pointOfInterestCategory = feature.pointOfInterestCategory
+        return item
     }
 
     private var mainStack: some View {
@@ -419,10 +561,11 @@ struct ContentView: View {
             mapLayer
             // Legend first: it is BACKGROUND — every input and information
             // box (planner, cards, banners) draws over it, never under it.
-            if legendHasRoom {
-                LegendCard(isCompact: isCompact,
-                           dockTrailing: !isCompact && model.mode == .choosing
-                               && !model.collapsedPanels.contains("routes"))
+            // On the route screen the key sits in the chrome's own stack,
+            // under the trip pill (PlanningChrome); everywhere else it is a
+            // corner of the map.
+            if legendHasRoom, model.mode != .choosing {
+                LegendCard(isCompact: isCompact)
                     // The key is background: while a menu, card or banner
                     // would sit on it, it steps aside instead of covering or
                     // being covered, and comes back when the space is clear.
@@ -546,6 +689,10 @@ struct ContentView: View {
             // POI quick action: zoom OUT to show both the vehicle and the
             // selected hit so the driver sees where it is relative to them.
             guard let selected = model.poi.selected else { return }
+            // On the route screen the first tourist stop is picked for the
+            // list, not by the rider: the map keeps the whole route in view
+            // until a stop is tapped (its card opens with the tap).
+            if model.mode == .choosing, model.poi.touristDetail == nil { return }
             var rect = MKMapRect(
                 origin: MKMapPoint(selected.item.placemark.coordinate),
                 size: MKMapSize(width: 1, height: 1))
@@ -825,21 +972,14 @@ struct ContentView: View {
             // looking, without raising the wide-view request budget.
             let base = AdaptiveTuning.shared.viewportGridSpan
             let n = region.span.latitudeDelta < 1.0 ? min(base + 1, 6) : base
-            let half = Double(n - 1) / 2
-            // Divide by (n-1), not n, so the N×N grid spans edge-to-edge (±0.5
-            // of the visible span). Dividing by n left a ~10% unsampled margin
-            // on every side, so a hazard in the outer tenth produced no badge.
-            let denom = Double(max(n - 1, 1))
-            var gridPts: [CLLocationCoordinate2D] = []
-            for gy in 0..<n {
-                for gx in 0..<n {
-                    gridPts.append(CLLocationCoordinate2D(
-                        latitude: region.center.latitude
-                            + region.span.latitudeDelta * (Double(gy) - half) / denom,
-                        longitude: region.center.longitude
-                            + region.span.longitudeDelta * (Double(gx) - half) / denom))
-                }
-            }
+            // Points fixed to the MAP, edge to edge (RiskAreaFallback.lattice):
+            // a grid centred on the camera slid with every pan, read new
+            // spots each sweep, and risk areas came and went though the
+            // weather had not changed.
+            let gridPts = RiskAreaFallback.lattice(
+                centerLatitude: region.center.latitude, centerLongitude: region.center.longitude,
+                spanLatitude: region.span.latitudeDelta, spanLongitude: region.span.longitudeDelta,
+                perSide: n)
             // REALIZED NWS alerts across the viewport (one sweep, zero arrival
             // offsets = active right now): a grid point inside a Tornado /
             // Flash-Flood / Tsunami WARNING carries that realized primary into
@@ -1042,26 +1182,11 @@ struct ContentView: View {
                 }
                 viewportHazards = found + kept
                 merged = viewportHazards
-                // Cluster once here, not on every render (O(n²) in the body).
-                // Badge score is the point's REALIZED risk (primary hazards can
-                // reach Red; secondary predictors amplify a realized primary but
-                // are capped below Red on their own), so the number matches the
-                // icon and a lone secondary — or a pile of small ones — never
-                // reads as life-threatening. Only genuinely-elevated points get
-                // a symbol.
+                // Once per sweep, not per render: the areas and their icons
+                // (one per area, from the areas themselves). This sweep's ZIP
+                // outlines are looked up below, so no placeholder circles yet
+                // for US points new to the map.
                 let sp = flowsSignposter.beginInterval("badge-sweep")
-                clusteredBadgesCache = BadgeClustering.cluster(
-                    viewportHazards.compactMap { hz in
-                        hz.realized >= model.riskIconFloor
-                            ? BadgeClustering.Item(coordinate: hz.coordinate,
-                                                   kind: hz.kind, score: hz.realized)
-                            : nil
-                    },
-                    minSeparationMeters: viewportHazardRadius * 2.5)
-                refreshViewportBadgeEvents()
-                // Once per sweep, not per render. This sweep's ZIP outlines
-                // are looked up below, so no placeholder boxes yet for US
-                // points new to the map.
                 rebuildRiskOverlays(ringsResolved: false)
                 flowsSignposter.endInterval("badge-sweep", sp)
             }
@@ -1074,54 +1199,40 @@ struct ContentView: View {
             // longer has any elevated point age out.
             var rings = zctaRings
             var liveCodes = Set<String>()
+            var placed = zipOfPoint
+            var lookups = 0
             // Every elevated point gets a real ZIP boundary (ZCTAFetcher caches
-            // by cell, so repeat sweeps are nearly free) — risk areas draw as
-            // actual ZIP shapes, with hull blobs only as a genuine fallback.
-            // Same floor as the badges: striped AREAS are the map's loudest
-            // element and must not paint for clear-band scores.
+            // by cell, and the lattice re-reads the same points, so repeat
+            // sweeps are nearly free) — risk areas draw as actual ZIP shapes,
+            // with circles only where there is no ZIP. Same floor as the
+            // icons: striped AREAS are the map's loudest element and must not
+            // paint for clear-band scores.
             for hz in merged
                 .filter({ $0.realized >= model.riskDisplayFloor })
-                .sorted(by: { $0.realized > $1.realized })
-                .prefix(24) {   // worst first; each ring is a polygon plus its stripes
+                .sorted(by: { $0.realized > $1.realized }) {
                 if Task.isCancelled { return }   // superseded: skip remaining fetches
-                if let z = await ZCTAFetcher.shared.zcta(containing: hz.coordinate) {
-                    rings[z.code] = z.ring
-                    liveCodes.insert(z.code)
+                // Worst first, at most 48 lookups a sweep; past the cap, a
+                // point an earlier sweep placed keeps its ZIP rather than
+                // dropping it — the "ZIPs come and go" flicker.
+                if lookups < 48, rings[placed[hz.id] ?? ""] == nil || placed[hz.id] == nil {
+                    lookups += 1
+                    if let z = await ZCTAFetcher.shared.zcta(containing: hz.coordinate) {
+                        rings[z.code] = z.ring
+                        placed[hz.id] = z.code
+                    }
                 }
+                // A lookup still loading (or failed) keeps what the last one
+                // found.
+                if let code = placed[hz.id], rings[code] != nil { liveCodes.insert(code) }
             }
             rings = rings.filter { liveCodes.contains($0.key) }
             if viewportHazardKey == key {
                 zctaRings = rings
-                // Center each badge on its contiguous ZIP: a badge whose
-                // cluster-centroid falls inside a resolved ZCTA ring snaps to
-                // that ring's shoelace centroid — the symbol sits at the middle
-                // of the actual ZIP shape, not at the grid-sample average.
-                // A cluster averaging points from NEIGHBORING ZIPs can land in
-                // the gap between rings ("rain icon isn't on the striped
-                // area") — those snap to the nearest ring center within a
-                // couple of sample radii. Two badges of one kind landing on
-                // the same center collapse to one (duplicate identities).
-                let centers = rings.values.map { (ring: $0, center: Self.centroid(of: $0)) }
-                var seen = Set<String>()
-                clusteredBadgesCache = clusteredBadgesCache.compactMap { badge in
-                    var snapped = badge
-                    if let hit = centers.first(where: {
-                        HazardFeedScores.pointInPolygon(badge.coordinate, $0.ring)
-                    }) {
-                        snapped = BadgeClustering.Item(coordinate: hit.center,
-                                                       kind: badge.kind, score: badge.score)
-                    } else if let near = centers.min(by: {
-                        POIRanking.meters($0.center, badge.coordinate)
-                            < POIRanking.meters($1.center, badge.coordinate)
-                    }), POIRanking.meters(near.center, badge.coordinate)
-                            < viewportHazardRadius * 2.5 {
-                        snapped = BadgeClustering.Item(coordinate: near.center,
-                                                       kind: badge.kind, score: badge.score)
-                    }
-                    return seen.insert(snapped.stableID).inserted ? snapped : nil
-                }
-                refreshViewportBadgeEvents()   // the snap moved every badge
-                rebuildRiskOverlays(ringsResolved: true)   // ZCTA rings resolved — refresh overlays
+                // Only points still on the map are remembered.
+                let onMap = Set(merged.map(\.id))
+                zipOfPoint = placed.filter { onMap.contains($0.key) }
+                // The areas, and one icon per area from them.
+                rebuildRiskOverlays(ringsResolved: true)
             }
         }
     }
@@ -1316,7 +1427,7 @@ struct ContentView: View {
     /// highways).
     private var grayAlternates: [PlannedRoute] {
         RouteFilter.offered(model.routeChoices, judged: model.judgingFilters,
-                            limits: model.filterLimits)
+                            limits: model.judgingLimits)
             .filter { $0.id != model.highlightedRouteID }
     }
 
@@ -1368,306 +1479,305 @@ struct ContentView: View {
 
     @Namespace private var mapScope
 
+    /// Everything drawn on the map, in drawing order (first is lowest).
+    @MapContentBuilder
+    private var mapLayers: some MapContent {
+        // OFFLINE LIFELINE: the recorded breadcrumb trail — the way you
+        // came, drawable with zero network. Orange dashes, newest at the
+        // vehicle; follow it backward to walk out the way you came in.
+        if model.breadcrumbs.showTrail, model.breadcrumbs.points.count >= 2 {
+            MapPolyline(coordinates: model.breadcrumbs.points)
+                .stroke(Color.orange.opacity(0.95),
+                        style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [8, 6]))
+        }
+        // OFFLINE LIFELINE, the other half: the ROAD AHEAD, saved to disk
+        // for trips between towns. With no signal Apple can't route, but
+        // this line already knows the way — so it draws whenever the
+        // network is gone and nothing live is on the map.
+        if model.breadcrumbs.isOffline, model.navigation.route == nil,
+           let here = model.location.coordinate,
+           let saved = model.corridors.nearest(to: here),
+           saved.coordinates.count >= 2 {
+            MapPolyline(coordinates: saved.coordinates)
+                .stroke(Color.purple.opacity(0.9),
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [14, 8]))
+            if let end = saved.destination {
+                Annotation(saved.destinationName, coordinate: end) {
+                    // Fixed glyph in a fixed disc (see travelerMarker).
+                    Image(systemName: "flag.checkered")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(Color.purple)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                        .shadow(radius: 3)
+                }
+            }
+        }
+        // Mode-aware "you are here": a simplified vehicle icon at the
+        // precise GPS position — car when driving, walker in walking mode,
+        // tram/bus when a transit itinerary is active. Rotates with the
+        // course while navigating so the car points down the road.
+        if let here = model.location.coordinate {
+            Annotation("", coordinate: drawnFix ?? here) {
+                travelerMarker
+            }
+            // Fuel-reach ring: ONLY once the tank is 75%+ empty — the
+            // blue circle is how far the remaining fuel can take you,
+            // shrinking toward the car as the tank approaches empty.
+            if model.mode == .navigating, !model.walkingMode,
+               let frac = model.vehicle.displayedFuelFraction, frac <= 0.25,
+               let rangeMiles = model.vehicle.expectedRangeMiles, rangeMiles > 0 {
+                MapCircle(center: here, radius: rangeMiles * 1609.344)
+                    .foregroundStyle(Color.blue.opacity(0.06))
+                    .stroke(Color.blue.opacity(0.55), lineWidth: 2)
+            }
+        } else {
+            UserAnnotation()
+        }
+
+        // RED ALERT incident: symbol at the described location, ringed by
+        // how far a vehicle could have driven since the incident at the
+        // speeds nearby roads allow — the circle GROWS with time.
+        // The reach circle is about a thing that MOVES — a fleeing
+        // vehicle as much as a spreading hazard — so a lookout alert
+        // draws it too.
+        if let warning = model.imminentWarning,
+           warning.action == .shelter || warning.action == .lookout,
+           let incident = warning.incidentCoordinate {
+            let _ = redAlertTick   // re-evaluate as time passes
+            let elapsed = Date().timeIntervalSince(warning.onset ?? Date())
+            let radius = PursuitReach.radiusMeters(
+                elapsedSeconds: elapsed, speedMph: warning.reachSpeedMph)
+            MapCircle(center: incident, radius: radius)
+                .foregroundStyle(Theme.riskRed.opacity(0.12))
+                .stroke(Theme.riskRed.opacity(0.7), lineWidth: 2)
+            Annotation("", coordinate: incident) {
+                ZStack {
+                    Circle().fill(Theme.riskRed).frame(width: 34, height: 34)
+                    // Fixed glyph in a fixed disc (see travelerMarker).
+                    Image(systemName: warning.vehicleEntity?.kind.symbol
+                          ?? "exclamationmark.octagon.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .overlay(Circle().stroke(.white, lineWidth: 2))
+                .shadow(radius: 3)
+            }
+        }
+
+        // Dispatch calls heard on the local feed and transcribed on this
+        // device — small pins, the size of the vehicle marker, that fade
+        // out on their own. Colour by kind: blue police, red medical,
+        // orange fire.
+        ForEach(model.visibleScannerIncidents) { incident in
+            Annotation("", coordinate: incident.coordinate) {
+                ScannerIncidentPin(incident: incident)
+            }
+        }
+
+        // Fixed automated enforcement: speed and red-light cameras, from
+        // OpenStreetMap. Permanent, publicly signed installations — the
+        // only enforcement FLOWS can lawfully carry (see
+        // EnforcementCameras for why a parked patrol car is not here).
+        ForEach(model.enforcementCameras) { camera in
+            Annotation("", coordinate: camera.coordinate) {
+                ZStack {
+                    Circle().fill(Color.black.opacity(0.85))
+                        .frame(width: 26, height: 26)
+                    // Fixed glyph in a fixed disc (see travelerMarker).
+                    Image(systemName: camera.kind.symbol)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.onDark)
+                }
+                .overlay(Circle().stroke(Theme.riskYellow, lineWidth: 2))
+                .shadow(radius: 2)
+                .help(camera.kind.title)
+            }
+        }
+
+        // The web app's ZIP risk choropleth, family-filtered by the Map
+        // Filter — drawn first, under everything. Only ZIPs at Green or
+        // worse: a Clear ZIP has nothing to show, and it was drawn (in the
+        // old blue) because the floor sat below the Green cut.
+        ForEach(choroplethZIPs) { zip in
+            MapPolygon(coordinates: zip.ring)
+                .foregroundStyle(FlowsCore.riskBand(score: zip.score).color
+                    .opacity(0.15 + 0.25 * zip.score))
+        }
+
+        // ONE normalized layer (per request): everything folds into the
+        // NORMALIZED ENVIRONMENTAL score — live NWS/ECCC/SMN conditions,
+        // fire, air, UV, seismic — as band-tinted circles + one tappable
+        // symbol per area. No family picker, no striped sublayers.
+        if model.showRiskField, model.mode != .navigating {
+            // Contiguous OUTLINES of affected areas (adjacent elevated
+            // grid points cluster → hull polygon), not circles.
+            // Continuous field everywhere (like WI's choropleth): every
+            // grid point tints faintly by band; ZCTA rings + badges key
+            // off genuinely elevated scores.
+            // Risk-area overlays — real ZCTA ZIP rings (US) + hull blobs
+            // (Canada/Mexico + still-loading) — are precomputed once per sweep
+            // in rebuildRiskOverlays(); the map body only DRAWS them, so the
+            // O(U²) clustering + O(K·E) worst-scans no longer run per render.
+            // Two-color risk areas: a solid RISK-LEVEL base (green/yellow/red)
+            // with the dominant HAZARD-TYPE as diagonal stripes on top — e.g.
+            // a green area striped blue = low risk, flood. Border = risk color.
+            // TRANSPARENT fill; the area reads through two alternating
+            // stripe sets — risk-level color (green/yellow/red) and hazard-
+            // type color (blue flood, orange fire, …). Border = risk color.
+            ForEach(zctaOverlays) { ov in
+                let risk = HazardStyle.riskLevelColor(FlowsCore.riskBand(score: ov.score))
+                MapPolygon(coordinates: ov.ring)
+                    .foregroundStyle(risk.opacity(0.05))
+                    .stroke(risk.opacity(0.9), lineWidth: 2)
+                ForEach(Array(ov.riskStripes.enumerated()), id: \.offset) { _, seg in
+                    MapPolyline(coordinates: seg)
+                        .stroke(risk.opacity(0.85), lineWidth: 3)
+                }
+                ForEach(Array(ov.typeStripes.enumerated()), id: \.offset) { _, seg in
+                    MapPolyline(coordinates: seg)
+                        .stroke(ov.kind.color.opacity(0.85), lineWidth: 3)
+                }
+            }
+            ForEach(blobOverlays) { ov in
+                let risk = HazardStyle.riskLevelColor(FlowsCore.riskBand(score: ov.score))
+                MapPolygon(coordinates: ov.ring)
+                    .foregroundStyle(risk.opacity(0.05))
+                    .stroke(risk.opacity(0.85), lineWidth: 2)
+                ForEach(Array(ov.riskStripes.enumerated()), id: \.offset) { _, seg in
+                    MapPolyline(coordinates: seg)
+                        .stroke(risk.opacity(0.8), lineWidth: 3)
+                }
+                ForEach(Array(ov.typeStripes.enumerated()), id: \.offset) { _, seg in
+                    MapPolyline(coordinates: seg)
+                        .stroke(ov.kind.color.opacity(0.8), lineWidth: 3)
+                }
+            }
+            // Stable LOCATION+kind identity — positional ids remapped every
+            // non-deterministic sweep and ghosted badges (same bug class as
+            // ViewportHazard.id).
+            ForEach(clusteredViewportBadges, id: \.stableID) { hz in
+                Annotation("", coordinate: hz.coordinate) {
+                    viewportHazardBadge(hz)
+                }
+            }
+        }
+
+        if model.mode == .choosing {
+            // Risk field first (under everything): the actual NWS alert
+            // polygons along the highlighted corridor, severity-tinted —
+            // the corridor-scoped analog of the web app's ZIP choropleth.
+            if let hl = model.routeChoices.first(where: { $0.id == model.highlightedRouteID }) {
+                alertPolygonOverlay(hl)
+                corridorHazardShapes(hl)
+            }
+            // ALL offered alternates side by side: gray underlays, then
+            // the highlighted route on top in per-segment risk-band colors
+            // so the risk being accepted is visible on the map itself.
+            //
+            // ...unless the traveller is looking at a train, bus or plane.
+            // Someone who has chosen not to drive should not have to pick
+            // their itinerary out from under the driving routes they just
+            // rejected — the drawn lines are the trip being considered, and
+            // a highway they are not on is not it. The weather layers above
+            // stay: the storm is over that ground whichever way you cross
+            // it, and it is the reason this app exists.
+            if model.transitItinerary == nil {
+                ForEach(grayAlternates) { alt in
+                    MapPolyline(alt.route.polyline)
+                        .stroke(Color.gray.opacity(0.55), lineWidth: 5)
+                }
+                if let hl = model.routeChoices
+                    .first(where: { $0.id == model.highlightedRouteID }) {
+                    riskStrokedRoute(hl)
+                    if model.show3DMap { steepGradeMarkers(hl) }
+                }
+            }
+            // Public-transit itinerary drawn IN FLOWS: walk legs (real
+            // MapKit geometry) solid green; a park-and-ride access leg
+            // solid blue (it's a drive); the ride leg follows the road
+            // corridor (MKDirections .automobile, straight connector only if
+            // unroutable) dashed purple. Final green leg is the no-car last mile.
+            if let itin = model.transitItinerary {
+                ForEach(itin.legs) { leg in
+                    if let poly = leg.polyline {
+                        let color: Color = switch leg.kind {
+                        case .walk: .green
+                        case .drive: .blue
+                        case .ride: .purple
+                        }
+                        MapPolyline(poly)
+                            .stroke(color,
+                                    style: StrokeStyle(
+                                        lineWidth: leg.kind == .ride ? 4 : 5,
+                                        lineCap: .round,
+                                        dash: leg.kind == .ride ? [10, 8] : []))
+                    }
+                }
+            }
+        } else if model.mode == .navigating, let route = model.navigation.route {
+            alertPolygonOverlay(route)
+            corridorHazardShapes(route)
+            // Appended-stop continuation: the rest of the trip after the
+            // stop, dashed, under the leg being driven.
+            if let next = model.upcomingLeg {
+                // In its own risk colours, lighter and dashed: the way
+                // on, not the leg being driven. (It was a plain blue.)
+                if next.weatherScored, !next.riskSegments.isEmpty {
+                    ForEach(next.riskSegments) { seg in
+                        MapPolyline(coordinates: seg.coordinates)
+                            .stroke(FlowsCore.riskBand(score: seg.risk).color.opacity(0.6),
+                                    style: StrokeStyle(lineWidth: 5, lineCap: .round,
+                                                       dash: [8, 6]))
+                    }
+                } else {
+                    MapPolyline(next.route.polyline)
+                        .stroke(next.riskBand.color.opacity(0.6),
+                                style: StrokeStyle(lineWidth: 5, dash: [8, 6]))
+                }
+            }
+            riskStrokedRoute(route)
+            if model.show3DMap { steepGradeMarkers(route) }
+            // Long walking estimate: the accurate Apple pedestrian path for
+            // the stretch right ahead, drawn (bright green, solid) over the
+            // big-picture road route — real sidewalks locally, road-based
+            // direction overall.
+            if route.isWalkingEstimate, model.walkingRefinedPath.count >= 2 {
+                MapPolyline(coordinates: model.walkingRefinedPath)
+                    .stroke(Color.green,
+                            style: StrokeStyle(lineWidth: 6, lineCap: .round))
+            }
+        }
+
+        ForEach(model.poi.results) { ranked in
+            // Annotation, not Marker: Marker swallows taps, which left
+            // tourist stars (and every other stop pin) dead to clicks.
+            Annotation(BrandMark.displayName(ranked.item.name ?? "Stop"),
+                       coordinate: ranked.item.placemark.coordinate) {
+                poiPin(ranked)
+            }
+        }
+    }
+
     private var mapContent: some View {
         // interactionModes is an INITIALIZER parameter on SwiftUI's Map, not
         // a modifier. Stated explicitly rather than left to the default so
         // pinch-to-zoom, two-finger rotate, two-finger pitch and drag-to-pan
         // can't be narrowed by accident later.
-        Map(position: $camera, interactionModes: .all, scope: mapScope) {
-            // OFFLINE LIFELINE: the recorded breadcrumb trail — the way you
-            // came, drawable with zero network. Orange dashes, newest at the
-            // vehicle; follow it backward to walk out the way you came in.
-            if model.breadcrumbs.showTrail, model.breadcrumbs.points.count >= 2 {
-                MapPolyline(coordinates: model.breadcrumbs.points)
-                    .stroke(Color.orange.opacity(0.95),
-                            style: StrokeStyle(lineWidth: 4, lineCap: .round, dash: [8, 6]))
-            }
-            // OFFLINE LIFELINE, the other half: the ROAD AHEAD, saved to disk
-            // for trips between towns. With no signal Apple can't route, but
-            // this line already knows the way — so it draws whenever the
-            // network is gone and nothing live is on the map.
-            if model.breadcrumbs.isOffline, model.navigation.route == nil,
-               let here = model.location.coordinate,
-               let saved = model.corridors.nearest(to: here),
-               saved.coordinates.count >= 2 {
-                MapPolyline(coordinates: saved.coordinates)
-                    .stroke(Color.purple.opacity(0.9),
-                            style: StrokeStyle(lineWidth: 5, lineCap: .round, dash: [14, 8]))
-                if let end = saved.destination {
-                    Annotation(saved.destinationName, coordinate: end) {
-                        // Fixed glyph in a fixed disc (see travelerMarker).
-                        Image(systemName: "flag.checkered")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 30, height: 30)
-                            .background(Color.purple)
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(.white, lineWidth: 2))
-                            .shadow(radius: 3)
-                    }
-                }
-            }
-            // Mode-aware "you are here": a simplified vehicle icon at the
-            // precise GPS position — car when driving, walker in walking mode,
-            // tram/bus when a transit itinerary is active. Rotates with the
-            // course while navigating so the car points down the road.
-            if let here = model.location.coordinate {
-                Annotation("", coordinate: drawnFix ?? here) {
-                    travelerMarker
-                }
-                // Fuel-reach ring: ONLY once the tank is 75%+ empty — the
-                // blue circle is how far the remaining fuel can take you,
-                // shrinking toward the car as the tank approaches empty.
-                if model.mode == .navigating, !model.walkingMode,
-                   let frac = model.vehicle.displayedFuelFraction, frac <= 0.25,
-                   let rangeMiles = model.vehicle.expectedRangeMiles, rangeMiles > 0 {
-                    MapCircle(center: here, radius: rangeMiles * 1609.344)
-                        .foregroundStyle(Color.blue.opacity(0.06))
-                        .stroke(Color.blue.opacity(0.55), lineWidth: 2)
-                }
+        // The reader turns a tap's screen point into a map coordinate, so a
+        // tap on a coloured ZIP opens its card like tapping its icon does.
+        MapReader { proxy in
+        Group {
+            // Apple's own places on the map (a Starbucks, a park) are
+            // tappable where the system lets an app see them: "Add it to
+            // your trip?". Older systems keep the plain map.
+            if #available(iOS 18.0, macOS 15.0, *) {
+                Map(position: $camera, interactionModes: .all,
+                    selection: featureSelection, scope: mapScope) { mapLayers }
             } else {
-                UserAnnotation()
-            }
-
-            // RED ALERT incident: symbol at the described location, ringed by
-            // how far a vehicle could have driven since the incident at the
-            // speeds nearby roads allow — the circle GROWS with time.
-            // The reach circle is about a thing that MOVES — a fleeing
-            // vehicle as much as a spreading hazard — so a lookout alert
-            // draws it too.
-            if let warning = model.imminentWarning,
-               warning.action == .shelter || warning.action == .lookout,
-               let incident = warning.incidentCoordinate {
-                let _ = redAlertTick   // re-evaluate as time passes
-                let elapsed = Date().timeIntervalSince(warning.onset ?? Date())
-                let radius = PursuitReach.radiusMeters(
-                    elapsedSeconds: elapsed, speedMph: warning.reachSpeedMph)
-                MapCircle(center: incident, radius: radius)
-                    .foregroundStyle(Theme.riskRed.opacity(0.12))
-                    .stroke(Theme.riskRed.opacity(0.7), lineWidth: 2)
-                Annotation("", coordinate: incident) {
-                    ZStack {
-                        Circle().fill(Theme.riskRed).frame(width: 34, height: 34)
-                        // Fixed glyph in a fixed disc (see travelerMarker).
-                        Image(systemName: warning.vehicleEntity?.kind.symbol
-                              ?? "exclamationmark.octagon.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    .overlay(Circle().stroke(.white, lineWidth: 2))
-                    .shadow(radius: 3)
-                }
-            }
-
-            // Dispatch calls heard on the local feed and transcribed on this
-            // device — small pins, the size of the vehicle marker, that fade
-            // out on their own. Colour by kind: blue police, red medical,
-            // orange fire.
-            ForEach(model.visibleScannerIncidents) { incident in
-                Annotation("", coordinate: incident.coordinate) {
-                    ScannerIncidentPin(incident: incident)
-                }
-            }
-
-            // Fixed automated enforcement: speed and red-light cameras, from
-            // OpenStreetMap. Permanent, publicly signed installations — the
-            // only enforcement FLOWS can lawfully carry (see
-            // EnforcementCameras for why a parked patrol car is not here).
-            ForEach(model.enforcementCameras) { camera in
-                Annotation("", coordinate: camera.coordinate) {
-                    ZStack {
-                        Circle().fill(Color.black.opacity(0.85))
-                            .frame(width: 26, height: 26)
-                        // Fixed glyph in a fixed disc (see travelerMarker).
-                        Image(systemName: camera.kind.symbol)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Theme.onDark)
-                    }
-                    .overlay(Circle().stroke(Theme.riskYellow, lineWidth: 2))
-                    .shadow(radius: 2)
-                    .help(camera.kind.title)
-                }
-            }
-
-            // The web app's ZIP risk choropleth, family-filtered by the Map
-            // Filter — drawn first, under everything. Brightened (0.35) with
-            // a visible floor at 0.2 so the filterable overlay actually shows.
-            if model.showRiskField, model.riskField.loaded, model.mode != .navigating,
-               let region = visibleRegion,
-               // Family index hoisted above the ForEach — it was re-resolved
-               // once per rendered ZIP (up to 220 per frame).
-               let fi = model.riskField.familyIndex(model.overlayFamily) {
-                ForEach(model.riskField.zips(in: region, family: model.overlayFamily, limit: 220)) { entry in
-                    if let ring = entry.ring,
-                       fi < entry.scores.count, entry.scores[fi] >= 0.2 {
-                        MapPolygon(coordinates: ring)
-                            .foregroundStyle(FlowsCore.riskBand(score: entry.scores[fi]).color
-                                .opacity(0.15 + 0.25 * entry.scores[fi]))
-                    }
-                }
-            }
-
-            // ONE normalized layer (per request): everything folds into the
-            // NORMALIZED ENVIRONMENTAL score — live NWS/ECCC/SMN conditions,
-            // fire, air, UV, seismic — as band-tinted circles + one tappable
-            // symbol per area. No family picker, no striped sublayers.
-            if model.showRiskField, model.mode != .navigating {
-                // Contiguous OUTLINES of affected areas (adjacent elevated
-                // grid points cluster → hull polygon), not circles.
-                // Continuous field everywhere (like WI's choropleth): every
-                // grid point tints faintly by band; ZCTA rings + badges key
-                // off genuinely elevated scores.
-                // Risk-area overlays — real ZCTA ZIP rings (US) + hull blobs
-                // (Canada/Mexico + still-loading) — are precomputed once per sweep
-                // in rebuildRiskOverlays(); the map body only DRAWS them, so the
-                // O(U²) clustering + O(K·E) worst-scans no longer run per render.
-                // Two-color risk areas: a solid RISK-LEVEL base (green/yellow/red)
-                // with the dominant HAZARD-TYPE as diagonal stripes on top — e.g.
-                // a green area striped blue = low risk, flood. Border = risk color.
-                // TRANSPARENT fill; the area reads through two alternating
-                // stripe sets — risk-level color (green/yellow/red) and hazard-
-                // type color (blue flood, orange fire, …). Border = risk color.
-                ForEach(zctaOverlays) { ov in
-                    let risk = HazardStyle.riskLevelColor(FlowsCore.riskBand(score: ov.score))
-                    MapPolygon(coordinates: ov.ring)
-                        .foregroundStyle(risk.opacity(0.05))
-                        .stroke(risk.opacity(0.9), lineWidth: 2)
-                    ForEach(Array(ov.riskStripes.enumerated()), id: \.offset) { _, seg in
-                        MapPolyline(coordinates: seg)
-                            .stroke(risk.opacity(0.85), lineWidth: 3)
-                    }
-                    ForEach(Array(ov.typeStripes.enumerated()), id: \.offset) { _, seg in
-                        MapPolyline(coordinates: seg)
-                            .stroke(ov.kind.color.opacity(0.85), lineWidth: 3)
-                    }
-                }
-                ForEach(blobOverlays) { ov in
-                    let risk = HazardStyle.riskLevelColor(FlowsCore.riskBand(score: ov.score))
-                    MapPolygon(coordinates: ov.ring)
-                        .foregroundStyle(risk.opacity(0.05))
-                        .stroke(risk.opacity(0.85), lineWidth: 2)
-                    ForEach(Array(ov.riskStripes.enumerated()), id: \.offset) { _, seg in
-                        MapPolyline(coordinates: seg)
-                            .stroke(risk.opacity(0.8), lineWidth: 3)
-                    }
-                    ForEach(Array(ov.typeStripes.enumerated()), id: \.offset) { _, seg in
-                        MapPolyline(coordinates: seg)
-                            .stroke(ov.kind.color.opacity(0.8), lineWidth: 3)
-                    }
-                }
-                // Stable LOCATION+kind identity — positional ids remapped every
-                // non-deterministic sweep and ghosted badges (same bug class as
-                // ViewportHazard.id).
-                ForEach(clusteredViewportBadges, id: \.stableID) { hz in
-                    Annotation("", coordinate: hz.coordinate) {
-                        viewportHazardBadge(hz)
-                    }
-                }
-            }
-
-            if model.mode == .choosing {
-                // Risk field first (under everything): the actual NWS alert
-                // polygons along the highlighted corridor, severity-tinted —
-                // the corridor-scoped analog of the web app's ZIP choropleth.
-                if let hl = model.routeChoices.first(where: { $0.id == model.highlightedRouteID }) {
-                    alertPolygonOverlay(hl)
-                    corridorHazardShapes(hl)
-                }
-                // ALL offered alternates side by side: gray underlays, then
-                // the highlighted route on top in per-segment risk-band colors
-                // so the risk being accepted is visible on the map itself.
-                //
-                // ...unless the traveller is looking at a train, bus or plane.
-                // Someone who has chosen not to drive should not have to pick
-                // their itinerary out from under the driving routes they just
-                // rejected — the drawn lines are the trip being considered, and
-                // a highway they are not on is not it. The weather layers above
-                // stay: the storm is over that ground whichever way you cross
-                // it, and it is the reason this app exists.
-                if model.transitItinerary == nil {
-                    ForEach(grayAlternates) { alt in
-                        MapPolyline(alt.route.polyline)
-                            .stroke(Color.gray.opacity(0.55), lineWidth: 5)
-                    }
-                    if let hl = model.routeChoices
-                        .first(where: { $0.id == model.highlightedRouteID }) {
-                        if model.show3DMap { gradeRibbon(hl) }   // casing UNDER the route
-                        riskStrokedRoute(hl)
-                        if model.show3DMap { steepGradeMarkers(hl) }
-                    }
-                }
-                // Public-transit itinerary drawn IN FLOWS: walk legs (real
-                // MapKit geometry) solid green; a park-and-ride access leg
-                // solid blue (it's a drive); the ride leg follows the road
-                // corridor (MKDirections .automobile, straight connector only if
-                // unroutable) dashed purple. Final green leg is the no-car last mile.
-                if let itin = model.transitItinerary {
-                    ForEach(itin.legs) { leg in
-                        if let poly = leg.polyline {
-                            let color: Color = switch leg.kind {
-                            case .walk: .green
-                            case .drive: .blue
-                            case .ride: .purple
-                            }
-                            MapPolyline(poly)
-                                .stroke(color,
-                                        style: StrokeStyle(
-                                            lineWidth: leg.kind == .ride ? 4 : 5,
-                                            lineCap: .round,
-                                            dash: leg.kind == .ride ? [10, 8] : []))
-                        }
-                    }
-                }
-            } else if model.mode == .navigating, let route = model.navigation.route {
-                alertPolygonOverlay(route)
-                corridorHazardShapes(route)
-                // Appended-stop continuation: the rest of the trip after the
-                // stop, dashed, under the leg being driven.
-                if let next = model.upcomingLeg {
-                    MapPolyline(next.route.polyline)
-                        .stroke(Color.blue.opacity(0.5),
-                                style: StrokeStyle(lineWidth: 5, dash: [8, 6]))
-                }
-                if model.show3DMap { gradeRibbon(route) }   // elevation casing UNDER the route
-                riskStrokedRoute(route)
-                if model.show3DMap { steepGradeMarkers(route) }
-                // Long walking estimate: the accurate Apple pedestrian path for
-                // the stretch right ahead, drawn (bright green, solid) over the
-                // big-picture road route — real sidewalks locally, road-based
-                // direction overall.
-                if route.isWalkingEstimate, model.walkingRefinedPath.count >= 2 {
-                    MapPolyline(coordinates: model.walkingRefinedPath)
-                        .stroke(Color.green,
-                                style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                }
-            }
-
-            ForEach(model.poi.results) { ranked in
-                if model.poi.activeKind == .gas, let price = ranked.pricePerUnit {
-                    // The price IS the pin for gas stops.
-                    Annotation(ranked.item.name ?? "Stop",
-                               coordinate: ranked.item.placemark.coordinate) {
-                        Text(String(format: "$%.2f", price))
-                            .scaledFont(size: 12, weight: .heavy).monospacedDigit()
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(ranked.id == model.poi.selected?.id
-                                        ? Theme.cta : Theme.cardBackground)
-                            .foregroundStyle(ranked.id == model.poi.selected?.id
-                                             ? Theme.onCTA : Color.primary)
-                            .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Theme.cta, lineWidth: 1))
-                            .shadow(radius: 2)
-                            .onTapGesture { model.poi.choose(ranked) }
-                    }
-                } else {
-                    // Annotation, not Marker: Marker swallows taps, which left
-                    // tourist stars (and every other stop pin) dead to clicks.
-                    Annotation(ranked.item.name ?? "Stop",
-                               coordinate: ranked.item.placemark.coordinate) {
-                        poiPin(ranked)
-                    }
-                }
+                Map(position: $camera, interactionModes: .all, scope: mapScope) { mapLayers }
             }
         }
         // Apple's traffic layer is exactly the "live conditions" underlay the
@@ -1725,7 +1835,14 @@ struct ContentView: View {
         // card, towing card). Annotation buttons (risk symbols, gas-price
         // pins) and the chrome cards sit deeper in the hierarchy, so their
         // own taps win and this never fires for them — selections still work.
-        .onTapGesture {
+        // A tap INSIDE a coloured risk area opens that area's card instead.
+        .onTapGesture(coordinateSpace: .local) { point in
+            if let tapped = proxy.convert(point, from: .local),
+               let info = riskAreaInfo(at: tapped) {
+                hazardInfo = info
+                model.poi.touristDetail = nil   // shares the bottom-center slot
+                return
+            }
             hazardInfo = nil
             model.dismissFloatingPanels()
         }
@@ -1790,6 +1907,76 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
+        }
+        .ignoresSafeArea()
+    }
+
+    /// One drawn ZIP of the long-term risk map (the choropleth).
+    struct ChoroplethZIP: Identifiable {
+        let id: Int
+        let ring: [CLLocationCoordinate2D]
+        let score: Double
+        let entry: RiskFieldService.ZipEntry
+    }
+
+    /// The long-term risk map's ZIPs on screen: Green or worse only. The
+    /// field's selection is memoised by region, so the map body and a tap's
+    /// lookup read the same list.
+    private var choroplethZIPs: [ChoroplethZIP] {
+        guard model.showRiskField, model.riskField.loaded, model.mode != .navigating,
+              let region = visibleRegion,
+              // Family index hoisted above the loop — it was re-resolved
+              // once per rendered ZIP (up to 220 per frame).
+              let fi = model.riskField.familyIndex(model.overlayFamily) else { return [] }
+        return model.riskField.zips(in: region, family: model.overlayFamily, limit: 220)
+            .compactMap { entry in
+                guard let ring = entry.ring, fi < entry.scores.count,
+                      entry.scores[fi] >= model.riskDisplayFloor else { return nil }
+                return ChoroplethZIP(id: entry.id, ring: ring, score: entry.scores[fi],
+                                     entry: entry)
+            }
+    }
+
+    /// The card for a tap inside a coloured area, the same card its icon
+    /// opens: a live risk area first (a ZIP or a circle off the ZIP map),
+    /// then a route's warning or ZIP area, then the long-term ZIP map. Nil
+    /// when the tap is on plain map.
+    private func riskAreaInfo(at c: CLLocationCoordinate2D) -> HazardTapInfo? {
+        if sweepLayersShown,
+           let ov = (zctaOverlays + blobOverlays)
+            .filter({ RiskAreaFallback.contains($0.ring, c) })
+            .max(by: { $0.score < $1.score }) {
+            // The live warning in force in this area, when one is.
+            let event = viewportHazards
+                .filter { $0.alertEvent != nil && RiskAreaFallback.contains(ov.ring, $0.coordinate) }
+                .max(by: { $0.realized < $1.realized })?.alertEvent
+            return HazardTapInfo(kind: ov.kind, coordinate: c, score: ov.score, event: event)
+        }
+        if let route = activeRouteForAreas, corridorAreaRouteID == route.id,
+           let area = (alertAreas + corridorAreasToDraw)
+            .first(where: { RiskAreaFallback.contains($0.ring, c) }) {
+            return HazardTapInfo(kind: area.kind, coordinate: c, score: area.score,
+                                 event: area.event)
+        }
+        if let hit = choroplethZIPs.first(where: { RiskAreaFallback.contains($0.ring, c) }) {
+            let families = Dictionary(
+                zip(model.riskField.families, hit.entry.scores),
+                uniquingKeysWith: { a, _ in a })
+            let kind = HazardStyle.dominantFamily(families.filter { $0.key != "environmental" })
+                .map(HazardStyle.kind(forFamily:)) ?? HazardStyle.kind(forFamily: "environmental")
+            return HazardTapInfo(kind: kind, coordinate: hit.entry.centroid, score: hit.score,
+                                 longTerm: true)
+        }
+        return nil
+    }
+
+    /// The route whose warning and ZIP areas are on the map: the one being
+    /// driven, or the highlighted choice.
+    private var activeRouteForAreas: PlannedRoute? {
+        model.mode == .navigating
+            ? model.navigation.route
+            : model.mode == .choosing
+                ? model.routeChoices.first(where: { $0.id == model.highlightedRouteID }) : nil
     }
 
     /// The driver's chosen marker colour, by name so the setting survives
@@ -1845,24 +2032,59 @@ struct ContentView: View {
     /// zooms), and a tourist star also opens its detail card.
     private func poiPin(_ ranked: POIService.RankedPOI) -> some View {
         let isSelected = ranked.id == model.poi.selected?.id
+        let kind = model.poi.activeKind
         return Button {
             model.poi.choose(ranked)
-            if model.poi.activeKind == .tourist {
+            if kind == .tourist {
                 model.poi.touristDetail = ranked
                 hazardInfo = nil   // shares the bottom-center slot
             }
         } label: {
-            // Fixed glyph in a fixed disc (see travelerMarker).
-            Image(systemName: model.poi.activeKind?.symbol ?? "mappin")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(isSelected ? Theme.onCTA : Color.white)
-                .frame(width: 28, height: 28)
-                .background(isSelected ? Theme.cta : Color.gray)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(.white, lineWidth: 1.5))
-                .shadow(radius: 2)
+            VStack(spacing: 2) {
+                // Fixed glyph in a fixed disc (see travelerMarker), in the
+                // stop kind's own colour — a fuel stop reads as fuel at a
+                // glance (it was a grey disc, or a bare price).
+                Image(systemName: kind?.symbol ?? "mappin")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(isSelected ? Theme.onCTA : Color.white)
+                    .frame(width: 28, height: 28)
+                    .background(isSelected ? Theme.cta : Self.pinColor(kind))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(.white, lineWidth: 1.5))
+                    .shadow(radius: 2)
+                // A fuel stop's real posted price under its pin — never the
+                // state-average estimate, which is the same everywhere.
+                if kind == .gas, ranked.isLivePrice, let price = ranked.pricePerUnit {
+                    Text(String(format: "$%.2f", price))
+                        .font(.system(size: 11, weight: .heavy)).monospacedDigit()
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Theme.cardBackground)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(Self.pinColor(kind), lineWidth: 1))
+                }
+            }
         }
         .buttonStyle(.plain)
+    }
+
+    /// A stop pin's colour by its kind.
+    static func pinColor(_ kind: POIService.Kind?) -> Color {
+        switch kind {
+        case .gas: return .orange
+        case .food: return Color(red: 0.85, green: 0.25, blue: 0.2)
+        case .stores: return .purple
+        case .tourist: return Theme.riskGreen
+        case .rest, .truckParking: return .brown
+        case .hotel: return .indigo
+        case .medical: return .red
+        case .shelter: return .teal
+        case .gyms: return .pink
+        case .parking: return .blue
+        case .shower: return .cyan
+        case .weighStation: return .gray
+        case nil: return .gray
+        }
     }
 
     /// NWS alert polygons intersecting a route's corridor — striped in the
@@ -1872,17 +2094,26 @@ struct ContentView: View {
     private func alertPolygonOverlay(_ route: PlannedRoute) -> some MapContent {
         // An expired warning leaves with its banner and the line's colour,
         // even between live scores (the map redraws every fix).
+        // The warning's area as the ZIPs it covers (a circle over water),
+        // never its own polygon: the owner asked for ZIP-bound areas, and
+        // a storm warning's four-cornered box read as a stray square.
+        // Areas of an expired warning leave with it.
+        let live = Set(route.alertPolygons.filter { !$0.hasExpired(at: Date()) }.map(\.id))
+        if corridorAreaRouteID == route.id {
+            ForEach(alertAreas.filter { $0.alertID.map(live.contains) ?? false }) { area in
+                // Solid tint + stroke (MapKit ignores ImagePaint pattern fills).
+                MapPolygon(coordinates: area.ring)
+                    .foregroundStyle(area.kind.color.opacity(0.22))
+                    .stroke(area.kind.color.opacity(0.85), lineWidth: 2)
+            }
+        }
         ForEach(route.alertPolygons.filter { !$0.hasExpired(at: Date()) }) { poly in
             let kind = HazardStyle.kind(forEvent: poly.event)
-            // Solid tint + stroke (MapKit ignores ImagePaint pattern fills).
-            MapPolygon(coordinates: poly.coordinates)
-                .foregroundStyle(kind.color.opacity(0.22))
-                .stroke(kind.color.opacity(0.85), lineWidth: 2)
-            // The shape always draws — it is the warning's footprint. Its
+            // The area always draws — it is the warning's footprint. Its
             // SYMBOL follows the icon floor, so an advisory the two-tier
             // model caps into the green band outlines its area without a
             // warning icon standing on it.
-            let center = Self.centroid(of: poly.coordinates)
+            let center = RiskAreaFallback.iconAnchor(of: poly.coordinates)
             if Self.alertBadgeScore(poly) >= model.riskIconFloor {
                 Annotation("", coordinate: center) {
                     alertPolygonBadge(poly, kind: kind, at: center)
@@ -2092,6 +2323,12 @@ struct ContentView: View {
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(3)
+                    if info.longTerm {
+                        Text("This ZIP's long-term risk, from 20 years of storm "
+                             + "records — not today's weather.")
+                            .scaledFont(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                     if let score = info.score {
                         Text(String(format: "Local risk score %.0f%%", score * 100))
                             .scaledFont(.caption2)
@@ -2137,8 +2374,17 @@ struct ContentView: View {
         let id: String
         let ring: [CLLocationCoordinate2D]
         let kind: HazardKind
+        /// What the area's tap card shows: its risk, and the warning in
+        /// force there.
+        var score: Double? = nil
+        var event: String? = nil
+        /// The warning this area draws (`AlertPolygon.id`); nil for a ZIP
+        /// the route's own check points found.
+        var alertID: UUID? = nil
     }
     @State private var corridorAreas: [CorridorHazardArea] = []
+    /// The route's live warnings, each drawn as the ZIPs it covers.
+    @State private var alertAreas: [CorridorHazardArea] = []
     @State private var corridorAreaRouteID: UUID?
     @State private var corridorBadges: [BadgeClustering.Item<HazardKind>] = []
     /// The live warning each corridor badge names on its tap card, by the
@@ -2156,10 +2402,39 @@ struct ContentView: View {
             if Task.isCancelled { return }   // a newer route superseded this run
             guard seenCodes.insert(z.code).inserted else { continue }
             areas.append(CorridorHazardArea(
-                id: z.code, ring: z.ring, kind: corridorKind(sample)))
+                id: z.code, ring: z.ring, kind: corridorKind(sample),
+                score: sample.risk, event: sample.worstEvent))
         }
         guard !Task.isCancelled else { return }
         corridorAreas = areas
+        // Each live warning on the route, drawn by the ZIPs it covers: a few
+        // points spread inside its polygon, each looked up. One that finds
+        // no ZIP at all (a lake or marine warning, or past the ZIP map) is a
+        // circle the size of the warning.
+        var warned: [CorridorHazardArea] = []
+        for poly in route.alertPolygons.filter({ !$0.hasExpired(at: Date()) }).prefix(8) {
+            let kind = HazardStyle.kind(forEvent: poly.event)
+            let score = Self.alertBadgeScore(poly)
+            var codes: Set<String> = []
+            for p in RiskAreaFallback.interiorSamples(of: poly.coordinates) {
+                guard let z = await ZCTAFetcher.shared.zcta(containing: p) else { continue }
+                if Task.isCancelled { return }
+                guard codes.insert(z.code).inserted else { continue }
+                warned.append(CorridorHazardArea(
+                    id: "\(poly.id.uuidString)|\(z.code)", ring: z.ring, kind: kind,
+                    score: score, event: poly.event, alertID: poly.id))
+            }
+            if codes.isEmpty {
+                let c = RiskAreaFallback.centroid(of: poly.coordinates)
+                let reach = poly.coordinates.map { POIRanking.meters($0, c) }.max() ?? 10_000
+                warned.append(CorridorHazardArea(
+                    id: "\(poly.id.uuidString)|circle",
+                    ring: RiskAreaFallback.circleRing(center: c, radiusMeters: reach),
+                    kind: kind, score: score, event: poly.event, alertID: poly.id))
+            }
+        }
+        guard !Task.isCancelled else { return }
+        alertAreas = warned
         // Badge clustering moved OFF the render path: computed once per route
         // change here instead of inside mapContent on every frame.
         // Symbols only for stretches at the icon floor (nearly yellow or
@@ -2193,60 +2468,6 @@ struct ContentView: View {
         return events
     }
 
-    /// Shoelace (area-weighted) polygon centroid — the true center of the SHAPE,
-    /// not the vertex mean. Census ZCTA rings put dense vertex runs on wiggly
-    /// borders (rivers), which dragged the vertex-mean toward them and left
-    /// badges visibly off-center of their contiguous ZIP. Falls back to the
-    /// vertex mean for degenerate (near-zero-area) rings.
-    private static func centroid(of ring: [CLLocationCoordinate2D]) -> CLLocationCoordinate2D {
-        guard !ring.isEmpty else { return CLLocationCoordinate2D() }
-        var area = 0.0, cx = 0.0, cy = 0.0
-        for i in 0..<ring.count {
-            let a = ring[i], b = ring[(i + 1) % ring.count]
-            let cross = a.longitude * b.latitude - b.longitude * a.latitude
-            area += cross
-            cx += (a.longitude + b.longitude) * cross
-            cy += (a.latitude + b.latitude) * cross
-        }
-        if abs(area) > 1e-12 {
-            return CLLocationCoordinate2D(latitude: cy / (3 * area),
-                                          longitude: cx / (3 * area))
-        }
-        let lat = ring.map(\.latitude).reduce(0, +) / Double(ring.count)
-        let lon = ring.map(\.longitude).reduce(0, +) / Double(ring.count)
-        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
-    }
-
-    /// GRADE-tinted elevation ribbon: a casing under the route colored by our
-    /// EPQS grade table — flat = green, moderate = yellow, steep = orange,
-    /// severe = red. MapKit's base mesh is NOT app-deformable (it comes from
-    /// Apple's own DEM), so instead of "bending the map" this DRAPES our own
-    /// elevation-change data onto it — the honest way to show relief we know in
-    /// detail. Shown with the steep-grade % markers when 3D terrain is on.
-    @MapContentBuilder
-    private func gradeRibbon(_ route: PlannedRoute) -> some MapContent {
-        // Slices are precomputed at grade hydration
-        // (RouteService.gradeDisplayGeometry) — slicing the full polyline per
-        // segment HERE ran ~100 whole-polyline walks per frame.
-        ForEach(Array(route.gradeRibbonSlices.enumerated()), id: \.offset) { _, s in
-            MapPolyline(coordinates: s.coords)
-                .stroke(Self.gradeColor(s.gradePercent),
-                        style: StrokeStyle(lineWidth: 11, lineCap: .round))
-        }
-    }
-
-    /// Hypsometric-style ramp for road STEEPNESS (|grade|): the flatter the
-    /// greener, the steeper the redder. The map key draws the same ramp.
-    nonisolated static func gradeColor(_ percent: Double) -> Color {
-        switch abs(percent) {
-        case ..<2: return Color.green.opacity(0.5)
-        case ..<4: return Color(red: 0.6, green: 0.8, blue: 0.2).opacity(0.55)
-        case ..<6: return Color.yellow.opacity(0.6)
-        case ..<9: return Color.orange.opacity(0.7)
-        default: return Color.red.opacity(0.8)
-        }
-    }
-
     /// STEEP-GRADE markers along the active route when 3D terrain is on: our
     /// EPQS grade table knows exact road steepness that MapKit's terrain mesh
     /// only hints at — ≥6% stretches get an angled badge with the real number
@@ -2262,8 +2483,9 @@ struct ContentView: View {
                         ? "arrow.up.right" : "arrow.down.right")
                     .scaledFont(size: 10, weight: .heavy)
                     .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background(abs(m.gradePercent) >= 9
-                                ? Theme.riskRed : Color.orange)
+                    // Neutral ink: an orange or red sign on the road read as
+                    // a risk colour, and the road's only colour is its risk.
+                    .background(Color.black.opacity(0.78))
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
                     .shadow(radius: 2)
@@ -2281,17 +2503,12 @@ struct ContentView: View {
         // segments — the "route flashes to white" bug. Round line caps give
         // the segments enough contrast on their own.
         if route.weatherScored && !route.riskSegments.isEmpty {
-            // Continuous full-geometry understroke: at far zoom the separate
-            // segment polylines could expose straight-line seams — the base
-            // line beneath them hides any artifact. It is drawn in the
-            // route's CALMEST band, never the whole-route band: MapKit does
-            // not promise z-order between sibling polylines, and a
-            // whole-route red base showing through (or over) the segments
-            // painted quiet road red.
-            MapPolyline(route.route.polyline)
-                .stroke(FlowsCore.riskBand(
-                    score: route.riskSegments.map(\.risk).min() ?? route.weatherRisk)
-                    .color.opacity(0.9), lineWidth: 5)
+            // The segments alone, each in its own band. A full-length
+            // understroke in the calmest band once hid seams between them,
+            // but MapKit keeps no z-order between sibling lines and it
+            // surfaced OVER them: the "blue line laid over the route" (Clear
+            // was blue then). Adjacent segments share their end points, and
+            // round caps close any seam.
             ForEach(route.riskSegments) { seg in
                 MapPolyline(coordinates: seg.coordinates)
                     .stroke(FlowsCore.riskBand(score: seg.risk).color,
@@ -2318,7 +2535,8 @@ struct ContentView: View {
             PlanningChrome(isCompact: isCompact, camera: $camera,
                            detailCards: hasDetailCards ? AnyView(detailCards) : nil,
                            showsRecenter: model.mode == .planning && !cameraFollows
-                               && model.location.coordinate != nil)
+                               && model.location.coordinate != nil,
+                           showsLegend: legendHasRoom && model.mode == .choosing)
                 .environment(\.mapKeyComesBack, legendWouldHaveRoom)
         case .navigating:
             NavigationHUD(isCompact: isCompact,
@@ -2414,6 +2632,9 @@ private struct PlanningChrome: View {
     /// The map was panned off the driver while planning: offer the way
     /// back (the drive bar has its own re-center while driving).
     var showsRecenter = false
+    /// The map key, on the route screen: it stands right under the trip
+    /// pill, so the pill's Edit sits directly above the key.
+    var showsLegend = false
 
     /// Whether the Mac's settings panel is open in the top-right column.
     private var settingsInColumn: Bool {
@@ -2591,6 +2812,9 @@ private struct PlanningChrome: View {
                     cardsAbovePlanner(showsNag: false, nagWidth: nil)
                     TripSummaryPill()
                         .chromeRegion("trip-pill")
+                    if showsLegend {
+                        LegendCard(isCompact: true, inStack: true)
+                    }
                     FilterSlidersCard()
                         .chromeRegion("sliders")
                     // Enough for a whole route card, and no more: the
@@ -2636,10 +2860,16 @@ private struct PlanningChrome: View {
                     // An open settings card shares the column's height with
                     // the limits card; both scroll.
                     gearColumn
-                    TripSummaryPill()
-                        .chromeRegion("trip-pill")
                     FilterSlidersCard()
                         .chromeRegion("sliders")
+                    Spacer(minLength: 0)
+                        .layoutPriority(-1)
+                    // The trip and its Edit, directly above the map key.
+                    TripSummaryPill()
+                        .chromeRegion("trip-pill")
+                    if showsLegend {
+                        LegendCard(inStack: true)
+                    }
                 }
                 .frame(width: settingsInColumn ? max(golden.sidePanel, 340) : golden.sideColumn,
                        alignment: .trailing)
@@ -3171,8 +3401,6 @@ struct CollapsedPanelTray: View {
         PanelBadge(id: "legend", symbol: "list.bullet.rectangle", name: "Map key"),
         PanelBadge(id: "fuel", symbol: "gauge.with.dots.needle.bottom.50percent",
                    name: "Driving instruments"),
-        // The stop list tucks with its own X; it had no icon to come back by.
-        PanelBadge(id: "stops", symbol: "mappin.and.ellipse", name: "Stop list"),
         // A warning closed with its X: still in force, waiting here.
         PanelBadge(id: AppModel.warningPanelID, symbol: "exclamationmark.triangle.fill",
                    name: "Warning"),
@@ -3186,7 +3414,6 @@ struct CollapsedPanelTray: View {
     /// driver built, not the order this list happens to declare them in.
     @MainActor
     static func visible(_ model: AppModel, mapKeyComesBack: Bool) -> [PanelBadge] {
-        let hasStops = !model.poi.results.isEmpty
         let screen: ChromeScreen = switch model.mode {
         case .planning: .planning
         case .choosing: .choosing
@@ -3195,7 +3422,7 @@ struct CollapsedPanelTray: View {
         // Only the icons whose menu comes back on this screen (TuckedMenus).
         return model.collapsedPanels.order.compactMap { id in
             panels.first {
-                $0.id == id && TuckedMenus.comesBack(id, on: screen, hasStops: hasStops,
+                $0.id == id && TuckedMenus.comesBack(id, on: screen,
                                                      mapKeyComesBack: mapKeyComesBack,
                                                      hasWarning: model.imminentWarning != nil)
             }
@@ -3282,8 +3509,9 @@ struct WelcomeCard: View {
                               "Notifications — the first time you start a trip, "
                               + "so warnings can reach you outside the app")
                 permissionRow("dot.radiowaves.right",
-                              "Bluetooth — when you turn on “Listen for "
-                              + "tire sensors and car plug-ins” in Settings")
+                              "Bluetooth — right after this, to listen for tire "
+                              + "sensors and car plug-ins (turn it off in Settings "
+                              + "→ Vehicle link)")
                 permissionRow("music.note",
                               "Music library — the first time you press play")
                 permissionRow("mic.fill",
@@ -3372,6 +3600,10 @@ struct SettingsSheet: View {
     @State private var erasedConfirmation = false
     /// The one "are you sure?" before that erase.
     @State private var confirmingErase = false
+    /// Settings → Accessibility's word-finding test: running, and what it
+    /// picked.
+    @State private var wordFindingTrying = false
+    @State private var wordFindingResult: String?
     /// "Keys for extra info" unfolded: key setup is for the few who want it.
     @State private var keysOpen = false
     /// The connected car's one-time setup unfolded; nil until the driver
@@ -3540,16 +3772,31 @@ struct SettingsSheet: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+        // The header stays put while everything under it scrolls: the close
+        // X is always in the top-right corner, never a scroll away (owner,
+        // 2026-10-01).
+        HStack {
+            Text("Settings")
+                .scaledFont(size: 17, weight: .bold)
+            Spacer()
+            Button { model.showSettings = false } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .scaledFont(size: 22)
+                    .foregroundStyle(.secondary)
+                    .frame(width: Theme.tapMinimum, height: Theme.tapMinimum)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close settings")
+            .help("Close settings")
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 8)
+        .padding(.vertical, 4)
+        Divider()
         ScrollView {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Settings")
-                    .scaledFont(size: 17, weight: .bold)
-                Spacer()
-                Button("Done") { model.showSettings = false }
-                    .buttonStyle(PillCTAStyle())
-                    .frame(width: 90)
-            }
             Text("Fuel type")
                 .scaledFont(size: 14, weight: .semibold)
             Picker("Fuel type", selection: Binding(
@@ -3598,12 +3845,13 @@ struct SettingsSheet: View {
                     get: { model.scanner.enabled },
                     set: { model.scanner.enabled = $0 }))
                     .scaledFont(.caption)
-                Text("FLOWS listens to local police and fire radio and turns "
-                     + "it into words ON THIS PHONE — the sound is never sent "
-                     + "anywhere, saved, or played. Calls show as small pins "
-                     + "near you and along your route, and fade out on their "
-                     + "own. They were heard on a radio, so treat them as a "
-                     + "heads-up, not a fact.")
+                Text("Police calls show on the map as small blue police icons "
+                     + "— red for medical, orange for fire — near you and "
+                     + "along your route, and fade out over time. They come "
+                     + "from the police and fire radio feed set up for this "
+                     + "device; the radio is never recorded or sent anywhere. "
+                     + "Heard on a radio, so treat them as a heads-up, not a "
+                     + "fact.")
                     .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 if let status = model.scanner.status {
@@ -3690,14 +3938,6 @@ struct SettingsSheet: View {
             Toggle(isOn: $model.notifyEscalation) {
                 Text("Warn me when my route gets riskier").scaledFont(.caption)
             }
-            Toggle(isOn: $model.notifyTraffic) {
-                Text("Show traffic jams and road work").scaledFont(.caption)
-            }
-            Text("Off hides them, and FLOWS stops asking about faster roads. "
-                 + "It still takes a faster road on its own when it is just "
-                 + "as safe.")
-                .scaledFont(.caption2)
-                .foregroundStyle(.secondary)
             Toggle(isOn: $model.voiceAlerts) {
                 Text("Speak alerts and faster-route offers out loud "
                      + "(answer with a plain yes or no)").scaledFont(.caption)
@@ -3724,6 +3964,16 @@ struct SettingsSheet: View {
                      + "guess my range)").scaledFont(.caption)
             }
             .disabled(!model.notifyFuel)
+            // Last in the section, with what turning it off does right under
+            // it (owner, 2026-10-01).
+            Toggle(isOn: $model.notifyTraffic) {
+                Text("Show traffic jams and road work").scaledFont(.caption)
+            }
+            Text("Off hides them, and FLOWS stops asking about faster roads. "
+                 + "It still takes a faster road on its own when it is just "
+                 + "as safe.")
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
 
             Divider()
             Text("Text size")
@@ -3763,13 +4013,42 @@ struct SettingsSheet: View {
             Toggle(isOn: $model.wordFindingHelp) {
                 Text("Word-finding help (stays on the phone)").scaledFont(.caption)
             }
-            Text("When FLOWS can't make out an answer, the phone's own "
-                 + "helper matches your words to the choices — "
-                 + "\"the one with the tacos\" finds Taco Bell. Nothing you "
-                 + "say leaves the phone. Needs a phone with Apple "
-                 + "Intelligence; off or unsupported, FLOWS just asks again.")
+            Text("When FLOWS asks you a question out loud (which stop, which "
+                 + "station) and can't make out your answer, the phone's own "
+                 + "helper matches your words to the choices — \"the one with "
+                 + "the tacos\" finds Taco Bell. Nothing you say leaves the "
+                 + "phone. Needs Apple Intelligence; off or unsupported, FLOWS "
+                 + "just asks again.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
+            // Whether it works HERE, and a way to see it work: it only ever
+            // acts inside a spoken question, so there was nothing to check.
+            HStack(spacing: 8) {
+                Text(IntentClarifier.statusText)
+                    .scaledFont(.caption2, weight: .semibold)
+                Spacer(minLength: 4)
+                Button(wordFindingTrying ? "Trying…" : "Try it") {
+                    wordFindingTrying = true
+                    Task {
+                        let options = ["Starbucks", "Taco Bell", "Shell"]
+                        let pick = await IntentClarifier.pick(reply: "the one with the tacos",
+                                                              options: options)
+                        wordFindingTrying = false
+                        wordFindingResult = pick.map {
+                            "\"The one with the tacos\" → \(options[$0]). It's working."
+                        } ?? "It couldn't pick one here, so FLOWS would ask again."
+                    }
+                }
+                .buttonStyle(.plain)
+                .scaledFont(.caption, weight: .bold)
+                .foregroundStyle(.blue)
+                .disabled(wordFindingTrying)
+            }
+            if let wordFindingResult {
+                Text(wordFindingResult)
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             #if os(iOS)
             // iPhone only: the Mac never switched voices, so its switch
             // turned on and changed nothing.
@@ -3924,10 +4203,8 @@ struct SettingsSheet: View {
                     .scaledFont(size: 14, weight: .semibold)
             }
             Text("Shows hills and mountains in 3D and tilts the map so you "
-                 + "can see them. The route you pick or drive gets a wide "
-                 + "edge colored by how steep the road is, green for flat up "
-                 + "to red for steep, and signs mark the steepest stretches "
-                 + "with their slope.")
+                 + "can see them. Signs mark the steepest stretches of the "
+                 + "route you pick or drive with their slope.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
 
@@ -4045,9 +4322,8 @@ struct SettingsSheet: View {
                 get: { model.vehicleLink.scanning },
                 set: {
                     model.vehicleLink.scanning = $0
-                    // Persisted: scanning resumes on later launches only if
-                    // the driver chose it (first turn-on shows the system's
-                    // one-time Bluetooth permission ask).
+                    // Persisted: on by default, and a driver who turns it off
+                    // keeps it off on later launches.
                     UserDefaults.standard.set($0, forKey: "flows.vehicleLinkScanning")
                 })) {
                 Text("Listen for tire sensors and car plug-ins").scaledFont(.caption)
@@ -4191,6 +4467,11 @@ struct SettingsSheet: View {
                     learnedRow("Fuel use learned", "\(model.roadEfficiency.store.cells.count)")
                     learnedRow("People you shared trips with",
                                "\(model.shareHistory.recipients.count)")
+                    // What decides whether the vehicle-limits card opens
+                    // on its own (LimitsCardHabit).
+                    learnedRow("Recent plans that used vehicle limits",
+                               "\(model.limitsHabit.filter { $0 != 0 }.count) of "
+                                   + "\(model.limitsHabit.count)")
                     if let cal = summary.calibration {
                         // An error on the 0–1 risk scale, as a percentage.
                         learnedRow("How far off risk guesses were",
@@ -4281,6 +4562,7 @@ struct SettingsSheet: View {
         }
         .padding(20)
         }
+        }
         // The width floor is for the macOS panel — on an iPhone sheet a
         // 480 pt floor pushed the scroll area past a landscape window's
         // edge. The panel takes its height from the room the Mac window has
@@ -4339,6 +4621,7 @@ private struct TripSummaryPill: View {
                 // The discarded plan's pins go with it: a tapped star still
                 // reported a detour off the route that no longer exists.
                 model.poi.reset()
+                model.plannedStop = nil
                 // Walking is a per-choice mode, not a persistent setting:
                 // leaving it set made the NEXT plan silently request a
                 // pedestrian route (which can fail at driving distances),
@@ -4357,10 +4640,11 @@ private struct TripSummaryPill: View {
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
+    /// "A → B", or "A ⇄ B" for a round trip.
     private var tripText: String {
         let src = model.routeChoices.first?.sourceName ?? model.plannerSource
         let dst = model.routeChoices.first?.destinationName ?? model.plannerDestination
-        return "\(src) → \(dst)"
+        return "\(src) \(model.roundTrip ? "⇄" : "→") \(dst)"
     }
 }
 
@@ -4375,31 +4659,31 @@ private struct LegendCard: View {
     /// the bottom, and the legend must never sit under them. Regular
     /// layouts keep it bottom-left like the web app.
     var isCompact = false
-    /// Bottom-RIGHT instead of bottom-left: wide layouts dock the choices
-    /// panel on the left, and the key must not sit under it.
-    var dockTrailing = false
+    /// Placed by the chrome's own stack — on the route screen, right under
+    /// the trip pill and its Edit — rather than snapped to a corner.
+    var inStack = false
 
-    /// Which free corner the legend snaps to. Regular layouts keep the web
-    /// app's bottom-left. Compact planning: the planner owns the bottom, so
-    /// top-left. Compact choosing (legend shows only once the routes panel
-    /// is tucked): the trip pill owns the top center, so bottom-left.
-    private var anchorsBottom: Bool {
-        !isCompact || model.mode == .choosing
-    }
+    /// Which free corner the legend snaps to (planning; the route screen
+    /// stacks it under the trip pill). Regular layouts keep the web app's
+    /// bottom-left; a phone's planner owns the bottom, so top-left.
+    private var anchorsBottom: Bool { !isCompact }
 
     var body: some View {
-        // Corner-snapped: the SAME inset from both edges of its corner —
-        // corner elements never float an uneven distance from the two edges.
-        VStack {
-            if anchorsBottom { Spacer() }
-            HStack {
-                if dockTrailing { Spacer() }
-                legendBox
-                if !dockTrailing { Spacer() }
+        if inStack {
+            legendBox
+        } else {
+            // Corner-snapped: the SAME inset from both edges of its corner —
+            // corner elements never float an uneven distance from the two edges.
+            VStack {
+                if anchorsBottom { Spacer() }
+                HStack {
+                    legendBox
+                    Spacer()
+                }
+                .padding(.leading, golden.pad)
+                .padding(anchorsBottom ? .bottom : .top, golden.pad)
+                if !anchorsBottom { Spacer() }
             }
-            .padding(dockTrailing ? .trailing : .leading, golden.pad)
-            .padding(anchorsBottom ? .bottom : .top, golden.pad)
-            if !anchorsBottom { Spacer() }
         }
     }
 
@@ -4436,14 +4720,15 @@ private struct LegendCard: View {
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
-            // Continuous gradient — risk is a 0…1 scale, not four
-            // discrete buckets. The Clear end is the blue a clear stretch of
-            // route is drawn in; it had no width at all (both stops at 0).
+            // Continuous gradient — risk is a 0…1 scale, not four discrete
+            // buckets — with a line at every 20%, so "Local risk score 62%"
+            // on a tap card finds its place on the key. Clear is the pale
+            // end of the greens, never blue: blue is the map's water.
             VStack(alignment: .leading, spacing: 2) {
                 LinearGradient(
                     stops: [
-                        .init(color: RiskBand.clear.color, location: 0),
-                        .init(color: RiskBand.clear.color, location: 0.30),
+                        .init(color: Theme.riskClear, location: 0),
+                        .init(color: Theme.riskClear, location: 0.30),
                         .init(color: Theme.riskGreen, location: 0.40),
                         .init(color: Theme.riskYellow, location: 0.70),
                         .init(color: Theme.riskRed, location: 0.92),
@@ -4451,6 +4736,9 @@ private struct LegendCard: View {
                     startPoint: .leading, endPoint: .trailing)
                     .frame(width: golden.legendDrawWidth, height: 8)
                     .clipShape(Capsule())
+                    .overlay(alignment: .leading) { percentLines }
+                    .frame(height: 12)
+                percentLabels
                 HStack {
                     Text("Clear").scaledFont(size: 8)
                     Spacer()
@@ -4466,16 +4754,10 @@ private struct LegendCard: View {
             // accessibility from the other; dropping either would be a
             // regression.)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Risk scale")
-            .accessibilityValue("Runs from blue for clear, through green "
+            .accessibilityLabel("Risk scale, 0 to 100 percent")
+            .accessibilityValue("Runs from pale green for clear, through green "
                                 + "for normal and yellow for elevated, to "
-                                + "red for severe.")
-            // With 3D terrain on, the chosen route wears a wider edge
-            // coloured by steepness in hues close to the risk scale's — so
-            // the key says which is which.
-            if showsSteepness {
-                steepnessKey
-            }
+                                + "red for severe, with a mark at every 20 percent.")
             if model.showWeatherLayer && model.riskField.loaded {
                 Text("Hazards")
                     .scaledFont(.caption2, weight: .bold)
@@ -4506,36 +4788,41 @@ private struct LegendCard: View {
         .shadow(color: Theme.cardShadow, radius: 8, y: 3)
     }
 
-    /// The steepness edge is on the map: 3D terrain on, and the chosen
-    /// route's grades in (ContentView.gradeRibbon).
-    private var showsSteepness: Bool {
-        guard model.show3DMap, model.mode == .choosing else { return false }
-        return model.routeChoices.first { $0.id == model.highlightedRouteID }?
-            .gradeRibbonSlices.isEmpty == false
+    /// The marks on the ramp: one line at each 20% (20, 40, 60, 80, 100),
+    /// a dark core with a light edge so it reads on green and on red.
+    private var percentLines: some View {
+        let width = golden.legendDrawWidth
+        return ZStack(alignment: .leading) {
+            ForEach(1...5, id: \.self) { step in
+                Rectangle()
+                    .fill(Color.black.opacity(0.65))
+                    .frame(width: 1.5, height: 12)
+                    .overlay(Rectangle().stroke(Color.white.opacity(0.7), lineWidth: 0.5))
+                    .offset(x: min(width * CGFloat(step) / 5, width - 1.5) - 0.75)
+            }
+        }
+        .frame(width: width, height: 12, alignment: .leading)
+        .allowsHitTesting(false)
     }
 
-    /// The steepness ramp, drawn with the ribbon's own colours.
-    private var steepnessKey: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("Road steepness")
-                .scaledFont(.caption2, weight: .bold)
-                .foregroundStyle(.secondary)
-            LinearGradient(
-                colors: [0.0, 3, 5, 7, 10].map { ContentView.gradeColor($0) },
-                startPoint: .leading, endPoint: .trailing)
-                .frame(width: golden.legendDrawWidth, height: 8)
-                .clipShape(Capsule())
-            HStack {
-                Text("Flat").scaledFont(size: 8)
-                Spacer()
-                Text("Steep").scaledFont(size: 8)
+    /// "20 40 60 80 100%" each centred under its own line.
+    private var percentLabels: some View {
+        let width = golden.legendDrawWidth
+        return ZStack(alignment: .leading) {
+            ForEach(1...5, id: \.self) { step in
+                let label = step == 5 ? "100%" : "\(step * 20)"
+                // Centred on the line; the last one is right-aligned to the
+                // ramp's end so it never runs off the card.
+                Text(label)
+                    .scaledFont(size: 8, weight: .semibold)
+                    .monospacedDigit()
+                    .fixedSize()
+                    .frame(width: 26, alignment: step == 5 ? .trailing : .center)
+                    .offset(x: step == 5 ? width - 26 : width * CGFloat(step) / 5 - 13)
             }
-            .frame(width: golden.legendDrawWidth)
-            .foregroundStyle(.secondary)
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Road steepness, along the edge of the route")
-        .accessibilityValue("Runs from green for flat road to red for steep road.")
+        .frame(width: width, height: 10, alignment: .leading)
+        .foregroundStyle(.secondary)
     }
 }
 

@@ -115,6 +115,12 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// The streaming services FLOWS plays inside itself — the radio card's
+    /// Streaming rows: Apple Music, and Spotify where it can be driven from
+    /// here. Every other service only opens its own app, so it is not listed
+    /// as if it played in FLOWS.
+    static let streamingInFLOWS: [MusicProvider] = [.appleMusic, .spotify]
+
     /// The KEYLESS floor of the table above — what works with no token.
     /// The token-aware answer every surface should gate on lives in
     /// `MusicController.controlsInPlace` / `AppModel.musicControllable`.
@@ -218,8 +224,9 @@ enum MusicProvider: String, CaseIterable, Identifiable, Codable {
     /// no tip is shown rather than a guess.
     var siriPlaybackTip: String? {
         switch self {
-        // FLOWS plays radio itself, so its phrase routes through FLOWS.
-        case .radio: return "Play something in FLOWS"
+        // FLOWS plays radio itself, so its phrases route through FLOWS:
+        // "play something" asks what, and "skip" moves to the next station.
+        case .radio: return "Hey Siri, play something in FLOWS — then \u{201C}Hey Siri, skip in FLOWS\u{201D} for another station"
         case .appleMusic: return "Hey Siri, play country music"
         case .spotify: return "Hey Siri, play country on Spotify"
         case .youtubeMusic: return "Hey Siri, play country on YouTube Music"

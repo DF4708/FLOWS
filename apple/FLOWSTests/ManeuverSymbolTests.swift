@@ -90,4 +90,37 @@ final class ManeuverSymbolTests: XCTestCase {
         XCTAssertEqual(LaneGuidance.highlighted(advice: a, total: 3), Set([0, 1, 2]))
         XCTAssertTrue(LaneGuidance.highlighted(advice: a, total: 0).isEmpty)
     }
+
+    // MARK: the exit sign and the lane box
+
+    func testTheExitSignReadsTheNumberedExit() {
+        XCTAssertEqual(ManeuverSymbol.exitNumber(in: "Take exit 142A toward I-94 E"), "142A")
+        XCTAssertEqual(ManeuverSymbol.exitNumber(in: "Take Exit 5 onto US-51 S"), "5")
+        XCTAssertNil(ManeuverSymbol.exitNumber(in: "Take the exit toward Madison"))
+        XCTAssertNil(ManeuverSymbol.exitNumber(in: "At the roundabout, take the 2nd exit"))
+        XCTAssertNil(ManeuverSymbol.exitNumber(in: "Continue on I-94 W"))
+    }
+
+    func testTheLaneBoxDrawsEveryTaggedLaneAsItsOwnMovement() {
+        // A U-turn lane, two through lanes and a right-turn lane; turning right.
+        let lanes = LaneData.parse(turnLanes: "reverse|through|through|right")
+        let arrows = LaneBox.arrows(lanes: lanes, recommended: [3],
+                                    instruction: "Turn right onto Main St")
+        XCTAssertEqual(arrows.map(\.turn), [.reverse, .through, .through, .right])
+        XCTAssertEqual(arrows.map(\.lit), [false, false, false, true])
+        XCTAssertTrue(arrows[0].uTurnLeft, "a U-turn lane on the left curls left")
+    }
+
+    func testWithNoLanesTheBoxIsOneArrowForTheTurn() {
+        let u = LaneBox.arrows(lanes: [], recommended: [], instruction: "Make a U-turn")
+        XCTAssertEqual(u, [LaneBox.Arrow(turn: .reverse, lit: true, uTurnLeft: true)])
+        let left = LaneBox.arrows(lanes: [], recommended: [], instruction: "Turn left onto Oak St")
+        XCTAssertEqual(left.map(\.turn), [.left])
+        // Stated lanes: the lit ones show the turn, the rest go straight.
+        let stated = LaneBox.arrows(lanes: [], recommended: [],
+                                    instruction: "Use the right 2 lanes to take exit 142A")
+        XCTAssertEqual(stated.count, 4)
+        XCTAssertEqual(stated.filter(\.lit).map(\.turn), [.right, .right])
+        XCTAssertEqual(stated.filter { !$0.lit }.map(\.turn), [.through, .through])
+    }
 }

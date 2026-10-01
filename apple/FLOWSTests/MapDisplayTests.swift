@@ -209,6 +209,75 @@ final class MapDisplayTests: XCTestCase {
         }
     }
 
+    // MARK: the sweep's lattice, circles and icons — a map that holds still
+
+    func testThePanSamplesTheSamePlaces() {
+        // Two views a few miles apart at the same zoom share their points:
+        // every point both views contain is the SAME point, to the bit.
+        let a = RiskAreaFallback.lattice(centerLatitude: 43.07, centerLongitude: -89.40,
+                                         spanLatitude: 1.2, spanLongitude: 1.6, perSide: 5)
+        let b = RiskAreaFallback.lattice(centerLatitude: 43.11, centerLongitude: -89.33,
+                                         spanLatitude: 1.2, spanLongitude: 1.6, perSide: 5)
+        func key(_ c: CLLocationCoordinate2D) -> String { "\(c.latitude)|\(c.longitude)" }
+        let shared = Set(a.map(key)).intersection(b.map(key))
+        XCTAssertGreaterThan(shared.count, a.count / 2, "most points survive a small pan")
+        // Never denser than the old N×N grid's budget plus one row and column.
+        XCTAssertLessThanOrEqual(a.count, 36)
+        XCTAssertGreaterThanOrEqual(a.count, 9)
+        // Every point is inside the view.
+        for c in a {
+            XCTAssertLessThanOrEqual(abs(c.latitude - 43.07), 0.6 + 1e-9)
+            XCTAssertLessThanOrEqual(abs(c.longitude + 89.40), 0.8 + 1e-9)
+        }
+    }
+
+    func testACircleIsARoundRingOfItsRadius() {
+        let ring = RiskAreaFallback.circleRing(center: madison, radiusMeters: 20_000)
+        XCTAssertEqual(ring.count, 32)
+        for p in ring {
+            XCTAssertEqual(POIRanking.meters(p, madison), 20_000, accuracy: 400)
+        }
+        XCTAssertTrue(RiskAreaFallback.contains(ring, madison))
+    }
+
+    func testAnIconStandsInsideItsArea() {
+        // A crescent: its centroid falls in the bite, outside the shape.
+        let crescent = [
+            CLLocationCoordinate2D(latitude: 0, longitude: 0),
+            CLLocationCoordinate2D(latitude: 0, longitude: 4),
+            CLLocationCoordinate2D(latitude: 4, longitude: 4),
+            CLLocationCoordinate2D(latitude: 4, longitude: 0),
+            CLLocationCoordinate2D(latitude: 3, longitude: 0),
+            CLLocationCoordinate2D(latitude: 3, longitude: 3),
+            CLLocationCoordinate2D(latitude: 1, longitude: 3),
+            CLLocationCoordinate2D(latitude: 1, longitude: 0),
+        ]
+        let c = RiskAreaFallback.centroid(of: crescent)
+        XCTAssertFalse(RiskAreaFallback.contains(crescent, c), "the test shape's centroid is outside")
+        XCTAssertTrue(RiskAreaFallback.contains(crescent, RiskAreaFallback.iconAnchor(of: crescent)))
+        // A plain square keeps its centre.
+        let square = [CLLocationCoordinate2D(latitude: 0, longitude: 0),
+                      CLLocationCoordinate2D(latitude: 0, longitude: 2),
+                      CLLocationCoordinate2D(latitude: 2, longitude: 2),
+                      CLLocationCoordinate2D(latitude: 2, longitude: 0)]
+        let anchor = RiskAreaFallback.iconAnchor(of: square)
+        XCTAssertEqual(anchor.latitude, 1, accuracy: 1e-9)
+        XCTAssertEqual(anchor.longitude, 1, accuracy: 1e-9)
+    }
+
+    func testIconsThinOutWorstFirstWhateverTheirKind() {
+        let items = [
+            item("rain", lat: 43.00, lon: -89.00, score: 0.6),
+            item("tornado", lat: 43.05, lon: -89.05, score: 0.9),   // ~7 km away
+            item("rain", lat: 44.00, lon: -89.00, score: 0.5),      // ~111 km away
+        ]
+        let kept = BadgeClustering.declutter(items, minSeparationMeters: 20_000)
+        XCTAssertEqual(kept.map(\.kind), ["tornado", "rain"], "the worse icon wins a crowded spot")
+        XCTAssertEqual(kept[1].coordinate.latitude, 44.0, "a far icon keeps its own place")
+        // Zoomed in (a smaller spacing), both close icons fit.
+        XCTAssertEqual(BadgeClustering.declutter(items, minSeparationMeters: 2_000).count, 3)
+    }
+
     // MARK: offered routes — what the map draws as gray alternates
 
     private func route(clearancesFeet: [Double]?) -> PlannedRoute {

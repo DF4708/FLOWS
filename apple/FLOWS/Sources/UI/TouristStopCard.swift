@@ -13,8 +13,11 @@ import SwiftUI
 /// to get in, review stars (Google/Yelp ladder — hidden without a key), and
 /// today's open hours when a provider has them.
 struct TouristStopCard: View {
+    @EnvironmentObject private var model: AppModel
     let stop: POIService.RankedPOI
     let onClose: () -> Void
+    /// What Add to trip did, said on the card.
+    @State private var addedNote: String?
 
     /// Ratings-ladder result for THIS stop, fetched on appear (nil hides
     /// the stars and hours sections — never invented).
@@ -87,10 +90,30 @@ struct TouristStopCard: View {
                     .scaledFont(.caption, weight: .bold)
                     .foregroundStyle(Theme.riskGreen)
             }
+
+            // The point of a tourist stop: make it part of the trip.
+            if let addedNote {
+                Label(addedNote, systemImage: "checkmark.circle.fill")
+                    .scaledFont(.caption, weight: .semibold)
+                    .foregroundStyle(Theme.riskGreen)
+            } else {
+                Button {
+                    Task { addedNote = await model.addToTrip(stop.item) }
+                } label: {
+                    Label("Add to trip", systemImage: "plus.circle.fill")
+                        .scaledFont(size: 14, weight: .heavy)
+                        .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                        .background(Theme.cta)
+                        .foregroundStyle(Theme.onCTA)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
         }
         .floatingCard()
         .task(id: stop.id) {
             info = nil
+            addedNote = nil
             let c = stop.item.placemark.coordinate
             info = await RatingsProvider.info(name: stop.item.name ?? "",
                                               latitude: c.latitude,

@@ -210,4 +210,22 @@ final class VehicleSettingsTests: XCTestCase {
         XCTAssertEqual(log.meters, 402_000)
         XCTAssertEqual(log.metersDriven(on: tuesday, calendar: calendar), 0)
     }
+
+    // MARK: the vehicle-limits card opens for a driver who uses it
+
+    func testTheLimitsCardOpensOnlyForADriverWhoUsesIt() {
+        var history: [UInt8] = []
+        XCTAssertFalse(LimitsCardHabit.opensByDefault(history), "a new driver finds it tucked")
+        // Two trucker plans among plain ones: not often enough.
+        for flags: UInt8 in [0, LimitsCardHabit.trucker, 0, LimitsCardHabit.towing, 0] {
+            history = LimitsCardHabit.recorded(history, plan: flags)
+        }
+        XCTAssertFalse(LimitsCardHabit.opensByDefault(history))
+        history = LimitsCardHabit.recorded(history, plan: LimitsCardHabit.touched)
+        XCTAssertTrue(LimitsCardHabit.opensByDefault(history), "three of the last ten")
+        // Ten plain plans later the habit has faded.
+        for _ in 0..<10 { history = LimitsCardHabit.recorded(history, plan: 0) }
+        XCTAssertEqual(history.count, LimitsCardHabit.window)
+        XCTAssertFalse(LimitsCardHabit.opensByDefault(history))
+    }
 }

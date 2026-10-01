@@ -115,6 +115,7 @@ mod ffi {
         fn flows_rides_rental_partner_program_url() -> String;
         fn flows_rides_rental_landing_near(latitude: f64, longitude: f64) -> String;
         fn flows_rides_rental_landing_airport(code: &str, latitude: f64, longitude: f64) -> String;
+        fn flows_rides_rental_pickup_near(latitude: f64, longitude: f64) -> String;
         fn flows_rides_recommend_rentals(
             names: &str,
             name_lengths: &[i64],
@@ -377,6 +378,17 @@ pub fn flows_rides_rental_landing_near(latitude: f64, longitude: f64) -> String 
 pub fn flows_rides_rental_landing_airport(code: &str, latitude: f64, longitude: f64) -> String {
     contain(rr::RENTAL_COMPARE_URL.to_string(), || {
         flows_core::rental_places::landing_for_airport(code, latitude, longitude)
+    })
+}
+
+/// `RentalCars.pickup(near:)`: the DiscoverCars city a traveller near a point
+/// books a rental car in, as "name U+001F latitude U+001F longitude"; empty
+/// when no rental city is near.
+pub fn flows_rides_rental_pickup_near(latitude: f64, longitude: f64) -> String {
+    contain(String::new(), || {
+        flows_core::rental_places::pickup_near(latitude, longitude)
+            .map(|c| format!("{}\u{1F}{}\u{1F}{}", c.name, c.lat, c.lon))
+            .unwrap_or_default()
     })
 }
 

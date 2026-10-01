@@ -37,7 +37,6 @@ struct PlannerPanel: View {
     /// The start field gets the SAME live suggestions as the destination —
     /// a typed "from" deserves addresses, places, and recents too.
     @StateObject private var sourceSearch = DestinationSearch()
-    @State private var overrideSource = false
     @State private var isWorking = false
     @State private var errorMessage: String?
     @FocusState private var focusedField: Field?
@@ -51,17 +50,15 @@ struct PlannerPanel: View {
     /// Fields live on the model so Edit-from-choosing round-trips intact.
     private var source: String { model.plannerSource }
     private var hasGPS: Bool { model.location.coordinate != nil }
-    /// No GPS → the source field is always shown (the primary flow must
-    /// never dead-end on a Mac without location access). A TYPED start also
-    /// keeps the field visible: the model holds the text, so a rotation's
-    /// view rebuild (which resets `overrideSource`) must not hide an
-    /// override that is still in effect.
+    /// "From where?" shows when the GPS switch is off, and always when there
+    /// is no GPS at all (the primary flow must never dead-end on a Mac
+    /// without location access). The switch lives on the model, so a
+    /// rotation's view rebuild keeps it.
     private var showSourceField: Bool {
-        overrideSource || !hasGPS
-            || !source.trimmingCharacters(in: .whitespaces).isEmpty
+        !model.plannerUseGPS || !hasGPS
     }
     private var usingGPSSource: Bool {
-        hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty
+        hasGPS && model.plannerUseGPS
     }
 
     /// No fix, nothing typed, but a Home or a learned everyday area to
@@ -69,6 +66,62 @@ struct PlannerPanel: View {
     private var usingFallbackStart: Bool {
         !hasGPS && source.trimmingCharacters(in: .whitespaces).isEmpty
             && model.bestKnownPosition != nil
+    }
+
+    /// The GPS switch: on by default; off, the planner asks "From where?".
+    /// Off and greyed when there is no GPS to use.
+    private var gpsToggle: some View {
+        Toggle(isOn: Binding(
+            get: { usingGPSSource },
+            set: { on in
+                model.plannerUseGPS = on
+                if on {
+                    model.plannerSource = ""
+                    model.plannerSourcePick = nil
+                } else {
+                    focusedField = .source
+                }
+            })) {
+            Label("GPS", systemImage: "location.fill")
+                .scaledFont(.footnote, weight: .semibold)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .fixedSize()
+        .disabled(!hasGPS)
+        .help(hasGPS ? "Start from where you are; off lets you type a start"
+                     : "No GPS on this device — type a start")
+    }
+
+    /// Plan the way back too: arriving offers "Head back".
+    private var roundTripToggle: some View {
+        Toggle(isOn: $model.roundTrip) {
+            Label("Round trip", systemImage: "arrow.triangle.2.circlepath")
+                .scaledFont(.footnote, weight: .semibold)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .fixedSize()
+        .help("Come back to where you started: at the destination, Head back plans the way home")
+    }
+
+    /// Why the start field is showing when the driver didn't turn GPS off.
+    @ViewBuilder
+    private var sourceNote: some View {
+        if !hasGPS {
+            HStack(spacing: 6) {
+                Text(sourceRowText)
+                    .scaledFont(.caption)
+                    .foregroundStyle(.secondary)
+                if model.location.denied, let url = locationSettingsURL {
+                    // The one way back to the permission after "Don't Allow".
+                    Button("Open Settings") { openURL(url) }
+                        .scaledFont(.caption, weight: .semibold)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.blue)
+                }
+            }
+        }
     }
 
     var body: some View {
@@ -84,9 +137,10 @@ struct PlannerPanel: View {
                     }
                 }
             }
-            HStack {
-                Text("Where to?")
-                    .scaledFont(size: 15, weight: .bold)
+            // The trip's two switches, then the X.
+            HStack(spacing: 12) {
+                gpsToggle
+                roundTripToggle
                     .onChange(of: model.plannerDestination) { _, text in
                         destSearch.update(fragment: text, near: model.location.coordinate)
                     }
@@ -128,7 +182,7 @@ struct PlannerPanel: View {
                                 limit: 3)
                         }
                     }
-                Spacer()
+                Spacer(minLength: 0)
                 // X = minimize, not close: the planner tucks into the round
                 // search icon at the top right and comes back from there.
                 Button {
@@ -141,6 +195,60 @@ struct PlannerPanel: View {
                 .buttonStyle(.plain)
                 .help("Tuck the planner away")
             }
+            // GPS off: where the trip starts, ABOVE where it goes.
+            if showSourceField {
+                Text("From where?")
+                    .scaledFont(size: 15, weight: .bold)
+                sourceNote
+                // Same pill styling as the destination — the roundedBorder
+                // style had a near-unclickable hit target on macOS.
+                TextField(usingFallbackStart || (!hasGPS && model.bestKnownPosition != nil)
+                          ? "Start address — empty starts from \(model.bestKnownPosition?.label ?? "home")"
+                          : "Start address, place, city, or ZIP",
+                          text: $model.plannerSource)
+                    .textFieldStyle(.plain)
+                    .scaledFont(size: 16)
+                    .frame(minHeight: Theme.tapMinimum)
+                    .padding(.horizontal, 14)
+                    .background(Theme.fill(0.04))
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
+                    .focused($focusedField, equals: .source)
+                    .autocorrectionDisabled()
+                    .onSubmit {
+                        // Return walks on to Where to? until it is filled.
+                        if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
+                            focusedField = .destination
+                        } else {
+                            Task { await plan() }
+                        }
+                    }
+                // The start field completes like the destination does.
+                if listUp == .source {
+                    // Capped and scrolling like the destination's list: an
+                    // uncapped list of eight rows ran Plan route off a small
+                    // Mac window.
+                    ScrollWhenTight(maxHeight: min(280, golden.size.height / 3), growsOnly: true) {
+                        suggestionList(sourceSearch.suggestions) { sug in
+                            sourceSearch.accept()
+                            model.plannerSource = sug.searchText
+                            model.plannerSourcePick = sug.pick
+                            // A filled start + a filled destination = ready; jump
+                            // straight to planning. Otherwise walk to Where to?.
+                            if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
+                                focusedField = .destination
+                            } else {
+                                focusedField = nil
+                                Task { await plan() }
+                            }
+                        }
+                    }
+                    .background(sourceSearch.suggestions.isEmpty ? Color.clear : Theme.fill(0.03))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+            Text("Where to?")
+                .scaledFont(size: 15, weight: .bold)
             HStack(spacing: 6) {
                 TextField("Address, place, city, or ZIP", text: $model.plannerDestination)
                     .textFieldStyle(.plain)
@@ -195,9 +303,11 @@ struct PlannerPanel: View {
                         }
                     }
                 } label: {
-                    Image(systemName: destinationIsFavorite ? "star.fill" : "star")
+                    // Solid yellow either way; whether it is saved yet is
+                    // said to VoiceOver and in the help text.
+                    Image(systemName: "star.fill")
                         .scaledFont(size: 20, weight: .semibold)
-                        .foregroundStyle(Color.yellow)   // filled when saved, outline when not
+                        .foregroundStyle(Color.yellow)
                         .frame(width: 56, height: Theme.tapMinimum)
                         .background(Theme.fill(0.04))
                         .clipShape(Capsule())
@@ -211,7 +321,8 @@ struct PlannerPanel: View {
                 .buttonStyle(.plain)
                 .fixedSize()
                 .disabled(model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty)
-                .help("Save this destination as a favorite")
+                .help(destinationIsFavorite ? "Saved as a favorite"
+                                            : "Save this destination as a favorite")
             }
             // Live lookup while typing: closest matches first (addresses,
             // places, partial words like "pharma"), the driver's recent
@@ -246,89 +357,20 @@ struct PlannerPanel: View {
                         model.plannerDestination = sug.searchText
                         model.plannerDestinationPick = sug.pick
                         listUp = nil
-                        focusedField = nil
-                        Task { await plan() }
+                        // GPS off and no start typed yet: the start comes
+                        // first — planning from an empty start only said
+                        // "Couldn't find that place".
+                        if showSourceField, !usingFallbackStart,
+                           model.plannerSource.trimmingCharacters(in: .whitespaces).isEmpty {
+                            focusedField = .source
+                        } else {
+                            focusedField = nil
+                            Task { await plan() }
+                        }
                     }
                 }
                 .background(destSearch.suggestions.isEmpty ? Color.clear : Theme.fill(0.03))
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-
-            // Source row: GPS by default, tap to override. When there's no
-            // GPS fix the field shows automatically with an explanation.
-            HStack(spacing: 6) {
-                Image(systemName: usingGPSSource ? "location.fill" : "mappin.circle")
-                    .scaledFont(.footnote)
-                    .foregroundStyle(usingGPSSource ? .blue : .secondary)
-                    // The icon carries the GPS-vs-manual distinction that
-                    // the text alone leaves to color.
-                    .accessibilityLabel(usingGPSSource
-                                        ? "Starting from your location"
-                                        : "Starting from a typed place")
-                Text(sourceRowText)
-                    .scaledFont(.footnote)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if hasGPS {
-                    // Keyed off the VISIBLE state, not just `overrideSource`:
-                    // with a typed start the field shows regardless, and
-                    // "Use GPS" must clear it in one press.
-                    Button(showSourceField ? "Use GPS" : "Enter your own location") {
-                        if showSourceField {
-                            overrideSource = false
-                            model.plannerSource = ""
-                        } else {
-                            overrideSource = true
-                        }
-                    }
-                    .scaledFont(.caption2, weight: .semibold)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.blue)
-                } else if model.location.denied, let url = locationSettingsURL {
-                    // The one way back to the permission after "Don't Allow".
-                    Button("Open Settings") { openURL(url) }
-                        .scaledFont(.caption2, weight: .semibold)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.blue)
-                }
-            }
-            if showSourceField {
-                // Same pill styling as the destination — the roundedBorder
-                // style had a near-unclickable hit target on macOS.
-                TextField("Start address, place, city, or ZIP", text: $model.plannerSource)
-                    .textFieldStyle(.plain)
-                    .scaledFont(size: 16)
-                    .frame(minHeight: Theme.tapMinimum)
-                    .padding(.horizontal, 14)
-                    .background(Theme.fill(0.04))
-                    .clipShape(Capsule())
-                    .contentShape(Capsule())
-                    .focused($focusedField, equals: .source)
-                    .autocorrectionDisabled()
-                    .onSubmit { Task { await plan() } }
-                // The start field completes like the destination does.
-                if listUp == .source {
-                    // Capped and scrolling like the destination's list: an
-                    // uncapped list of eight rows ran Plan route off a small
-                    // Mac window.
-                    ScrollWhenTight(maxHeight: min(280, golden.size.height / 3), growsOnly: true) {
-                        suggestionList(sourceSearch.suggestions) { sug in
-                            sourceSearch.accept()
-                            model.plannerSource = sug.searchText
-                            model.plannerSourcePick = sug.pick
-                            // A filled start + a filled destination = ready; jump
-                            // straight to planning. Otherwise walk to Where to?.
-                            if model.plannerDestination.trimmingCharacters(in: .whitespaces).isEmpty {
-                                focusedField = .destination
-                            } else {
-                                focusedField = nil
-                                Task { await plan() }
-                            }
-                        }
-                    }
-                    .background(sourceSearch.suggestions.isEmpty ? Color.clear : Theme.fill(0.03))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                }
             }
 
             Button(isWorking ? "Planning…" : "Plan route") {
@@ -564,17 +606,22 @@ struct PlannerPanel: View {
         }
     }
 
+    /// Why "From where?" is up when the driver didn't switch GPS off.
     private var sourceRowText: String {
-        if usingGPSSource { return "From: Current Location" }
         // Location turned off for FLOWS is not "no GPS": say which, so the
         // driver knows it can be turned back on.
         let off = model.location.denied
-        if usingFallbackStart, let p = model.bestKnownPosition {
-            return "From: \(p.label) (\(off ? "location is off" : "no GPS"))"
+        // Allowed, but the first fix hasn't come in yet (the first seconds
+        // after launch): not "no GPS".
+        if model.location.authorized, !off {
+            return "Finding where you are — or type a start."
         }
-        if off { return "From: (location is off for FLOWS — turn it on, or enter a start)" }
-        if !hasGPS { return "From: (no GPS on this device — enter a start)" }
-        return "From:"
+        if let p = model.bestKnownPosition, source.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "\(off ? "Location is off for FLOWS" : "No GPS on this device") — "
+                + "starting from \(p.label) unless you type a start."
+        }
+        if off { return "Location is off for FLOWS — turn it on, or type a start." }
+        return "No GPS on this device — type a start."
     }
 
     private func plan() async {
@@ -586,6 +633,8 @@ struct PlannerPanel: View {
         isWorking = true
         defer { isWorking = false }
         errorMessage = nil
+        // A stop picked for the last plan's route is not this plan's.
+        model.plannedStop = nil
         do {
             // GPS is the source unless a start was typed (or GPS is absent).
             // Source and destination geocode CONCURRENTLY so the destination

@@ -173,3 +173,30 @@ extension RouteFilter {
         return shown.isEmpty ? routes : shown
     }
 }
+
+/// Whether the vehicle-limits card opens on its own when routes appear: only
+/// for a driver who uses it — trucker mode, towing, or a limit set by hand on
+/// at least 3 of their last 10 plans. Everyone else finds it tucked under its
+/// round icon (owner, 2026-10-01: "Vehicle limits should not open by default
+/// unless the user uses trucker mode often, interacts with those settings
+/// often, or has towing mode on often").
+enum LimitsCardHabit {
+    /// How many plans the habit looks back over, and how many must use the
+    /// limits.
+    static let window = 10
+    static let enough = 3
+    /// What one plan recorded.
+    static let trucker: UInt8 = 1
+    static let towing: UInt8 = 2
+    static let touched: UInt8 = 4
+
+    static func opensByDefault(_ history: [UInt8]) -> Bool {
+        history.suffix(window).filter { $0 != 0 }.count >= enough
+    }
+
+    /// The history with one more plan on the end, the oldest past the window
+    /// dropped.
+    static func recorded(_ history: [UInt8], plan flags: UInt8) -> [UInt8] {
+        Array((history + [flags]).suffix(window))
+    }
+}

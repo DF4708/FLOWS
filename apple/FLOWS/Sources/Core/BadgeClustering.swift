@@ -115,6 +115,29 @@ enum BadgeClustering {
         }
     }
 
+    /// One icon per area, thinned so the map never crowds: worst first, an
+    /// icon is kept only if no icon already kept — of ANY kind — stands
+    /// within `minSeparationMeters`. The caller sets the spacing from the
+    /// visible map, so zooming in leaves room for more of them. Icons keep
+    /// their own places (each is its area's own anchor); equal scores keep
+    /// the input order.
+    static func declutter<Kind: Hashable>(
+        _ items: [Item<Kind>], minSeparationMeters: CLLocationDistance
+    ) -> [Item<Kind>] {
+        let order = items.indices.sorted {
+            items[$0].score != items[$1].score ? items[$0].score > items[$1].score : $0 < $1
+        }
+        var kept: [Item<Kind>] = []
+        for i in order {
+            let item = items[i]
+            if kept.contains(where: {
+                POIRanking.meters($0.coordinate, item.coordinate) < minSeparationMeters
+            }) { continue }
+            kept.append(item)
+        }
+        return kept
+    }
+
     /// The label each badge carries (the live warning that names it, for
     /// its tap card), in `badges` order; nil where none reaches it.
     ///

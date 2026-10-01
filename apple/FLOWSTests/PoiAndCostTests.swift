@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import XCTest
 
 /// BrandKnowledge — the offline chain-facts table that prefills POI rows
@@ -138,5 +139,52 @@ final class PoiAndCostTests: XCTestCase {
         XCTAssertFalse(BrandKnowledge.isShelterNoise(name: "Petersburg Civic Center"))
         XCTAssertFalse(BrandKnowledge.isShelterNoise(name: "Community Storm Shelter"))
         XCTAssertFalse(BrandKnowledge.isShelterNoise(name: "Red Cross Emergency Shelter"))
+    }
+
+    // MARK: the stop list's brand tiles and price tiers
+
+    func testABrandIsWrittenAsItWritesItself() {
+        XCTAssertEqual(BrandMark.displayName("bp"), "BP")
+        XCTAssertEqual(BrandMark.displayName("bp Gas Station"), "BP Gas Station")
+        XCTAssertEqual(BrandMark.displayName("citgo"), "CITGO")
+        XCTAssertEqual(BrandMark.displayName("Kwik Trip #742"), "Kwik Trip #742")
+        XCTAssertEqual(BrandMark.displayName("Bpm Cafe"), "Bpm Cafe", "a whole word only")
+        XCTAssertNil(BrandMark.mark(for: "Joe's Garage"), "no brand: a placeholder tile")
+        XCTAssertEqual(BrandMark.mark(for: "Shell")?.initials, "S")
+        XCTAssertEqual(BrandMark.mark(for: "Costco Gas")?.fuelTier, 1)
+    }
+
+    func testLivePricesRankOneToFiveAgainstEachOther() {
+        XCTAssertEqual(BrandMark.comparativeTiers([3.10, 3.50, nil, 3.30]), [1, 5, nil, 3])
+        XCTAssertEqual(BrandMark.comparativeTiers([3.10, 3.10]), [nil, nil],
+                       "the same price everywhere ranks nothing")
+        XCTAssertEqual(BrandMark.comparativeTiers([nil]), [nil])
+    }
+
+    // MARK: tourist stops cover the whole drive
+
+    func testTouristStopsAreSpreadOverTheWholeDrive() {
+        // A 114 km road east from 90° W; ten museums in the starting city,
+        // one halfway, one near the end. Soonest-first listed only the ten.
+        let route = POIRanking.RoutePath(coords: (0..<141).map {
+            CLLocationCoordinate2D(latitude: 43, longitude: -90 + Double($0) * 0.01)
+        })
+        var items = (0..<10).map {
+            CLLocationCoordinate2D(latitude: 43 + Double($0) * 0.001,
+                                   longitude: -89.99 + Double($0) * 0.002)
+        }
+        items.append(CLLocationCoordinate2D(latitude: 43.01, longitude: -89.3))
+        items.append(CLLocationCoordinate2D(latitude: 43.02, longitude: -88.65))
+        let tourist: UInt8 = 3   // places.rs kind::TOURIST
+        let start = CLLocationCoordinate2D(latitude: 43, longitude: -89.995)
+        let picked = route.spreadAlong(items, kind: tourist, trucker: false, from: start)
+        XCTAssertEqual(picked.count, 8)
+        XCTAssertTrue(picked.contains(10), "the middle of the drive is listed")
+        XCTAssertTrue(picked.contains(11), "the end of the drive is listed")
+        XCTAssertEqual(picked.last, 11, "in road order")
+        XCTAssertEqual(route.spreadAlong([], kind: tourist, trucker: false, from: start), [])
+        // Its search points run to the end of the drive.
+        XCTAssertEqual(POIRanking.endToEndPicks(count: 6, cap: 5), [0, 1, 3, 4, 5])
+        XCTAssertEqual(POIRanking.endToEndPicks(count: 0, cap: 5), [])
     }
 }

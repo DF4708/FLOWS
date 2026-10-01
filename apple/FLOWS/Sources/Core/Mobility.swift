@@ -47,11 +47,12 @@ enum TrafficCadence {
     }
 }
 
-/// Contiguous-area outlines for the normalized risk layer: adjacent elevated
-/// grid points cluster (grid-neighbor adjacency), and each cluster draws as
-/// a convex-hull polygon — an outline of the AFFECTED AREA, not a circle.
-/// (Inside Wisconsin the real ZIP polygons still win.) Computed in
-/// rust/flows-core (travel_modes.rs), pinned by the modes oracle.
+/// Groups of neighbouring elevated grid points with no ZIP under them (open
+/// water, Canada, Mexico): each group draws as one circle around its points
+/// (ContentView.rebuildRiskOverlays). Computed in rust/flows-core
+/// (travel_modes.rs), pinned by the modes oracle. (The padded hull these
+/// groups once drew as is still in Rust for the oracle; the map draws
+/// circles, the owner's ask of 2026-10-01 — a hull of one point was a box.)
 enum RiskBlob {
     /// Cluster points whose spacing is ≤ `adjacency` meters (grid neighbors).
     static func clusters(
@@ -72,24 +73,6 @@ enum RiskBlob {
             at += len
         }
         return out
-    }
-
-    /// Convex hull (monotone chain), padded outward by `padMeters` so a
-    /// single point still outlines a small area.
-    static func hull(
-        _ points: [CLLocationCoordinate2D], padMeters: Double
-    ) -> [CLLocationCoordinate2D] {
-        // An empty list crosses as one placeholder point the count ignores.
-        let lats = points.isEmpty ? [0] : points.map(\.latitude)
-        let lons = points.isEmpty ? [0] : points.map(\.longitude)
-        let flat = Array(lats.withUnsafeBufferPointer { la in
-            lons.withUnsafeBufferPointer { lo in
-                flows_modes_risk_hull(la, lo, Int64(points.count), padMeters)
-            }
-        })
-        return stride(from: 0, to: flat.count - 1, by: 2).map {
-            CLLocationCoordinate2D(latitude: flat[$0], longitude: flat[$0 + 1])
-        }
     }
 }
 

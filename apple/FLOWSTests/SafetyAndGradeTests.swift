@@ -834,30 +834,17 @@ final class AdaptiveTuningTests: XCTestCase {
         XCTAssertLessThanOrEqual(hi, cap, "gate exceeded the device concurrency cap")
     }
 
-    /// Rental recommendations at a transit destination: nearest office PER
-    /// BRAND (airport + downtown Enterprise = one booking), biggest brands
-    /// first, unknown independents keep their own dedupe key and sort last,
-    /// capped at three. Booking is the partner page, never a brand site.
-    func testRentalCarRecommendations() {
-        func office(_ name: String, _ miles: Double) -> RentalCars.Office {
-            RentalCars.Office(name: name, miles: miles)
-        }
-        let picks = RentalCars.recommend([
-            office("Hertz Car Rental - Columbia Airport", 6.2),
-            office("Hertz", 1.1),                      // nearer Hertz wins the brand
-            office("Enterprise Rent-A-Car", 0.8),
-            office("Bob's Rent-a-Wreck", 0.2),         // unknown: sorts after brands
-            office("Avis Car Rental", 2.5),
-        ])
-        XCTAssertEqual(picks.map(\.name),
-                       ["Enterprise Rent-A-Car", "Hertz", "Avis Car Rental"],
-                       "brand-size order, nearest per brand, top 3")
-        XCTAssertEqual(picks[1].miles, 1.1, accuracy: 1e-9,
-                       "the 1.1 mi Hertz beats the airport one")
-        // Two different independents both survive dedupe (own-name keys).
-        let locals = RentalCars.recommend([
-            office("Bob's Rentals", 0.5), office("Carol's Cars", 0.7)])
-        XCTAssertEqual(locals.count, 2)
+    /// A rental car is picked up where the traveller books it: the card
+    /// names the DiscoverCars place, never a brand ("Rental car from Avis"
+    /// for a car that might be booked from Hertz). Booking is the partner
+    /// page, never a brand site.
+    func testARentalIsPickedUpInTheDiscoverCarsPlace() {
+        let downtown = CLLocationCoordinate2D(latitude: 43.0389, longitude: -87.9065)
+        let pickup = RentalCars.pickup(near: downtown)
+        XCTAssertEqual(pickup?.name, "Milwaukee")
+        XCTAssertLessThan(POIRanking.meters(pickup?.coordinate ?? .init(), downtown), 10_000)
+        // Out on Lake Michigan no rental city is near.
+        XCTAssertNil(RentalCars.pickup(near: CLLocationCoordinate2D(latitude: 43.5, longitude: -86.9)))
         // The owner's rule (2026-09-29): searches and results alike book
         // through the partner link carrying FLOWS's code.
         XCTAssertEqual(RentalCars.compareURL?.host, "www.discovercars.com")

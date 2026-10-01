@@ -49,6 +49,30 @@ enum IntentClarifier {
         #endif
     }
 
+    /// Whether the helper can run on this device, in plain words — shown
+    /// under its switch in Settings, so a driver can tell whether it works
+    /// here at all (it only ever acts inside a spoken question, so there is
+    /// otherwise nothing to see).
+    static var statusText: String {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            switch SystemLanguageModel.default.availability {
+            case .available:
+                return "Ready on this device."
+            case .unavailable(.appleIntelligenceNotEnabled):
+                return "Turn on Apple Intelligence in the device's own Settings to use it."
+            case .unavailable(.modelNotReady):
+                return "Apple Intelligence is still getting ready on this device — try again later."
+            case .unavailable(.deviceNotEligible):
+                return "This device can't run Apple Intelligence, so FLOWS just asks again."
+            default:
+                return "Not available on this device right now, so FLOWS just asks again."
+            }
+        }
+        #endif
+        return "Needs a newer system with Apple Intelligence, so FLOWS just asks again."
+    }
+
     /// The model's reply → a safe index: the FIRST number in the text,
     /// in range, minus one ("2" → 1; "0", chatter, or out-of-range → nil).
     /// Pure — pinned by FLOWSTests.

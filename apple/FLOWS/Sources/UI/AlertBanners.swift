@@ -437,7 +437,7 @@ struct TowingCard: View {
         let violations = model.towingViolations
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Towing", systemImage: "link.circle.fill")
+                Label { Text("Towing") } icon: { TowingIcon(size: 14) }
                     .scaledFont(size: 15, weight: .bold)
                 Spacer()
                 // Named even with the label hidden: VoiceOver reads it.
@@ -795,5 +795,103 @@ struct BenchIcon: View {
             ctx.fill(p, with: .style(.primary))
         }
         .frame(width: size, height: size)
+    }
+}
+
+/// Zoom back to the vehicle: a car under a magnifying glass.
+struct VehicleZoomIcon: View {
+    var size: CGFloat = 22
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "car.fill")
+                .font(.system(size: size * 0.82, weight: .semibold))
+                .frame(width: size * 1.3, height: size * 1.1, alignment: .bottomLeading)
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: size * 0.62, weight: .heavy))
+                .padding(1)
+                .background(Circle().fill(.background.opacity(0.85)))
+                .offset(x: size * 0.12, y: -size * 0.12)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Towing: a pickup pulling an enclosed box trailer on one axle — the kind
+/// rented for a move — drawn because SF Symbols ships no trailer.
+struct TowingIcon: View {
+    var size: CGFloat = 16
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 0) {
+            Image(systemName: "truck.pickup.side.fill")
+                .font(.system(size: size, weight: .semibold))
+            Canvas { ctx, canvas in
+                let w = canvas.width, h = canvas.height
+                // The tongue, from the truck's hitch to the box.
+                var tongue = Path()
+                tongue.move(to: CGPoint(x: 0, y: h * 0.72))
+                tongue.addLine(to: CGPoint(x: w * 0.22, y: h * 0.72))
+                ctx.stroke(tongue, with: .style(.primary), lineWidth: max(h * 0.08, 1))
+                // The box, and the wheel under it.
+                let box = CGRect(x: w * 0.2, y: h * 0.08, width: w * 0.78, height: h * 0.66)
+                ctx.fill(Path(roundedRect: box, cornerRadius: h * 0.08), with: .style(.primary))
+                let r = h * 0.17
+                ctx.fill(Path(ellipseIn: CGRect(x: w * 0.55 - r, y: h - 2 * r, width: 2 * r, height: 2 * r)),
+                         with: .style(.primary))
+            }
+            .frame(width: size * 0.95, height: size * 0.9)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A U-turn lane's arrow: up its lane, round over the top, and back down
+/// on the left (or the right) — drawn, so its side is never in doubt.
+struct UTurnArrow: Shape {
+    let left: Bool
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let w = r.width, h = r.height
+        let up = left ? r.minX + w * 0.76 : r.minX + w * 0.24
+        let down = left ? r.minX + w * 0.24 : r.minX + w * 0.76
+        let radius = abs(up - down) / 2
+        let crown = r.minY + h * 0.12 + radius
+        p.move(to: CGPoint(x: up, y: r.maxY))
+        p.addLine(to: CGPoint(x: up, y: crown))
+        // Over the top: visually anticlockwise for a left U-turn (SwiftUI's
+        // flipped y turns `clockwise: true` into that), clockwise for a right.
+        p.addArc(center: CGPoint(x: (up + down) / 2, y: crown), radius: radius,
+                 startAngle: .degrees(left ? 0 : 180), endAngle: .degrees(left ? 180 : 0),
+                 clockwise: left)
+        p.addLine(to: CGPoint(x: down, y: r.maxY - h * 0.1))
+        // The arrowhead, pointing back down the road.
+        p.move(to: CGPoint(x: down - w * 0.2, y: r.maxY - h * 0.3))
+        p.addLine(to: CGPoint(x: down, y: r.maxY - h * 0.08))
+        p.addLine(to: CGPoint(x: down + w * 0.2, y: r.maxY - h * 0.3))
+        return p
+    }
+}
+
+/// One lane's arrow in the lane box: the movement its lane serves, green
+/// when it is a lane to be in.
+struct LaneArrowGlyph: View {
+    let arrow: LaneBox.Arrow
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if arrow.turn == .reverse {
+                UTurnArrow(left: arrow.uTurnLeft)
+                    .stroke(style: StrokeStyle(lineWidth: max(size * 0.13, 2),
+                                               lineCap: .round, lineJoin: .round))
+                    .frame(width: size * 0.75, height: size)
+            } else {
+                Image(systemName: arrow.turn.symbol)
+                    .font(.system(size: size, weight: .bold))
+            }
+        }
+        .foregroundStyle(arrow.lit ? Theme.riskGreen : Color.white.opacity(0.32))
     }
 }

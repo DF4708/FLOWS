@@ -182,7 +182,23 @@ struct ScannerIncidentPin: View {
         }
     }
 
+    /// How much of the pin is left: full when the call is heard, fading
+    /// toward a faint trace by the end of its time on the map (owner,
+    /// 2026-10-01: police icons "that fade out with time").
+    private func strength(at now: Date) -> Double {
+        let life = max(ScannerIncidents.lifetime(for: incident.kind), 1)
+        let age = now.timeIntervalSince(incident.heardAt)
+        return min(max(1 - age / life, 0.2), 1)
+    }
+
     var body: some View {
+        // Re-read every 20 seconds so the fade moves on a map left alone.
+        TimelineView(.periodic(from: .now, by: 20)) { context in
+            pin.opacity(strength(at: context.date))
+        }
+    }
+
+    private var pin: some View {
         ZStack {
             Circle()
                 .stroke(color.opacity(glow ? 0.75 : 0.15), lineWidth: glow ? 6 : 2)

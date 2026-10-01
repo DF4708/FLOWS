@@ -76,6 +76,10 @@ enum Theme {
                                blue: 0x11 / 255.0)
     // R/risk_constants.R + rust risk.rs palette
     static let riskGreen = Color(red: 0x2e / 255.0, green: 0xcc / 255.0, blue: 0x71 / 255.0)
+    /// The Clear band: a pale green, the quiet end of the same scale. It was
+    /// blue, and blue is the map's colour for water and flooding — a clear
+    /// stretch of road read as a flooded one.
+    static let riskClear = Color(red: 0x9e / 255.0, green: 0xdc / 255.0, blue: 0xb4 / 255.0)
     static let riskYellow = Color(red: 0xf1 / 255.0, green: 0xc4 / 255.0, blue: 0x0f / 255.0)
     static let riskRed = Color(red: 0xdc / 255.0, green: 0x35 / 255.0, blue: 0x45 / 255.0)
     // ui.R theme-color meta
@@ -411,7 +415,7 @@ extension View {
 extension RiskBand {
     var color: Color {
         switch self {
-        case .clear: return .blue
+        case .clear: return Theme.riskClear
         case .green: return Theme.riskGreen
         case .yellow: return Theme.riskYellow
         case .red: return Theme.riskRed
@@ -437,5 +441,40 @@ extension View {
     /// are registered too.
     func chromeRegion(_ id: String) -> some View {
         anchorPreference(key: ChromeFramesKey.self, value: .bounds) { [id: $0] }
+    }
+}
+
+/// A row whose children are all as wide as the widest of them, stretched to
+/// the row's width when it is offered more — the drive bar's stop buttons
+/// were each as wide as their own word, "Parking" wider than "Rest".
+struct EqualWidthHStack: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
+                      cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let ideal = subviews.map { $0.sizeThatFits(.unspecified) }
+        let widest = ideal.map(\.width).max() ?? 0
+        let tallest = ideal.map(\.height).max() ?? 0
+        let gaps = spacing * CGFloat(subviews.count - 1)
+        let natural = widest * CGFloat(subviews.count) + gaps
+        // Offered more room than they need, they share it equally.
+        if let offered = proposal.width, offered.isFinite, offered > natural {
+            return CGSize(width: offered, height: tallest)
+        }
+        return CGSize(width: natural, height: tallest)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let n = CGFloat(subviews.count)
+        let width = (bounds.width - spacing * (n - 1)) / n
+        var x = bounds.minX
+        for subview in subviews {
+            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: bounds.height))
+            x += width + spacing
+        }
     }
 }

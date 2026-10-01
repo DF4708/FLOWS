@@ -82,8 +82,10 @@ final class POIService: ObservableObject {
             // AutoZone / Publix. The brand-augmented queries constrain instead.
             return nil
         case .tourist:
-            return MKPointOfInterestFilter(
-                including: [.nationalPark, .museum, .amusementPark, .zoo, .aquarium])
+            // No category filter: state parks and historic sites come back
+            // as plain parks or with no category at all, and the filter hid
+            // every one of them. `isAttraction` keeps the real attractions.
+            return nil
         case .medical:
             return MKPointOfInterestFilter(including: [.hospital, .pharmacy])
         case .hotel:
@@ -372,9 +374,37 @@ final class POIService: ObservableObject {
         }
     }
 
-    /// The tourist button's queries — also the per-route count's.
-    private static let touristQueries = ["national park monument",
-                                         "tourist attraction landmark museum"]
+    /// The tourist button's queries — also the per-route count's. One subject
+    /// each: MapKit answers a run of words ("tourist attraction landmark
+    /// museum") with nothing at all, and "national park monument" with the
+    /// national parks of Colorado wherever it was asked — so between Madison
+    /// and Milwaukee the search found no stop to add (owner, 2026-10-01).
+    private static let touristQueries = ["museum", "state park", "zoo", "historic site"]
+
+    /// Whether a map hit is a place worth a detour as a tourist stop: a
+    /// museum, zoo, aquarium, amusement park, national park, landmark or
+    /// monument — or a park its name says is a state or national one (city
+    /// parks and playgrounds share the park category).
+    static func isAttraction(_ item: MKMapItem) -> Bool {
+        let name = (item.name ?? "").lowercased()
+        let namedAttraction = ["state park", "state forest", "state natural area",
+                               "national", "historic", "monument", "museum", "zoo",
+                               "aquarium", "landmark", "memorial"]
+            .contains { name.contains($0) }
+        guard let category = item.pointOfInterestCategory else { return namedAttraction }
+        switch category {
+        case .museum, .zoo, .aquarium, .amusementPark, .nationalPark:
+            return true
+        case .park:
+            return namedAttraction
+        default:
+            // Newer systems' landmark categories, read by name so older ones
+            // still build.
+            let raw = category.rawValue.lowercased()
+            return raw.contains("landmark") || raw.contains("monument")
+                || raw.contains("castle") || raw.contains("fortress")
+        }
+    }
 
     /// Attractions near ONE route's own road, for the tourist order on the
     /// choice cards: the tourist button's queries, box and spread of search
@@ -415,7 +445,9 @@ final class POIService: ObservableObject {
             }
         }
         let places = dedupIndices(found, locationOnly: policy.location_dedup)
-            .map { found[$0].placemark.coordinate }
+            .map { found[$0] }
+            .filter(Self.isAttraction)
+            .map(\.placemark.coordinate)
         // Within a worthwhile detour (40 km) of the route.
         return places.filter { place in
             samples.contains { POIRanking.meters($0, place) < 40_000 }
@@ -549,16 +581,27 @@ final class POIService: ObservableObject {
         }
 
         var found: [MKMapItem] = []
-        var centers: [CLLocationCoordinate2D] = position.map { [$0] } ?? []
+        // Tourist stops are about the WAY there: the start's own museums
+        // filled the list and stopped the sweep before it reached the road
+        // (Madison to Milwaukee listed only downtown Madison). They search
+        // the corridor alone, every stretch of it.
+        let wholeCorridor = kind == .tourist
+        var centers: [CLLocationCoordinate2D] = wholeCorridor ? [] : (position.map { [$0] } ?? [])
         // Multi-query kinds probe fewer centers so total request count stays
         // level (3 centers x 3 queries ≈ 5 centers x 1 query + change).
-        let centerCap = Int(flows_places_search_center_cap(Int64(queries.count)))
+        // Tourist stops take five stretches of road, so the middle of the
+        // drive is searched as well as its ends.
+        let centerCap = wholeCorridor ? 5 : Int(flows_places_search_center_cap(Int64(queries.count)))
         // Spread centers EVENLY along the remaining corridor (a GA→WI route
         // used to search only near the start — hotels 800 mi ahead never
         // appeared).
         let ahead = corridorAhead(of: position)
-        centers.append(contentsOf: POIRanking.centerPicks(count: ahead.count, cap: centerCap)
-            .map { ahead[$0] })
+        // Tourist stops reach the END too: the even spread stopped a stride
+        // short of it, and Madison to Milwaukee never searched Milwaukee.
+        let picks = wholeCorridor
+            ? POIRanking.endToEndPicks(count: ahead.count, cap: centerCap)
+            : POIRanking.centerPicks(count: ahead.count, cap: centerCap)
+        centers.append(contentsOf: picks.map { ahead[$0] })
         // What this kind does differently (rust/flows-core places.rs): hotels
         // and stores cluster in towns OFF the highway, parks sit well off the
         // interstate and ERs matter at any range, so each searches its own
@@ -576,8 +619,9 @@ final class POIService: ObservableObject {
                     latitudinalMeters: regionMeters, longitudinalMeters: regionMeters)
                 found.append(contentsOf: await Self.pacedLocalSearch(request))
                 // Multi-center x multi-query can reach 15 requests; enough
-                // raw hits means later centers only add far-away duplicates.
-                if found.count >= SearchLimits.enoughHits { break searchLoop }
+                // raw hits means later centers only add far-away duplicates
+                // (not for tourist stops, where later centers are the point).
+                if !wholeCorridor, found.count >= SearchLimits.enoughHits { break searchLoop }
                 if gen != searchGeneration { return }   // superseded mid-sweep
             }
         }
@@ -611,6 +655,18 @@ final class POIService: ObservableObject {
         // shelters and service offices no storm-warned driver can use.
         if kind == .shelter {
             unique = unique.filter { !BrandKnowledge.isShelterNoise(name: $0.name ?? "") }
+        }
+        // Tourist stops: the searches are broad, so only real attractions
+        // stay (a county park or a museum café is not one).
+        if kind == .tourist {
+            unique = unique.filter(Self.isAttraction)
+            // Eight rows over the whole drive: soonest-first alone listed
+            // only the starting city's museums.
+            if let routePath {
+                unique = routePath.spreadAlong(unique.map(\.placemark.coordinate),
+                                               kind: kind.rustCode, trucker: truckerMode,
+                                               from: position).map { unique[$0] }
+            }
         }
         // Truck parking: a "truck parking" search also finds every car park
         // and campus garage nearby — low-clearance ramps no truck fits.
@@ -767,6 +823,20 @@ final class POIService: ObservableObject {
             }
             return r
         }
+        // Fuel's green $ (1–5): stations with live prices ranked against each
+        // other, the rest by what the brand usually charges (warehouse clubs
+        // and discounters low, the big oil brands high) — so every station
+        // shows one (owner, 2026-10-01).
+        if kind == .gas {
+            let live = BrandMark.comparativeTiers(ranked.map { $0.isLivePrice ? $0.pricePerUnit : nil })
+            ranked = zip(ranked, live).map { row, tier in
+                var r = row
+                if r.costTier == nil {
+                    r.costTier = tier ?? BrandMark.mark(for: r.item.name ?? "")?.fuelTier
+                }
+                return r
+            }
+        }
         guard gen == searchGeneration, activeKind == kind else { return }   // superseded
         // Never offer a stop that's outside its operating hours (unknown
         // hours stay listed).
@@ -844,7 +914,9 @@ final class POIService: ObservableObject {
             selected = results.first
         }
         if results.isEmpty {
-            emptyResultMessage = "No \(kind.rawValue.lowercased()) found ahead on this route."
+            emptyResultMessage = kind == .tourist
+                ? "No tourist stops found within a short detour of this route."
+                : "No \(kind.rawValue.lowercased()) found ahead on this route."
             activeKind = nil
         }
     }

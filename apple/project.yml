@@ -96,10 +96,10 @@ targets:
           Understands short spoken answers ("yes", "no", "I'm okay") and
           asks ("classic country", "the weather radio") to crash check-ins,
           route questions, and the music and radio mic buttons. If you turn
-          on "Show calls heard nearby" in Settings, local dispatch calls are
-          also turned into text ON THIS PHONE to mark crashes and closures
-          on the map — that audio is never uploaded, saved, or played aloud,
-          and nothing is heard from the microphone for it.
+          on "Show calls heard nearby" in Settings, nearby police and fire
+          calls show as small police icons on the map that fade over time;
+          the call audio is read on this iPhone only, never uploaded, saved,
+          or played aloud, and nothing is heard from the microphone for it.
         NSMotionUsageDescription: >-
           Crash detection watches for sudden impacts while navigating.
         NSBluetoothAlwaysUsageDescription: >-

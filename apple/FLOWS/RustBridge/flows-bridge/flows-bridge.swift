@@ -2049,6 +2049,9 @@ public func flows_places_search_center_cap(_ query_count: Int64) -> Int64 {
 public func flows_places_center_picks(_ count: Int64, _ cap: Int64) -> RustVec<Int64> {
     RustVec(ptr: __swift_bridge__$flows_places_center_picks(count, cap))
 }
+public func flows_places_end_to_end_picks(_ count: Int64, _ cap: Int64) -> RustVec<Int64> {
+    RustVec(ptr: __swift_bridge__$flows_places_end_to_end_picks(count, cap))
+}
 public func flows_places_first_nearest(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Int64 {
     __swift_bridge__$flows_places_first_nearest(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
 }
@@ -2427,6 +2430,10 @@ extension FlowsRoutePathRef {
             RustVec(ptr: __swift_bridge__$FlowsRoutePath$rank_along(ptr, kind, has_fuel, fuel, trucker, has_position, lat, lon, item_lats.toFfiSlice(), item_lons.toFfiSlice(), prices.toFfiSlice(), has_price.toFfiSlice(), ratings.toFfiSlice(), has_rating.toFfiSlice(), names_joinedAsRustStr, name_lens.toFfiSlice(), name_present.toFfiSlice()))
         })
     }
+
+    public func spread_along(_ kind: UInt8, _ trucker: Bool, _ has_position: Bool, _ lat: Double, _ lon: Double, _ item_lats: UnsafeBufferPointer<Double>, _ item_lons: UnsafeBufferPointer<Double>) -> RustVec<Int64> {
+        RustVec(ptr: __swift_bridge__$FlowsRoutePath$spread_along(ptr, kind, trucker, has_position, lat, lon, item_lats.toFfiSlice(), item_lons.toFfiSlice()))
+    }
 }
 extension FlowsRoutePath: Vectorizable {
     public static func vecOfSelfNew() -> UnsafeMutableRawPointer {
@@ -2802,6 +2809,9 @@ public func flows_rides_rental_landing_airport<GenericToRustStr: ToRustStr>(_ co
     return code.toRustStr({ codeAsRustStr in
         RustString(ptr: __swift_bridge__$flows_rides_rental_landing_airport(codeAsRustStr, latitude, longitude))
     })
+}
+public func flows_rides_rental_pickup_near(_ latitude: Double, _ longitude: Double) -> RustString {
+    RustString(ptr: __swift_bridge__$flows_rides_rental_pickup_near(latitude, longitude))
 }
 public func flows_rides_recommend_rentals<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ name_lengths: UnsafeBufferPointer<Int64>, _ miles: UnsafeBufferPointer<Double>, _ count: Int64, _ limit: Int64) -> RustVec<Int64> {
     return names.toRustStr({ namesAsRustStr in

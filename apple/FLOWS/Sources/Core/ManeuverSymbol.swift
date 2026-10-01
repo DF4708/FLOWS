@@ -173,3 +173,77 @@ enum LaneGuidance {
         }
     }
 }
+
+extension ManeuverSymbol {
+    /// The exit number an instruction names ("Take exit 142A toward I-94 E"
+    /// → "142A"), for the big exit sign beside the compass; nil when it names
+    /// no numbered exit ("take the exit toward Madison", "the 2nd exit" of a
+    /// roundabout).
+    static func exitNumber(in instruction: String) -> String? {
+        guard let r = instruction.range(of: #"(?i)\bexit\s+\d{1,4}[a-z]?\b"#,
+                                        options: .regularExpression)
+        else { return nil }
+        return instruction[r].split(whereSeparator: \.isWhitespace).last
+            .map { $0.uppercased() }
+    }
+
+    /// The lane movement an instruction asks for — what the lit arrows in
+    /// the lane box show. The same reading as `symbol(for:)`: a ramp or
+    /// exit that names no side is a right one.
+    static func turn(for instruction: String) -> LaneData.Turn {
+        let s = instruction.lowercased()
+        if s.contains("u-turn") || s.contains("make a u turn") { return .reverse }
+        let side = side(of: s)
+        if s.contains("slight") || s.contains("bear ")
+            || s.contains("keep ") || s.contains("stay ") {
+            return side == .left ? .slightLeft : side == .right ? .slightRight : .through
+        }
+        if s.contains("merge") { return side == .left ? .mergeToLeft : .mergeToRight }
+        if s.contains("exit") || s.contains("ramp") {
+            return side == .left ? .left : .right
+        }
+        if s.contains("sharp") {
+            return side == .left ? .sharpLeft : side == .right ? .sharpRight : .through
+        }
+        if s.contains("turn") || side != .none {
+            return side == .left ? .left : side == .right ? .right : .through
+        }
+        return .through
+    }
+}
+
+/// The arrow box beside the directions: one arrow per lane, each drawn as
+/// the movement its lane serves (straight, left, right, a U-turn on the left
+/// or the right), the lanes to be in lit green. Lane by lane from the road's
+/// own tagged lanes when there are any; from what the instruction says when
+/// it names lanes ("use the 2 right lanes"); else one arrow for the turn.
+enum LaneBox {
+    struct Arrow: Equatable {
+        let turn: LaneData.Turn
+        let lit: Bool
+        /// A U-turn arrow curls to the left (true) or the right.
+        let uTurnLeft: Bool
+    }
+
+    static func arrows(lanes: [LaneData.Lane], recommended: Set<Int>,
+                       instruction: String) -> [Arrow] {
+        let maneuver = ManeuverSymbol.turn(for: instruction)
+        let curlsLeft = ManeuverSymbol.side(of: instruction) != .right
+        if !lanes.isEmpty {
+            // A U-turn lane curls toward the side of the road it is on.
+            return lanes.enumerated().map { i, lane in
+                Arrow(turn: lane.primary, lit: recommended.contains(i),
+                      uTurnLeft: i < (lanes.count + 1) / 2)
+            }
+        }
+        if let advice = LaneGuidance.advice(for: instruction) {
+            let total = max(advice.laneCount + 2, 3)
+            let lit = LaneGuidance.highlighted(advice: advice, total: total)
+            return (0..<total).map { i in
+                Arrow(turn: lit.contains(i) ? maneuver : .through, lit: lit.contains(i),
+                      uTurnLeft: curlsLeft)
+            }
+        }
+        return [Arrow(turn: maneuver, lit: true, uTurnLeft: curlsLeft)]
+    }
+}
