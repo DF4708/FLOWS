@@ -293,9 +293,10 @@ fn by_airport(anchors: &[(f64, f64)], cands: &[(f64, f64, f64)]) -> Option<usize
 /// Florida" page gives. A similarly named town in the filed state never fit
 /// (Hampton, Florida for "Westhampton": 32 of 190 pairs out of order;
 /// Westhampton, New York: 2). A close call went to the one real town among
-/// hamlets (Millville, New Jersey, not the Connecticut crossroads). Found by
-/// checking every town placed without a population behind it and every town
-/// new in the 2026-09-30 table.
+/// hamlets (Millville, New Jersey, not the Connecticut crossroads). All 3,627
+/// towns were checked; where DiscoverCars' own order is off but a real town
+/// of the name is in the filed state (Hollywood, Florida; Albany, New York,
+/// its airport filed under it), the real town stays.
 const REFILED: &[(&str, &str, &str, f64, f64)] = &[
     (
         "usa-florida",
@@ -401,6 +402,15 @@ const REFILED: &[(&str, &str, &str, f64, f64)] = &[
         "Westhampton, New York",
         40.8245437,
         -72.6662075,
+    ),
+    // Right state, other town: Mission Hills in the San Fernando Valley
+    // (Burbank its nearest), not the Census place in Santa Barbara County.
+    (
+        "usa-california",
+        "mission-hills",
+        "Mission Hills, Los Angeles, California",
+        34.2572249,
+        -118.4670285,
     ),
     // Right state, other town: Southampton by Philadelphia, not the
     // Southampton Township 210 km west.

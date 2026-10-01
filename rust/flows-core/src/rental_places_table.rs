@@ -4460,8 +4460,8 @@ pub static RENTAL_CITIES: &[RentalCity] = &[
         region: "usa-california",
         name: "Mission Hills",
         slug: "mission-hills",
-        lat: 34.68609,
-        lon: -120.43683,
+        lat: 34.25722,
+        lon: -118.46703,
     },
     RentalCity {
         country: "US",
