@@ -422,15 +422,11 @@ struct GaugeDial: View {
 
 /// Towing card: two horizontal scales (vehicle weight, towed weight) checked
 /// live against the manufacturer's GVWR / tow capacity / GCWR — violations
-/// FLASH red with what actually goes wrong. The card names those ratings in
+/// show in steady red with what actually goes wrong. The card names those ratings in
 /// plain words; the acronyms mean nothing to most drivers.
 struct TowingCard: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.golden) private var golden
-    @State private var flash = false
-    /// Reduce Motion (and photosensitivity) holds the warnings steady at
-    /// full strength instead of flashing them.
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let ratings = model.towingRatings
@@ -473,7 +469,9 @@ struct TowingCard: View {
                     .frame(width: 120, alignment: .leading)
                 Slider(value: $model.towTrailerWeightLbs, in: 0...45000, step: 100)
             }
-            // Static ratings, flashing red where exceeded.
+            // Static ratings, steady red where exceeded. Never flashing
+            // (owner, 2026-10-01): dragging a slider across a rating turned
+            // the pulse on and off with every step.
             HStack(spacing: 8) {
                 ratingBadge("Max loaded weight", ratings.gvwrLbs,
                             violated: violations.contains { if case .overGVWR = $0 { return true } else { return false } })
@@ -487,9 +485,6 @@ struct TowingCard: View {
                     Text(v.title)
                         .scaledFont(size: 13, weight: .heavy)
                         .foregroundStyle(Theme.riskRed)
-                        .animation(reduceMotion ? nil : Self.pulse) {
-                            $0.opacity(flash || reduceMotion ? 1 : 0.35)
-                        }
                     Text(v.consequences)
                         .scaledFont(.caption)
                         .foregroundStyle(.secondary)
@@ -509,17 +504,7 @@ struct TowingCard: View {
         }
         .floatingCard()
         .frame(maxWidth: golden.cardMax)
-        .onAppear { flash = true }
     }
-
-    /// The flash, run on the flashing opacity ALONE. Put on the whole card
-    /// with `.animation(_:value:)`, it also animated the card's position when
-    /// the card appeared while the column around it was still settling, and
-    /// the card slid up and down over the radio card for as long as it was
-    /// open. (withAnimation is no better: it catches every view in the
-    /// transaction.)
-    private static let pulse = Animation.easeInOut(duration: 0.5)
-        .repeatForever(autoreverses: true)
 
     private func ratingBadge(_ label: String, _ value: Double?, violated: Bool) -> some View {
         VStack(spacing: 1) {
@@ -531,12 +516,6 @@ struct TowingCard: View {
             Text(value.map { String(format: "%.0f lb", $0) } ?? "—")
                 .scaledFont(size: 13, weight: .heavy).monospacedDigit()
                 .foregroundStyle(violated ? Theme.riskRed : .primary)
-                // A rating the rig stops exceeding settles (.default
-                // replaces the repeating run) instead of pulsing on; Reduce
-                // Motion holds it steady.
-                .animation(violated && !reduceMotion ? Self.pulse : .default) {
-                    $0.opacity(violated && flash && !reduceMotion ? 0.35 : 1)
-                }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 6)

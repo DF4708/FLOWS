@@ -1426,7 +1426,7 @@ struct ContentView: View {
     /// no longer draws it as one. Judged as the cards are (on foot, only No
     /// highways).
     private var grayAlternates: [PlannedRoute] {
-        RouteFilter.offered(model.routeChoices, judged: model.judgingFilters,
+        RouteFilter.offered(model.passableChoices, judged: model.judgingFilters,
                             limits: model.judgingLimits)
             .filter { $0.id != model.highlightedRouteID }
     }
@@ -1601,10 +1601,16 @@ struct ContentView: View {
         // Filter — drawn first, under everything. Only ZIPs at Green or
         // worse: a Clear ZIP has nothing to show, and it was drawn (in the
         // old blue) because the floor sat below the Green cut.
+        // Owner, 2026-10-01: with the pale Clear ZIPs gone the rest read as
+        // washed out — at 0.15 + 0.25 × score a Green ZIP was a quarter
+        // strength and neighbours of one band merged into a single wash. Now
+        // ~0.4 for Green rising to ~0.6 for Red, each ZIP with a thin edge in
+        // its own colour.
         ForEach(choroplethZIPs) { zip in
+            let color = FlowsCore.riskBand(score: zip.score).color
             MapPolygon(coordinates: zip.ring)
-                .foregroundStyle(FlowsCore.riskBand(score: zip.score).color
-                    .opacity(0.15 + 0.25 * zip.score))
+                .foregroundStyle(color.opacity(0.28 + 0.32 * zip.score))
+                .stroke(color.opacity(0.7), lineWidth: 1)
         }
 
         // ONE normalized layer (per request): everything folds into the
@@ -1630,7 +1636,7 @@ struct ContentView: View {
             ForEach(zctaOverlays) { ov in
                 let risk = HazardStyle.riskLevelColor(FlowsCore.riskBand(score: ov.score))
                 MapPolygon(coordinates: ov.ring)
-                    .foregroundStyle(risk.opacity(0.05))
+                    .foregroundStyle(risk.opacity(0.12))
                     .stroke(risk.opacity(0.9), lineWidth: 2)
                 ForEach(Array(ov.riskStripes.enumerated()), id: \.offset) { _, seg in
                     MapPolyline(coordinates: seg)
@@ -1644,7 +1650,7 @@ struct ContentView: View {
             ForEach(blobOverlays) { ov in
                 let risk = HazardStyle.riskLevelColor(FlowsCore.riskBand(score: ov.score))
                 MapPolygon(coordinates: ov.ring)
-                    .foregroundStyle(risk.opacity(0.05))
+                    .foregroundStyle(risk.opacity(0.12))
                     .stroke(risk.opacity(0.85), lineWidth: 2)
                 ForEach(Array(ov.riskStripes.enumerated()), id: \.offset) { _, seg in
                     MapPolyline(coordinates: seg)
@@ -3840,30 +3846,25 @@ struct SettingsSheet: View {
             Divider()
             Text("Police and fire calls on the map")
                 .scaledFont(size: 14, weight: .semibold)
-            if model.scanner.available {
-                Toggle("Show calls heard nearby", isOn: Binding(
-                    get: { model.scanner.enabled },
-                    set: { model.scanner.enabled = $0 }))
-                    .scaledFont(.caption)
-                Text("Police calls show on the map as small blue police icons "
-                     + "— red for medical, orange for fire — near you and "
-                     + "along your route, and fade out over time. They come "
-                     + "from the police and fire radio feed set up for this "
-                     + "device; the radio is never recorded or sent anywhere. "
-                     + "Heard on a radio, so treat them as a heads-up, not a "
-                     + "fact.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                if let status = model.scanner.status {
-                    Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
-                }
-            } else {
-                // How a feed list is installed is setup work, written up
-                // for whoever sets it up (docs/ARCHITECTURE.md).
-                Text("No police or fire radio is set up on this device yet, "
-                     + "so there is nothing to listen to.")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
+            Toggle("Show calls heard nearby", isOn: Binding(
+                get: { model.scanner.enabled },
+                set: { model.scanner.enabled = $0 }))
+                .scaledFont(.caption)
+            Text("Police calls show on the map as small blue police icons "
+                 + "— red for medical, orange for fire — near you and along "
+                 + "your route, and fade out over time. A gun, a robbery or a "
+                 + "fire within about a mile is also said out loud. They come "
+                 + "from the 911 lists cities publish for free (San Francisco "
+                 + "police and Seattle fire so far, a few minutes behind)"
+                 + (model.scanner.available
+                    ? ", and from the police and fire radio set up for this device."
+                    : ".")
+                 + " Treat them as a heads-up, not a fact.")
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+            ForEach([model.openDispatch.status, model.scanner.status].compactMap { $0 },
+                    id: \.self) { status in
+                Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
             }
 
             Divider()
@@ -4406,6 +4407,10 @@ struct SettingsSheet: View {
                  + "Airports: OurAirports, public domain.\n"
                  + "Average gas and diesel prices: U.S. Energy Information "
                  + "Administration (EIA), weekly, public domain.\n"
+                 + "Police and fire calls: the City of San Francisco and the "
+                 + "City of Seattle's public 911 lists, public domain.\n"
+                 + "Chain logos: Brandfetch. Every logo and brand name belongs "
+                 + "to its owner; FLOWS is not affiliated with them.\n"
                  + "Town locations for rental car links: U.S. Census Bureau, USGS "
                  + "Geographic Names Information System, Natural Earth and NGA "
                  + "GEOnet Names Server, public domain.\n"
@@ -4717,7 +4722,7 @@ private struct LegendCard: View {
     private var legendContent: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text("Risk")
+                Text("Risk %")
                     .scaledFont(.caption2, weight: .bold)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
@@ -4807,20 +4812,22 @@ private struct LegendCard: View {
         .allowsHitTesting(false)
     }
 
-    /// "20 40 60 80 100%" each centred under its own line.
+    /// "20 40 60 80 100" under their lines (the "%" is in the title). Each
+    /// number ends at its own line, in a fifth of the ramp no neighbour can
+    /// reach, and shrinks to fit it: on a phone the ramp is ~80 pt, and
+    /// "80" and "100%" printed on top of each other ("1800%") or cut off.
     private var percentLabels: some View {
         let width = golden.legendDrawWidth
+        let slot = width / 5 - 1
         return ZStack(alignment: .leading) {
             ForEach(1...5, id: \.self) { step in
-                let label = step == 5 ? "100%" : "\(step * 20)"
-                // Centred on the line; the last one is right-aligned to the
-                // ramp's end so it never runs off the card.
-                Text(label)
+                Text("\(step * 20)")
                     .scaledFont(size: 8, weight: .semibold)
                     .monospacedDigit()
-                    .fixedSize()
-                    .frame(width: 26, alignment: step == 5 ? .trailing : .center)
-                    .offset(x: step == 5 ? width - 26 : width * CGFloat(step) / 5 - 13)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .frame(width: slot, alignment: .trailing)
+                    .offset(x: width * CGFloat(step) / 5 - slot)
             }
         }
         .frame(width: width, height: 10, alignment: .leading)

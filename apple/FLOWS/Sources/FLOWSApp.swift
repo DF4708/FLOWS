@@ -155,6 +155,37 @@ final class AppModel: ObservableObject {
     /// Dispatch traffic transcribed ON THIS DEVICE into temporary map pins.
     /// Off unless the operator supplied a feed list — see ScannerListener.
     let scanner = ScannerListener()
+    /// Police and fire calls from the cities that publish their 911 lists as
+    /// public data — pins like the scanner's, on the same switch.
+    let openDispatch = OpenDispatchService()
+    /// The call kinds the radio card's scanner chips put on the map.
+    enum ScannerGroup: String, CaseIterable, Identifiable {
+        case police = "Police", fire = "Fire", medical = "Medical"
+        var id: String { rawValue }
+        var symbol: String {
+            switch self {
+            case .police: return "shield.fill"
+            case .fire: return "flame.fill"
+            case .medical: return "cross.fill"
+            }
+        }
+        /// Fire takes hazards; medical takes rescues and crashes.
+        func covers(_ kind: ScannerIncidents.Kind) -> Bool {
+            switch self {
+            case .police: return kind == .police
+            case .fire: return kind == .fire || kind == .hazard
+            case .medical: return kind == .medical || kind == .rescue || kind == .traffic
+            }
+        }
+    }
+    @Published var scannerGroups: Set<ScannerGroup> = Set(
+        (UserDefaults.standard.string(forKey: "flows.scannerGroups") ?? "Police,Fire,Medical")
+            .split(separator: ",").compactMap { ScannerGroup(rawValue: String($0)) }) {
+        didSet {
+            UserDefaults.standard.set(scannerGroups.map(\.rawValue).sorted().joined(separator: ","),
+                                      forKey: "flows.scannerGroups")
+        }
+    }
     let crash = CrashDetectionService()
     /// Prior long-trip share recipients (on-device only) — suggestion ranking.
     let shareHistory = ShareHistoryStore()
@@ -911,6 +942,7 @@ final class AppModel: ObservableObject {
             return
         }
         if musicProvider == .spotify, SpotifyRemote.shared.linked {
+            MusicController.shared.stopRadioForMusic()
             Task { [weak self] in
                 if await SpotifyRemote.shared.playSearch(term) {
                     say("Playing \(term) on Spotify.")
@@ -1889,13 +1921,17 @@ final class AppModel: ObservableObject {
         // Read on every ContentView render; with no incidents (the common
         // case — the scanner ships off) there is nothing to sample the
         // route polyline for.
-        if scanner.incidents.isEmpty { return [] }
-        return ScannerIncidents.visible(scanner.incidents,
-                                 near: effectivePosition,
-                                 corridor: navigation.route.map {
-                                     RouteService.samplePoints(of: $0.route.polyline,
-                                                               everyMeters: 15_000)
-                                 } ?? [])
+        if scanner.incidents.isEmpty, openDispatch.incidents.isEmpty { return [] }
+        let corridor = navigation.route.map {
+            RouteService.samplePoints(of: $0.route.polyline, everyMeters: 15_000)
+        } ?? []
+        // The city lists' calls arrive minutes late and keep their own
+        // hour-long lives, so they are kept apart from the scanner's.
+        let groups = scannerGroups
+        return (ScannerIncidents.visible(scanner.incidents, near: effectivePosition,
+                                         corridor: corridor)
+            + openDispatch.visible(near: effectivePosition, corridor: corridor))
+            .filter { incident in groups.contains { $0.covers(incident.kind) } }
     }
 
     // MARK: how the vehicle is drawn on the map
@@ -2166,8 +2202,22 @@ final class AppModel: ObservableObject {
     /// Computed fresh per call — the routes panel reads it ONCE per render
     /// and passes the array down (reading it per card multiplied the filter
     /// pass and its ARC traffic ~50× per render).
+    /// The routes FLOWS may offer: none through a road its state reports
+    /// fully closed — a flooded road among them. That is not a filter the
+    /// driver can switch off (owner, 2026-10-01: "No flood risk" is gone;
+    /// a route through an actually flooded road is not a route).
+    var passableChoices: [PlannedRoute] {
+        routeChoices.filter { !$0.throughClosedRoad }
+    }
+
+    /// Every route found runs through a closed or flooded road: the screen
+    /// says so instead of offering one.
+    var everyRouteClosed: Bool {
+        !routeChoices.isEmpty && passableChoices.isEmpty
+    }
+
     var filteredChoices: [PlannedRoute] {
-        var out = RouteFilter.listed(routeChoices, judged: judgingFilters, limits: judgingLimits)
+        var out = RouteFilter.listed(passableChoices, judged: judgingFilters, limits: judgingLimits)
         // Tourist filter CHANGES the ordering: the route with more attractions
         // within reach leads (ties fall back to ETA) — scenic beats fast while
         // the driver is explicitly asking for tourist stops. Only once every
@@ -2563,7 +2613,7 @@ final class AppModel: ObservableObject {
         // which is where the wasted invalidation actually was.
         let children: [any ObservableObject] = [
             location, router, poi, alerts, riskField, navigation, favorites,
-            vehicle, radio, radioBrowser, scanner, vehicleLink, smartcar, crash,
+            vehicle, radio, radioBrowser, scanner, openDispatch, vehicleLink, smartcar, crash,
             breadcrumbs, corridors, trafficModel, roadEfficiency,
         ]
         for child in children {
@@ -2573,6 +2623,18 @@ final class AppModel: ObservableObject {
         }
         poi.truckerMode = truckerUI   // didSet doesn't fire for the initial value
         scanner.listen(near: location.coordinate)   // don't wait for the first fix
+        // City 911 lists ride the scanner's switch ("Show calls heard
+        // nearby"); a threat close by is said out loud, once.
+        openDispatch.enabled = scanner.enabled
+        scanner.$enabled
+            .sink { [weak self] on in self?.openDispatch.enabled = on }
+            .store(in: &serviceSubscriptions)
+        openDispatch.onThreat = { [weak self] incident in
+            guard let self, self.voiceAlerts else { return }
+            VoiceAnnouncer.shared.announce(
+                "\(incident.kind.title) call nearby: \(incident.placeText).")
+        }
+        openDispatch.refresh(near: location.coordinate)
         MusicController.shared.provider = musicProvider   // same didSet gap
         if personalVoiceAnnouncements {                   // same didSet gap
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
@@ -2606,6 +2668,9 @@ final class AppModel: ObservableObject {
         // Radio state feeds the mini player, Siri, and CarPlay when radio
         // IS the picked service.
         MusicController.shared.radioService = radio
+        // One source at a time: a station starting pauses Apple Music or
+        // Spotify (and music starting stops the radio — MusicController).
+        radio.onWillPlay = { MusicController.shared.pauseForRadio() }
         radio.objectWillChange
             .sink { _ in
                 Task { @MainActor in MusicController.shared.syncFromRadio() }
@@ -2692,6 +2757,7 @@ final class AppModel: ObservableObject {
                 }
                 // Follow the dispatch feed covering wherever we are now.
                 self.scanner.listen(near: fix.coordinate)
+                self.openDispatch.refresh(near: fix.coordinate)
                 guard self.mode == .navigating else { return }
                 let delta = self.lastHabitFix.map { fix.distance(from: $0) } ?? 0
                 // A walk teaches nothing about the vehicle: it burned no fuel,
@@ -3932,8 +3998,9 @@ final class AppModel: ObservableObject {
                         self.landScore(await self.scoredChoice(r))
                     }
                 }
-                // A late score can hide the highlighted route (No flood
-                // risk, say): the map must not keep drawing a hidden card.
+                // A late score can hide the highlighted route (a closed or
+                // flooded road found on it, say): the map must not keep drawing a
+                // hidden card.
                 if choicesOnOffer { ensureHighlightValid() }
             }
             // The ladder is spent: the cards still unchecked say so, and
@@ -3994,7 +4061,7 @@ final class AppModel: ObservableObject {
     /// The closest match the choices list shows when no route fits every
     /// filter — the same one the map highlights and a spoken yes takes.
     var closestChoice: PlannedRoute? {
-        RouteFilter.closestMatch(in: routeChoices, filters: judgingFilters, limits: judgingLimits)
+        RouteFilter.closestMatch(in: passableChoices, filters: judgingFilters, limits: judgingLimits)
     }
 
     /// Full FLOWS scoring for ONE route — alerts, field blend, segments,
@@ -4295,6 +4362,8 @@ final class AppModel: ObservableObject {
         r.alertCoverage = score.coverage
         r.alertHeadlines = score.headlines
         r.alertEvents = score.events
+        r.throughClosedRoad = HazardFeedScores.routeThroughClosure(
+            FasterRoutePolicy.coordinates(of: r.route.polyline), closures: corridorClosures)
         r.alertPolygons = score.alertPolygons
         r.riskSamples = blended
 
@@ -5249,8 +5318,7 @@ final class AppModel: ObservableObject {
     /// so a fresh road would otherwise pass those filters unchecked — the
     /// reason a faster road FLOWS finds is asked about, never taken.
     private func withAttributesIfFiltered(_ candidates: [PlannedRoute]) async -> [PlannedRoute] {
-        var loadable: Set<RouteFilter> = [.lowBridges, .bridgeWeight, .mountainGrades]
-        if candidates.allSatisfy(\.weatherScored) { loadable.insert(.noFloodRisk) }
+        let loadable: Set<RouteFilter> = [.lowBridges, .bridgeWeight, .mountainGrades]
         guard candidates.count > 1, !routeFilters.isDisjoint(with: loadable) else { return candidates }
         let loaded = await withTaskGroup(of: PlannedRoute.self) { group in
             for c in candidates { group.addTask { await self.attributeScored(c) } }
@@ -5646,8 +5714,7 @@ final class AppModel: ObservableObject {
         // before it starts: a rig's bridges, weights and grades, and flood
         // zones (FEMA loads with the leg). FLOWS asks instead.
         let limitsUnchecked = towingActive || truckerUI
-            || !routeFilters.isDisjoint(with: [.lowBridges, .bridgeWeight, .mountainGrades,
-                                               .noFloodRisk])
+            || !routeFilters.isDisjoint(with: [.lowBridges, .bridgeWeight, .mountainGrades])
         var verdict = FasterRoutePolicy.riskVerdict(
             candidateRisk: candidateRisk, aheadRisk: ahead, limitsUnchecked: limitsUnchecked)
         let bandsRiskier = FasterRoutePolicy.riskVerdict(

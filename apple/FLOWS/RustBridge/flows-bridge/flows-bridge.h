@@ -169,6 +169,7 @@ double __swift_bridge__$flows_hazard_fire_score(struct __private__FfiSlice lats,
 double __swift_bridge__$flows_hazard_seismic_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct __private__FfiSlice magnitudes, struct __private__FfiSlice age_hours, double lat, double lon);
 double __swift_bridge__$flows_hazard_water_proximity_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
 double __swift_bridge__$flows_hazard_closure_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
+bool __swift_bridge__$flows_hazard_route_through_closure(struct __private__FfiSlice route_lats, struct __private__FfiSlice route_lons, struct __private__FfiSlice closure_lats, struct __private__FfiSlice closure_lons);
 double __swift_bridge__$flows_hazard_tropical_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct __private__FfiSlice max_wind_kts, double lat, double lon);
 double __swift_bridge__$flows_hazard_flood_gauge_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct RustStr categories_joined, double lat, double lon);
 double __swift_bridge__$flows_hazard_volcanic_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct RustStr levels_joined, double lat, double lon);

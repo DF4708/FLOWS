@@ -140,7 +140,9 @@ final class ScannerListener: ObservableObject {
 
     init() {
         feeds = ScannerFeedStore.load()
-        if feeds.isEmpty { enabled = false }
+        // No audio feed configured is no reason to switch the driver's
+        // setting off: the cities' public 911 lists (OpenDispatchService)
+        // ride the same switch. listen() simply has nothing to play.
     }
 
     // MARK: listening

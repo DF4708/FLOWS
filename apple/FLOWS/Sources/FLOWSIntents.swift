@@ -503,6 +503,7 @@ struct PlayMusicSearchIntent: AppIntent {
         if provider == .appleMusic {
             // Full catalog first (MusicKit; needs the portal's MusicKit
             // service + a subscription) — the library genre path otherwise.
+            MusicController.shared.stopRadioForMusic()
             if await MusicKitCatalog.playSearch(music) {
                 return .result(dialog: IntentDialog("Playing \(music) from Apple Music."))
             }
@@ -510,6 +511,7 @@ struct PlayMusicSearchIntent: AppIntent {
             return .result(dialog: IntentDialog("Playing \(music)."))
         }
         if provider == .spotify, SpotifyRemote.shared.linked {
+            MusicController.shared.stopRadioForMusic()
             if await SpotifyRemote.shared.playSearch(music) {
                 return .result(dialog: IntentDialog("Playing \(music) on Spotify."))
             }

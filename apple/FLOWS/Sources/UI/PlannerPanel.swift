@@ -186,6 +186,9 @@ struct PlannerPanel: View {
                 // X = minimize, not close: the planner tucks into the round
                 // search icon at the top right and comes back from there.
                 Button {
+                    // The keyboard goes with the planner; it stayed up over
+                    // the map after the planner tucked away.
+                    focusedField = nil
                     withAnimation(.easeInOut(duration: 0.2)) {
                         _ = model.collapsedPanels.insert("planner")
                     }

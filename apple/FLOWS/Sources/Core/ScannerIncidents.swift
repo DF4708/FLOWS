@@ -124,6 +124,9 @@ enum ScannerIncidents {
         /// The words the place came from — shown so a driver can judge it.
         let placeText: String
         let heardAt: Date
+        /// How long it stays on the map, when not its kind's usual life: a
+        /// city 911 list's call arrives minutes late (OpenDispatch).
+        var lifetime: TimeInterval? = nil
 
         static func == (a: Incident, b: Incident) -> Bool { a.id == b.id }
     }

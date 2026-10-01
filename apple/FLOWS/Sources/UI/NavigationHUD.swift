@@ -49,10 +49,19 @@ struct NavigationHUD: View {
     @State private var shelterTick = Date()
     /// AM/FM search field text (radio-browser.info directory).
     @State private var stationSearch = ""
-    /// The station search has the keyboard (see searchingInShortWindow).
-    @FocusState private var stationSearchFocused: Bool
+    /// Streaming search field text (a song, an artist, an album).
+    @State private var streamSearch = ""
+    /// Scanner search field text (a city).
+    @State private var scannerSearch = ""
+    /// The radio card's search field holding the keyboard, if any (see
+    /// searchingInShortWindow).
+    enum RadioSearch: Hashable { case station, streaming, scanner }
+    @FocusState private var radioSearchFocus: RadioSearch?
     /// The AM/FM kind currently on the dial, so its chip reads as chosen.
     @State private var radioGenre: BroadcastRadio.Kind?
+    /// The genre last asked of the streaming service, so its chip reads as
+    /// chosen.
+    @State private var streamGenre: BroadcastRadio.Kind?
     /// Long-trip share banner: recipient list expanded / contacts sheet up.
     @State private var showShareChooser = false
     @State private var showShareContactPicker = false
@@ -63,6 +72,7 @@ struct NavigationHUD: View {
     /// In-app mic states (music ask / radio ask) — "Listening…" feedback.
     @State private var musicMicListening = false
     @State private var radioMicListening = false
+    @State private var scannerMicListening = false
     /// Live-economy inputs, fed by GPS fixes: current speed and a lightly
     /// smoothed acceleration (single-fix speed noise would flicker the bar).
     @State private var liveMph: Double = 0
@@ -92,22 +102,28 @@ struct NavigationHUD: View {
                 }
                 .chromeRegion("top.directions")
             }
-            // The top-right corner, under the directions window: the settings
-            // gear (owner, 2026-10-01: in the top-right corner with the gauge
-            // icon) and, beside it, the icons of menus tucked away — the
-            // instruments' gauge icon among them. The instruments themselves
-            // stand on the right wall below.
-            if showsCornerRow {
-                HStack(alignment: .top, spacing: golden.pad) {
-                    Spacer(minLength: 0)
-                    CollapsedPanelTray(axis: .horizontal)
-                    SettingsGear()
-                        .chromeRegion("top.gear")
+            // Under the directions window: the alerts, offers and chips
+            // centred across the screen (owner, 2026-10-01: "Rest in X
+            // minutes" and "Recalculating route…" sat off to one side), and
+            // the top-right corner — the settings gear in the corner itself,
+            // the icons of menus tucked away (the instruments' gauge among
+            // them) stacked under it. The chips keep clear of that column on
+            // both sides, so they stay centred and never run under it.
+            ZStack(alignment: .topTrailing) {
+                topChips
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, showsCornerRow ? golden.iconCircle + golden.pad : 0)
+                if showsCornerRow {
+                    VStack(alignment: .trailing, spacing: golden.pad) {
+                        SettingsGear()
+                            .chromeRegion("top.gear")
+                        CollapsedPanelTray(axis: .vertical)
+                    }
                 }
             }
-            // The map between the corner and the drive bar: alerts, chips
-            // and cards down the middle, the instruments on the right wall,
-            // centred top to bottom. In a SHORT window an open floating card
+            // The map between the corner and the drive bar: the cards down
+            // the middle, the instruments on the right wall, centred top to
+            // bottom. In a SHORT window an open floating card
             // takes the instruments' room: the driver just asked for that
             // card, and the instruments return when it closes.
             HStack(alignment: .center, spacing: golden.pad) {
@@ -117,196 +133,6 @@ struct NavigationHUD: View {
                     Color.clear.frame(width: instrumentWidth, height: 1)
                 }
                 VStack {
-                    if OfflinePill.shows(model.breadcrumbs) {
-                        OfflinePill()
-                            .chromeRegion("top.offline-pill")
-                    }
-                    // Everything else that arrives at the top — alerts, offers,
-                    // prompts, chips — scrolls in its own region when there are
-                    // too many for the window, instead of pushing the drive bar
-                    // off the bottom of it. The banners that hold state (a chooser
-                    // opened, a needle dragged, a pulse running) scroll in ONE
-                    // copy; the plain chips under them lie flat while they fit, so
-                    // the map beside a chip still pans.
-                    ScrollWhenTight(maxHeight: golden.size.height / 3) {
-                        VStack {
-                            if let warning = model.imminentWarning, !model.imminentWarningTucked {
-                                imminentBanner(warning)
-                            }
-                            if let escalation = model.escalation {
-                                escalationBanner(escalation)
-                            }
-                            if model.tripSharePrompt {
-                                tripShareBanner
-                            }
-                            if let lastChance = model.fuelWarningText {
-                                lastChanceFuelBanner(lastChance)
-                            }
-                            if model.refuelPrompt {
-                                refuelGauge
-                            }
-                        }
-                    }
-                    .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-                    // An emergency is sized before the chips and the cards, up to a
-                    // third of the window: an open radio or hazard card scrolls
-                    // rather than squeeze it. Everything else shares what is left.
-                    .layoutPriority(1)
-                    .chromeRegion("top.alerts")
-                    ScrollWhenTight(holdsNoState: true) {
-                        // Chips hug the leading edge instead of floating down the
-                        // middle of the map: "Rest in 87 mi" sat centred over the
-                        // road on every long trip, which is exactly where the driver
-                        // is looking.
-                        VStack(alignment: .leading, spacing: 6) {
-                            // The one-line weather strip holds no state: it lies flat
-                            // with the chips, so the map beside it still pans.
-                            if model.escalation == nil, model.imminentWarning == nil,
-                               !model.alerts.activeHeadlines.isEmpty {
-                                alertStrip
-                            }
-                            if model.stopDelayAheadSeconds > 0 {
-                                shelterDelayChip
-                            }
-                            if let need = model.nextTripNeed {
-                                tripNeedChip(need)
-                            }
-                            if let fuelNote = model.fuelRecommendation {
-                                fuelRecommendationChip(fuelNote)
-                            }
-                            if let camera = model.cameraWarning {
-                                cameraChip(camera)
-                            }
-                            if let steep = model.upcomingSteepGrade {
-                                steepGradeChip(steep)
-                            }
-                            if model.truckerUI, model.hosStatus != .ok {
-                                hosChip
-                            }
-                            if model.notifyTraffic, model.workZonesAhead > 0 {
-                                Label(model.workZonesAhead == 1
-                                      ? "Work zone ahead"
-                                        + (model.workZoneRoad.map { " · \($0)" } ?? "")
-                                      : "\(model.workZonesAhead) work zones ahead",
-                                      systemImage: "cone.fill")
-                                    .scaledFont(.footnote, weight: .bold)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Color.orange.opacity(0.92))
-                                    .foregroundStyle(.white)
-                                    .clipShape(Capsule())
-                                    .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                            }
-                            // While the one-shot warning below is up it carries the
-                            // same words — one red chip, not two.
-                            if model.towingActive, model.towingWarning == nil,
-                               let worst = model.towingViolations.first {
-                                Button { model.showTowingCard = true } label: {
-                                    Label(worst.title, systemImage: "exclamationmark.octagon.fill")
-                                        .scaledFont(.footnote, weight: .heavy)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Theme.riskRed.opacity(0.95))
-                                        .foregroundStyle(.white)
-                                        .clipShape(Capsule())
-                                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            if let lowTire = model.lowTireWarning {
-                                Label(lowTire, systemImage: "exclamationmark.tirepressure")
-                                    .scaledFont(.footnote, weight: .bold)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Theme.riskYellow.opacity(0.92))
-                                    .foregroundStyle(.black)
-                                    .clipShape(Capsule())
-                                    .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                            }
-                            // Live towing-limit violation: red banner the moment active weights
-                            // exceed a manufacturer rating; tap to dismiss (the TowingCard's
-                            // sliders/badges stay live in the submenu).
-                            if let towWarn = model.towingWarning {
-                                Button { model.towingWarning = nil } label: {
-                                    Label(towWarn, systemImage: "exclamationmark.triangle.fill")
-                                        .scaledFont(.footnote, weight: .bold)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Theme.riskRed.opacity(0.94))
-                                        .foregroundStyle(.white)
-                                        .clipShape(Capsule())
-                                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            if let message = model.poi.emptyResultMessage {
-                                Text(message)
-                                    .scaledFont(.footnote, weight: .semibold)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(Theme.cardBackground)
-                                    .clipShape(Capsule())
-                                    .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                            }
-                            if let saved = model.fasterRouteSavedMinutes {
-                                // FLOWS took a faster road on its own (owner item 9):
-                                // nothing to answer, gone in a few seconds.
-                                HStack(spacing: 8) {
-                                    Image(systemName: "arrow.triangle.branch")
-                                    Text("Took a faster route — saves \(saved) min")
-                                        .scaledFont(.footnote, weight: .bold)
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Theme.riskGreen.opacity(0.92))
-                                .foregroundStyle(.white)
-                                .clipShape(Capsule())
-                                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                            }
-                            // The traffic switch hides the chip at once; FLOWS still
-                            // weighs the jam and takes a road that adds no risk.
-                            if model.notifyTraffic, let delay = model.trafficDelayMinutes {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "car.rear.waves.up.fill")
-                                    Text("Traffic ahead — +\(delay) min")
-                                        .scaledFont(.footnote, weight: .bold)
-                                    // Nothing to take: red, no faster road, or past the turn.
-                                    if !model.trafficOfferBlocked {
-                                        Button(model.trafficOfferRiskier ? "Faster, more risk" : "Faster route") {
-                                            Task { await model.rerouteForTraffic() }
-                                        }
-                                        .scaledFont(.footnote, weight: .heavy)
-                                        .buttonStyle(.plain)
-                                        .padding(.horizontal, 12)
-                                        .frame(minHeight: 32)
-                                        .background(Color.white)
-                                        .foregroundStyle(.orange)
-                                        .clipShape(Capsule())
-                                    }
-                                }
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.orange.opacity(0.92))
-                                .foregroundStyle(.white)
-                                .clipShape(Capsule())
-                                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                            }
-                            if model.addingStop {
-                                HStack(spacing: 6) {
-                                    ProgressView().controlSize(.small)
-                                    Text("Adding stop — replanning route…")
-                                }
-                                .scaledFont(.footnote, weight: .semibold)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
-                                .background(Theme.cardBackground)
-                                .clipShape(Capsule())
-                                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: isCompact ? .infinity : golden.cardMax, alignment: .leading)
-                    .chromeRegion("top.chips")
                     // Empty map takes only what the rows leave: with an equal share
                     // it left alerts and cards scrolling beside open map.
                     Spacer(minLength: 0)
@@ -464,7 +290,7 @@ struct NavigationHUD: View {
 
     /// The station search has the keyboard in a short window.
     private var searchingInShortWindow: Bool {
-        isShort && stationSearchFocused
+        isShort && radioSearchFocus != nil
     }
 
     /// A crash check-in is up in a short window (a phone on its side). The
@@ -472,6 +298,204 @@ struct NavigationHUD: View {
     /// aside so the check-in, the alerts and the drive bar all fit.
     private var checkInInShortWindow: Bool {
         isShort && model.crash.state != .idle
+    }
+
+    /// Everything that arrives at the top — the offline pill, alerts,
+    /// offers, prompts and chips — centred under the directions window.
+    @ViewBuilder
+    private var topChips: some View {
+        VStack {
+            if OfflinePill.shows(model.breadcrumbs) {
+                OfflinePill()
+                    .chromeRegion("top.offline-pill")
+            }
+            // Everything else that arrives at the top — alerts, offers,
+            // prompts, chips — scrolls in its own region when there are
+            // too many for the window, instead of pushing the drive bar
+            // off the bottom of it. The banners that hold state (a chooser
+            // opened, a needle dragged, a pulse running) scroll in ONE
+            // copy; the plain chips under them lie flat while they fit, so
+            // the map beside a chip still pans.
+            ScrollWhenTight(maxHeight: golden.size.height / 3) {
+                VStack {
+                    if let warning = model.imminentWarning, !model.imminentWarningTucked {
+                        imminentBanner(warning)
+                    }
+                    if let escalation = model.escalation {
+                        escalationBanner(escalation)
+                    }
+                    if model.tripSharePrompt {
+                        tripShareBanner
+                    }
+                    if let lastChance = model.fuelWarningText {
+                        lastChanceFuelBanner(lastChance)
+                    }
+                    if model.refuelPrompt {
+                        refuelGauge
+                    }
+                }
+            }
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            // An emergency is sized before the chips and the cards, up to a
+            // third of the window: an open radio or hazard card scrolls
+            // rather than squeeze it. Everything else shares what is left.
+            .layoutPriority(1)
+            .chromeRegion("top.alerts")
+            ScrollWhenTight(holdsNoState: true) {
+                // Chips hug the leading edge instead of floating down the
+                // middle of the map: "Rest in 87 mi" sat centred over the
+                // road on every long trip, which is exactly where the driver
+                // is looking.
+                VStack(alignment: .leading, spacing: 6) {
+                    // The one-line weather strip holds no state: it lies flat
+                    // with the chips, so the map beside it still pans.
+                    if model.escalation == nil, model.imminentWarning == nil,
+                       !model.alerts.activeHeadlines.isEmpty {
+                        alertStrip
+                    }
+                    if model.stopDelayAheadSeconds > 0 {
+                        shelterDelayChip
+                    }
+                    if let need = model.nextTripNeed {
+                        tripNeedChip(need)
+                    }
+                    if let fuelNote = model.fuelRecommendation {
+                        fuelRecommendationChip(fuelNote)
+                    }
+                    if let camera = model.cameraWarning {
+                        cameraChip(camera)
+                    }
+                    if let steep = model.upcomingSteepGrade {
+                        steepGradeChip(steep)
+                    }
+                    if model.truckerUI, model.hosStatus != .ok {
+                        hosChip
+                    }
+                    if model.notifyTraffic, model.workZonesAhead > 0 {
+                        Label(model.workZonesAhead == 1
+                              ? "Work zone ahead"
+                                + (model.workZoneRoad.map { " · \($0)" } ?? "")
+                              : "\(model.workZonesAhead) work zones ahead",
+                              systemImage: "cone.fill")
+                            .scaledFont(.footnote, weight: .bold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.orange.opacity(0.92))
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    // While the one-shot warning below is up it carries the
+                    // same words — one red chip, not two.
+                    if model.towingActive, model.towingWarning == nil,
+                       let worst = model.towingViolations.first {
+                        Button { model.showTowingCard = true } label: {
+                            Label(worst.title, systemImage: "exclamationmark.octagon.fill")
+                                .scaledFont(.footnote, weight: .heavy)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Theme.riskRed.opacity(0.95))
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
+                                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let lowTire = model.lowTireWarning {
+                        Label(lowTire, systemImage: "exclamationmark.tirepressure")
+                            .scaledFont(.footnote, weight: .bold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Theme.riskYellow.opacity(0.92))
+                            .foregroundStyle(.black)
+                            .clipShape(Capsule())
+                            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    // Live towing-limit violation: red banner the moment active weights
+                    // exceed a manufacturer rating; tap to dismiss (the TowingCard's
+                    // sliders/badges stay live in the submenu).
+                    if let towWarn = model.towingWarning {
+                        Button { model.towingWarning = nil } label: {
+                            Label(towWarn, systemImage: "exclamationmark.triangle.fill")
+                                .scaledFont(.footnote, weight: .bold)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Theme.riskRed.opacity(0.94))
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
+                                .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let message = model.poi.emptyResultMessage {
+                        Text(message)
+                            .scaledFont(.footnote, weight: .semibold)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Theme.cardBackground)
+                            .clipShape(Capsule())
+                            .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    if let saved = model.fasterRouteSavedMinutes {
+                        // FLOWS took a faster road on its own (owner item 9):
+                        // nothing to answer, gone in a few seconds.
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.triangle.branch")
+                            Text("Took a faster route — saves \(saved) min")
+                                .scaledFont(.footnote, weight: .bold)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Theme.riskGreen.opacity(0.92))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    // The traffic switch hides the chip at once; FLOWS still
+                    // weighs the jam and takes a road that adds no risk.
+                    if model.notifyTraffic, let delay = model.trafficDelayMinutes {
+                        HStack(spacing: 8) {
+                            Image(systemName: "car.rear.waves.up.fill")
+                            Text("Traffic ahead — +\(delay) min")
+                                .scaledFont(.footnote, weight: .bold)
+                            // Nothing to take: red, no faster road, or past the turn.
+                            if !model.trafficOfferBlocked {
+                                Button(model.trafficOfferRiskier ? "Faster, more risk" : "Faster route") {
+                                    Task { await model.rerouteForTraffic() }
+                                }
+                                .scaledFont(.footnote, weight: .heavy)
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 12)
+                                .frame(minHeight: 32)
+                                .background(Color.white)
+                                .foregroundStyle(.orange)
+                                .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color.orange.opacity(0.92))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                    if model.addingStop {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Adding stop — replanning route…")
+                        }
+                        .scaledFont(.footnote, weight: .semibold)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Theme.cardBackground)
+                        .clipShape(Capsule())
+                        .shadow(color: Theme.cardShadow, radius: 8, y: 3)
+                    }
+                }
+            }
+            .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
+            .chromeRegion("top.chips")
+        }
     }
 
     /// The instruments show on the right wall: a car with a vehicle on file,
@@ -895,9 +919,11 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)],
-                      alignment: .leading, spacing: 6) {
+            // Even rows, never one button alone on the last (BalancedRows);
+            // a cuisine with a country wears its flag.
+            BalancedRowsLayout(minItemWidth: 96, spacing: 6) {
                 ForEach(FoodCategory.allCases) { category in
+                    let flag = CuisineFlag.has(category)
                     Button {
                         Task {
                             await model.poi.chooseFood(category, aheadOf: model.effectivePosition)
@@ -906,9 +932,18 @@ struct NavigationHUD: View {
                         Text(category.rawValue)
                             .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
+                            .padding(.horizontal, flag ? 8 : 0)
+                            .padding(.vertical, flag ? 2 : 0)
+                            .background {
+                                if flag { Capsule().fill(Color.black.opacity(0.6)) }
+                            }
+                            .foregroundStyle(flag ? Color.white : Color.primary)
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(Theme.fill(0.05))
+                            .background {
+                                if flag { CuisineFlag(category: category) } else { Theme.fill(0.05) }
+                            }
                             .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Theme.fill(0.12), lineWidth: flag ? 1 : 0))
                     }
                     .buttonStyle(.plain)
                 }
@@ -931,8 +966,7 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 6)],
-                      alignment: .leading, spacing: 6) {
+            BalancedRowsLayout(minItemWidth: 96, spacing: 6) {
                 ForEach(StoreCategory.allCases) { category in
                     Button {
                         Task {
@@ -1048,9 +1082,13 @@ struct NavigationHUD: View {
                     // Every row as wide as the longest one, and no wider: the
                     // card hugs its rows instead of leaving a gap between a
                     // row's name and its price (owner, 2026-10-01).
+                    // Local businesses' tiles, picked across the whole list
+                    // so no two share both initials and colour.
+                    let results = model.poi.results
+                    let locals = LocalMarks.assign(results.map { $0.item.name ?? "" })
                     VStack(spacing: 4) {
-                        ForEach(model.poi.results) { ranked in
-                            poiRow(ranked)
+                        ForEach(Array(results.enumerated()), id: \.element.id) { i, ranked in
+                            poiRow(ranked, local: locals[i])
                                 .frame(maxWidth: .infinity)
                                 .id(ranked.id)
                         }
@@ -1091,13 +1129,13 @@ struct NavigationHUD: View {
         return "\(model.poi.activeKind?.rawValue ?? "Stops") ahead"
     }
 
-    private func poiRow(_ ranked: POIService.RankedPOI) -> some View {
+    private func poiRow(_ ranked: POIService.RankedPOI, local: LocalMarks.Mark) -> some View {
         let isSelected = ranked.id == model.poi.selected?.id
         return HStack(spacing: 8) {
-            // The brand's tile left of its name — its initials in its own
-            // colours, or a plain tile with the stop's kind when the brand
-            // isn't one FLOWS knows.
-            brandTile(ranked)
+            // The tile left of the name: a major chain's official logo, else
+            // its initials in its own colours, else the local business's own
+            // initials and colour.
+            brandTile(ranked, local: local)
             VStack(alignment: .leading, spacing: 1) {
                 // The brand as it writes itself: the map says "bp".
                 Text(BrandMark.displayName(ranked.item.name ?? "Stop"))
@@ -1244,26 +1282,35 @@ struct NavigationHUD: View {
                 unit, true, ranked.pricePerUnit != nil)
     }
 
-    /// A stop's brand tile: the chain's initials in its colours
-    /// (BrandMark), or the stop kind's own symbol on a plain tile.
-    private func brandTile(_ ranked: POIService.RankedPOI) -> some View {
-        let mark = BrandMark.mark(for: ranked.item.name ?? "")
+    /// A stop's tile (owner, 2026-10-01): a major chain's official logo
+    /// (BrandMark.logoURL — Brandfetch, once the app carries its client ID),
+    /// shown over the chain's own initials and colours (BrandMark) while it
+    /// loads or when there is none; a local business gets its own initials
+    /// and colour, unique in the list (LocalMarks).
+    private func brandTile(_ ranked: POIService.RankedPOI, local: LocalMarks.Mark) -> some View {
+        let name = ranked.item.name ?? ""
+        let mark = BrandMark.mark(for: name)
+        let initials = mark?.initials ?? local.initials
+        let background = mark?.background ?? local.background
+        let ink = mark?.ink ?? local.ink
         return ZStack {
-            if let mark {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color(red: mark.background.r, green: mark.background.g,
-                                blue: mark.background.b))
-                Text(mark.initials)
-                    .font(.system(size: mark.initials.count > 2 ? 10 : 13, weight: .heavy,
-                                  design: .rounded))
-                    .foregroundStyle(Color(red: mark.ink.r, green: mark.ink.g, blue: mark.ink.b))
-                    .minimumScaleFactor(0.6)
-            } else {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Theme.fill(0.08))
-                Image(systemName: model.poi.activeKind?.symbol ?? "mappin")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color(red: background.r, green: background.g, blue: background.b))
+            Text(initials)
+                .font(.system(size: initials.count > 2 ? 10 : 13, weight: .heavy,
+                              design: .rounded))
+                .foregroundStyle(Color(red: ink.r, green: ink.g, blue: ink.b))
+                .minimumScaleFactor(0.6)
+            if let url = BrandMark.logoURL(for: name) {
+                AsyncImage(url: url) { phase in
+                    if case .success(let image) = phase {
+                        image.resizable().scaledToFit()
+                            .padding(3)
+                            .frame(width: 32, height: 32)
+                            .background(Color.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    }
+                }
             }
         }
         .frame(width: 32, height: 32)
@@ -2275,6 +2322,15 @@ struct NavigationHUD: View {
         playStation(channel)
     }
 
+    /// Back or forward one weather relay from the one on the air, in the
+    /// picker's order (wrapping), pinned as a hand pick.
+    private func stepWeatherRadio(by delta: Int) {
+        let channels = model.radio.channels
+        guard !channels.isEmpty else { return }
+        let at = channels.firstIndex { $0.id == (model.radio.playingChannelID ?? radioChannelID) } ?? 0
+        playStation(channels[(at + delta + channels.count) % channels.count])
+    }
+
     /// Play a station from the card. One chosen over the nearest transmitter
     /// is pinned, or auto-tune would move it back on the next fix.
     private func playStation(_ channel: TruckerRadio.Channel) {
@@ -2327,11 +2383,15 @@ struct NavigationHUD: View {
         Text(title).scaledFont(.caption, weight: .bold)
     }
 
-    /// One row in the card's station format: a name, a line under it, and a
-    /// round button at the end — shared by AM/FM, streaming and scanner rows
-    /// so they read as one list.
-    private func stationRow(_ name: String, detail: String?, symbol: String,
-                            label: String, action: @escaping () -> Void) -> some View {
+    /// One row in the card's station format: a name, a line under it, and the
+    /// row's controls at the end — shared by every section so they read as
+    /// one list.
+    private func stationRow(_ name: String, detail: String?, playing: Bool = false,
+                            symbol: String = "play.fill",
+                            play: @escaping () -> Void,
+                            pause: @escaping () -> Void = {},
+                            back: (() -> Void)? = nil,
+                            forward: (() -> Void)? = nil) -> some View {
         HStack(alignment: .center, spacing: 6) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(name)
@@ -2344,14 +2404,99 @@ struct NavigationHUD: View {
                         .lineLimit(2)
                 }
             }
-            Spacer()
-            Button(action: action) {
-                Image(systemName: symbol)
-                    .scaledFont(size: 20)
-                    .foregroundStyle(Color.brown)
+            Spacer(minLength: 6)
+            rowTransport(playing: playing, name: name, symbol: symbol,
+                         play: play, pause: pause, back: back, forward: forward)
+        }
+        // Clear of a list's scroll bar, which runs down the right edge
+        // (owner, 2026-10-01: the play buttons sat under it).
+        .padding(.trailing, 12)
+    }
+
+    /// A row's controls, the same in every section: a wide play button when
+    /// the row isn't playing; back, pause and forward while it is — back and
+    /// forward walk the section's list (owner, 2026-10-01: wider, easier to
+    /// press, with back and forward either side).
+    private func rowTransport(playing: Bool, name: String, symbol: String,
+                              play: @escaping () -> Void, pause: @escaping () -> Void,
+                              back: (() -> Void)?, forward: (() -> Void)?) -> some View {
+        HStack(spacing: 6) {
+            if playing, let back {
+                transportButton("backward.fill", label: "Previous", action: back)
+            }
+            Button(action: playing ? pause : play) {
+                Image(systemName: playing ? "pause.fill" : symbol)
+                    .scaledFont(size: 15, weight: .bold)
+                    .frame(width: 58, height: 34)
+                    .background(playing ? Theme.cta : Color.brown)
+                    .foregroundStyle(playing ? Theme.onCTA : Color.white)
+                    .clipShape(Capsule())
+                    .contentShape(Capsule())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(label)
+            .accessibilityLabel(playing ? "Pause \(name)" : "Play \(name)")
+            if playing, let forward {
+                transportButton("forward.fill", label: "Next", action: forward)
+            }
+        }
+    }
+
+    private func transportButton(_ symbol: String, label: String,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .scaledFont(size: 12, weight: .bold)
+                .frame(width: 34, height: 34)
+                .background(Theme.fill(0.08))
+                .clipShape(Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    /// One chip in a section's row of kinds, the same in every section.
+    private func radioChip(_ title: String, symbol: String, on: Bool, label: String,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .scaledFont(size: 11, weight: .semibold)
+                .lineLimit(1)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(on ? Theme.cta : Theme.fill(0.06))
+                .foregroundStyle(on ? Theme.onCTA : Color.primary)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    /// A section's search line, the same in every section: the field, a
+    /// "Near me" when the section has one, and a mic.
+    private func radioSearchLine(_ prompt: String, text: Binding<String>, focus: RadioSearch,
+                                 nearMe: (() -> Void)?, listening: Bool,
+                                 micLabel: String, onSubmit: @escaping () -> Void,
+                                 onMic: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            TextField(prompt, text: text)
+                .textFieldStyle(.roundedBorder)
+                .focused($radioSearchFocus, equals: focus)
+                .scaledFont(.caption)
+                .onSubmit(onSubmit)
+            if let nearMe {
+                Button("Near me", action: nearMe)
+                    .buttonStyle(.plain)
+                    .scaledFont(.caption, weight: .bold)
+                    .foregroundStyle(.blue)
+            }
+            Button(action: onMic) {
+                Image(systemName: listening ? "waveform" : "mic.fill")
+                    .scaledFont(size: 14, weight: .semibold)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.blue)
+            .accessibilityLabel(listening ? "Listening" : micLabel)
         }
     }
 
@@ -2378,63 +2523,39 @@ struct NavigationHUD: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(BroadcastRadio.Kind.allCases) { kind in
-                        let on = radioGenre == kind
-                        Button { playGenre(kind) } label: {
-                            Label(kind.title, systemImage: kind.symbol)
-                                .scaledFont(size: 11, weight: .semibold)
-                                .lineLimit(1)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(on ? Theme.cta : Theme.fill(0.06))
-                                .foregroundStyle(on ? Theme.onCTA : Color.primary)
-                                .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Play \(kind.title) radio")
+                        radioChip(kind.title, symbol: kind.symbol, on: radioGenre == kind,
+                                  label: "Play \(kind.title) radio") { playGenre(kind) }
                     }
                 }
             }
-            HStack(spacing: 6) {
-                TextField("Search by name or genre", text: $stationSearch)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($stationSearchFocused)
-                    .scaledFont(.caption)
-                    .onSubmit {
-                        let query = stationSearch
-                        radioGenre = nil
-                        Task { await model.radioBrowser.search(text: query) }
-                    }
-                Button("Near me") {
-                    stationSearch = ""
-                    radioGenre = nil
-                    let code = model.currentStateCode
-                    Task {
-                        await model.radioBrowser.searchNearby(
-                            near: model.effectivePosition, stateCode: code)
-                    }
-                }
-                .buttonStyle(.plain)
-                .scaledFont(.caption, weight: .bold)
-                .foregroundStyle(.blue)
-                // Spoken station pick: "weather radio", "KMFA", "bluegrass".
-                Button {
-                    guard !radioMicListening else { return }
-                    radioMicListening = true
-                    VoiceReply.shared.listenForDictation { transcript in
-                        radioMicListening = false
-                        guard let transcript else { return }
-                        stationSearch = transcript
-                        model.playRadioAsk(transcript)
-                    }
-                } label: {
-                    Image(systemName: radioMicListening ? "waveform" : "mic.fill")
-                        .scaledFont(size: 14, weight: .semibold)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-                .accessibilityLabel(radioMicListening
-                    ? "Listening" : "Say a station or genre")
-            }
+            // Spoken station pick: "weather radio", "KMFA", "bluegrass".
+            radioSearchLine("Search by name or genre", text: $stationSearch, focus: .station,
+                            nearMe: {
+                                stationSearch = ""
+                                radioGenre = nil
+                                let code = model.currentStateCode
+                                Task {
+                                    await model.radioBrowser.searchNearby(
+                                        near: model.effectivePosition, stateCode: code)
+                                }
+                            },
+                            listening: radioMicListening,
+                            micLabel: "Say a station or genre",
+                            onSubmit: {
+                                let query = stationSearch
+                                radioGenre = nil
+                                Task { await model.radioBrowser.search(text: query) }
+                            },
+                            onMic: {
+                                guard !radioMicListening else { return }
+                                radioMicListening = true
+                                VoiceReply.shared.listenForDictation { transcript in
+                                    radioMicListening = false
+                                    guard let transcript else { return }
+                                    stationSearch = transcript
+                                    model.playRadioAsk(transcript)
+                                }
+                            })
             if let note = model.radioBrowser.status {
                 Text(note).scaledFont(.caption2).foregroundStyle(.secondary)
             }
@@ -2448,7 +2569,7 @@ struct NavigationHUD: View {
                         }
                     }
                 }
-                .frame(maxHeight: isCompact ? 132 : 168)
+                .frame(maxHeight: isCompact ? 150 : 190)
                 Text("Station list: radio-browser.info, a community "
                      + "directory. Stations play as internet streams.")
                     .scaledFont(.caption2)
@@ -2457,33 +2578,85 @@ struct NavigationHUD: View {
         }
     }
 
-    /// The streaming services that play INSIDE FLOWS, in the station row
-    /// format: Apple Music, and Spotify where it can be driven from here (a
-    /// Mac, or an iPhone with a Spotify token). No other service lets an app
+    /// The service the streaming chips and search play on: the picked one
+    /// when it plays here, else Apple Music.
+    private var streamingTarget: MusicProvider {
+        let picked = model.musicProvider
+        return MusicProvider.streamingInFLOWS.contains(picked)
+            && picked.controllable(onMac: Self.onMac, spotifyLinked: spotify.linked)
+            ? picked : .appleMusic
+    }
+
+    /// A genre or a search, played on the streaming service — the same ask
+    /// Siri and the mini player's mic make.
+    private func playStreaming(_ term: String) {
+        let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return }
+        let target = streamingTarget
+        // Picked without the play/pause chooseMusicProvider does — the ask
+        // itself starts the music.
+        if model.musicProvider != target { model.musicProvider = target }
+        model.playMusicAsk(term)
+    }
+
+    /// The streaming services that play INSIDE FLOWS, laid out like AM/FM
+    /// (owner, 2026-10-01): kinds to play, a search with a mic, then the
+    /// services. Apple Music, and Spotify where it can be driven from here (a
+    /// Mac, or an iPhone with a Spotify token); no other service lets an app
     /// control it, so the rest are not listed as if they played here.
     private var streamingSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            radioSectionTitle("Streaming")
+        VStack(alignment: .leading, spacing: 8) {
+            radioSectionTitle("Streaming — \(streamingTarget.displayName)")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(MusicController.genreKinds) { kind in
+                        radioChip(kind.title, symbol: kind.symbol, on: streamGenre == kind,
+                                  label: "Play \(kind.title) on \(streamingTarget.displayName)") {
+                            streamGenre = kind
+                            playStreaming(kind.title)
+                        }
+                    }
+                }
+            }
+            radioSearchLine("Search a song, artist or album", text: $streamSearch,
+                            focus: .streaming, nearMe: nil,
+                            listening: musicMicListening,
+                            micLabel: "Say a song, artist or album",
+                            onSubmit: {
+                                streamGenre = nil
+                                playStreaming(streamSearch)
+                            },
+                            onMic: {
+                                guard !musicMicListening else { return }
+                                musicMicListening = true
+                                VoiceReply.shared.listenForDictation { transcript in
+                                    musicMicListening = false
+                                    guard let transcript else { return }
+                                    streamSearch = transcript
+                                    streamGenre = nil
+                                    playStreaming(transcript)
+                                }
+                            })
             ForEach(MusicProvider.streamingInFLOWS, id: \.self) { provider in
-                let playing = model.musicProvider == provider && music.isPlaying
                 let works = provider.controllable(onMac: Self.onMac,
                                                   spotifyLinked: spotify.linked)
+                let playing = model.musicProvider == provider && music.isPlaying && works
                 stationRow(provider.displayName,
                            detail: works ? "Plays right here in FLOWS"
                                          : "Add a Spotify token (⚙ Settings → Keys for "
                                            + "extra info) to play it here",
-                           symbol: playing ? "stop.circle.fill"
-                                : works ? "play.circle.fill" : "arrow.up.forward.app",
-                           label: playing ? "Stop \(provider.displayName)"
-                                : "Play \(provider.displayName)") {
-                    if playing {
-                        MusicController.shared.playPause()
-                    } else if model.musicProvider == provider, works {
-                        MusicController.shared.playPause()
-                    } else {
-                        model.chooseMusicProvider(provider)
-                    }
-                }
+                           playing: playing,
+                           symbol: works ? "play.fill" : "arrow.up.forward.app",
+                           play: {
+                               if model.musicProvider == provider, works {
+                                   MusicController.shared.playPause()
+                               } else {
+                                   model.chooseMusicProvider(provider)
+                               }
+                           },
+                           pause: { MusicController.shared.playPause() },
+                           back: { MusicController.shared.back() },
+                           forward: { MusicController.shared.skip() })
             }
         }
     }
@@ -2497,34 +2670,99 @@ struct NavigationHUD: View {
         #endif
     }
 
-    /// Scanner: police, fire and EMS, in the same row format. Broadcastify
-    /// lets no app play its streams without an agreement, so the row opens
-    /// their own live player at the feeds nearest the driver — it finds
-    /// them from where the browser is — and the state's list.
+    /// The city 911 lists the scanner card offers, nearest first, narrowed
+    /// by the search.
+    private var scannerFeeds: [OpenDispatch.Feed] {
+        let all = OpenDispatch.byDistance(from: model.effectivePosition)
+        let q = scannerSearch.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return all }
+        return all.filter { $0.city.lowercased().contains(q) || $0.what.lowercased().contains(q) }
+    }
+
+    /// The city list being read right now, if any.
+    private var scannerPlayingID: String? {
+        guard model.scanner.enabled else { return nil }
+        return model.openDispatch.watchedFeedID
+            ?? model.openDispatch.activeFeeds.first?.id
+    }
+
+    /// Read one city's list (and switch the calls on).
+    private func watchScannerFeed(_ feed: OpenDispatch.Feed) {
+        model.openDispatch.watchedFeedID = feed.id
+        if !model.scanner.enabled { model.scanner.enabled = true }
+    }
+
+    /// Scanner: police, fire and EMS, laid out like AM/FM (owner,
+    /// 2026-10-01). The chips pick which calls show on the map; the list is
+    /// the cities that publish their 911 calls as free public data, nearest
+    /// first — play reads one, pins its calls and says a threat near you out
+    /// loud. Broadcastify's own player is offered below: its terms let no app
+    /// play or transcribe its streams without a licence.
     private var scannerSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             radioSectionTitle("Scanner — police, fire, EMS")
-            stationRow("Live scanner feeds nearest you",
-                       detail: "Broadcastify's own player, at the feeds closest to where you are",
-                       symbol: "play.circle.fill",
-                       label: "Open the scanner feeds nearest you") {
-                openURL(ScannerLinks.broadcastifyNearMe)
+            HStack(spacing: 6) {
+                ForEach(AppModel.ScannerGroup.allCases) { group in
+                    let on = model.scannerGroups.contains(group)
+                    radioChip(group.rawValue, symbol: group.symbol, on: on,
+                              label: on ? "Hide \(group.rawValue) calls"
+                                        : "Show \(group.rawValue) calls") {
+                        if on { model.scannerGroups.remove(group) } else { model.scannerGroups.insert(group) }
+                        if !model.scanner.enabled { model.scanner.enabled = true }
+                    }
+                }
             }
+            radioSearchLine("Search a city", text: $scannerSearch, focus: .scanner,
+                            nearMe: {
+                                scannerSearch = ""
+                                model.openDispatch.watchedFeedID = nil
+                                if !model.scanner.enabled { model.scanner.enabled = true }
+                            },
+                            listening: scannerMicListening, micLabel: "Say a city",
+                            onSubmit: {},
+                            onMic: {
+                                guard !scannerMicListening else { return }
+                                scannerMicListening = true
+                                VoiceReply.shared.listenForDictation { transcript in
+                                    scannerMicListening = false
+                                    guard let transcript else { return }
+                                    scannerSearch = transcript
+                                    if let feed = scannerFeeds.first { watchScannerFeed(feed) }
+                                }
+                            })
+            let feeds = scannerFeeds
+            ForEach(feeds) { feed in
+                let playing = scannerPlayingID == feed.id
+                let index = feeds.firstIndex { $0.id == feed.id } ?? 0
+                stationRow("\(feed.city) — \(feed.what)",
+                           detail: "City 911 list, \(feed.delay)",
+                           playing: playing,
+                           play: { watchScannerFeed(feed) },
+                           pause: {
+                               model.openDispatch.watchedFeedID = nil
+                               model.scanner.enabled = false
+                           },
+                           back: { watchScannerFeed(feeds[(index - 1 + feeds.count) % feeds.count]) },
+                           forward: { watchScannerFeed(feeds[(index + 1) % feeds.count]) })
+            }
+            if let status = model.openDispatch.status, model.scanner.enabled {
+                Text(status).scaledFont(.caption2).foregroundStyle(.secondary)
+            }
+            stationRow("Live scanner audio near you",
+                       detail: "Broadcastify's own player, at the feeds closest to you",
+                       symbol: "arrow.up.forward.app",
+                       play: { openURL(ScannerLinks.broadcastifyNearMe) })
             if let code = model.currentStateCode,
                let stateURL = ScannerLinks.stateFeedsURL(stateCode: code) {
                 stationRow("Every \(code) scanner feed",
                            detail: "Pick your county on Broadcastify",
-                           symbol: "list.bullet.circle.fill",
-                           label: "Open every \(code) scanner feed") {
-                    openURL(stateURL)
-                }
+                           symbol: "list.bullet",
+                           play: { openURL(stateURL) })
             }
             stationRow("Recordings (a few minutes behind)",
                        detail: "OpenMHz, a volunteer archive of dispatch radio",
                        symbol: "clock.arrow.circlepath",
-                       label: "Open OpenMHz recordings") {
-                openURL(ScannerLinks.openMHz)
-            }
+                       play: { openURL(ScannerLinks.openMHz) })
             Text("Scanner listening rules differ by state — where it isn't "
                  + "allowed while driving, listen only when parked.")
                 .scaledFont(.caption2)
@@ -2560,23 +2798,22 @@ struct NavigationHUD: View {
                 // out crushed together and unreadable.
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                Button {
-                    if weatherRadioPlaying {
-                        model.radio.stop()
-                    } else if let channel = model.radio.channels.first(where: { $0.id == radioChannelID })
-                        ?? model.effectivePosition.flatMap({ model.radio.nearestChannel(to: $0)?.channel })
-                        ?? model.radio.nearestChannel(stateCode: model.currentStateCode) {
-                        playStation(channel)
-                    }
-                } label: {
-                    Image(systemName: weatherRadioPlaying ? "stop.circle.fill" : "play.circle.fill")
-                        .scaledFont(size: 28)
-                        .foregroundStyle(Color.brown)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(weatherRadioPlaying
-                    ? "Stop the weather radio" : "Play the weather radio")
+                // The same controls as every row: back and forward step
+                // through the relays while one is on the air.
+                rowTransport(playing: weatherRadioPlaying, name: "the weather radio",
+                             symbol: "play.fill",
+                             play: {
+                                 if let channel = model.radio.channels.first(where: { $0.id == radioChannelID })
+                                     ?? model.effectivePosition.flatMap({ model.radio.nearestChannel(to: $0)?.channel })
+                                     ?? model.radio.nearestChannel(stateCode: model.currentStateCode) {
+                                     playStation(channel)
+                                 }
+                             },
+                             pause: { model.radio.stop() },
+                             back: { stepWeatherRadio(by: -1) },
+                             forward: { stepWeatherRadio(by: 1) })
             }
+            .padding(.trailing, 12)
             .onAppear { preselectNearestStation() }
             .onChange(of: model.currentStateCode) { _, _ in preselectNearestStation() }
             // The two ways the right station changes mid-drive: the vehicle
@@ -2626,12 +2863,10 @@ struct NavigationHUD: View {
                 model.radio.cabStream(for: $0.0) != nil
             }, id: \.0) { channel, what in
                 if let stream = model.radio.cabStream(for: channel) {
-                    let on = model.radio.playingChannelID == stream.id
                     stationRow(channel, detail: what,
-                               symbol: on ? "stop.circle.fill" : "play.circle.fill",
-                               label: on ? "Stop \(channel)" : "Play \(channel)") {
-                        if on { model.radio.stop() } else { model.radio.play(stream) }
-                    }
+                               playing: model.radio.playingChannelID == stream.id,
+                               play: { model.radio.play(stream) },
+                               pause: { model.radio.stop() })
                 }
             }
             // No law-enforcement row. There is no lawful, keyless feed to
@@ -2677,46 +2912,31 @@ struct NavigationHUD: View {
     }
 
     private func amfmStationRow(_ station: RadioBrowser.Station) -> some View {
-        HStack(alignment: .center, spacing: 6) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(station.name)
-                    .scaledFont(.caption2, weight: .semibold)
-                    .lineLimit(1)
-                // Dial position first when the name carries one — "105.7
-                // FM" is what a driver would say — then the genre words.
-                let detail = [station.dialLabel, station.genre.isEmpty ? nil : station.genre]
-                    .compactMap { $0 }.joined(separator: " · ")
-                if !detail.isEmpty {
-                    Text(detail)
-                        .scaledFont(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-            Button {
-                if model.radio.playingChannelID == station.channel.id {
-                    model.radio.stop()
-                } else {
-                    // The visible list IS the queue — next/previous (and
-                    // the mini player's skip button) walk these stations.
-                    let channels = model.radioBrowser.stations.map(\.channel)
-                    let start = channels.firstIndex { $0.id == station.channel.id } ?? 0
-                    model.radio.playQueue(
-                        channels,
-                        label: stationSearch.isEmpty ? "these stations" : stationSearch,
-                        startAt: start)
-                }
-            } label: {
-                Image(systemName: model.radio.playingChannelID == station.channel.id
-                      ? "stop.circle.fill" : "play.circle.fill")
-                    .scaledFont(size: 20)
-                    .foregroundStyle(Color.brown)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(model.radio.playingChannelID == station.channel.id
-                ? "Stop \(station.name)" : "Play \(station.name)")
-        }
+        // Dial position first when the name carries one — "105.7 FM" is what
+        // a driver would say — then the genre words.
+        let detail = [station.dialLabel, station.genre.isEmpty ? nil : station.genre]
+            .compactMap { $0 }.joined(separator: " · ")
+        let current = model.radio.playingChannelID == station.channel.id
+        return stationRow(station.name, detail: detail,
+                          playing: current && !model.radio.isPaused,
+                          play: {
+                              if current {
+                                  model.radio.pauseOrResume()   // back on the air
+                              } else {
+                                  // The visible list IS the queue — back and
+                                  // forward (and the mini player's skip) walk
+                                  // these stations.
+                                  let channels = model.radioBrowser.stations.map(\.channel)
+                                  let start = channels.firstIndex { $0.id == station.channel.id } ?? 0
+                                  model.radio.playQueue(
+                                      channels,
+                                      label: stationSearch.isEmpty ? "these stations" : stationSearch,
+                                      startAt: start)
+                              }
+                          },
+                          pause: { model.radio.pauseOrResume() },
+                          back: { _ = model.radio.previousStation() },
+                          forward: { _ = model.radio.nextStation() })
     }
 
     @ViewBuilder
@@ -3091,8 +3311,7 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 6)],
-                      alignment: .leading, spacing: 6) {
+            BalancedRowsLayout(minItemWidth: 118, spacing: 6) {
                 ForEach(MusicProvider.allCases) { provider in
                     Button {
                         model.chooseMusicProvider(provider)

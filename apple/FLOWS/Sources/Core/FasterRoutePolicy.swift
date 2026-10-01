@@ -180,10 +180,11 @@ enum FasterRoutePolicy {
     }
 
     /// The filters that keep a vehicle out of harm's way: a rig's bridges,
-    /// weights and grades, flood zones and crosswinds. Broken, they outrank
-    /// the driver's road choices.
+    /// weights and grades, and crosswinds. Broken, they outrank the driver's
+    /// road choices. (Flooded roads are no filter: a route through a closed
+    /// or flooded road is never offered at all — AppModel.passableChoices.)
     static let safetyFilters: Set<RouteFilter> =
-        [.lowBridges, .bridgeWeight, .mountainGrades, .noFloodRisk, .noHighWinds]
+        [.lowBridges, .bridgeWeight, .mountainGrades, .noHighWinds]
 
     /// The safety filters about the rig physically fitting the road — a
     /// bridge it can't pass under or a weight sign it's over — rather than

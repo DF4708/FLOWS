@@ -478,3 +478,66 @@ struct EqualWidthHStack: Layout {
         }
     }
 }
+
+/// Buttons in even rows (BalancedRows): as many per row as fit at their
+/// widest label (or `minItemWidth`), shared evenly, each row's buttons one
+/// width filling the row.
+struct BalancedRowsLayout: Layout {
+    var minItemWidth: CGFloat = 96
+    var spacing: CGFloat = 6
+
+    private func itemWidth(_ subviews: Subviews) -> CGFloat {
+        max(minItemWidth, subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0)
+    }
+
+    private func rows(width: CGFloat, subviews: Subviews) -> [Int] {
+        let fit = Int((width + spacing) / (itemWidth(subviews) + spacing))
+        return BalancedRows.counts(items: subviews.count, fitPerRow: fit)
+    }
+
+    private func rowWidth(_ count: Int, width: CGFloat) -> CGFloat {
+        (width - spacing * CGFloat(count - 1)) / CGFloat(count)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews,
+                      cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let natural = itemWidth(subviews) * CGFloat(subviews.count)
+            + spacing * CGFloat(subviews.count - 1)
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? natural
+        var height: CGFloat = 0
+        var start = 0
+        let counts = rows(width: width, subviews: subviews)
+        for count in counts {
+            let w = rowWidth(count, width: width)
+            let tallest = subviews[start..<(start + count)]
+                .map { $0.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
+                .max() ?? 0
+            height += tallest
+            start += count
+        }
+        height += spacing * CGFloat(max(counts.count - 1, 0))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize,
+                       subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        var y = bounds.minY
+        var start = 0
+        for count in rows(width: bounds.width, subviews: subviews) {
+            let w = rowWidth(count, width: bounds.width)
+            let row = subviews[start..<(start + count)]
+            let tallest = row.map { $0.sizeThatFits(ProposedViewSize(width: w, height: nil)).height }
+                .max() ?? 0
+            var x = bounds.minX
+            for subview in row {
+                subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading,
+                              proposal: ProposedViewSize(width: w, height: tallest))
+                x += w + spacing
+            }
+            y += tallest + spacing
+            start += count
+        }
+    }
+}

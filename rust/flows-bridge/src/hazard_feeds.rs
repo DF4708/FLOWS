@@ -70,6 +70,12 @@ mod ffi {
             lon: f64,
         ) -> f64;
         fn flows_hazard_closure_score(lats: &[f64], lons: &[f64], lat: f64, lon: f64) -> f64;
+        fn flows_hazard_route_through_closure(
+            route_lats: &[f64],
+            route_lons: &[f64],
+            closure_lats: &[f64],
+            closure_lons: &[f64],
+        ) -> bool;
         fn flows_hazard_tropical_score(
             lats: &[f64],
             lons: &[f64],
@@ -427,6 +433,21 @@ pub fn flows_hazard_water_proximity_score(lats: &[f64], lons: &[f64], lat: f64, 
 pub fn flows_hazard_closure_score(lats: &[f64], lons: &[f64], lat: f64, lon: f64) -> f64 {
     contain(f64::NAN, || {
         hf::closure_score(&points(lats, lons), (lat, lon))
+    })
+}
+/// Whether the route (its line, as lats/lons) runs through any of the
+/// reported full closures.
+pub fn flows_hazard_route_through_closure(
+    route_lats: &[f64],
+    route_lons: &[f64],
+    closure_lats: &[f64],
+    closure_lons: &[f64],
+) -> bool {
+    contain(false, || {
+        hf::route_through_closure(
+            &points(route_lats, route_lons),
+            &points(closure_lats, closure_lons),
+        )
     })
 }
 pub fn flows_hazard_tropical_score(

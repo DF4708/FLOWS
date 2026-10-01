@@ -186,7 +186,7 @@ struct ScannerIncidentPin: View {
     /// toward a faint trace by the end of its time on the map (owner,
     /// 2026-10-01: police icons "that fade out with time").
     private func strength(at now: Date) -> Double {
-        let life = max(ScannerIncidents.lifetime(for: incident.kind), 1)
+        let life = max(incident.lifetime ?? ScannerIncidents.lifetime(for: incident.kind), 1)
         let age = now.timeIntervalSince(incident.heardAt)
         return min(max(1 - age / life, 0.2), 1)
     }

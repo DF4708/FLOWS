@@ -54,6 +54,9 @@ targets:
     info:
       path: FLOWS/Generated/Info-iOS.plist
       properties:
+        # The owner's Brandfetch Logo API client ID (free developer account):
+        # official chain logos in the stop list. Empty = initials only.
+        FLOWSBrandfetchClientID: ""
         CFBundleDisplayName: FLOWS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -190,6 +193,9 @@ targets:
     info:
       path: FLOWS/Generated/Info-macOS.plist
       properties:
+        # The owner's Brandfetch Logo API client ID (free developer account):
+        # official chain logos in the stop list. Empty = initials only.
+        FLOWSBrandfetchClientID: ""
         CFBundleDisplayName: FLOWS
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -361,6 +367,7 @@ targets:
       - path: FLOWS/Sources/Core/ShelterPolicy.swift
       - path: FLOWS/Sources/Core/VehicleTrack.swift
       - path: FLOWS/Sources/Core/ScannerIncidents.swift
+      - path: FLOWS/Sources/Core/OpenDispatch.swift
       # Pure layout math — golden-ratio metrics and the gutter beside a
       # centred panel — which the chrome-fit tests pin.
       - path: FLOWS/Sources/Core/GoldenScale.swift

@@ -88,6 +88,15 @@ final class MusicController: ObservableObject {
         return true
     }
 
+    /// One source at a time (owner, 2026-10-01): music about to start stops
+    /// FLOWS's own radio first — an AM/FM station, the weather radio, a cab
+    /// channel. Not when the radio IS the picked service: the transport
+    /// drives that radio then. The other way round is pauseForRadio.
+    func stopRadioForMusic() {
+        guard !radioActive, let radio = radioService, radio.playingChannelID != nil else { return }
+        radio.stop()
+    }
+
     #if os(iOS)
     private let player = MPMusicPlayerController.systemMusicPlayer
 
@@ -228,6 +237,7 @@ final class MusicController: ObservableObject {
     func playPause() {
         if radioTransport({ $0.pauseOrResume() }) { return }
         if spotifyActive {
+            if !SpotifyRemote.shared.isPlaying { stopRadioForMusic() }
             SpotifyRemote.shared.playPause()
             syncFromSpotify()   // Siri reads isPlaying right back — no hop
             return
@@ -242,10 +252,28 @@ final class MusicController: ObservableObject {
         } else {
             // prepareToPlay launches the Music service in the background
             // when the app isn't running; play() alone can be dropped.
+            stopRadioForMusic()
             player.prepareToPlay()
             player.play()
         }
         refresh()
+    }
+
+    /// The radio is about to come on: Apple Music or Spotify pauses if it is
+    /// playing. Nothing when the radio is the picked service.
+    func pauseForRadio() {
+        guard !radioActive else { return }
+        if spotifyActive {
+            if SpotifyRemote.shared.isPlaying {
+                SpotifyRemote.shared.playPause()
+                syncFromSpotify()
+            }
+            return
+        }
+        if player.playbackState == .playing {
+            player.pause()
+            refresh()
+        }
     }
 
     /// Songs that live ON THIS DEVICE — cloud items excluded, because a
@@ -275,6 +303,7 @@ final class MusicController: ObservableObject {
 
     /// The offline fallback: shuffle what's actually on the device.
     func playLocalLibrary() {
+        stopRadioForMusic()
         activateIfNeeded()
         player.setQueue(with: Self.deviceSongsQuery())
         player.shuffleMode = .songs
@@ -286,6 +315,7 @@ final class MusicController: ObservableObject {
 
     /// The guaranteed-resolvable queue: the whole library, shuffled.
     private func playLibraryShuffled() {
+        stopRadioForMusic()
         player.setQueue(with: MPMediaQuery.songs())
         player.shuffleMode = .songs
         playOrder = .shuffle
@@ -297,6 +327,7 @@ final class MusicController: ObservableObject {
     /// shuffled library when there is none. Spotify: resume its last queue.
     func resumeRecent() {
         if radioTransport({ $0.pauseOrResume() }) { return }
+        stopRadioForMusic()
         if spotifyActive {
             SpotifyRemote.shared.resume()
             syncFromSpotify()
@@ -315,6 +346,7 @@ final class MusicController: ObservableObject {
     /// The user's personal Apple Music station needs a MusicKit developer
     /// token to resolve — the shuffled library is the on-device stand-in.
     func playMyStation() {
+        stopRadioForMusic()
         if spotifyActive {
             SpotifyRemote.shared.resume()   // stations are an Apple Music idea
             return
@@ -329,6 +361,7 @@ final class MusicController: ObservableObject {
     /// (The genre rows are hidden for Spotify — its Web API has no library
     /// genre query — so this path stays Apple Music's.)
     func playGenre(_ genre: String) {
+        stopRadioForMusic()
         activateIfNeeded()
         let query = MPMediaQuery.songs()
         query.addFilterPredicate(MPMediaPropertyPredicate(
@@ -352,6 +385,7 @@ final class MusicController: ObservableObject {
     /// drive), the on-device library genre path when the catalog can't
     /// serve (no portal token, no subscription, offline).
     func playSearchOrGenre(_ term: String) {
+        stopRadioForMusic()
         activateIfNeeded()
         Task { [weak self] in
             if await MusicKitCatalog.playSearch(term) { return }
@@ -481,6 +515,7 @@ final class MusicController: ObservableObject {
 
     /// The guaranteed queue: the whole library, shuffled.
     private func playLibraryShuffled() {
+        stopRadioForMusic()
         run("tell application \"Music\" to set shuffle enabled to true")
         run("tell application \"Music\" to play library playlist 1")
         playOrder = .shuffle
@@ -502,6 +537,7 @@ final class MusicController: ObservableObject {
 
     func playPause() {
         if radioTransport({ $0.pauseOrResume() }) { return }
+        if !isPlaying { stopRadioForMusic() }
         if provider == .spotify {
             run("tell application \"Spotify\" to playpause")
             refreshSoon()
@@ -510,10 +546,21 @@ final class MusicController: ObservableObject {
         playWithLibraryFallback("tell application \"Music\" to playpause")
     }
 
+    /// The radio is about to come on: Music or Spotify — whichever is the
+    /// picked service — pauses if it is running. Never launches either one
+    /// just to pause it. Nothing when the radio is the picked service.
+    func pauseForRadio() {
+        guard !radioActive else { return }
+        let app = provider == .spotify ? "Spotify" : "Music"
+        run("if application \"\(app)\" is running then tell application \"\(app)\" to pause")
+        refreshSoon()
+    }
+
     /// Resume whatever Music last had queued; shuffled library when empty.
     /// Spotify: resume its own queue (same Apple Events path as playPause).
     func resumeRecent() {
         if radioTransport({ $0.pauseOrResume() }) { return }
+        stopRadioForMusic()
         if provider == .spotify {
             run("tell application \"Spotify\" to play")
             refreshSoon()
@@ -555,6 +602,7 @@ final class MusicController: ObservableObject {
     /// carries the genre (genre strings come from the fixed genreRows list,
     /// so no AppleScript quoting is needed).
     func playGenre(_ genre: String) {
+        stopRadioForMusic()
         run("tell application \"Music\" to set shuffle enabled to true")
         if run("tell application \"Music\" to play (some track of library playlist 1 "
                + "whose genre contains \"\(genre)\")") == nil {
@@ -625,6 +673,7 @@ final class MusicController: ObservableObject {
     var controlsInPlace: Bool { false }
     init() {}
     func playPause() {}
+    func pauseForRadio() {}
     func skip() {}
     func back() {}
     func cyclePlayOrder() {}

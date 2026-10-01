@@ -483,6 +483,57 @@ pub fn closure_score(closures: &[Point], p: Point) -> f64 {
     best
 }
 
+/// How near a reported full closure a route's line must pass to run through
+/// it: the closure's points lie on the closed road itself.
+pub const CLOSED_ROAD_METERS: f64 = 40.0;
+
+/// Whether a route runs through a road its state DOT reports fully closed
+/// (WZDx all-lanes-closed: a flooded road, a washout, uncleared snow, a work
+/// zone): some closure point lies within [`CLOSED_ROAD_METERS`] of one of the
+/// route's segments. Such a route is not a way to get there — FLOWS never
+/// offers it (owner, 2026-10-01: never a route through an actually flooded
+/// road). A route of one point is a point; an empty route crosses nothing.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn route_through_closure(route: &[Point], closures: &[Point]) -> bool {
+    if route.is_empty() || closures.is_empty() {
+        return false;
+    }
+    // A degree of latitude is ~111 km: a cheap box test skips the segments
+    // nowhere near the closure.
+    let pad = CLOSED_ROAD_METERS / METERS_PER_DEGREE;
+    closures.iter().any(|&c| {
+        let m_per_deg_lon = METERS_PER_DEGREE * fmath::cos(c.0 * PI / 180.0);
+        let lon_pad = if m_per_deg_lon > 1.0 {
+            CLOSED_ROAD_METERS / m_per_deg_lon
+        } else {
+            180.0
+        };
+        let near = |a: Point, b: Point| {
+            c.0 >= smin(a.0, b.0) - pad
+                && c.0 <= smax(a.0, b.0) + pad
+                && c.1 >= smin(a.1, b.1) - lon_pad
+                && c.1 <= smax(a.1, b.1) + lon_pad
+        };
+        if route.len() == 1 {
+            return meters(c.0, c.1, route[0].0, route[0].1) <= CLOSED_ROAD_METERS;
+        }
+        route.windows(2).any(|w| {
+            near(w[0], w[1])
+                && distance_to_segment_meters_scaled(
+                    c.0,
+                    c.1,
+                    w[0].0,
+                    w[0].1,
+                    w[1].0,
+                    w[1].1,
+                    m_per_deg_lon,
+                ) <= CLOSED_ROAD_METERS
+        })
+    })
+}
+
 // ============================================================ LiveHazardScoring
 
 /// `LiveHazardSnapshot`: every live feed, fetched once for an area.
@@ -1028,6 +1079,27 @@ pub fn parse_fuel_places(xml: &str) -> BTreeMap<String, Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_route_through_a_closed_road_is_caught() {
+        // East along 43°N from 89.5°W to 89.3°W (~16 km), two segments.
+        let route = [(43.0, -89.5), (43.0, -89.4), (43.0, -89.3)];
+        // On the road mid-segment: the route runs through it.
+        assert!(route_through_closure(&route, &[(43.0, -89.45)]));
+        // 30 m north of the road still is; 200 m north is a parallel street.
+        assert!(route_through_closure(&route, &[(43.00027, -89.45)]));
+        assert!(!route_through_closure(&route, &[(43.0018, -89.45)]));
+        // Past either end of the route is not on it.
+        assert!(!route_through_closure(&route, &[(43.0, -89.25)]));
+        // One closure anywhere on the line is enough.
+        assert!(route_through_closure(
+            &route,
+            &[(44.0, -80.0), (43.0, -89.31)]
+        ));
+        assert!(!route_through_closure(&route, &[]));
+        assert!(!route_through_closure(&[], &[(43.0, -89.45)]));
+        assert!(route_through_closure(&[(43.0, -89.45)], &[(43.0, -89.45)]));
+    }
 
     /// A CRE-shaped prices file: `n` stations, accented names, three prices.
     fn cre_prices_file(n: usize) -> String {

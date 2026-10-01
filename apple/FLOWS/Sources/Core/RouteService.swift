@@ -129,6 +129,10 @@ struct PlannedRoute: Identifiable {
     var clearanceDataUnavailable = false
     /// Fraction of sampled corridor points inside FEMA A*/V* flood zones.
     var femaFloodFraction: Double?
+    /// The route runs through a road its state reports fully closed (WZDx:
+    /// a flooded road, a washout, a work zone). Never offered — FLOWS has
+    /// no route through an actually flooded road (owner, 2026-10-01).
+    var throughClosedRoad = false
     /// ELECTRIC vehicles: mile mark of the first stretch with NO charger in
     /// reach (nil = chargers found along the whole route, or not an EV).
     var evChargingGapMiles: Double?
@@ -305,10 +309,12 @@ struct PlannedRoute: Identifiable {
 ///   * noTolls additionally triggers a toll-free REPLAN (MKDirections
 ///     tollPreference = .avoid) so satisfying routes exist instead of the
 ///     filter collapsing the list to local roads.
-///   * bridgeWeight / lowBridges / mountainGrades / noFloodRisk are backed
-///     by real public data (OSM maxweight/maxheight, USGS elevations, FEMA
-///     flood zones + live field + active alerts); unknown data never
+///   * bridgeWeight / lowBridges / mountainGrades are backed by real public
+///     data (OSM maxweight/maxheight, USGS elevations); unknown data never
 ///     excludes a route.
+///   ("No flood risk" was a chip until 2026-10-01. A route through an
+///   actually flooded road is not optional: AppModel.passableChoices drops
+///   every route through a state-reported closure, flooded roads included.)
 ///   ("Low weather risk" used to live here as a relative best-plus-near-ties
 ///   filter — removed as redundant with the map's and cards' risk colors.)
 ///   The raw values are the chip labels, named for what the chip keeps
@@ -319,7 +325,6 @@ enum RouteFilter: String, CaseIterable, Identifiable {
     case noHighways = "No highways"
     case bridgeWeight = "No weak bridges"
     case noHighWinds = "No high winds"
-    case noFloodRisk = "No flood risk"
     case avoidTraffic = "Avoid traffic"
     case lowBridges = "No low bridges"
     case mountainGrades = "No steep hills"
@@ -351,13 +356,7 @@ enum RouteFilter: String, CaseIterable, Identifiable {
         case .noHighWinds:
             return !route.weatherScored
                 || (route.familyPeaks["wind"] ?? 0) < FlowsCore.riskYellowMin
-        case .noFloodRisk:
-            // Live field + active alerts + FEMA regulatory floodplain.
-            guard route.weatherScored else { return true }
-            let liveOK = (route.familyPeaks["qpf_flood"] ?? 0) < FlowsCore.riskYellowMin
-            let alertOK = !route.alertEvents.contains { $0.localizedCaseInsensitiveContains("flood") }
-            let femaOK = (route.femaFloodFraction ?? 0) < 0.15
-            return liveOK && alertOK && femaOK
+
         case .avoidTraffic:
             return Self.avoidsTraffic(
                 ratio: route.congestionRatio, highways: route.hasHighways,

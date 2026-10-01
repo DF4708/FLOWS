@@ -1928,7 +1928,23 @@ struct RouteChoicesView: View {
                     // Only when there ARE routes: with none at all (a walk
                     // with no path) the notice above says why, and filter
                     // text under it blamed the filters.
-                    if ctx.choices.isEmpty, !model.routeChoices.isEmpty {
+                    // Every road found runs through a road the state reports
+                    // closed — flooded, washed out, under work. None is
+                    // offered, not even as a closest match.
+                    if model.everyRouteClosed {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("Every road found is closed ahead",
+                                  systemImage: "water.waves")
+                                .scaledFont(.footnote, weight: .bold)
+                                .foregroundStyle(Theme.riskRed)
+                            Text("The state reports a closed or flooded road on "
+                                 + "each one. Never drive through water — wait "
+                                 + "and plan again, or pick another place.")
+                                .scaledFont(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if ctx.choices.isEmpty, !model.routeChoices.isEmpty, !model.everyRouteClosed {
                         VStack(alignment: .leading, spacing: 6) {
                             // "Looking" only while a search really runs;
                             // it used to say so forever.
@@ -2171,8 +2187,8 @@ struct RouteChoicesView: View {
     /// hidden horizontal scroll. The two data-gated presets render dimmed
     /// until we have truck-attribute / elevation data.
     private var filterChips: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 106), spacing: 6)],
-                  alignment: .leading, spacing: 6) {
+        // Even rows, never one chip alone on the last (BalancedRows).
+        BalancedRowsLayout(minItemWidth: 106, spacing: 6) {
             ForEach(RouteFilter.allCases) { filter in
                 let active = model.routeFilters.contains(filter)
                 Button {

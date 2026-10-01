@@ -857,6 +857,9 @@ public func flows_hazard_water_proximity_score(_ lats: UnsafeBufferPointer<Doubl
 public func flows_hazard_closure_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
     __swift_bridge__$flows_hazard_closure_score(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
 }
+public func flows_hazard_route_through_closure(_ route_lats: UnsafeBufferPointer<Double>, _ route_lons: UnsafeBufferPointer<Double>, _ closure_lats: UnsafeBufferPointer<Double>, _ closure_lons: UnsafeBufferPointer<Double>) -> Bool {
+    __swift_bridge__$flows_hazard_route_through_closure(route_lats.toFfiSlice(), route_lons.toFfiSlice(), closure_lats.toFfiSlice(), closure_lons.toFfiSlice())
+}
 public func flows_hazard_tropical_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ max_wind_kts: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
     __swift_bridge__$flows_hazard_tropical_score(lats.toFfiSlice(), lons.toFfiSlice(), max_wind_kts.toFfiSlice(), lat, lon)
 }

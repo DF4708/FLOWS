@@ -159,6 +159,10 @@ final class TruckerRadio: ObservableObject {
 
     private var player: AVPlayer?
 
+    /// Run just before a station starts — the one place the other players
+    /// are told to stop (AppModel wires it to MusicController.pauseForRadio).
+    var onWillPlay: (() -> Void)?
+
     /// True when channels came from the user's Application Support
     /// trucker_radio.json — that list WINS and the relay scrape must not
     /// replace it (it was silently wiping custom stations every launch).
@@ -361,6 +365,9 @@ final class TruckerRadio: ObservableObject {
                 + "for the cab radio, or add a relay URL in trucker_radio.json."
             return
         }
+        // One source at a time (owner, 2026-10-01): Apple Music or Spotify
+        // pauses before the station comes on.
+        onWillPlay?()
         let keepPin = pinned || channel.id == pinnedChannelID
         stop()
         pinnedChannelID = keepPin ? channel.id : nil

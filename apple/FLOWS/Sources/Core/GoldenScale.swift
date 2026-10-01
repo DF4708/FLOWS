@@ -182,3 +182,23 @@ enum TuckedMenus {
         }
     }
 }
+
+/// Buttons split into even rows (owner, 2026-10-01): never one left alone on
+/// a row of its own. As many per row as fit, then as few rows as that needs,
+/// the buttons shared between them as evenly as they go — nine where four
+/// fit is 3·3·3, seven is 4·3, five is 3·2. When even sharing still leaves a
+/// lone button beside fuller rows (three where two fit), they stack one per
+/// row instead.
+enum BalancedRows {
+    static func counts(items: Int, fitPerRow: Int) -> [Int] {
+        guard items > 0 else { return [] }
+        let fit = max(1, fitPerRow)
+        let rows = (items + fit - 1) / fit
+        let base = items / rows, extra = items % rows
+        let counts = (0..<rows).map { $0 < extra ? base + 1 : base }
+        if counts.contains(1), (counts.max() ?? 1) > 1 {
+            return Array(repeating: 1, count: items)
+        }
+        return counts
+    }
+}

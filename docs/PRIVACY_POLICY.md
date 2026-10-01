@@ -27,6 +27,13 @@ device and stored only on your device:
   Average fuel prices are read from the U.S. Energy Information
   Administration's public weekly page (eia.gov); no location is sent to
   it — the app fetches the page and reads the table on the device.
+  With "Show calls heard nearby" on, police and fire calls are read from
+  the public 911 lists some cities publish (data.sf.gov, data.seattle.gov);
+  the request is the city's whole list, the same for everyone — no
+  location is sent.
+  Major chains' logos in stop lists are loaded from Brandfetch
+  (cdn.brandfetch.io); each request names the brand's web domain only,
+  never your location.
   Trucker mode's NOAA Weather Radio streams come from weatherusa.net's
   public relays (radio.weatherusa.net); no location or personal data is
   sent to that host — the app only downloads the audio stream.

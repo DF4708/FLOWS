@@ -157,6 +157,22 @@ enum HazardFeedScores {
         }
     }
 
+    /// Whether a route's line runs through a road its state reports fully
+    /// closed — a flooded road among them (hazard_feeds.rs
+    /// `route_through_closure`). FLOWS never offers such a route.
+    static func routeThroughClosure(_ route: [CLLocationCoordinate2D],
+                                    closures: [(lat: Double, lon: Double)]) -> Bool {
+        // swift-bridge must never see an empty buffer.
+        guard !route.isEmpty, !closures.isEmpty else { return false }
+        let rLats = route.map(\.latitude), rLons = route.map(\.longitude)
+        let cLats = closures.map(\.lat), cLons = closures.map(\.lon)
+        return two(rLats, rLons) { ra, ro in
+            two(cLats, cLons) { ca, co in
+                flows_hazard_route_through_closure(ra, ro, ca, co)
+            }
+        }
+    }
+
     /// `closureScore(closures:at:)` over closures laid out once.
     static func closureScore(prepared closures: PreparedPoints, at point: Point) -> Double {
         guard !closures.lats.isEmpty else { return 0 }
