@@ -2605,9 +2605,12 @@ public func flows_places_text_fuel_estimate<GenericToRustStr: ToRustStr>(_ fuel:
         __swift_bridge__$flows_places_text_fuel_estimate(fuel, codeAsRustStr, has_code, live_gas, live_diesel, has_live)
     })
 }
-public func flows_places_text_parse_current_avg<GenericToRustStr: ToRustStr>(_ html: GenericToRustStr) -> FlowsPlacesTextPrices {
+public func flows_places_text_eia_weekly_url() -> RustString {
+    RustString(ptr: __swift_bridge__$flows_places_text_eia_weekly_url())
+}
+public func flows_places_text_eia_prices<GenericToRustStr: ToRustStr>(_ html: GenericToRustStr) -> RustVec<Double> {
     return html.toRustStr({ htmlAsRustStr in
-        __swift_bridge__$flows_places_text_parse_current_avg(htmlAsRustStr).intoSwiftRepr()
+        RustVec(ptr: __swift_bridge__$flows_places_text_eia_prices(htmlAsRustStr))
     })
 }
 public func flows_places_text_state_names() -> RustVec<RustString> {
@@ -2682,47 +2685,6 @@ extension __swift_bridge__$Option$FlowsPlacesTextOptional {
             return __swift_bridge__$Option$FlowsPlacesTextOptional(is_some: true, val: v.intoFfiRepr())
         } else {
             return __swift_bridge__$Option$FlowsPlacesTextOptional(is_some: false, val: __swift_bridge__$FlowsPlacesTextOptional())
-        }
-    }
-}
-public struct FlowsPlacesTextPrices {
-    public var has: Double
-    public var gas: Double
-    public var diesel: Double
-
-    public init(has: Double,gas: Double,diesel: Double) {
-        self.has = has
-        self.gas = gas
-        self.diesel = diesel
-    }
-
-    @inline(__always)
-    func intoFfiRepr() -> __swift_bridge__$FlowsPlacesTextPrices {
-        { let val = self; return __swift_bridge__$FlowsPlacesTextPrices(has: val.has, gas: val.gas, diesel: val.diesel); }()
-    }
-}
-extension __swift_bridge__$FlowsPlacesTextPrices {
-    @inline(__always)
-    func intoSwiftRepr() -> FlowsPlacesTextPrices {
-        { let val = self; return FlowsPlacesTextPrices(has: val.has, gas: val.gas, diesel: val.diesel); }()
-    }
-}
-extension __swift_bridge__$Option$FlowsPlacesTextPrices {
-    @inline(__always)
-    func intoSwiftRepr() -> Optional<FlowsPlacesTextPrices> {
-        if self.is_some {
-            return self.val.intoSwiftRepr()
-        } else {
-            return nil
-        }
-    }
-
-    @inline(__always)
-    static func fromSwiftRepr(_ val: Optional<FlowsPlacesTextPrices>) -> __swift_bridge__$Option$FlowsPlacesTextPrices {
-        if let v = val {
-            return __swift_bridge__$Option$FlowsPlacesTextPrices(is_some: true, val: v.intoFfiRepr())
-        } else {
-            return __swift_bridge__$Option$FlowsPlacesTextPrices(is_some: false, val: __swift_bridge__$FlowsPlacesTextPrices())
         }
     }
 }

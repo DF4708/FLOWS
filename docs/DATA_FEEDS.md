@@ -957,7 +957,7 @@ key. Gap-filling sources adopted under this rule:
 
 | Gap | Source | Access | Status |
 |---|---|---|---|
-| Live fuel prices | **AAA state averages** (gasprices.aaa.com, public posting) | Keyless polite scrape, 12-h cache per state (`AAAFuelPrices`) | **Wired** — overrides the static state-factor estimates; still labeled "est." (state average, not station price) |
+| Live fuel prices | **EIA weekly averages** (eia.gov/petroleum/gasdiesel, public domain) | Keyless page, one fetch for every state, 12-h cache (`EIAFuelPrices`); each state reads its own row (CA, CO, FL, MA, MN, NY, OH, TX, WA) or its region's | **Wired** — overrides the static state-factor estimates; still labeled "est." (an average, not a station price). Replaced AAA's state pages 2026-10-01: AAA reserves all rights and its terms allow personal, non-commercial use only |
 | POI database | **Foursquare OS Places** (Apache 2.0, ~106M POIs) | Keyless bulk download → regional `.fps` shards | Pipeline in `scripts/build_places_shards.sh` (see section below); Swift reader next |
 | POI database (alt/merge) | **Overture Maps Places** (CDLA-P-2.0/Apache 2.0) | Keyless GeoParquet on S3/Azure | Candidate for a future merge pass |
 | Transit fares | GTFS `fare_*.txt` where agencies publish | Keyless (rides the GTFS→.ftt pipeline) | Parser slot reserved |
@@ -974,10 +974,11 @@ key. Gap-filling sources adopted under this rule:
    (thousands of Text Search calls) covers per-search app use without charges.
 5. Paste into FLOWS → Settings → Keys for extra info → Google Places key.
 
-**EIA (fuel-price series, stabler than scraping)** — api.eia.gov:
+**EIA API (fuel-price series)** — api.eia.gov:
 1. https://www.eia.gov/opendata/register.php → email → key arrives instantly.
 2. Weekly retail gasoline/diesel by state: `/v2/petroleum/pri/gnd/data`.
-(Currently unused — AAA scrape covers it keylessly; keep as backup.)
+(Not needed: the keyless weekly page carries the same latest week, and
+FLOWS reads that — `EIAFuelPrices`.)
 
 **NPS (parks detail for Tourist stops)** — developer.nps.gov:
 1. https://www.nps.gov/subjects/developer/get-started.htm → sign up → instant key.

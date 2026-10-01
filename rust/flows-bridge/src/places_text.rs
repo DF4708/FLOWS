@@ -29,13 +29,6 @@ mod ffi {
         is_some: f64,
         value: f64,
     }
-    // The AAA row's prices; `has` 0 when the page did not parse.
-    #[swift_bridge(swift_repr = "struct")]
-    struct FlowsPlacesTextPrices {
-        has: f64,
-        gas: f64,
-        diesel: f64,
-    }
 
     extern "Rust" {
         // ---- BrandKnowledge ----
@@ -91,7 +84,8 @@ mod ffi {
             live_diesel: f64,
             has_live: bool,
         ) -> f64;
-        fn flows_places_text_parse_current_avg(html: &str) -> FlowsPlacesTextPrices;
+        fn flows_places_text_eia_weekly_url() -> String;
+        fn flows_places_text_eia_prices(html: &str) -> Vec<f64>;
         fn flows_places_text_state_names() -> Vec<String>;
         fn flows_places_text_state_codes() -> Vec<String>;
 
@@ -116,18 +110,13 @@ mod ffi {
 }
 
 use crate::contain;
-use ffi::{FlowsPlacesTextOptional, FlowsPlacesTextPrices};
+use ffi::FlowsPlacesTextOptional;
 use flows_core::places_text as pt;
 use flows_core::swift_text as st;
 
 const NONE: FlowsPlacesTextOptional = FlowsPlacesTextOptional {
     is_some: 0.0,
     value: 0.0,
-};
-const NO_PRICES: FlowsPlacesTextPrices = FlowsPlacesTextPrices {
-    has: 0.0,
-    gas: 0.0,
-    diesel: 0.0,
 };
 
 fn option(value: &str, has: bool) -> Option<&str> {
@@ -289,14 +278,25 @@ pub fn flows_places_text_state_codes() -> Vec<String> {
         .map(|(_, c)| (*c).to_string())
         .collect()
 }
-pub fn flows_places_text_parse_current_avg(html: &str) -> FlowsPlacesTextPrices {
-    contain(NO_PRICES, || match pt::parse_current_avg(html) {
-        Some((gas, diesel)) => FlowsPlacesTextPrices {
-            has: 1.0,
-            gas,
-            diesel,
-        },
-        None => NO_PRICES,
+pub fn flows_places_text_eia_weekly_url() -> String {
+    pt::EIA_WEEKLY_URL.to_string()
+}
+
+/// EIA's weekly page read for every state: `[gas, diesel]` per code of
+/// `flows_places_text_state_codes`, in its order, NaN for a state it cannot
+/// price; empty when the page does not parse.
+pub fn flows_places_text_eia_prices(html: &str) -> Vec<f64> {
+    contain(Vec::new(), || {
+        pt::parse_eia_weekly(html).map_or_else(Vec::new, |week| {
+            pt::STATE_NAMES
+                .iter()
+                .flat_map(|(_, code)| {
+                    let (gas, diesel) =
+                        pt::eia_state_prices(&week, code).unwrap_or((f64::NAN, f64::NAN));
+                    [gas, diesel]
+                })
+                .collect()
+        })
     })
 }
 
@@ -369,4 +369,26 @@ pub fn flows_places_text_camera_limit_mph(
             None => NONE,
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eia_prices_line_up_with_the_state_codes() {
+        assert!(flows_places_text_eia_prices("").is_empty());
+        let page = "<table><caption>U.S. Regular Gasoline Prices</caption><thead><tr><th></th>\
+                    <th>09/28/26</th></tr></thead><tbody><tr><td>\
+                    <a href=\"/dnav/pet/pet_pri_gnd_dcus_nus_w.htm\">U.S.</a></td><td>4.465</td>\
+                    </tr></tbody></table><table><caption>U.S. On-Highway Diesel Fuel Prices\
+                    </caption><thead><tr><th></th><th>09/28/26</th></tr></thead><tbody><tr><td>\
+                    <a href=\"/dnav/pet/pet_pri_gnd_dcus_nus_w.htm\">U.S.</a></td><td>6.382</td>\
+                    </tr></tbody></table>";
+        let prices = flows_places_text_eia_prices(page);
+        let codes = flows_places_text_state_codes();
+        assert_eq!(prices.len(), 2 * codes.len());
+        let wi = codes.iter().position(|c| c == "WI").expect("Wisconsin");
+        assert_eq!((prices[2 * wi], prices[2 * wi + 1]), (4.465, 6.382));
+    }
 }

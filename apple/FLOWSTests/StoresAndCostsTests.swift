@@ -62,20 +62,28 @@ final class StoresAndCostsTests: XCTestCase {
         XCTAssertTrue(StoreCategory.allCases.map(\.rawValue).contains("Gun"))
     }
 
-    // AAA "Current Avg." row parse: Regular is gas, 4th column is diesel;
-    // malformed pages return nil instead of garbage.
-    func testAAACurrentAvgParse() {
-        let html = """
-        <thead><th>Regular</th><th>Mid</th><th>Premium</th><th>Diesel</th></thead>
-        <tbody><tr><td>Current Avg.</td>
-        <td>$3.6840</td><td>$4.2100</td><td>$4.8310</td><td>$4.5810</td></tr>
-        <tr><td>Yesterday Avg.</td><td>$3.5950</td></tr>
-        """
-        let parsed = AAAFuelPrices.parseCurrentAvg(html)
-        XCTAssertEqual(parsed?.gas ?? 0, 3.684, accuracy: 1e-9)
-        XCTAssertEqual(parsed?.diesel ?? 0, 4.581, accuracy: 1e-9)
-        XCTAssertNil(AAAFuelPrices.parseCurrentAvg("<html>no table here</html>"))
-        XCTAssertNil(AAAFuelPrices.parseCurrentAvg("Current Avg. $3.10 only-one-price"))
+    // EIA's weekly table: each state reads its own row or its region's;
+    // a page that does not parse (a block page, a redesign) prices nothing.
+    func testEIAWeeklyParse() {
+        let head = "<thead><tr><th></th><th>09/21/26</th><th>09/28/26</th></tr></thead>"
+        func row(_ code: String, _ older: String, _ latest: String) -> String {
+            "<tr><td><a href=\"/dnav/pet/pet_pri_gnd_dcus_\(code)_w.htm\">x</a></td>"
+                + "<td>\(older)</td><td>\(latest)</td></tr>"
+        }
+        let html = "<table><caption>U.S. Regular Gasoline Prices</caption>\(head)<tbody>"
+            + row("nus", "4.478", "4.465") + row("r20", "4.386", "4.291")
+            + "</tbody></table><table><caption>States</caption>\(head)<tbody>"
+            + row("sca", "6.003", "6.189")
+            + "</tbody></table><table><caption>U.S. On-Highway Diesel Fuel Prices</caption>"
+            + "\(head)<tbody>" + row("nus", "6.529", "6.382") + row("sca", "8.246", "8.181")
+            + "</tbody></table>"
+        let parsed = EIAFuelPrices.parse(html)
+        XCTAssertEqual(parsed["WI"]?.gas ?? 0, 4.291, accuracy: 1e-9, "Midwest")
+        XCTAssertEqual(parsed["WI"]?.diesel ?? 0, 6.382, accuracy: 1e-9, "U.S.")
+        XCTAssertEqual(parsed["CA"]?.gas ?? 0, 6.189, accuracy: 1e-9)
+        XCTAssertEqual(parsed["CA"]?.diesel ?? 0, 8.181, accuracy: 1e-9)
+        XCTAssertEqual(parsed.count, 51, "every state and DC")
+        XCTAssertTrue(EIAFuelPrices.parse("<html>Sorry, you have been blocked</html>").isEmpty)
     }
 
     // Fuel cost math: 300 mi at 30 mpg × $3.00 = $30; degenerate inputs → nil.

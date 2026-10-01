@@ -4404,6 +4404,8 @@ struct SettingsSheet: View {
                  + "Transportation Statistics' National Census of Ferry Operators, "
                  + "public domain.\n"
                  + "Airports: OurAirports, public domain.\n"
+                 + "Average gas and diesel prices: U.S. Energy Information "
+                 + "Administration (EIA), weekly, public domain.\n"
                  + "Town locations for rental car links: U.S. Census Bureau, USGS "
                  + "Geographic Names Information System, Natural Earth and NGA "
                  + "GEOnet Names Server, public domain.\n"

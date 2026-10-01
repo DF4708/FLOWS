@@ -4924,10 +4924,10 @@ final class AppModel: ObservableObject {
                         self?.retuneRadioIfNeeded(stateCode: state)
                     }
                 }
-                // Keyless live fuel: refresh AAA's state average for wherever
-                // the driver is (12-h cache inside; polite single fetch).
+                // Keyless live fuel: EIA's weekly averages for every state
+                // (12-h cache inside; one fetch, no location sent).
                 if let state, state.count == 2 {
-                    await AAAFuelPrices.shared.refresh(stateCode: state)
+                    await EIAFuelPrices.shared.refresh()
                 }
                 // Roadwork ahead, straight from the state DOT's WZDx feed:
                 // zones within 3 km of the scored corridor samples.

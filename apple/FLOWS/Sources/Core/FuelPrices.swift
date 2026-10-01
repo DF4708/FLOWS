@@ -15,62 +15,72 @@ import Foundation
 /// rounded to the dime — clearly labeled "est. state avg" in the UI, and a
 /// station-level licensed feed (GasBuddy/OPIS) plugs into the same
 /// `priceProvider` to replace them per station.
-/// Live state-average fuel prices scraped politely from AAA's PUBLIC state
-/// pages (gasprices.aaa.com — keyless, refreshed at most twice a day per
-/// state). A public posting by the operator, not platform content; polite,
-/// low-volume, cached. Feeds FuelPrices.estimate as a fresher override of the
-/// static state-factor table — labeled "est." in the UI either way (it's a
-/// state average, not a station price).
-final class AAAFuelPrices: @unchecked Sendable {
-    static let shared = AAAFuelPrices()
+/// Live average fuel prices from the U.S. Energy Information Administration's
+/// weekly Gasoline and Diesel Fuel Update (eia.gov/petroleum/gasdiesel — a
+/// U.S. government work, public domain; keyless). One page prices the nation,
+/// its regions and nine states; every state reads its own figure or its
+/// region's (rust/flows-core places_text.rs `eia_state_prices`). Fetched at
+/// most twice a day, for all states at once; no location is sent. Feeds
+/// FuelPrices.estimate as a fresher override of the static state-factor
+/// table — labeled "est." in the UI either way (an average, not a station
+/// price). It replaced AAA's state pages on 2026-10-01: AAA reserves all
+/// rights to them and its terms allow personal, non-commercial use only.
+final class EIAFuelPrices: @unchecked Sendable {
+    static let shared = EIAFuelPrices()
 
     private let lock = NSLock()
-    private var cache: [String: (gas: Double, diesel: Double, at: Date)] = [:]
+    private var prices: [String: (gas: Double, diesel: Double)] = [:]
+    private var fetchedAt: Date?
 
     func cached(_ code: String) -> (gas: Double, diesel: Double)? {
         lock.lock(); defer { lock.unlock() }
-        guard let c = cache[code], Date().timeIntervalSince(c.at) < 43_200 else { return nil }
-        return (c.gas, c.diesel)
+        guard let at = fetchedAt, Date().timeIntervalSince(at) < 43_200 else { return nil }
+        return prices[code]
     }
 
-    /// Fetch a state's Current Avg row (Regular/Mid/Premium/Diesel) once per
-    /// 12 h. Parsing anchors on the "Current Avg." cell — the four following
-    /// $-prices are the columns in order.
-    func refresh(stateCode: String) async {
-        let code = flows_places_text_uppercased(stateCode).text
-        if cached(code) != nil { return }
-        guard code.count == 2,
-              let url = URL(string: "https://gasprices.aaa.com/?state=\(code)"),
+    /// Fetch the week's table once per 12 h (EIA publishes it each Monday).
+    func refresh() async {
+        guard isStale,
+              let url = URL(string: flows_places_text_eia_weekly_url().text),
               let (data, resp) = try? await ThrottledNet.fetch(url),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let html = String(data: data, encoding: .utf8),
-              let parsed = Self.parseCurrentAvg(html) else { return }
-        store(code: code, gas: parsed.gas, diesel: parsed.diesel)
+              let html = String(data: data, encoding: .utf8) else { return }
+        let parsed = Self.parse(html)
+        guard !parsed.isEmpty else { return }
+        store(parsed)
+    }
+
+    private var isStale: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return fetchedAt.map { Date().timeIntervalSince($0) >= 43_200 } ?? true
     }
 
     /// Synchronous mutation point (NSLock is not await-safe; this never awaits).
-    private func store(code: String, gas: Double, diesel: Double) {
+    private func store(_ parsed: [String: (gas: Double, diesel: Double)]) {
         lock.lock(); defer { lock.unlock() }
-        cache[code] = (gas: gas, diesel: diesel, at: Date())
+        prices = parsed
+        fetchedAt = Date()
     }
 
-    /// Pure parse (testable offline), done in Rust: the four $-prices after
-    /// "Current Avg." are Regular / Mid / Premium / Diesel, in column order.
-    /// Positional, so a value is NEVER skipped — dropping one (e.g. a $9+
-    /// diesel print, or a template change) would silently shift the next
-    /// row's Regular into the Diesel column, a wrong-but-plausible number. Any
-    /// out-of-band value fails the whole parse and the static state-factor
-    /// estimate serves instead. The scan is bounded to the row (600 characters
-    /// past the anchor) so it can't wander into "Yesterday Avg.".
-    static func parseCurrentAvg(_ html: String) -> (gas: Double, diesel: Double)? {
-        let p = flows_places_text_parse_current_avg(html)
-        return p.has == 1 ? (gas: p.gas, diesel: p.diesel) : nil
+    /// Pure parse (testable offline), done in Rust: every state's (gas,
+    /// diesel) for the latest week; empty when the page did not parse.
+    static func parse(_ html: String) -> [String: (gas: Double, diesel: Double)] {
+        let flat = flows_places_text_eia_prices(html)
+        let codes = flows_places_text_state_codes()
+        var out: [String: (gas: Double, diesel: Double)] = [:]
+        for i in 0..<min(codes.len(), flat.len() / 2) {
+            let gas = flat[2 * i], diesel = flat[2 * i + 1]
+            if !gas.isNaN, !diesel.isNaN {
+                out[codes[i].text] = (gas, diesel)
+            }
+        }
+        return out
     }
 }
 
 /// The estimates are computed in rust/flows-core (places_text.rs) and called
 /// through rust/flows-bridge — the state tables, the MXN conversion and the
-/// rounding all live there; this store keeps the live AAA cache and hands its
+/// rounding all live there; this store keeps the live EIA cache and hands its
 /// answer across. Pinned to the original Swift by
 /// rust/flows-bridge/tests/fixtures/swift_places_text_oracle.tsv.
 enum FuelPrices {
@@ -109,12 +119,13 @@ enum FuelPrices {
 
     /// Estimated price per unit for a fuel type in a state ("WI", or a full
     /// name). Unknown/foreign states fall back to the national baseline.
-    /// Fresher truth first: AAA's live state average (keyless scrape, 12-h
-    /// cache) overrides the static factor table when present.
+    /// Fresher truth first: EIA's live weekly average for the state or its
+    /// region (keyless, 12-h cache) overrides the static factor table when
+    /// present.
     static func estimate(fuel: FuelType, state: String?) -> Double {
         let raw = flows_places_text_fuel_state_code(state ?? "", state != nil).text
         let code: String? = raw.isEmpty ? nil : raw
-        let live = code.flatMap { AAAFuelPrices.shared.cached($0) }
+        let live = code.flatMap { EIAFuelPrices.shared.cached($0) }
         return flows_places_text_fuel_estimate(
             fuel.rustCode, code ?? "", code != nil, live?.gas ?? 0, live?.diesel ?? 0, live != nil)
     }

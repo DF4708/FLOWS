@@ -473,8 +473,6 @@ void* __swift_bridge__$FlowsPlacesIndex$place_texts(void* self, struct __private
 #include <stdbool.h>
 typedef struct __swift_bridge__$FlowsPlacesTextOptional { double is_some; double value; } __swift_bridge__$FlowsPlacesTextOptional;
 typedef struct __swift_bridge__$Option$FlowsPlacesTextOptional { bool is_some; __swift_bridge__$FlowsPlacesTextOptional val; } __swift_bridge__$Option$FlowsPlacesTextOptional;
-typedef struct __swift_bridge__$FlowsPlacesTextPrices { double has; double gas; double diesel; } __swift_bridge__$FlowsPlacesTextPrices;
-typedef struct __swift_bridge__$Option$FlowsPlacesTextPrices { bool is_some; __swift_bridge__$FlowsPlacesTextPrices val; } __swift_bridge__$Option$FlowsPlacesTextPrices;
 int64_t __swift_bridge__$flows_places_text_cost_tier(struct RustStr name);
 void* __swift_bridge__$flows_places_text_website(struct RustStr name);
 int32_t __swift_bridge__$flows_places_text_gym_has_showers(struct RustStr name);
@@ -502,7 +500,8 @@ double __swift_bridge__$flows_places_text_usd_per_gallon(double mxn_per_liter);
 double __swift_bridge__$flows_places_text_mexico_estimate(uint8_t fuel);
 void* __swift_bridge__$flows_places_text_fuel_state_code(struct RustStr state, bool has_state);
 double __swift_bridge__$flows_places_text_fuel_estimate(uint8_t fuel, struct RustStr code, bool has_code, double live_gas, double live_diesel, bool has_live);
-struct __swift_bridge__$FlowsPlacesTextPrices __swift_bridge__$flows_places_text_parse_current_avg(struct RustStr html);
+void* __swift_bridge__$flows_places_text_eia_weekly_url(void);
+void* __swift_bridge__$flows_places_text_eia_prices(struct RustStr html);
 void* __swift_bridge__$flows_places_text_state_names(void);
 void* __swift_bridge__$flows_places_text_state_codes(void);
 void* __swift_bridge__$flows_places_text_parse_turn_lanes(struct RustStr turn_lanes);

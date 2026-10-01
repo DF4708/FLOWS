@@ -17,6 +17,7 @@
 //! | [`country_for_coordinate`], [`check_breakpoints`], [`cost_tier_for_check`], [`estimated_nightly`], [`yelp_cost_tier`] | `RatingsAndCost` |
 //! | [`shower_for_name`], [`shower_ladder`], [`shower_table_entry`], [`city_keys`] | `ShowerAvailability` |
 //! | [`usd_per_gallon`], [`mexico_estimate`], [`fuel_state_code`], [`fuel_estimate`], [`parse_current_avg`] | `FuelPrices`, `AAAFuelPrices.parseCurrentAvg` |
+//! | [`parse_eia_weekly`], [`eia_state_prices`] | `EIAFuelPrices` — written in Rust first; no Swift original, so no oracle |
 //! | [`parse_turn_lanes`], [`recommended_lanes`] | `LaneData` |
 //! | [`camera_kind`], [`camera_limit_mph`] | `EnforcementCameras` |
 //!
@@ -830,9 +831,10 @@ fn state_factor(code: &str) -> Option<f64> {
 }
 
 /// `FuelPrices.estimate(fuel:state:)` once the store has looked up its live
-/// AAA average for `code` (`live` = gas, diesel): the live price rounded to
-/// the cent when there is one for a fuel AAA publishes, else the national
-/// baseline scaled by the state's factor (1.0 for an unknown state).
+/// weekly average for `code` (`live` = gas, diesel; EIA's since 2026-10-01,
+/// AAA's before): the live price rounded to the cent when there is one for
+/// the fuel, else the national baseline scaled by the state's factor (1.0
+/// for an unknown state).
 ///
 /// Deterministic; panics: none.
 #[must_use]
@@ -855,6 +857,9 @@ pub fn fuel_estimate(fuel: u8, code: Option<&str>, live: Option<(f64, f64)>) -> 
 /// Characters past the anchor the AAA scan may read.
 pub const AAA_WINDOW_CHARACTERS: usize = 600;
 
+/// Retired from the app on 2026-10-01 for [`parse_eia_weekly`] (AAA reserves
+/// all rights to its pages); kept because the frozen Swift oracle pins it.
+///
 /// `AAAFuelPrices.parseCurrentAvg`: the four `$` prices after "Current Avg."
 /// are Regular, Mid, Premium and Diesel, in column order and never skipped:
 /// a price outside 1…12 fails the whole parse. The scan stays within 600
@@ -893,6 +898,210 @@ pub fn parse_current_avg(html: &str) -> Option<(f64, f64)> {
         prices.push(value);
     }
     (prices.len() == 4).then(|| (prices[0], prices[3]))
+}
+
+// =============================================================================
+// EIA weekly fuel prices
+// =============================================================================
+
+/// The page `EIAFuelPrices` reads: EIA's Gasoline and Diesel Fuel Update,
+/// a U.S. government work in the public domain (eia.gov/about/
+/// copyrights_reuse.php). It replaced AAA's state pages on 2026-10-01: AAA
+/// reserves all rights to them and its terms allow personal,
+/// non-commercial use only.
+pub const EIA_WEEKLY_URL: &str = "https://www.eia.gov/petroleum/gasdiesel/";
+
+/// The regions EIA prices, by its series codes (the `dcus_<code>_w` in
+/// each row's link), with the states in each (EIA's map of states in each
+/// region) and the wider region a sub-region rolls up to: PADD 1 is split
+/// three ways, and the West Coast is also priced without California.
+const EIA_REGIONS: &[(&str, Option<&str>, &[&str])] = &[
+    ("r1x", Some("r10"), &["CT", "ME", "MA", "NH", "RI", "VT"]),
+    ("r1y", Some("r10"), &["DE", "DC", "MD", "NJ", "NY", "PA"]),
+    ("r1z", Some("r10"), &["FL", "GA", "NC", "SC", "VA", "WV"]),
+    (
+        "r20",
+        None,
+        &[
+            "IL", "IN", "IA", "KS", "KY", "MI", "MN", "MO", "NE", "ND", "OH", "OK", "SD", "TN",
+            "WI",
+        ],
+    ),
+    ("r30", None, &["AL", "AR", "LA", "MS", "NM", "TX"]),
+    ("r40", None, &["CO", "ID", "MT", "UT", "WY"]),
+    ("r5xca", Some("r50"), &["AK", "AZ", "HI", "NV", "OR", "WA"]),
+    ("r50", None, &["CA"]),
+];
+
+/// One week of EIA's table: each series code with its $/gal, for regular
+/// gasoline and for on-highway diesel.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EiaWeek {
+    /// Regular gasoline, by series code (`nus`, `r1x`, `sca`, …).
+    pub gasoline: Vec<(String, f64)>,
+    /// On-highway diesel, by series code.
+    pub diesel: Vec<(String, f64)>,
+}
+
+/// The inner text of every `open`…`close` element in `s`, from just past the
+/// opening tag's `>`. The tag name must end where `open` does: `<th` is not
+/// `<thead>`.
+fn elements<'a>(s: &'a str, open: &str, close: &str) -> Vec<&'a str> {
+    let mut found = Vec::new();
+    let mut rest = s;
+    while let Some(start) = rest.find(open) {
+        let after = &rest[start + open.len()..];
+        if !after.starts_with(|c: char| c == '>' || c.is_ascii_whitespace()) {
+            rest = after;
+            continue;
+        }
+        let Some(gt) = after.find('>') else { break };
+        let body = &after[gt + 1..];
+        let end = body.find(close).unwrap_or(body.len());
+        found.push(&body[..end]);
+        rest = &body[end..];
+    }
+    found
+}
+
+/// `s` without its tags, trimmed.
+fn cell_text(s: &str) -> String {
+    let mut text = String::new();
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    text.trim().to_string()
+}
+
+/// A header cell's week as (year, month, day) from its `MM/DD/YY`.
+fn header_week(cell: &str) -> Option<(u32, u32, u32)> {
+    let text = cell_text(cell);
+    let parts: Vec<&str> = text.split('/').collect();
+    if parts.len() != 3
+        || parts
+            .iter()
+            .any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return None;
+    }
+    let n = |p: &str| p.parse::<u32>().ok();
+    Some((n(parts[2])?, n(parts[0])?, n(parts[1])?))
+}
+
+/// A row's series code, from its label's link (`…_dcus_<code>_w.htm`).
+fn series_code(cell: &str) -> Option<&str> {
+    let start = cell.find("_dcus_")? + "_dcus_".len();
+    let rest = &cell[start..];
+    let end = rest.find("_w")?;
+    let code = &rest[..end];
+    (!code.is_empty()
+        && code
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
+    .then_some(code)
+}
+
+/// A price cell: digits and one point, a believable $/gal (1 to 15).
+fn price_cell(cell: &str) -> Option<f64> {
+    let text = cell_text(cell);
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit() || b == b'.') {
+        return None;
+    }
+    let value: f64 = text.parse().ok()?;
+    (value > 1.0 && value < 15.0).then_some(value)
+}
+
+/// `EIAFuelPrices.parse`: the latest week of every row in EIA's weekly
+/// tables. A table's caption names its fuel ("Regular Gasoline", "Diesel");
+/// a table without one (the "States" table) carries on the fuel above it.
+/// The latest week is the newest of the header's dated columns, wherever it
+/// stands. A row without a series link or a believable price is skipped;
+/// `None` when the page has no national gasoline price, the one row every
+/// state can fall back to.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn parse_eia_weekly(html: &str) -> Option<EiaWeek> {
+    let mut week = EiaWeek::default();
+    let mut diesel: Option<bool> = None;
+    for table in elements(html, "<table", "</table>") {
+        if let Some(caption) = elements(table, "<caption", "</caption>").first() {
+            if caption.contains("Diesel") {
+                diesel = Some(true);
+            } else if caption.contains("Gasoline") {
+                diesel = Some(false);
+            }
+        }
+        let Some(is_diesel) = diesel else { continue };
+        let split = table.find("<tbody").unwrap_or(table.len());
+        let weeks: Vec<(u32, u32, u32)> = elements(&table[..split], "<th", "</th>")
+            .into_iter()
+            .filter_map(header_week)
+            .collect();
+        let Some(latest) = (0..weeks.len()).max_by_key(|&i| (weeks[i], i)) else {
+            continue;
+        };
+        let list = if is_diesel {
+            &mut week.diesel
+        } else {
+            &mut week.gasoline
+        };
+        for row in elements(&table[split..], "<tr", "</tr>") {
+            let cells = elements(row, "<td", "</td>");
+            let Some(code) = cells.first().and_then(|c| series_code(c)) else {
+                continue;
+            };
+            let Some(price) = cells.get(latest + 1).and_then(|c| price_cell(c)) else {
+                continue;
+            };
+            if !list.iter().any(|(c, _)| c == code) {
+                list.push((code.to_string(), price));
+            }
+        }
+    }
+    week.gasoline
+        .iter()
+        .any(|(c, _)| c == "nus")
+        .then_some(week)
+}
+
+/// The series a state's price is read from, nearest first: the state's own
+/// (where EIA prices it alone), its region, the wider region, the nation.
+fn eia_chain(code: &str) -> Vec<String> {
+    let mut chain = vec![format!("s{}", code.to_ascii_lowercase())];
+    if let Some((region, wider, _)) = EIA_REGIONS.iter().find(|(_, _, s)| s.contains(&code)) {
+        chain.push((*region).to_string());
+        chain.extend(wider.map(str::to_string));
+    }
+    chain.push("nus".to_string());
+    chain
+}
+
+/// `EIAFuelPrices`'s (gas, diesel) for a state code ("WI"): the first
+/// series along the state's chain that each fuel's table prices. `None`
+/// for a code that is not a U.S. state or DC, or a week without a national
+/// diesel price.
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn eia_state_prices(week: &EiaWeek, code: &str) -> Option<(f64, f64)> {
+    let code = code.to_ascii_uppercase();
+    if !STATE_NAMES.iter().any(|(_, c)| *c == code) {
+        return None;
+    }
+    let chain = eia_chain(&code);
+    let pick = |list: &[(String, f64)]| {
+        chain
+            .iter()
+            .find_map(|s| list.iter().find(|(c, _)| c == s).map(|(_, p)| *p))
+    };
+    Some((pick(&week.gasoline)?, pick(&week.diesel)?))
 }
 
 // =============================================================================
@@ -1194,6 +1403,98 @@ mod tests {
             Some((2.0, 5.0))
         );
         assert_eq!(parse_current_avg("Current Avg. $.5 $2 $3 $4"), None);
+    }
+
+    /// EIA's weekly page as it is laid out (2026-09-29 release), trimmed to
+    /// a few rows of each table.
+    fn eia_page(weeks: [&str; 3]) -> String {
+        let head = format!(
+            "<thead><tr class=\"double-header\"><th></th><th></th><th></th><th></th>\
+             <th colspan=\"3\">Change from</th></tr><tr><th></th><th>{}</th><th>{}</th>\
+             <th>{}</th><th class=\"no-wrap\">2 year ago</th></tr></thead>",
+            weeks[0], weeks[1], weeks[2]
+        );
+        let row = |code: &str, label: &str, p: [&str; 3]| {
+            format!(
+                "<tr><td class=\"level-1-indent\"><a href=\"/dnav/pet/pet_pri_gnd_dcus_{code}_w.htm\">\
+                 {label}</a></td><td>{}</td><td>{}</td><td>{}</td>\
+                 <td class=\"value_down\">-0.013</td></tr>",
+                p[0], p[1], p[2]
+            )
+        };
+        format!(
+            "<h1>Gasoline and Diesel Fuel Update</h1>\
+             <table class=\"basic-table\"><caption>U.S. Regular Gasoline Prices*(dollars per \
+             gallon)</caption>{head}<tbody>{}{}{}{}</tbody></table>\
+             <table class=\"basic-table\"><caption>States</caption>{head}<tbody>{}{}</tbody></table>\
+             <table class=\"basic-table\"><caption>Cities</caption>{head}<tbody>{}</tbody></table>\
+             <table class=\"basic-table\"><caption>U.S. On-Highway Diesel Fuel Prices*(dollars per \
+             gallon)</caption>{head}<tbody>{}{}{}{}</tbody></table>\
+             <p>Washington, DC 20585</p>",
+            row("nus", "U.S.", ["4.319", "4.478", "4.465"]),
+            row("r1y", "Central Atlantic<br /> (PADD1B)", ["4.387", "4.438", "4.411"]),
+            row("r20", "Midwest<br /> (PADD2)", ["4.091", "4.386", "4.291"]),
+            row("r5xca", "West Coast less California", ["5.026", "5.106", "5.153"]),
+            row("sca", "California", ["5.827", "6.003", "6.189"]),
+            row("swa", "Washington", ["5.503", "5.516", "5.453"]),
+            row("y35ny", "New York City", ["4.368", "4.407", "4.378"]),
+            row("nus", "U.S.", ["6.285", "6.529", "6.382"]),
+            row("r20", "Midwest<br /> (PADD2)", ["6.250", "6.680", "6.526"]),
+            row("r5xca", "West Coast less California", ["6.566", "6.791", "6.643"]),
+            row("sca", "California", ["8.039", "8.246", "8.181"]),
+        )
+    }
+
+    #[test]
+    fn eia_weekly_prices_cover_every_state() {
+        let week = parse_eia_weekly(&eia_page(["09/14/26", "09/21/26", "09/28/26"]))
+            .expect("the page parses");
+        // The latest week, by fuel; cities are their own series and never a
+        // state's.
+        assert!(week.gasoline.contains(&("nus".to_string(), 4.465)));
+        assert!(week.gasoline.contains(&("y35ny".to_string(), 4.378)));
+        assert!(week.diesel.contains(&("nus".to_string(), 6.382)));
+        // A state EIA prices alone takes its own figure…
+        assert_eq!(eia_state_prices(&week, "CA"), Some((6.189, 8.181)));
+        assert_eq!(eia_state_prices(&week, "wa"), Some((5.453, 6.643)));
+        // …every other its region's, then the wider region's, then the U.S.
+        assert_eq!(eia_state_prices(&week, "WI"), Some((4.291, 6.526)));
+        assert_eq!(eia_state_prices(&week, "NY"), Some((4.411, 6.382)));
+        assert_eq!(eia_state_prices(&week, "DC"), Some((4.411, 6.382)));
+        assert_eq!(eia_state_prices(&week, "GA"), Some((4.465, 6.382)));
+        // Not a U.S. state: the static estimate serves.
+        assert_eq!(eia_state_prices(&week, "ON"), None);
+        assert_eq!(eia_state_prices(&week, ""), None);
+        // Every state and DC is priced.
+        assert!(STATE_NAMES
+            .iter()
+            .all(|(_, code)| eia_state_prices(&week, code).is_some()));
+        // The newest dated column, wherever it stands.
+        let reordered = parse_eia_weekly(&eia_page(["09/28/26", "09/21/26", "09/14/26"]))
+            .expect("the page parses");
+        assert!(reordered.gasoline.contains(&("nus".to_string(), 4.319)));
+        let new_year = parse_eia_weekly(&eia_page(["12/29/26", "01/05/27", "12/22/26"]))
+            .expect("the page parses");
+        assert!(new_year.gasoline.contains(&("nus".to_string(), 4.478)));
+    }
+
+    #[test]
+    fn an_eia_page_without_a_national_price_fails() {
+        assert_eq!(
+            parse_eia_weekly("<html>Sorry, you have been blocked</html>"),
+            None
+        );
+        assert_eq!(parse_eia_weekly(""), None);
+        // No dated header: no column to read.
+        let undated = eia_page(["", "", ""]);
+        assert_eq!(parse_eia_weekly(&undated), None);
+        // An unbelievable price is skipped, not read as one.
+        let wild = eia_page(["09/14/26", "09/21/26", "09/28/26"]).replacen("4.465", "44.65", 1);
+        assert_eq!(parse_eia_weekly(&wild), None);
+        // A page with no diesel table prices no state.
+        let gas_only = eia_page(["09/14/26", "09/21/26", "09/28/26"]).replace("Diesel", "Kerosene");
+        let week = parse_eia_weekly(&gas_only).expect("gasoline parses");
+        assert_eq!(eia_state_prices(&week, "WI"), None);
     }
 
     #[test]
