@@ -81,7 +81,8 @@ pub mod vehicle_policy;
 /// character splits back exactly.
 pub(crate) fn split_texts<'a>(joined: &'a str, lens: &[i64], count: usize) -> Option<Vec<&'a str>> {
     let mut at = 0usize;
-    let mut out = Vec::with_capacity(count);
+    // No more room than there are lengths: `count` is the caller's word.
+    let mut out = Vec::with_capacity(count.min(lens.len()));
     for &len in lens.iter().take(count) {
         let end = at.checked_add(usize::try_from(len).ok()?)?;
         out.push(joined.get(at..end)?);

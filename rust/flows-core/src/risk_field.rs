@@ -189,7 +189,10 @@ impl RiskField {
             off: FRB1_HEADER_LEN,
         };
         let generated = r.text(gen_len)?;
-        let mut families = Vec::with_capacity(n_fams);
+        // Sized by what the header says only up to what the bytes can hold
+        // (a name is at least its length byte): a forged count asked for
+        // ~100 GB, an abort no panic guard catches.
+        let mut families = Vec::with_capacity(n_fams.min(data.len()));
         for _ in 0..n_fams {
             let len = usize::from(r.u8()?);
             families.push(r.text(len)?);

@@ -396,9 +396,22 @@ fn line_distance(line: &[Point], p: Point, lo: usize, hi: usize) -> Option<(usiz
         return Some((0, meters(line[0].0, line[0].1, p.0, p.1)));
     }
     let mut best: Option<(usize, f64)> = None;
+    // The point's longitude scale once, not once per segment: the same
+    // number `distance_to_segment_meters` works out each call (so the same
+    // answer, bit for bit) — up to 400 segments for every candidate vertex.
+    let m_per_deg_lon =
+        crate::geo::METERS_PER_DEGREE * crate::fmath::cos(p.0 * std::f64::consts::PI / 180.0);
     for s in lo..hi.min(line.len() - 1) {
         let (a, b) = (line[s], line[s + 1]);
-        let d = crate::geo::distance_to_segment_meters(p.0, p.1, a.0, a.1, b.0, b.1);
+        let d = crate::geo::distance_to_segment_meters_scaled(
+            p.0,
+            p.1,
+            a.0,
+            a.1,
+            b.0,
+            b.1,
+            m_per_deg_lon,
+        );
         if best.is_none_or(|(_, bd)| d < bd) {
             best = Some((s, d));
         }

@@ -836,18 +836,27 @@ final class WeatherAlertService: ObservableObject {
         // collection answers 404 now, so every Canadian stretch came back
         // "unavailable" and Canada had no weather alerts at all; its records
         // changed shape too (parseECCCFeatures).
+        // The point's own alerts: a small box around it, then each warned
+        // area tested for the point. A ±0.5° box answered with every alert
+        // ~50 km around (false shelter alarms) and stopped at 20 — in a
+        // widespread event the one covering the point could be cut. A
+        // page that is still short of all it matched is unknown, not clear.
         let url = String(
             format: "https://api.weather.gc.ca/collections/weather-alerts/items"
-                + "?bbox=%.3f,%.3f,%.3f,%.3f&f=json&limit=20",
-            point.longitude - 0.5, point.latitude - 0.5,
-            point.longitude + 0.5, point.latitude + 0.5)
+                + "?bbox=%.3f,%.3f,%.3f,%.3f&f=json&limit=200",
+            point.longitude - 0.02, point.latitude - 0.02,
+            point.longitude + 0.02, point.latitude + 0.02)
         guard let u = URL(string: url),
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let features = json["features"] as? [[String: Any]]
         else { return nil }
-        return Self.parseECCCFeatures(features)
+        if let matched = json["numberMatched"] as? Int, matched > features.count { return nil }
+        return Self.parseECCCFeatures(features).filter { alert in
+            guard let polygon = alert.polygon else { return true }   // no shape: kept
+            return ([polygon] + alert.extraRings).contains { RiskAreaFallback.contains($0, point) }
+        }
     }
 
     /// One `weather-alerts` record per warned area: `alert_name_en` ("frost
