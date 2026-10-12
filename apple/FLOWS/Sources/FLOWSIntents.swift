@@ -678,6 +678,9 @@ struct GoAheadIntent: AppIntent {
                 let line = SiriSummaries.tripOfferChanged(meters: pick.distanceMeters,
                                                           seconds: pick.eta)
                 return .result(dialog: IntentDialog("\(line)"))
+            case .closed:
+                return .result(dialog: IntentDialog(
+                    "Every road found is closed ahead — the state reports a closed or flooded road on each one. Not starting."))
             case .nothing:
                 return .result(dialog: "Nothing is waiting for a yes right now.")
             }

@@ -223,6 +223,8 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
                 switch model.acceptTripOffer() {
                 case .started, .nothing:
                     break
+                case .closed:
+                    self?.showNotice(["Every road found is closed ahead.", "Roads closed ahead."])
                 case .stillChecking:
                     guard case .trip(let staged, _)? = model.pendingVoiceOffer else { return }
                     self?.offerTrip(staged, named: name,

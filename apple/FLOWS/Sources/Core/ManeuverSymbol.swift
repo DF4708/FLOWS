@@ -33,9 +33,15 @@ enum ManeuverSymbol {
 
         // The SHAPE of the maneuver wins over the KIND of road it happens
         // on: "slight left onto the ramp" is a slight left, not a ramp.
+        // "Keep straight to stay on I-94" and "Stay on US-12" name no side:
+        // straight ahead, not a guessed bear right.
         if s.contains("slight") || s.contains("bear ")
             || s.contains("keep ") || s.contains("stay ") {
-            return side(of: s) == .left ? "arrow.up.left" : "arrow.up.right"
+            switch side(of: s) {
+            case .left: return "arrow.up.left"
+            case .right: return "arrow.up.right"
+            case .none: return "arrow.up"
+            }
         }
 
         // Ramps and merges read differently from a street turn.

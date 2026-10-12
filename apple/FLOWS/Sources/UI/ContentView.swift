@@ -626,8 +626,12 @@ struct ContentView: View {
                model.location.course >= 0 {
                 chaseEngaged = true
             }
-            let heading = chaseEngaged && model.location.course >= 0
-                ? model.location.course : 0
+            // Course is -1 (unknown) when stopped: the chase keeps the last
+            // heading it had. Falling to 0 swung the pitched view north-up
+            // at every red light the chase is meant to survive.
+            let heading = !chaseEngaged ? 0
+                : model.location.course >= 0 ? model.location.course
+                : chaseAngle?.heading ?? 0
             let distance = model.cameraAltitude(
                 auto: chaseEngaged ? g.cameraAltitude : g.cameraAltitude * 1.4)
             // Keep the vehicle in the middle of the map the driver can SEE,
@@ -813,8 +817,9 @@ struct ContentView: View {
                     centerCoordinate: coord,
                     distance: model.cameraAltitude(
                         auto: model.navigation.guidance?.cameraAltitude ?? 900),
-                    heading: chaseEngaged && model.location.course >= 0
-                        ? model.location.course : 0,
+                    heading: !chaseEngaged ? 0
+                        : model.location.course >= 0 ? model.location.course
+                        : chaseAngle?.heading ?? 0,   // as the chase, above
                     pitch: chaseEngaged ? (model.show3DMap ? 66 : 55) : 0)))
             }
         }
@@ -4629,6 +4634,10 @@ private struct TripSummaryPill: View {
                 // reported a detour off the route that no longer exists.
                 model.poi.reset()
                 model.plannedStop = nil
+                // So does a transit trip: its searches still landing drew it
+                // back, and a late flight turned the follow camera on over
+                // the planning map; the "you are here" mark wore its glyph.
+                model.resetTransitTrip()
                 // Walking is a per-choice mode, not a persistent setting:
                 // leaving it set made the NEXT plan silently request a
                 // pedestrian route (which can fail at driving distances),

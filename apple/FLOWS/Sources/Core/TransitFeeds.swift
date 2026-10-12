@@ -335,7 +335,7 @@ actor TransitFeeds {
         if !haveFeed || (allowNetwork && isStale(feed)) {
             guard allowNetwork else { throw Failure.notCachedAndOffline }
             do {
-                try await fetchPreferringPublisher(source, into: feed)
+                try await fetchOnce(source, into: feed)
                 haveFeed = true
             } catch {
                 // A refresh that fails is survivable; a first fetch is not.
@@ -374,6 +374,11 @@ actor TransitFeeds {
         // is measured again today, when the phone may have less to spare.
         var budget = Self.buildMemoryBudget - Self.worstCaseBuildBytes(feedDirectory: primaryFeed)
         guard budget >= 0 else {
+            // Short of memory now — but a timetable built earlier today
+            // still answers, though it may hold fewer of these feeds than
+            // asked (one left out then: too big, no download, no clock),
+            // and so not be the one checked above.
+            if let ready = builtToday(fromSome: wanted, date: date) { return ready }
             throw Failure.tooLarge("\(primary.name) needs more memory than this device can spare")
         }
 
@@ -401,12 +406,16 @@ actor TransitFeeds {
                          operators: Self.distinct(used.map(\.operatorName)))
         }
         do {
-            if parts.count == 1 {
+            if parts.count == 1, primary.name == Self.amtrak.name {
                 // Amtrak alone: exactly the single-feed build it always was.
+                // A city's or a ferry's feed, alone or not, takes the merged
+                // build below, which joins its own stops a short walk apart
+                // (Rust gtfs::load_gtfs_city) — built alone, a bus could not
+                // be changed for another at stops across the corner.
                 let stamp = try TransitShard.build(
                     feedDirectory: primaryFeed.path, prefix: prefix.path, serviceDate: date
                 )
-                sweepOldShards(before: date)
+                sweepOldShards(before: min(date, Self.sweepCutoff()))
                 return Ready(prefix: prefix.path, stamp: stamp, credit: primary.credit,
                              operators: [primary.operatorName])
             }
@@ -428,7 +437,7 @@ actor TransitFeeds {
                 try? FileManager.default.removeItem(atPath: prefix.path + ".fts")
                 return try await make(sources, day: day, allowNetwork: false)
             }
-            sweepOldShards(before: date)
+            sweepOldShards(before: min(date, Self.sweepCutoff()))
             return Ready(prefix: prefix.path, stamp: merged.stamp,
                          credit: Self.credit(for: used.map(\.operatorName)),
                          operators: Self.distinct(used.map(\.operatorName)))
@@ -751,6 +760,54 @@ actor TransitFeeds {
         let fetchedFor = (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
         return fetchedFor != GTFSZip.wantedSignature
             || Date().timeIntervalSince(modified) > refetchAfter
+    }
+
+    /// The day before today on the device's calendar: shards from it on are
+    /// kept. Sweeping everything before the day just BUILT took today's
+    /// with it whenever a later day was built — the arrival day of an
+    /// overnight train, the ferry card's "tomorrow", an Eastern feed already
+    /// on tomorrow on a Pacific evening — and they were rebuilt at the next
+    /// question (Chicago's peaks at 75 MB).
+    static func sweepCutoff(now: Date = Date()) -> Int {
+        serviceDate(now.addingTimeInterval(-86_400), zone: TimeZone.current.identifier)
+    }
+
+    /// Feed downloads running now, by feed: one per feed at a time.
+    private var fetching: [String: Task<Void, Error>] = [:]
+
+    /// Fetch a feed unless that feed is already coming down, in which case
+    /// wait for that download. Two questions about different feed sets that
+    /// share a city ([A] and [A, B]) each fetched A into the same folder;
+    /// the second's clean-up deleted the first's pieces mid-download.
+    private func fetchOnce(_ source: Source, into feed: URL) async throws {
+        if let running = fetching[source.name] {
+            try await running.value
+            return
+        }
+        let task = Task { try await fetchPreferringPublisher(source, into: feed) }
+        fetching[source.name] = task
+        defer { fetching[source.name] = nil }
+        try await task.value
+    }
+
+    /// Today's timetable built from the first feed and any of the others,
+    /// fullest first; nil when none is on disk.
+    private func builtToday(fromSome wanted: [Source], date: Int) -> Ready? {
+        guard let primary = wanted.first else { return nil }
+        let rest = Array(wanted.dropFirst())
+        let subsets = (0..<(1 << rest.count))
+            .map { mask in rest.indices.filter { mask & (1 << $0) != 0 }.map { rest[$0] } }
+            .sorted { $0.count > $1.count }
+        for subset in subsets {
+            let used = [primary] + subset
+            let prefix = root().appendingPathComponent(Self.shardName(used, date: date)).path
+            if let stamp = current(prefix, date: date, feeds: used) {
+                return Ready(prefix: prefix, stamp: stamp,
+                             credit: Self.credit(for: used.map(\.operatorName)),
+                             operators: Self.distinct(used.map(\.operatorName)))
+            }
+        }
+        return nil
     }
 
     /// Yesterday's timetable is dead weight the moment today's exists — for

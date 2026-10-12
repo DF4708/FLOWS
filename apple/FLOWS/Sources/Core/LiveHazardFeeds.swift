@@ -1253,15 +1253,39 @@ actor LiveHazardFeedFetcher {
         "WI": (42.5, -92.9, 47.1, -86.2), "WY": (41.0, -111.1, 45.0, -104.0),
     ]
 
+    /// The registry read in flight, shared by every caller that arrives
+    /// while it loads.
+    private var wzdxRegistryTask: Task<[(state: String, url: URL)], Never>?
+
+    /// The state feed list, read once a day. A read that fails is tried
+    /// again in five minutes: it used to count as the day's one attempt, and
+    /// with no list no route was judged closed until tomorrow — a launch's
+    /// first map sweep, cancelled by the camera flying to the driver, was
+    /// enough. The read runs in its own task, so a caller that is cancelled
+    /// (the sweep, a replan) leaves it to finish for the next one; callers
+    /// that arrive meanwhile wait for it rather than reading an empty list.
     private func ensureWZDxRegistry() async {
         guard Date().timeIntervalSince(wzdxRegistryFetched) > 86_400 else { return }
-        wzdxRegistryFetched = Date()   // one attempt per day even on failure
+        let task = wzdxRegistryTask ?? Task { await Self.fetchWZDxRegistry() }
+        wzdxRegistryTask = task
+        let out = await task.value
+        wzdxRegistryTask = nil
+        if out.isEmpty {
+            // Keep any older list; ask again in five minutes.
+            wzdxRegistryFetched = Date().addingTimeInterval(-86_400 + 300)
+        } else {
+            wzdxRegistry = out
+            wzdxRegistryFetched = Date()
+        }
+    }
+
+    private static func fetchWZDxRegistry() async -> [(state: String, url: URL)] {
         guard let u = URL(string:
                 "https://data.transportation.gov/resource/69qe-yiui.json?$limit=200"),
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else { return }
+        else { return [] }
         var out: [(String, URL)] = []
         for row in rows {
             // Field names in the registry have drifted across versions —
@@ -1277,7 +1301,7 @@ actor LiveHazardFeedFetcher {
                   let url = URL(string: urlStr) else { continue }
             out.append((state, url))
         }
-        if !out.isEmpty { wzdxRegistry = out }
+        return out
     }
 
     /// DOT-reported full closures inside a bbox: WZDx GeoJSON features whose
@@ -1329,6 +1353,9 @@ actor LiveHazardFeedFetcher {
                     }
                 }
             }
+            // A caller cancelled mid-read (a camera move, a replan) learned
+            // nothing: caching its empty answer said "no closures" for 15 min.
+            if Task.isCancelled { break }
             closureCache[cacheKey] = (Date(), points)   // failures cache empty
             if closureCache.count > 100 { CacheEviction.dropOldestHalf(&closureCache) { $0.0 } }
             out.append(contentsOf: points)

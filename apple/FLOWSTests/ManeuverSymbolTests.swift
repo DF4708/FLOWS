@@ -35,6 +35,9 @@ final class ManeuverSymbolTests: XCTestCase {
                        "arrow.up.right")
         XCTAssertEqual(ManeuverSymbol.symbol(for: "Sharp left onto Oak"),
                        "arrow.turn.up.left")
+        // No side named: straight on, not a guessed bear right.
+        XCTAssertEqual(ManeuverSymbol.symbol(for: "Keep straight to stay on I-94 E"), "arrow.up")
+        XCTAssertEqual(ManeuverSymbol.symbol(for: "Stay on US-12 W"), "arrow.up")
     }
 
     func testSpecialManeuvers() {

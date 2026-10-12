@@ -82,6 +82,24 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
                        unknown.id)
     }
 
+    /// A road through a reported full closure is never the swapped-in road
+    /// while an open one is there — not even as the calmest reroute — and is
+    /// taken only when every road is closed.
+    func testASwappedLegNeverRunsThroughAClosedRoadWhileAnOpenOneIsThere() {
+        let leg = route()
+        var closedCalm = route(risk: 0.1, eta: 300)
+        closedCalm.throughClosedRoad = true
+        let openYellow = route(risk: 0.7, eta: 900)
+        for calmest in [true, false] {
+            XCTAssertEqual(FasterRoutePolicy.swapPick([closedCalm, openYellow], leg: leg, filters: [],
+                                                      limits: FilterLimits(), calmest: calmest)?.id,
+                           openYellow.id, "calmest: \(calmest)")
+        }
+        XCTAssertEqual(FasterRoutePolicy.swapPick([closedCalm], leg: leg, filters: [],
+                                                  limits: FilterLimits(), calmest: true)?.id,
+                       closedCalm.id)
+    }
+
     /// A reroute away from risk takes the calmest road that qualifies at the
     /// lowest risk level there is — not a calmer one of the same level that
     /// breaks the driver's choices (Clear and Green are one low level).

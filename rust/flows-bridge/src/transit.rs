@@ -215,6 +215,10 @@ const MAX_SHIFT_SECS: f64 = 48.0 * 3600.0;
 /// database). The first feed must load; later ones that cannot are reported
 /// as `skipped␟index␟reason` rows rather than failing the trains.
 ///
+/// The app sends only city and ferry feeds here, one or several — Amtrak is
+/// always built alone (`flows_transit_build`) — so every feed's nearby stops
+/// are joined, the first one's too (`shard::build_city`).
+///
 /// Rows: `info`, `built`, `linked␟pairs`, then any `skipped` rows.
 pub fn flows_transit_build_many(
     gtfs_dirs: &str,
@@ -240,7 +244,7 @@ pub fn flows_transit_build_many(
                 shift_secs: shift as i32,
             });
         }
-        match shard::build_many(&feeds, date, Path::new(prefix)) {
+        match shard::build_city(&feeds, date, Path::new(prefix)) {
             Err(e) => err_rows(e),
             Ok(r) => {
                 let mut rows = report_rows(&r);

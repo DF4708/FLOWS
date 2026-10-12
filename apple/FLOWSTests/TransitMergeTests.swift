@@ -501,6 +501,14 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertThrowsError(try TransitShard.build(feeds: [], prefix: prefix(), serviceDate: 20260929))
     }
 
+    func testAFeedWithNoZoneAnswersEmptyInsteadOfTrapping() throws {
+        // No agency.txt: Rust answers "", which crossed as a storage-less
+        // string and trapped in swift-bridge's toString().
+        let bare = try write(["stops.txt": "stop_id,stop_name,stop_lat,stop_lon\nS,Stop,41.0,-88.0\n"])
+        defer { clean(bare) }
+        XCTAssertEqual(TransitShard.agencyZone(feedDirectory: bare), "")
+    }
+
     // MARK: the feed keeper itself — merge, lapse, offline
 
     /// A cache folder of our own, laid out the way `TransitFeeds` keeps one:

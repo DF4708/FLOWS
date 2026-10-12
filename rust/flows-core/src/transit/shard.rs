@@ -63,7 +63,8 @@ pub struct BuildReport {
     pub agency_zone: String,
     pub ftt_bytes: usize,
     pub fts_bytes: usize,
-    /// Walking links joined between different operators' stops (0 for one feed).
+    /// Walking links joined between nearby stops no publisher joined (0 for
+    /// one feed built alone).
     pub n_feed_links: usize,
     /// Secondary feeds left out, by position in the input, with the reason.
     pub skipped: Vec<(usize, String)>,
@@ -90,6 +91,18 @@ pub fn build_many(
     prefix: &Path,
 ) -> Result<BuildReport, String> {
     let load = gtfs::load_gtfs_many(feeds, date).map_err(|e| e.to_string())?;
+    write(&load, prefix)
+}
+
+/// [`build_many`] for city and ferry feeds only — one or several — where the
+/// first feed's nearby stops are joined like the others'; see
+/// [`gtfs::load_gtfs_city`].
+pub fn build_city(
+    feeds: &[gtfs::FeedInput],
+    date: u32,
+    prefix: &Path,
+) -> Result<BuildReport, String> {
+    let load = gtfs::load_gtfs_city(feeds, date).map_err(|e| e.to_string())?;
     write(&load, prefix)
 }
 

@@ -683,6 +683,9 @@ struct PlannerPanel: View {
                                                   : CameraZoom.choicesPanelFraction))
                 }
             }
+        } catch is CancellationError {
+            // Superseded by a newer plan (Walk/Drive switched while it ran):
+            // that one answers, and this one says nothing.
         } catch {
             errorMessage = Self.friendlyError(error)
         }

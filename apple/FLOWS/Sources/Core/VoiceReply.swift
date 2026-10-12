@@ -139,6 +139,9 @@ final class VoiceReply {
     /// interpreting yes/no; the transcript is delivered at window end.
     private var onTranscript: ((String?) -> Void)?
     private var lastHeard = ""
+    /// Which listen is open: a timeout or a late transcript from an earlier
+    /// one must not close or answer the one that replaced it.
+    private var session = 0
     /// Listens asked for whose microphone hasn't opened yet (waiting on
     /// permission, or on FLOWS's own question to end).
     private var waitingToListen = 0
@@ -196,7 +199,21 @@ final class VoiceReply {
             onTranscript?(nil)
             return
         }
+        // A listen still open (another mic tapped within its window, or
+        // FLOWS's own yes/no question) is closed first with no answer. Its
+        // callback was simply overwritten, so its mic button showed
+        // "Listening" and refused taps for the rest of the drive.
+        if !answered {
+            let yesNo = self.onAnswer, dictation = self.onTranscript
+            self.onAnswer = nil
+            self.onTranscript = nil
+            answered = true
+            yesNo?(nil)
+            dictation?(nil)
+        }
         teardown()
+        session += 1
+        let mine = session
         self.onAnswer = onAnswer
         self.onTranscript = onTranscript
         lastHeard = ""
@@ -237,7 +254,7 @@ final class VoiceReply {
             let transcript = result.bestTranscription.formattedString
             let isFinal = result.isFinal
             Task { @MainActor in
-                guard let self, !self.answered else { return }
+                guard let self, self.session == mine, !self.answered else { return }
                 if self.onTranscript != nil {
                     // Dictation: keep the best-so-far; a FINAL result ends
                     // the window early with the settled words.
@@ -250,7 +267,12 @@ final class VoiceReply {
         }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
-            await MainActor.run { self?.finish(with: nil) }
+            await MainActor.run {
+                // This listen's window, not a later one's: it cut the next
+                // listen short and handed it a half-heard transcript.
+                guard let self, self.session == mine else { return }
+                self.finish(with: nil)
+            }
         }
     }
 

@@ -111,7 +111,10 @@ enum TransitShard {
     /// before building, because "what day is it?" has to be answered in the
     /// operator's zone: at 9pm in Honolulu, Amtrak is already on tomorrow.
     static func agencyZone(feedDirectory: String) -> String {
-        flows_transit_agency_zone(feedDirectory).toString()
+        // `.text`, not `.toString()`: a feed with no readable zone answers
+        // "", and an empty Rust string traps in toString() — the callers'
+        // own empty-zone checks were never reached.
+        flows_transit_agency_zone(feedDirectory).text
     }
 
     /// Build the shard pair for a service date from an unzipped feed.
@@ -141,8 +144,9 @@ enum TransitShard {
         let skipped: [Int: String]
     }
 
-    /// Build ONE timetable from several feeds — a train operator's and a
-    /// city's — so a single trip can ride one and then the other.
+    /// Build ONE timetable from city and ferry feeds — one or several, never
+    /// Amtrak (built alone, above) — so a single trip can ride one and then
+    /// the other, walking between nearby stops of any of them.
     static func build(feeds: [FeedPart], prefix: String, serviceDate: Int) throws -> Merged {
         // swift-bridge's first rule: never hand Rust an empty buffer. No feeds
         // is a caller's mistake with an obvious answer, so answer it here.

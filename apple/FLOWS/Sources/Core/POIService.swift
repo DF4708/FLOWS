@@ -301,6 +301,11 @@ final class POIService: ObservableObject {
         // tap must not repopulate results (and re-zoom the map) behind the
         // freshly opened category picker.
         searchGeneration += 1
+        // The search this one replaces leaves isSearching alone (it is no
+        // longer the current one), so it is cleared here: Fuel, then Food
+        // while fuel was still out, spun over the Food picker until some
+        // later search ended. A search started below sets it again.
+        isSearching = false
         pendingFoodChoice = false
         pendingFuelChoice = false
         pendingStoreChoice = false
@@ -1086,6 +1091,7 @@ final class POIService: ObservableObject {
 
     func clearResults() {
         searchGeneration += 1   // invalidate any in-flight search
+        isSearching = false     // ...which no longer clears it (see request)
         results = []
         activeKind = nil
         activeFoodCategory = nil

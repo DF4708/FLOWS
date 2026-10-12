@@ -267,11 +267,14 @@ impl<'a> Raptor<'a> {
                             from: q,
                             secs: fp.secs,
                         };
+                        // Footpath targets seed the next round's route scan
+                        // too — once each: a stop two walks improve, or one a
+                        // ride already marked (queued just below), is not
+                        // queued again.
                         if !marked[fp.to as usize] {
                             marked[fp.to as usize] = true;
+                            queue.push(fp.to);
                         }
-                        // Footpath targets seed the next round's route scan too.
-                        queue.push(fp.to);
                     }
                 }
             }

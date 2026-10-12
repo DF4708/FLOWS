@@ -30,7 +30,7 @@
 //! consistent — cross-timezone normalization happens at the multi-shard
 //! stitch, not here (see docs/TRANSIT_ROUTING.md).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::{self, BufRead};
 use std::path::Path;
@@ -158,6 +158,8 @@ impl<R: BufRead> CsvReader<R> {
         self.field.clear();
         let mut in_quotes = false;
         let mut consumed_anything = false;
+        // Bytes read for this record so far, across every line it spans.
+        let mut used = 0usize;
 
         loop {
             // Bound the READ, not just the field. `read_until` grows until it
@@ -165,13 +167,17 @@ impl<R: BufRead> CsvReader<R> {
             // that is not the CSV it claims to be) was pulled into memory
             // whole — the MAX_FIELD_BYTES check below could only fire after
             // the bytes were already resident, which is the opposite of the
-            // 1 MiB ceiling this reader advertises to its callers.
+            // 1 MiB ceiling this reader advertises to its callers. The budget
+            // is the RECORD's: lines that end inside quotes keep one record
+            // going, and a budget per line let `,,,…"` lines pile a million
+            // fields (8 MB of field ends) onto it per megabyte, without end.
             self.line.clear();
-            let budget = (MAX_FIELD_BYTES + 1).saturating_sub(self.field.len()) as u64;
+            let budget = (MAX_FIELD_BYTES + 1).saturating_sub(used) as u64;
             // UFCS so the receiver is `&mut R` (which is `Read` by the
             // blanket impl) rather than auto-dereffing into `R` and moving it.
             let mut limited = std::io::Read::take(&mut self.r, budget);
             let n = limited.read_until(b'\n', &mut self.line)?;
+            used += n;
             if n as u64 == budget && self.line.last() != Some(&b'\n') {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
@@ -214,7 +220,11 @@ impl<R: BufRead> CsvReader<R> {
                     }
                 } else {
                     match c {
-                        b'"' => in_quotes = true,
+                        // A quote opens a quoted field only where the field
+                        // starts (RFC 4180). Mid-field — `5" Main St` — it is
+                        // the publisher's text; taking it as an opening quote
+                        // swallowed every row after it up to the next quote.
+                        b'"' if field.iter().all(u8::is_ascii_whitespace) => in_quotes = true,
                         b',' => {
                             rec.push(field);
                             field.clear();
@@ -912,8 +922,11 @@ fn route_fares_of(
 /// "from", when they do not. None when they are in different currencies.
 fn pick_fare(ids: &[String], offers: &HashMap<String, Offer>) -> Option<Fare> {
     let mut fits: Vec<(&str, &Offer)> = Vec::new();
+    // A set, not a scan of `fits`: a feed with no fare_rules.txt hands every
+    // route all of its fares, and a scan per fare was quadratic per route.
+    let mut seen: HashSet<&str> = HashSet::new();
     for id in ids {
-        if !fits.iter().any(|(seen, _)| *seen == id.as_str()) {
+        if seen.insert(id.as_str()) {
             fits.push((id.as_str(), offers.get(id.as_str())?));
         }
     }
@@ -956,7 +969,7 @@ fn pick_fare(ids: &[String], offers: &HashMap<String, Offer>) -> Option<Fare> {
 /// with active service (never the system clock — wrappers pass "today" in).
 pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
     let feed = parse_feed(dir, date)?;
-    Ok(assemble(vec![(feed, 0)], Vec::new()))
+    Ok(assemble(vec![(feed, 0)], Vec::new(), false))
 }
 
 /// Load SEVERAL feeds into one timetable for one service day, so a single
@@ -971,8 +984,9 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
 /// two unrelated publishers, and no `transfers.txt` joins them. So every pair
 /// of stops from DIFFERENT feeds within [`MAX_LINK_METERS`] gets a footpath
 /// both ways, timed at [`LINK_WALK_MPS`] plus [`LINK_BUFFER_SECS`]. Only
-/// stops a trip actually calls at are linked. Stops within one feed are left
-/// exactly as that feed describes them.
+/// stops a trip actually calls at are linked. A later (city) feed's own
+/// nearby stops are joined too; the FIRST feed's are left exactly as it
+/// describes them — the rail backbone in front ([`link_feeds`]).
 ///
 /// The first feed is the reference: its zone is the result's zone, its
 /// failure is the load's failure. A later feed that cannot be used — its
@@ -980,6 +994,22 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
 /// [`GtfsLoad::skipped_feeds`], because a city's broken bus feed must never
 /// cost a rider their train times.
 pub fn load_gtfs_many(feeds: &[FeedInput], date: u32) -> Result<GtfsLoad, GtfsError> {
+    load_many(feeds, date, false)
+}
+
+/// [`load_gtfs_many`] for a timetable of city and ferry feeds only — one
+/// feed or several, Amtrak never among them (the app asks the train alone,
+/// through [`load_gtfs`]). Every feed's own nearby stops are joined, the
+/// first one's included: a city's buses are as much in need of the walk
+/// across the corner as a second city's, and with the first feed left as
+/// published a single city's timetable had no way to change from one bus
+/// line to the next at stops 30 m apart that its `transfers.txt` never
+/// listed.
+pub fn load_gtfs_city(feeds: &[FeedInput], date: u32) -> Result<GtfsLoad, GtfsError> {
+    load_many(feeds, date, true)
+}
+
+fn load_many(feeds: &[FeedInput], date: u32, link_first: bool) -> Result<GtfsLoad, GtfsError> {
     let (first, rest) = feeds.split_first().ok_or_else(|| err("no feeds to load"))?;
     let mut parts = vec![(parse_feed(first.dir, Some(date))?, first.shift_secs)];
     let mut skipped = Vec::new();
@@ -989,7 +1019,7 @@ pub fn load_gtfs_many(feeds: &[FeedInput], date: u32) -> Result<GtfsLoad, GtfsEr
             Err(e) => skipped.push((i + 1, e.0)),
         }
     }
-    Ok(assemble(parts, skipped))
+    Ok(assemble(parts, skipped, link_first))
 }
 
 /// Parse one feed's service day into [`FeedParts`], with nothing merged.
@@ -1285,21 +1315,32 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
                 anchors.insert(trip.to_string(), (s, at, a, d));
             }
         }
-        trip_rows
-            .entry(trip.to_string())
-            .or_default()
-            .push((seq, stop, arr, dep));
+        // A trip's id is copied once, at its first row: `entry` wanted an
+        // owned key for every row, millions of them in Chicago.
+        if let Some(rows) = trip_rows.get_mut(trip) {
+            rows.push((seq, stop, arr, dep));
+        } else {
+            trip_rows.insert(trip.to_string(), vec![(seq, stop, arr, dep)]);
+        }
     }
 
     // --- Assemble concrete trips: order stops, fill blank times, expand
     // frequencies. Deterministic: trips processed in sorted trip_id order. ---
     let mut n_dropped = 0usize;
+    // Headway departures expanded from frequencies.txt, feed-wide. One
+    // window is capped above, but a trip may have any number of windows:
+    // 20,000 rows of one 50-stop template made 100 million trips, each a
+    // clone of its pattern. No real feed runs anything near this in a day.
+    const MAX_FREQUENCY_TRIPS: usize = 200_000;
+    let mut n_frequency_trips = 0usize;
     let mut raw: Vec<RawTrip> = Vec::new();
-    let mut trip_ids_sorted: Vec<&String> = trip_rows.keys().collect();
+    let mut trip_ids_sorted: Vec<String> = trip_rows.keys().cloned().collect();
     trip_ids_sorted.sort();
     for trip_id in trip_ids_sorted {
         let (route, days) = active_trips[trip_id.as_str()];
-        let mut rows = trip_rows[trip_id.as_str()].clone();
+        // Taken out, not copied: each trip's rows are let go as it is built,
+        // instead of every row living twice until the last trip is done.
+        let mut rows = trip_rows.remove(trip_id.as_str()).unwrap_or_default();
         if let Some(anchor) = anchors.remove(trip_id.as_str()) {
             rows.push(anchor);
         }
@@ -1410,7 +1451,8 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             let first_dep = events[0].dep;
             for &(start, end, headway) in windows {
                 let mut t = start;
-                while t < end {
+                while t < end && n_frequency_trips < MAX_FREQUENCY_TRIPS {
+                    n_frequency_trips += 1;
                     let shift = t as i64 - first_dep as i64;
                     let shifted: Option<TripEvents> = events
                         .iter()
@@ -1502,7 +1544,11 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
 /// For a single feed with a zero shift this is exactly the old single-feed
 /// load, byte for byte — every offset is zero, no trip moves, and there is no
 /// second feed to link to. That identity is tested against real shards.
-fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> GtfsLoad {
+fn assemble(
+    feeds: Vec<(FeedParts, i32)>,
+    skipped: Vec<(usize, String)>,
+    link_first: bool,
+) -> GtfsLoad {
     let service_date = feeds[0].0.service_date;
     let agency_timezone = feeds[0].0.agency_timezone.clone();
     // The oldest schedule in the mix is the one a rider should be warned
@@ -1649,8 +1695,14 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
         builder.add_footpath(from, to, secs);
     }
 
-    // --- Walking links BETWEEN feeds (none when there is only one). ---
-    let n_feed_links = link_feeds(&mut builder, &stop_latlon, &stop_visits, &stop_feed);
+    // --- Walking links between nearby stops no publisher joined. ---
+    let n_feed_links = link_feeds(
+        &mut builder,
+        &stop_latlon,
+        &stop_visits,
+        &stop_feed,
+        link_first,
+    );
 
     GtfsLoad {
         timetable: builder.build(),
@@ -1681,7 +1733,8 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
 ///
 /// - stops of DIFFERENT feeds within [`MAX_STATION_LINK_METERS`] — Amtrak's platform and the city bus bay
 ///   across the street, which two unrelated publishers never connect; and
-/// - stops of the same CITY feed (any feed after the first) within
+/// - stops of the same CITY feed (any feed after the first, and the first
+///   too when `link_first`: a timetable of city feeds only) within
 ///   [`MAX_LINK_METERS`]. A bus network is
 ///   full of stops a few steps apart — the two sides of a street, the corner
 ///   where two routes cross — and publishers rarely list them as transfers.
@@ -1689,9 +1742,9 @@ fn assemble(feeds: Vec<(FeedParts, i32)>, skipped: Vec<(usize, String)>) -> Gtfs
 ///   a one-minute ride on a third (seen live: Chicago to UW-Milwaukee took
 ///   three changes, the last a single stop, instead of a two-minute walk).
 ///
-/// The FIRST feed's own stops are left exactly as its publisher described
-/// them: Amtrak models each station deliberately, and a shard of Amtrak alone
-/// stays byte-identical to what it has always been.
+/// Without `link_first` the FIRST feed's own stops are left exactly as its
+/// publisher described them: Amtrak models each station deliberately, and a
+/// shard of Amtrak alone stays byte-identical to what it has always been.
 ///
 /// Stops are sorted by latitude and each one scans only the band a link could
 /// reach, so a city of ten thousand stops beside Amtrak's six hundred is a
@@ -1702,10 +1755,12 @@ fn link_feeds(
     latlon: &[(i32, i32)],
     visits: &[u32],
     feed: &[u16],
+    link_first: bool,
 ) -> usize {
-    if feed
-        .iter()
-        .all(|&f| f == feed.first().copied().unwrap_or(0))
+    if !link_first
+        && feed
+            .iter()
+            .all(|&f| f == feed.first().copied().unwrap_or(0))
     {
         return 0; // one feed: nothing to join, and its footpaths stay as published
     }
@@ -1727,7 +1782,7 @@ fn link_feeds(
             if lat_b - lat_a > band_e6 {
                 break;
             }
-            if feed[a as usize] == feed[b as usize] && feed[a as usize] == 0 {
+            if !link_first && feed[a as usize] == feed[b as usize] && feed[a as usize] == 0 {
                 continue; // the first feed's own walks are its publisher's business
             }
             let (lb, lob) = latlon[b as usize];
@@ -1812,6 +1867,32 @@ mod tests {
         let mut r = CsvReader::new(Cursor::new(big.into_bytes()));
         assert!(r.next_record().unwrap().is_some(), "header record");
         assert!(r.next_record().is_err(), "oversized field must be an error");
+    }
+
+    #[test]
+    fn csv_a_quote_mid_field_is_text_not_an_opening_quote() {
+        let rows = records("stop_id,stop_name\n1,5\" Main\n2,Oak\n3, \"Elm, North\"\n");
+        assert_eq!(rows[1], vec!["1", "5\" Main"]);
+        assert_eq!(rows[2], vec!["2", "Oak"], "the next row is still a row");
+        assert_eq!(
+            rows[3],
+            vec!["3", "Elm, North"],
+            "space before an opening quote"
+        );
+    }
+
+    #[test]
+    fn csv_one_record_is_capped_across_the_lines_it_spans() {
+        // Each line ends inside quotes, so one record runs on: commas before
+        // the quote add a field each. The cap is the record's, not a line's.
+        let line = format!("{}\"\n\"", ",".repeat(64 * 1024));
+        let text = format!("h\n{}", line.repeat(MAX_FIELD_BYTES / line.len() + 2));
+        let mut r = CsvReader::new(Cursor::new(text.into_bytes()));
+        assert!(r.next_record().unwrap().is_some(), "header record");
+        assert!(
+            r.next_record().is_err(),
+            "a record past the cap must be an error"
+        );
     }
 
     #[test]
@@ -3103,6 +3184,19 @@ mod tests {
         };
         assert!(walks_from("B1"), "north side to south side on foot");
         assert!(!walks_from("R1"), "Amtrak's stops are as published");
+
+        // A city's timetable alone (the app's city legs: Amtrak is asked
+        // alone) joins its own first feed's stops too; a plain load of one
+        // feed — Amtrak's — still joins nothing.
+        let city =
+            |dir: &Path| load_gtfs_city(&[FeedInput { dir, shift_secs: 0 }], 20260709).unwrap();
+        assert_eq!(
+            city(&bus).n_feed_links,
+            1,
+            "across the street, with no other feed"
+        );
+        assert_eq!(load_gtfs(&bus, Some(20260709)).unwrap().n_feed_links, 0);
+        assert_eq!(load_gtfs(&rail, Some(20260709)).unwrap().n_feed_links, 0);
         let _ = fs::remove_dir_all(&rail);
         let _ = fs::remove_dir_all(&bus);
     }

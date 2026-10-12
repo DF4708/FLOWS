@@ -105,7 +105,8 @@ final class AppModel: ObservableObject {
     /// untapped highlight follow the top card the new order may bring.
     func refreshTouristCounts() {
         touristCountTask?.cancel()
-        let pending = routeChoices.filter { touristCounts[$0.id] == nil }
+        // Roads through a closure are never offered: no MapKit searches on them.
+        let pending = passableChoices.filter { touristCounts[$0.id] == nil }
         guard !pending.isEmpty else { return }
         touristCountTask = Task { [weak self] in
             // The list on screen goes first: the counts share MapKit's paced
@@ -1566,7 +1567,8 @@ final class AppModel: ObservableObject {
         // (score, eta) — score() scans the route's full clearance list, so
         // the comparator re-running it 4× per comparison was the cost.
         let filtered = filteredChoices
-        let pool = filtered.isEmpty ? routeChoices : filtered
+        // Never a road through a reported closure: it is not on offer.
+        let pool = filtered.isEmpty ? passableChoices : filtered
         // Disqualify known-impassable routes BEFORE scoring. If every
         // candidate has a known low bridge, no route earns the badge —
         // silence is honest; badging an impassable route is not.
@@ -1914,6 +1916,10 @@ final class AppModel: ObservableObject {
         refuelPrompt = true
     }
 
+    /// The route's 15 km samples the scanner pins are judged against, for
+    /// the route they were taken from.
+    private var scannerCorridorCache: (routeID: UUID, points: [CLLocationCoordinate2D])?
+
     /// Scanner pins worth drawing: still live, and near the driver or the
     /// route corridor. Everything else has either expired or is somebody
     /// else's town.
@@ -1922,9 +1928,20 @@ final class AppModel: ObservableObject {
         // case — the scanner ships off) there is nothing to sample the
         // route polyline for.
         if scanner.incidents.isEmpty, openDispatch.incidents.isEmpty { return [] }
-        let corridor = navigation.route.map {
-            RouteService.samplePoints(of: $0.route.polyline, everyMeters: 15_000)
-        } ?? []
+        // Kept per route: with a city's 911 calls in, this ran on every map
+        // render — copying and measuring the whole line (30k points on a
+        // long drive) once a second for points that change with the route.
+        let corridor: [CLLocationCoordinate2D]
+        if let route = navigation.route {
+            if let cached = scannerCorridorCache, cached.routeID == route.id {
+                corridor = cached.points
+            } else {
+                corridor = RouteService.samplePoints(of: route.route.polyline, everyMeters: 15_000)
+                scannerCorridorCache = (route.id, corridor)
+            }
+        } else {
+            corridor = []
+        }
         // The city lists' calls arrive minutes late and keep their own
         // hour-long lives, so they are kept apart from the scanner's.
         let groups = scannerGroups
@@ -2296,7 +2313,8 @@ final class AppModel: ObservableObject {
     func brokenFilters(_ route: PlannedRoute) -> [RouteFilter] {
         let limits = judgingLimits
         let judged = judgingFilters
-        let peers = RouteFilter.trafficPeers(routeChoices, judged: judged, limits: limits)
+        // Among the roads on offer, as the list judges them (passableChoices).
+        let peers = RouteFilter.trafficPeers(passableChoices, judged: judged, limits: limits)
         return RouteFilter.allCases.filter {
             judged.contains($0) && !$0.passes(route, limits: limits, among: peers)
         }
@@ -2443,6 +2461,14 @@ final class AppModel: ObservableObject {
         // corridors too long for the straight line to predict the roads).
         // Wiring it per-call-site left the mode replan unprimed.
         alerts.prefetchCorridor(from: from, to: to)
+        // Walk, then Drive, tapped in quick succession: the walk's plan (two
+        // router calls when it falls back to local roads) lands after the
+        // drive's and showed walking times, and its notice, under a lit
+        // Drive. A plan whose mode was switched while it ran is superseded.
+        let walking = walkingMode
+        func superseded() throws {
+            if walkingMode != walking { throw CancellationError() }
+        }
         // Commit lastPlanEndpoints only when a plan actually lands (below).
         // Setting it up front meant a throw/empty result left the app still
         // showing the OLD A→B routes while lastPlanEndpoints pointed at the
@@ -2451,7 +2477,8 @@ final class AppModel: ObservableObject {
         let routes = try await router.planRoutes(
             from: from, fromName: fromName, to: to, toName: toName,
             includeTollFree: routeFilters.contains(.noTolls),
-            walking: walkingMode)
+            walking: walking)
+        try superseded()
         // Apple's pedestrian router refuses long walks — but "too far to walk"
         // is not an answer. Route along LOCAL ROADS (avoid-highways: walkers
         // can't use freeways) and compute the ETA at real walking pace, clearly
@@ -2461,6 +2488,7 @@ final class AppModel: ObservableObject {
             let roadRoutes = try await router.planRoutes(
                 from: from, fromName: fromName, to: to, toName: toName,
                 includeTollFree: false, walking: false)
+            try superseded()
             // Walkers can NEVER be sent onto a freeway. Prefer routes with no
             // highways at all; if every candidate uses some highway, keep the
             // avoid-highways one (least freeway) and the notice warns to verify.
@@ -2513,6 +2541,7 @@ final class AppModel: ObservableObject {
     /// while the overall direction stays the (relatively accurate) road path.
     @Published var walkingRefinedPath: [CLLocationCoordinate2D] = []
     private var walkRefineAnchor: CLLocationCoordinate2D?
+    private var walkRefineAskedAt = Date.distantPast
     private var walkRefineTask: Task<Void, Never>?
 
     /// The local window the pedestrian router refreshes (Apple happily walks a
@@ -2530,12 +2559,18 @@ final class AppModel: ObservableObject {
             walkRefineAnchor = nil
             return
         }
+        // Still on the stretch last asked for: refined, or its answer is on
+        // the way. Before the first answer this asked again on EVERY fix,
+        // cancelling the request in flight each second — on a slow link
+        // nothing ever landed, and a refusal was retried forever at 1 Hz.
+        // An unanswered stretch is asked again after 30 s.
         if let anchor = walkRefineAnchor,
            POIRanking.meters(anchor, here) < Self.walkRefineStepMeters,
-           !walkingRefinedPath.isEmpty {
-            return   // still on the last refined stretch
+           !walkingRefinedPath.isEmpty || Date().timeIntervalSince(walkRefineAskedAt) < 30 {
+            return
         }
         walkRefineAnchor = here
+        walkRefineAskedAt = Date()
         // Target = a point ~window-meters ahead ALONG the estimate route, so the
         // pedestrian router hugs the intended corridor instead of shortcutting.
         let target = navigation.coordinateAhead(meters: Self.walkRefineWindowMeters) ?? here
@@ -2630,7 +2665,10 @@ final class AppModel: ObservableObject {
             .sink { [weak self] on in self?.openDispatch.enabled = on }
             .store(in: &serviceSubscriptions)
         openDispatch.onThreat = { [weak self] incident in
-            guard let self, self.voiceAlerts else { return }
+            // Calls of a kind the driver hid with the Police / Fire /
+            // Medical chips are not read out either.
+            guard let self, self.voiceAlerts,
+                  self.scannerGroups.contains(where: { $0.covers(incident.kind) }) else { return }
             VoiceAnnouncer.shared.announce(
                 "\(incident.kind.title) call nearby: \(incident.placeText).")
         }
@@ -3677,6 +3715,19 @@ final class AppModel: ObservableObject {
     /// ETA — same philosophy as the web app).
     private var riskHydrationTask: Task<Void, Never>?
 
+    /// Drive routes replace any transit overlay, and a fresh plan (or the
+    /// trip pill's Edit) resets the transit pickers: in-flight computations
+    /// cancelled, stale option cards dropped, rail/bus/plane untoggled.
+    func resetTransitTrip() {
+        transitItinerary = nil
+        roadChosenOverTransit = false
+        transitTasks.values.forEach { $0.cancel() }
+        transitTasks = [:]
+        transitOptions = [:]
+        activeTransitModes = []
+        hybridOption = nil
+    }
+
     func present(routes: [PlannedRoute]) {
         FlowsDiag.log(.info, "plan", "presenting \(routes.count) route(s)")
         // Apply the driver's learned pace to every ETA before anything reads
@@ -3696,19 +3747,11 @@ final class AppModel: ObservableObject {
         // the trip. The transit state belongs to the trip being driven.
         if tripUnderway {
             pendingVoiceOffer = nil
-            riskHydrationTask?.cancel()
+            cancelRiskHydration()
             riskHydrationTask = Task { await hydrateRouteRisk() }
             return
         }
-        transitItinerary = nil   // drive routes replace any transit overlay
-        roadChosenOverTransit = false
-        // A fresh plan resets the transit pickers: cancel in-flight
-        // computations, drop stale option cards, untoggle rail/bus/plane.
-        transitTasks.values.forEach { $0.cancel() }
-        transitTasks = [:]
-        transitOptions = [:]
-        activeTransitModes = []
-        hybridOption = nil
+        resetTransitTrip()
         touristCountTask?.cancel()   // counts belong to the routes they swept
         touristCounts = [:]
         restoreTransientPanels()   // fresh choices bring the trip menus back
@@ -3831,6 +3874,9 @@ final class AppModel: ObservableObject {
         /// It no longer fits the driver's filters (its weather check can fail
         /// one the plan couldn't): this one is offered instead, not started.
         case changed(to: PlannedRoute)
+        /// Every road found runs through one the state reports closed (the
+        /// screen says so): nothing is started.
+        case closed
         /// Nothing was offered.
         case nothing
     }
@@ -3879,6 +3925,12 @@ final class AppModel: ObservableObject {
             pendingVoiceOffer = .trip(route: pick, name: name)
             return .changed(to: pick)
         }
+        // Staged before scoring found the closure, and no open road to swap
+        // in: a yes must not start what GO's list no longer offers.
+        if live.throughClosedRoad {
+            pendingVoiceOffer = nil
+            return .closed
+        }
         pendingVoiceOffer = nil
         select(route: live)
         return .started(name: name)
@@ -3890,7 +3942,7 @@ final class AppModel: ObservableObject {
         if case .trip? = pendingVoiceOffer { pendingVoiceOffer = nil }
         guard tripUnderway else { return }
         weatherRetryTask?.cancel()
-        riskHydrationTask?.cancel()
+        cancelRiskHydration()
         routeChoices = []
         heldChoiceFeeds = [:]
     }
@@ -3916,7 +3968,7 @@ final class AppModel: ObservableObject {
     /// running and any Try again.
     private func restartRiskHydration() {
         weatherRetryTask?.cancel()
-        riskHydrationTask?.cancel()
+        cancelRiskHydration()
         riskHydrationTask = Task { await hydrateRouteRisk() }
     }
 
@@ -3926,8 +3978,10 @@ final class AppModel: ObservableObject {
         // gaps): slow public fetches that hydrate AFTER the safety verdict.
         // Runs even if the driver already hit GO — the finished attributes
         // patch the live leg instead of the (cleared) choice cards.
+        // Only roads on offer: a road through a closure (judged in phase 1)
+        // is never shown, and its bridge and grade lookups were wasted.
         let pending = routeChoices.isEmpty
-            ? [navigation.route].compactMap { $0 } : routeChoices
+            ? [navigation.route].compactMap { $0 } : passableChoices
         await withTaskGroup(of: Void.self) { group in
             for r in pending {
                 group.addTask { await self.hydrateAttributes(r) }
@@ -4012,18 +4066,35 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Ids with an attribute pass currently in flight — startLeg and the
-    /// phase-2 hydration can race to hydrate the same route; first one wins.
-    private var attributeHydrationInFlight: Set<UUID> = []
+    /// Routes with an attribute pass currently in flight, each with its
+    /// attempt — startLeg and the phase-2 hydration can race to hydrate the
+    /// same route; first one wins.
+    private var attributeHydrationInFlight: [UUID: UUID] = [:]
+
+    /// A scoring pass superseded (a replan, a declined offer): stopped, and
+    /// its routes' attribute attempts forgotten, so the pass that replaces it
+    /// fetches them again instead of finding them "in flight" and skipping.
+    private func cancelRiskHydration() {
+        riskHydrationTask?.cancel()
+        attributeHydrationInFlight = [:]
+    }
 
     /// Attribute-hydrate one route (grades / clearances / FEMA / EV gaps)
     /// and land the result wherever the route now lives: its choice card,
     /// or the active leg if the driver already hit GO.
     private func hydrateAttributes(_ leg: PlannedRoute) async {
-        guard !leg.attributesScored,
-              attributeHydrationInFlight.insert(leg.id).inserted else { return }
-        defer { attributeHydrationInFlight.remove(leg.id) }
+        guard !leg.attributesScored, attributeHydrationInFlight[leg.id] == nil else { return }
+        let attempt = UUID()
+        attributeHydrationInFlight[leg.id] = attempt
+        defer {
+            if attributeHydrationInFlight[leg.id] == attempt { attributeHydrationInFlight[leg.id] = nil }
+        }
         let done = await attributeScored(leg)
+        // Cancelled mid-fetch, its bridges, weights and grades came back
+        // empty: written, they read "no map data" and marked the route done,
+        // so unknowns passed the safety filters for the rest of the plan.
+        // The pass that cancelled it fetches them again.
+        guard !Task.isCancelled else { return }
         if let i = routeChoices.firstIndex(where: { $0.id == done.id }) {
             // Only the attributes here too: a Try again may have landed the
             // card's weather since `leg` was copied.
@@ -4540,9 +4611,19 @@ final class AppModel: ObservableObject {
                 request.region = MKCoordinateRegion(center: pt,
                                                     latitudinalMeters: 50_000,
                                                     longitudinalMeters: 50_000)
-                let found = (try? await MKLocalSearch(request: request).start())?
-                    .mapItems.isEmpty == false
-                if !found {
+                // Only a search that answered "nothing here" is a gap (MapKit
+                // throws placemarkNotFound for that). Throttled, offline or
+                // cancelled is not knowing — it put a red "No charger found"
+                // on every EV card whenever MapKit pushed back.
+                let found: Bool?
+                do {
+                    found = try await MKLocalSearch(request: request).start().mapItems.isEmpty == false
+                } catch let error as MKError where error.code == .placemarkNotFound {
+                    found = false
+                } catch {
+                    found = nil
+                }
+                if found == false {
                     gapAtMile = Double(i) * intervalMeters / 1609.344
                     break
                 }
@@ -4820,6 +4901,10 @@ final class AppModel: ObservableObject {
         // and the start of the next trip (a stale refuel prompt answered
         // post-trip would even feed vehicle.filledUp()).
         towingWarning = nil
+        // Once per trip, not once per launch: the next trip over the same
+        // limit warns again (updateTowingWarning only runs while driving,
+        // so nothing else resets it).
+        warnedTowingViolation = false
         fuelRecommendation = nil
         clearFuelWarning()
         limitLookupTask?.cancel()
@@ -5695,6 +5780,10 @@ final class AppModel: ObservableObject {
             return (await drivenF, await candidateF, await currentF)
         }
         let (scored, feeds) = driven
+        // A faster road through a reported full closure is no road at all
+        // (passableChoices keeps it off the cards): never taken, never
+        // offered.
+        if scored.throughClosedRoad { return FasterRouteCheck(verdict: .notFaster) }
         let weighed = weighedCandidate ?? scored
         // From the car forward on both: the check point at the car is where
         // the car already is, whichever road it takes (1 m in counts only the

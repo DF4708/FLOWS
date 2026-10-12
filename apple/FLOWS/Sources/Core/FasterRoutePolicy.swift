@@ -227,10 +227,16 @@ enum FasterRoutePolicy {
         func broken(_ set: Set<RouteFilter>, _ c: PlannedRoute) -> Int {
             set.filter { !$0.passes(c, limits: limits) }.count
         }
+        // A road through a reported full closure (a flooded road, a washout)
+        // is no way at all: last, whatever else it has going for it — taken
+        // only when every road is closed. A reroute away from a storm used
+        // to be able to pick it, being the calmest. (Known only once scored;
+        // an unscored road counts as open, as on the route cards.)
         let ranks: [[Int]] = candidates.map { c in
+            let closed = c.throughClosedRoad ? 1 : 0
             let choice = keepsRoadChoice(c, leg: leg, filters: filters) ? 0 : 1
-            guard calmest else { return [broken(safety, c), choice] }
-            return [broken(rig, c), rerouteLevel(c.weatherRisk),
+            guard calmest else { return [closed, broken(safety, c), choice] }
+            return [closed, broken(rig, c), rerouteLevel(c.weatherRisk),
                     broken(safety.subtracting(rig), c), choice]
         }
         guard let best = ranks.min(by: { $0.lexicographicallyPrecedes($1) }) else { return nil }

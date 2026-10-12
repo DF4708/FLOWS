@@ -40,14 +40,23 @@ final class OpenDispatchService: ObservableObject {
                 poll?.cancel()
                 poll = nil
                 incidents = []
+                unspoken = []
                 status = nil
+                // The calls are gone, so the next switch-on reads them
+                // again at once, not after up to two minutes of no pins.
+                lastFetch = [:]
             }
         }
     }
 
     private var lastPosition: CLLocationCoordinate2D?
     private var lastFetch: [String: Date] = [:]
+    /// Calls already said out loud — only those, so the set stays small.
     private var announced = Set<String>()
+    /// Threat calls not said yet because they were more than a mile off,
+    /// checked again on every fix: a shooting three miles ahead is one the
+    /// driver may reach in three minutes.
+    private var unspoken: [ScannerIncidents.Incident] = []
     private var poll: Task<Void, Never>?
 
     /// The feeds read right now: the picked one, else those covering the
@@ -64,14 +73,22 @@ final class OpenDispatchService: ObservableObject {
         guard enabled else { return }
         let feeds = activeFeeds
         if feeds.isEmpty {
-            status = "No city near you publishes its 911 calls yet."
+            setStatus("No city near you publishes its 911 calls yet.")
         }
+        let now = Date()
         for feed in feeds {
-            if let last = lastFetch[feed.id], Date().timeIntervalSince(last) < 110 { continue }
-            lastFetch[feed.id] = Date()
+            if let last = lastFetch[feed.id], now.timeIntervalSince(last) < 110 { continue }
+            lastFetch[feed.id] = now
             Task { await fetch(feed) }
         }
-        prune()
+        prune(now: now)
+        announceThreats()
+    }
+
+    /// Every fix lands here, and each write to a published value re-renders
+    /// every view of the model — so only a change is written.
+    private func setStatus(_ text: String?) {
+        if status != text { status = text }
     }
 
     private func startPolling() {
@@ -86,36 +103,51 @@ final class OpenDispatchService: ObservableObject {
     }
 
     private func fetch(_ feed: OpenDispatch.Feed) async {
-        guard let url = URL(string: feed.url),
-              let (data, resp) = try? await ThrottledNet.fetch(url),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else {
-            status = "\(feed.city)'s 911 list didn't answer — trying again in two minutes."
+        var answer: (Data, URLResponse)?
+        if let url = URL(string: feed.url) { answer = try? await ThrottledNet.fetch(url) }
+        // Switched off while the request was out: no list, and no "didn't
+        // answer" line left behind under a switch that is off.
+        guard enabled else { return }
+        guard let (data, resp) = answer, (resp as? HTTPURLResponse)?.statusCode == 200 else {
+            setStatus("\(feed.city)'s 911 list didn't answer — trying again in two minutes.")
             return
         }
-        guard enabled else { return }
         let fresh = OpenDispatch.incidents(from: data, feed: feed)
         // This feed's calls are replaced wholesale; the others stay.
-        incidents = incidents.filter { !$0.id.hasPrefix(feed.id + "|") } + fresh
-        status = "\(feed.what) from \(feed.city)'s public 911 list, \(feed.delay)."
+        let mine = { (incident: ScannerIncidents.Incident) in incident.id.hasPrefix(feed.id + "|") }
+        incidents = incidents.filter { !mine($0) } + fresh
+        unspoken = unspoken.filter { !mine($0) }
+            + fresh.filter { !announced.contains($0.id) && OpenDispatch.isThreat($0) }
+        setStatus("\(feed.what) from \(feed.city)'s public 911 list, \(feed.delay).")
         FlowsDiag.log(.info, "dispatch", "\(feed.id): \(fresh.count) live call(s)")
-        announceThreats(in: fresh)
+        announceThreats()
     }
 
-    private func announceThreats(in fresh: [ScannerIncidents.Incident]) {
-        guard let position = lastPosition else { return }
-        for incident in fresh where !announced.contains(incident.id) {
-            announced.insert(incident.id)
-            guard OpenDispatch.isThreat(incident),
-                  POIRanking.meters(position, incident.coordinate) <= OpenDispatch.threatMeters
-            else { continue }
-            onThreat?(incident)
+    /// Says each threat call once, when the driver is within about a mile of
+    /// it — when the list arrives, or later as the driver comes near.
+    private func announceThreats() {
+        guard let position = lastPosition, !unspoken.isEmpty else { return }
+        var waiting: [ScannerIncidents.Incident] = []
+        for incident in unspoken {
+            if POIRanking.meters(position, incident.coordinate) <= OpenDispatch.threatMeters {
+                announced.insert(incident.id)
+                onThreat?(incident)
+            } else {
+                waiting.append(incident)
+            }
         }
+        unspoken = waiting
     }
 
     private func prune(now: Date = Date()) {
-        incidents.removeAll {
-            now.timeIntervalSince($0.heardAt) >= ($0.lifetime ?? OpenDispatch.lifetime(for: $0.kind))
+        let expired = { (incident: ScannerIncidents.Incident) in
+            now.timeIntervalSince(incident.heardAt)
+                >= (incident.lifetime ?? OpenDispatch.lifetime(for: incident.kind))
         }
+        // Only write the published list when a call has aged out (see
+        // setStatus).
+        if incidents.contains(where: expired) { incidents.removeAll(where: expired) }
+        unspoken.removeAll(where: expired)
     }
 
     /// The pins worth drawing: near the driver or the route — or, for the

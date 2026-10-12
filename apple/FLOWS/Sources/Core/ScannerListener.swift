@@ -212,6 +212,9 @@ final class ScannerListener: ObservableObject {
                 self.starting = false
                 guard auth == .authorized else {
                     self.status = "Speech recognition is off in Settings."
+                    // Asked again in a minute, not on the next fix: every
+                    // fix tore the feed down and asked again.
+                    self.retryAfter = Date().addingTimeInterval(60)
                     FlowsDiag.log(.warn, "scanner", "speech recognition not authorized — feed idle")
                     return
                 }
@@ -233,6 +236,7 @@ final class ScannerListener: ObservableObject {
             // Apple for transcription — which is exactly the off-device
             // handling this feature promises not to do. So it stays off.
             status = "This device can't transcribe without sending audio away."
+            retryAfter = Date().addingTimeInterval(60)   // as for a refusal, above
             FlowsDiag.log(.warn, "scanner", "no on-device recognizer — feed idle")
             return
         }

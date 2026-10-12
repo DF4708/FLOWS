@@ -431,6 +431,18 @@ impl<R: Read> Inflate<R> {
         let fresh = &self.out[started..];
         self.crc = crc32_update(self.crc, fresh);
         self.total += fresh.len() as u64;
+        // The archive's length is the most this stream may unpack. The app's
+        // memory guard sizes a build by that same length, so DEFLATE data
+        // that runs on past it (a few KB that expand to gigabytes) stops
+        // here, not at the end of the stream after the parser has run out
+        // of memory.
+        if let Some((length, _)) = self.expect {
+            if self.total > length {
+                return Err(bad(&format!(
+                    "unpacked more than the {length} bytes the archive said"
+                )));
+            }
+        }
         if matches!(self.state, State::Done) {
             if let Some((length, crc)) = self.expect {
                 if length != self.total || crc != self.crc {
@@ -793,6 +805,29 @@ mod tests {
             .read_to_end(&mut Vec::new())
             .unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn a_stream_longer_than_its_archive_said_stops_at_the_first_overrun() {
+        // A megabyte behind a declared kilobyte: refused as soon as the
+        // unpacked bytes pass the declared length, none of the excess
+        // handed on — not after the whole stream.
+        let data = vec![b'a'; 1 << 20];
+        let raw = stored(&data, 65_535);
+        let mut out = Vec::new();
+        let err = Inflate::new(&raw[..])
+            .expecting(1_000, crc32_update(0, &data))
+            .read_to_end(&mut out)
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(out.len() <= 1_000, "handed on {} bytes", out.len());
+        // The declared length exactly is still fine.
+        let mut whole = Vec::new();
+        Inflate::new(&raw[..])
+            .expecting(data.len() as u64, crc32_update(0, &data))
+            .read_to_end(&mut whole)
+            .unwrap();
+        assert_eq!(whole.len(), data.len());
     }
 
     #[test]

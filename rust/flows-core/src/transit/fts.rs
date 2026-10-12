@@ -318,8 +318,11 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
     }
     let body_len = u64_at(bytes, 40) as usize;
     let want_hash = u64_at(bytes, 48);
-    let body = bytes
-        .get(FTS_HEADER_LEN..FTS_HEADER_LEN + body_len)
+    // Checked: the length is the file's word, and a tampered one near the
+    // top of the range overflowed the sum (a panic, not a refusal).
+    let body = FTS_HEADER_LEN
+        .checked_add(body_len)
+        .and_then(|end| bytes.get(FTS_HEADER_LEN..end))
         .ok_or_else(|| bad("fts: body truncated"))?;
     if fnv1a64(body) != want_hash {
         return Err(bad("fts: body hash mismatch"));

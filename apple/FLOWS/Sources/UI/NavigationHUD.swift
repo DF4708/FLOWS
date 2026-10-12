@@ -33,6 +33,10 @@ struct NavigationHUD: View {
     private let isShort = false
     #endif
     @State private var escalationPulse = false
+    /// The last-chance fuel banner's own pulse: sharing escalationPulse, which
+    /// it set and never reset, it left the next reroute banner standing still
+    /// (a pulse starts only when its value changes).
+    @State private var fuelPulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @Environment(\.openURL) private var openURL
@@ -47,6 +51,12 @@ struct NavigationHUD: View {
     @State private var showShelterSheet = false
     /// Ticks once a second while sheltering so the countdown moves.
     @State private var shelterTick = Date()
+    /// The banner compass's needle angle, unwrapped (turnCompass).
+    @State private var compassTurn: Double = 0
+    /// Held, not built in `body`: inline, a new timer was made on every
+    /// redraw (about once a GPS fix), so the countdown skipped or froze —
+    /// the failure ContentView's redAlertTimer records.
+    @State private var shelterTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     /// AM/FM search field text (radio-browser.info directory).
     @State private var stationSearch = ""
     /// Streaming search field text (a song, an artist, an album).
@@ -219,13 +229,19 @@ struct NavigationHUD: View {
         .dynamicTypeSize(isShort
                          ? DynamicTypeSize.xSmall...DynamicTypeSize.accessibility1
                          : DynamicTypeSize.xSmall...DynamicTypeSize.accessibility5)
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { now in
+        .onReceive(shelterTimer) { now in
             // Only while sheltering — a per-second tick on an idle HUD would
             // redraw the whole thing for nothing.
             guard model.shelterSession != nil else { return }
             shelterTick = now
             model.clearFinishedShelter()
             if model.shelterSession == nil { showShelterSheet = false }
+        }
+        .onChange(of: model.shelterSession == nil) { _, _ in
+            // The countdown reads from the last tick, which stood still
+            // while not sheltering: two hours in, a 40-minute wait first
+            // read "2 h 40 min".
+            shelterTick = Date()
         }
         .onChange(of: model.showRadioCardRequested) { _, wants in
             guard wants else { return }
@@ -234,7 +250,15 @@ struct NavigationHUD: View {
         }
         .onReceive(model.location.$latest) { fix in
             guard let fix else { return }
-            let mph = max(fix.speed, 0) * 2.236936
+            // A negative speed is "unknown" (a tunnel, a Wi-Fi fix), not a
+            // stop: read as 0 mph, one bad fix made a hard stop and a hard
+            // start and turned the economy icon red. The last reading
+            // stands, and the next good one starts the rate afresh.
+            guard fix.speed >= 0 else {
+                lastFixTime = nil
+                return
+            }
+            let mph = fix.speed * 2.236936
             if let last = lastFixTime {
                 let dt = fix.timestamp.timeIntervalSince(last)
                 if dt > 0.2 {
@@ -270,7 +294,10 @@ struct NavigationHUD: View {
     private var floatingCardOpen: Bool {
         showRadio || showMusicMenu || model.showMusicProviderPrompt
             || model.poi.pendingFoodChoice || model.poi.pendingStoreChoice
-            || model.poi.pendingFuelChoice || !model.poi.results.isEmpty
+            || model.poi.pendingFuelChoice
+            // A stop list tucked into its button is not open: it kept the
+            // instruments away until the search was cleared.
+            || (!model.poi.results.isEmpty && !model.collapsedPanels.contains("stops"))
             || detailCards != nil
     }
 
@@ -278,7 +305,11 @@ struct NavigationHUD: View {
     /// alert, the crash check-in) takes the instruments' place until it is
     /// answered. They come back afterwards unless the driver tucked them away.
     private var emergencyTakesInstrumentsPlace: Bool {
-        (isCompact || isShort) && (model.imminentWarning != nil || model.crash.state != .idle)
+        // A warning the driver tucked away (its X) is not on screen, so it
+        // takes nothing's place — it hid the instruments until it expired.
+        (isCompact || isShort)
+            && ((model.imminentWarning != nil && !model.imminentWarningTucked)
+                || model.crash.state != .idle)
     }
 
     /// A prompt waiting at the top for the driver's answer: a reroute offer,
@@ -1877,7 +1908,7 @@ struct NavigationHUD: View {
     /// the map turns with the road, so a glance answers "which way am I
     /// actually headed?" without hunting for a floating control.
     private var bannerCompass: some View {
-        let heading = CompassReading.normalized(max(model.location.course, 0))
+        let heading = CompassReading.normalized(compassTurn)
         return VStack(spacing: 2) {
             ZStack {
                 // A lighter face with a rim: on the near-black banner an
@@ -1887,12 +1918,12 @@ struct NavigationHUD: View {
                 Image(systemName: "location.north.fill")
                     .scaledFont(size: 13, weight: .bold)
                     .foregroundStyle(Theme.riskRed)
-                    .rotationEffect(.degrees(-heading))
+                    .rotationEffect(.degrees(-compassTurn))
                 Text("N")
                     .scaledFont(size: 8, weight: .heavy)
                     .foregroundStyle(.white)
                     .offset(y: -13)
-                    .rotationEffect(.degrees(-heading))
+                    .rotationEffect(.degrees(-compassTurn))
             }
             .frame(width: golden.iconCircle * 0.82, height: golden.iconCircle * 0.82)
             // The reading in words and degrees — the part a driver can use
@@ -1903,8 +1934,22 @@ struct NavigationHUD: View {
                 .foregroundStyle(.white.opacity(0.9))
                 .fixedSize()
         }
-        .animation(.easeOut(duration: 0.3), value: heading)
+        .animation(.easeOut(duration: 0.3), value: compassTurn)
+        .onAppear { turnCompass(to: model.location.course) }
+        .onChange(of: model.location.course) { _, course in turnCompass(to: course) }
         .help("Heading")
+    }
+
+    /// Turn the needle the short way to `course`: the angle is kept
+    /// unwrapped, so 359° → 1° is two degrees, not the whole dial (the
+    /// wrapped heading spun it on every jitter across north). A course of
+    /// -1 is unknown — stopped — and the needle stays where it was instead
+    /// of swinging to north.
+    private func turnCompass(to course: CLLocationDirection) {
+        guard course >= 0 else { return }
+        var step = (course - compassTurn).truncatingRemainder(dividingBy: 360)
+        if step > 180 { step -= 360 } else if step < -180 { step += 360 }
+        compassTurn += step
     }
 
     private func firstInstruction(of route: PlannedRoute) -> String {
@@ -2214,15 +2259,16 @@ struct NavigationHUD: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
-        .background(Theme.riskRed.opacity(escalationPulse ? 0.95 : 0.6))
+        .background(Theme.riskRed.opacity(fuelPulse ? 0.95 : 0.6))
         .foregroundStyle(.white)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .shadow(color: Theme.cardShadow, radius: 10, y: 4)
         // Reduce Motion holds it at its strong red, like the escalation card.
         .animation(reduceMotion ? nil
                    : .easeInOut(duration: 0.55).repeatForever(autoreverses: true),
-                   value: escalationPulse)
-        .onAppear { escalationPulse = true }
+                   value: fuelPulse)
+        .onAppear { fuelPulse = true }
+        .onDisappear { fuelPulse = false }
     }
 
     /// Range is getting tight — plan a fuel stop now (vehicle range model).

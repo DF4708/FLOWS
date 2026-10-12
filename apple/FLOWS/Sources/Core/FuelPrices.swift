@@ -8,13 +8,6 @@
 
 import Foundation
 
-/// Regional fuel price ESTIMATES so the price column is populated with a
-/// meaningful number instead of "$ —". These are state-level averages in the
-/// spirit of EIA/AAA weekly tables (baseline national averages with the
-/// well-known state offsets: West Coast/Hawaii high, Gulf/Plains low),
-/// rounded to the dime — clearly labeled "est. state avg" in the UI, and a
-/// station-level licensed feed (GasBuddy/OPIS) plugs into the same
-/// `priceProvider` to replace them per station.
 /// Live average fuel prices from the U.S. Energy Information Administration's
 /// weekly Gasoline and Diesel Fuel Update (eia.gov/petroleum/gasdiesel — a
 /// U.S. government work, public domain; keyless). One page prices the nation,
@@ -78,6 +71,14 @@ final class EIAFuelPrices: @unchecked Sendable {
     }
 }
 
+/// Regional fuel price ESTIMATES so the price column is populated with a
+/// meaningful number instead of "$ —". These are state-level averages in the
+/// spirit of EIA/AAA weekly tables (baseline national averages with the
+/// well-known state offsets: West Coast/Hawaii high, Gulf/Plains low),
+/// rounded to the dime — clearly labeled "est. state avg" in the UI, and a
+/// station-level licensed feed (GasBuddy/OPIS) plugs into the same
+/// `priceProvider` to replace them per station.
+///
 /// The estimates are computed in rust/flows-core (places_text.rs) and called
 /// through rust/flows-bridge — the state tables, the MXN conversion and the
 /// rounding all live there; this store keeps the live EIA cache and hands its

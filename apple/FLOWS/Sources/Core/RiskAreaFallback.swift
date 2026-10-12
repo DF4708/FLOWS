@@ -148,6 +148,8 @@ enum RiskAreaFallback {
         }
         // Spread across the shape rather than the first row of it.
         guard out.count > limit else { return out }
+        // One point is the anchor (and the stride below would divide by 0).
+        guard limit > 1 else { return [out[0]] }
         let stride = Double(out.count - 1) / Double(limit - 1)
         return (0..<limit).map { out[Int((Double($0) * stride).rounded())] }
     }

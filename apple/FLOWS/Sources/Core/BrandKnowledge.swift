@@ -284,11 +284,10 @@ enum BrandMark {
     /// The Brandfetch client ID the app ships with (Info.plist
     /// FLOWSBrandfetchClientID, the owner's free developer account) — empty
     /// until set, and then no logo is asked for: every tile keeps its
-    /// initials.
-    static var logoClientID: String {
+    /// initials. Read once: every stop row's tile asks on every render.
+    static let logoClientID: String =
         (Bundle.main.object(forInfoDictionaryKey: "FLOWSBrandfetchClientID") as? String)?
             .trimmingCharacters(in: .whitespaces) ?? ""
-    }
 
     /// A chain's official logo, square, from Brandfetch's free Logo API —
     /// loaded straight into the tile, never saved (its terms forbid keeping
