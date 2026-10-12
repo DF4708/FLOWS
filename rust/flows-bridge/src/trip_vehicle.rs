@@ -115,6 +115,7 @@ mod ffi {
             has_meters_from_road: bool,
         ) -> bool;
         fn flows_trip_vehicle_interpret_reply(transcript: &str) -> i32;
+        fn flows_trip_vehicle_interpret_crash_reply(transcript: &str) -> i32;
 
         fn flows_trip_vehicle_hos_break_due_seconds() -> f64;
         fn flows_trip_vehicle_hos_warn_before_break_seconds() -> f64;
@@ -415,6 +416,16 @@ pub fn flows_trip_vehicle_is_crash(
 /// fault keeps the check-in asking).
 pub fn flows_trip_vehicle_interpret_reply(transcript: &str) -> i32 {
     contain(-1, || match tv::interpret_reply(transcript) {
+        Some(true) => 1,
+        Some(false) => 0,
+        None => -1,
+    })
+}
+
+/// The crash check-in's reading (`interpret_crash_reply`: help wins unless
+/// said in the negative). 1 help, 0 stand down, -1 unclear.
+pub fn flows_trip_vehicle_interpret_crash_reply(transcript: &str) -> i32 {
+    contain(-1, || match tv::interpret_crash_reply(transcript) {
         Some(true) => 1,
         Some(false) => 0,
         None => -1,

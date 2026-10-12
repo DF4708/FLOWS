@@ -3951,6 +3951,11 @@ public func flows_trip_vehicle_interpret_reply<GenericToRustStr: ToRustStr>(_ tr
         __swift_bridge__$flows_trip_vehicle_interpret_reply(transcriptAsRustStr)
     })
 }
+public func flows_trip_vehicle_interpret_crash_reply<GenericToRustStr: ToRustStr>(_ transcript: GenericToRustStr) -> Int32 {
+    return transcript.toRustStr({ transcriptAsRustStr in
+        __swift_bridge__$flows_trip_vehicle_interpret_crash_reply(transcriptAsRustStr)
+    })
+}
 public func flows_trip_vehicle_hos_break_due_seconds() -> Double {
     __swift_bridge__$flows_trip_vehicle_hos_break_due_seconds()
 }

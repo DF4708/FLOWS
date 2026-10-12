@@ -246,6 +246,9 @@ final class TowingSafetyFeedTests: XCTestCase {
         // Word boundaries: "know" is not "no", "yesterday" is not "yes".
         XCTAssertNil(CrashLogic.interpretReply("I don't know what happened"))
         XCTAssertNil(CrashLogic.interpretReply("it was fine yesterday"))
+        // Help outweighs a "no"; help in the negative stands down.
+        XCTAssertEqual(CrashLogic.interpretReply("Oh no, I'm hurt"), true)
+        XCTAssertEqual(CrashLogic.interpretReply("no, I don't need help"), false)
     }
 
     func testTowingLimitChecks() {

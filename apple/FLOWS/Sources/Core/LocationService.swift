@@ -57,21 +57,32 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     /// Navigation cadence: every fix, best-for-navigation accuracy — the map
     /// camera and instruction state advance on each one.
     func beginNavigationUpdates() {
+        navigating = true
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
         #if os(iOS)
         manager.allowsBackgroundLocationUpdates = true
         manager.activityType = .automotiveNavigation
+        // Never paused by iOS mid-trip: left at its default, a long stop
+        // with the phone locked paused updates (and suspended the app) until
+        // it was reopened — guidance, cameras, speed limits and the crash
+        // check all went dark for the rest of the drive.
+        manager.pausesLocationUpdatesAutomatically = false
         #endif
         manager.startUpdatingLocation()
     }
 
     func endNavigationUpdates() {
+        navigating = false
         #if os(iOS)
         manager.allowsBackgroundLocationUpdates = false
+        manager.pausesLocationUpdatesAutomatically = true
         #endif
         beginPlanningUpdates()
     }
+
+    /// Between beginNavigationUpdates and endNavigationUpdates.
+    private var navigating = false
 
     // MARK: CLLocationManagerDelegate (delegate calls arrive on main queue by
     // default for a manager created on the main thread)
@@ -90,7 +101,12 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
             self.authorized = status == .authorizedWhenInUse || status == .authorizedAlways
             #endif
             self.denied = status == .denied || status == .restricted
-            if self.authorized { self.beginPlanningUpdates() }
+            // A permission change mid-drive keeps the drive's cadence: the
+            // planning one (100 m, 100 m filter) thinned the fixes until the
+            // next leg, and the crash check missed the stop after an impact.
+            if self.authorized {
+                if self.navigating { self.beginNavigationUpdates() } else { self.beginPlanningUpdates() }
+            }
         }
     }
 

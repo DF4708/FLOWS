@@ -524,6 +524,96 @@ pub fn interpret_reply(transcript: &str) -> Option<bool> {
     None
 }
 
+/// Words in a reply that mean the driver needs help whatever else they say:
+/// an injury, being trapped, or asking for help by name.
+const CRASH_HELP_WORDS: &[&str] = &[
+    "help",
+    "hurt",
+    "injured",
+    "bleeding",
+    "trapped",
+    "stuck",
+    "can't move",
+    "cant move",
+    "call 911",
+    "call nine one one",
+    "call an ambulance",
+    "ambulance",
+    "emergency",
+    "sos",
+    "mayday",
+    "hurry",
+];
+
+/// Those words said in the negative — taken out of the reply before it is
+/// read for help, and read as standing down.
+const CRASH_HELP_NEGATED: &[&str] = &[
+    "don't need any help",
+    "dont need any help",
+    "do not need any help",
+    "don't need help",
+    "dont need help",
+    "do not need help",
+    "don't need an ambulance",
+    "dont need an ambulance",
+    "do not need an ambulance",
+    "no ambulance",
+    "no help",
+    "not hurt",
+    "not injured",
+    "not bleeding",
+    "not trapped",
+    "not stuck",
+    "not an emergency",
+    "no emergency",
+    "don't call",
+    "dont call",
+    "do not call",
+];
+
+/// The crash check-in's reading of a reply, leaning to help — the cost of a
+/// wrong "stand down" is a driver left alone after a crash. Unlike
+/// [`interpret_reply`] (kept as it was ported), a stand-down word does not
+/// outweigh a call for help: "Oh no, I'm hurt" and "no… help me" stood the
+/// check-in down for good on their "no".
+///
+/// In order: help or injury words not said in the negative → help; a
+/// stand-down word or a negated help phrase ("I don't need help") → stand
+/// down; a bare yes ([`ASSIST_WORDS`]) → help; else unclear. "Yes, I'm fine"
+/// stands down. Panics: none.
+#[must_use]
+pub fn interpret_crash_reply(transcript: &str) -> Option<bool> {
+    let lower = swift_lowercased(transcript);
+    let mut rest = lower.clone();
+    let mut negated = false;
+    for phrase in CRASH_HELP_NEGATED {
+        if swift_contains(&rest, phrase) {
+            negated = true;
+            rest = rest.replace(phrase, " ");
+        }
+    }
+    let matches = |text: &str, vocab: &[&str]| {
+        let words = swift_words(text);
+        vocab.iter().any(|entry| {
+            if entry.contains(' ') {
+                swift_contains(text, entry)
+            } else {
+                words.iter().any(|w| w == entry)
+            }
+        })
+    };
+    if matches(&rest, CRASH_HELP_WORDS) {
+        return Some(true);
+    }
+    if negated || matches(&rest, OK_WORDS) {
+        return Some(false);
+    }
+    if matches(&rest, ASSIST_WORDS) {
+        return Some(true);
+    }
+    None
+}
+
 // =============================================================================
 // HOSRules
 // =============================================================================
@@ -1455,6 +1545,36 @@ mod tests {
         assert_eq!(interpret_reply("i'm ok\u{301}"), None);
         // A curly apostrophe separates, in both.
         assert_eq!(interpret_reply("i\u{2019}m ok"), None);
+    }
+
+    #[test]
+    fn a_crash_reply_leans_to_help() {
+        // A stand-down word no longer outweighs a call for help.
+        assert_eq!(interpret_crash_reply("Oh no, I'm hurt"), Some(true));
+        assert_eq!(interpret_crash_reply("no... help me"), Some(true));
+        assert_eq!(interpret_crash_reply("no wait I need help"), Some(true));
+        assert_eq!(
+            interpret_crash_reply("cancel that, I'm trapped"),
+            Some(true)
+        );
+        // Help said in the negative stands down.
+        assert_eq!(interpret_crash_reply("no, I don't need help"), Some(false));
+        assert_eq!(interpret_crash_reply("I'm not hurt"), Some(false));
+        assert_eq!(
+            interpret_crash_reply("never mind, don't call 911"),
+            Some(false)
+        );
+        // As before.
+        assert_eq!(interpret_crash_reply("Yes I need help"), Some(true));
+        assert_eq!(interpret_crash_reply("yep"), Some(true));
+        assert_eq!(interpret_crash_reply("no I'm fine"), Some(false));
+        assert_eq!(
+            interpret_crash_reply("yes I'm fine"),
+            Some(false),
+            "a yes beside I'm fine"
+        );
+        assert_eq!(interpret_crash_reply("I don't know what happened"), None);
+        assert_eq!(interpret_crash_reply("it was fine yesterday"), None);
     }
 
     #[test]

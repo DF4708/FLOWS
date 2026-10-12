@@ -123,6 +123,13 @@ final class BufferMemory {
         }
     }
 
+    /// "Erase everything FLOWS has learned": what each network and service
+    /// taught it about its signal (AppModel.eraseEverythingLearned).
+    func erase() {
+        stats = [:]
+        UserDefaults.standard.removeObject(forKey: Self.key)
+    }
+
     /// Samples held for a context — surfaced so the UI can say whether
     /// FLOWS is still using the documented guess or its own measurement.
     func sampleCount(service: String, radioTechnology: String?) -> Int {

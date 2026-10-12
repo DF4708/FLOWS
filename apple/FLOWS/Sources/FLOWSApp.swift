@@ -2698,6 +2698,9 @@ final class AppModel: ObservableObject {
                 "\(incident.kind.title) call nearby: \(incident.placeText).")
         }
         openDispatch.refresh(near: location.coordinate)
+        // Tire sensors count as this vehicle's once they keep up with it at
+        // road speed (VehicleLink.isMoving).
+        vehicleLink.isMoving = { [weak self] in (self?.location.latest?.speed ?? 0) > 5 }
         MusicController.shared.provider = musicProvider   // same didSet gap
         if personalVoiceAnnouncements {                   // same didSet gap
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
@@ -2902,7 +2905,14 @@ final class AppModel: ObservableObject {
             let after = self.location.latest.map {
                 $0.speed >= 0 && $0.speedAccuracy >= 0 ? $0.speed : .nan
             } ?? .nan
-            return (self.recentPeakSpeedMps, after, self.navigation.metersFromCorridor)
+            // The distance is from the PLANNED line, not from any road: while
+            // a leg is being driven, being off it is a detour (or a reroute
+            // that failed offline), and counting it as "not on a road" left
+            // crash detection off for the whole detour. Only once arrived
+            // does it still say what it was for — a ride at the destination
+            // is not a collision.
+            let fromRoute = self.arrivedAt == nil ? nil : self.navigation.metersFromCorridor
+            return (self.recentPeakSpeedMps, after, fromRoute)
         }
         crash.hasEmergencyContact = { [weak self] in
             self?.emergencyContactPhone.isEmpty == false
@@ -3003,21 +3013,54 @@ final class AppModel: ObservableObject {
     private var stoppedSince: Date?
     private var refuelPromptShownAt: Date?
 
-    var hosStatus: HOSRules.Status { HOSRules.status(drivingSeconds: drivingSeconds) }
+    /// Driving since the last 10 hours off duty — the 11-hour limit's clock.
+    /// Apart from `drivingSeconds`, which every 30-minute break zeroes:
+    /// sharing it, 8 h, a break and 8 h more read "OK" at 16 h of driving.
+    /// Saved with its time, so a relaunch mid-shift keeps it.
+    @Published private(set) var drivingInWindowSeconds: Double = {
+        let defaults = UserDefaults.standard
+        guard let at = defaults.object(forKey: "flows.hos.windowAt") as? Date,
+              Date().timeIntervalSince(at) < AppModel.offDutyResetSeconds else { return 0 }
+        return defaults.double(forKey: "flows.hos.window")
+    }()
+    /// Ten hours off duty start a new driving window (FMCSA).
+    static let offDutyResetSeconds: TimeInterval = 10 * 3600
+    private var windowSavedAt = Date.distantPast
+
+    var hosStatus: HOSRules.Status {
+        if drivingInWindowSeconds >= HOSRules.dailyDrivingLimitSeconds { return .limitReached }
+        return HOSRules.status(drivingSeconds: drivingSeconds)
+    }
 
     private func updateDrivingClocks(fix: CLLocation) {
         let now = fix.timestamp
         defer { lastClockFix = now }
+        // No fixes across a stop (the app closed or suspended) is the stop
+        // itself, as long a rest as the gap.
+        let gap = lastClockFix.map { now.timeIntervalSince($0) } ?? 0
+        if gap >= HOSRules.breakResetSeconds { drivingSeconds = 0 }
+        if gap >= Self.offDutyResetSeconds { drivingInWindowSeconds = 0 }
         let dt = lastClockFix.map { min(now.timeIntervalSince($0), 30) } ?? 0
         if fix.speed > 3 {
             drivingSeconds += max(dt, 0)
+            drivingInWindowSeconds += max(dt, 0)
             // Rolling again: a completed fuel-length stop while the prompt
             // was up implies the answer arrived (or wasn't needed).
-            if let stopStart = stoppedSince,
-               now.timeIntervalSince(stopStart) >= HOSRules.breakResetSeconds {
-                drivingSeconds = 0   // 30-min stop resets the 8 h break clock
+            if let stopStart = stoppedSince {
+                let stopped = now.timeIntervalSince(stopStart)
+                if stopped >= HOSRules.breakResetSeconds {
+                    drivingSeconds = 0   // 30-min stop resets the 8 h break clock
+                }
+                if stopped >= Self.offDutyResetSeconds {
+                    drivingInWindowSeconds = 0   // 10 h off resets the 11 h clock
+                }
             }
             stoppedSince = nil
+            if now.timeIntervalSince(windowSavedAt) >= 60 {
+                windowSavedAt = now
+                UserDefaults.standard.set(drivingInWindowSeconds, forKey: "flows.hos.window")
+                UserDefaults.standard.set(now, forKey: "flows.hos.windowAt")
+            }
         } else if fix.speed <= 1 {   // includes -1 = invalid/stationary fixes
             if stoppedSince == nil { stoppedSince = now }
             // GPS-based refuel detection: a 4+ minute dwell mid-trip looks
@@ -3030,7 +3073,13 @@ final class AppModel: ObservableObject {
                vehicle.telemetry().fuelFraction == nil,   // real data = no need to ask
                now.timeIntervalSince(stopStart) >= 240,
                refuelPromptShownAt.map({ $0 < stopStart }) ?? true,
-               vehicle.refuelLearning.shouldPrompt(checkInsEnabled: refuelCheckInsEnabled && notifyFuel) {
+               // Learning asks until the model is accurate. Past that the
+               // question still comes where a fill matters — the model at
+               // half a tank or less: otherwise no fill was ever recorded
+               // again, the miles ran on across fill-ups, and a full tank
+               // read empty ("find fuel now").
+               vehicle.refuelLearning.shouldPrompt(checkInsEnabled: refuelCheckInsEnabled && notifyFuel)
+                || (refuelCheckInsEnabled && notifyFuel && (vehicle.predictedFuelFraction ?? 1) <= 0.5) {
                 // Only ask where fuel actually IS. A four-minute dwell is
                 // lunch as often as it is a fill-up, and a question that is
                 // usually wrong gets dismissed unread. The prompt waits for
@@ -3117,6 +3166,16 @@ final class AppModel: ObservableObject {
         roadEfficiency.erase()
         shareHistory.erase()
         ShowerAvailability.eraseReports()
+        // Missed until now: the refuel answers, the signal-buffer learning,
+        // the hours-of-service clock, and the network cache — its request
+        // URLs carry the positions and route points weather.gov, Open-Meteo
+        // and the elevation service were asked about, a plain-text trail.
+        vehicle.eraseRefuelLearning()
+        BufferMemory.shared.erase()
+        drivingInWindowSeconds = 0
+        UserDefaults.standard.removeObject(forKey: "flows.hos.window")
+        UserDefaults.standard.removeObject(forKey: "flows.hos.windowAt")
+        ThrottledNet.cache.removeAllCachedResponses()
         limitsHabit = []
         UserDefaults.standard.removeObject(forKey: "flows.limitsHabit")
         dailyDrive = DailyDriveLog.empty()
@@ -3660,8 +3719,15 @@ final class AppModel: ObservableObject {
         // against this when a route exists. `ahead` used to be a plain radius
         // around the vehicle, which counted stations BEHIND it as reachable
         // and kept the last-chance warning quiet while the driver ran dry.
+        // Only the samples from about where the car is on: the whole line was
+        // passed, from its start, so a station by the road already driven
+        // still counted as "ahead" and kept the warning quiet.
+        let along = navigation.guidance?.alongMeters ?? 0
         let routeAhead = navigation.route.map {
             RouteService.samplePoints(of: $0.route.polyline, everyMeters: 4_000)
+                .enumerated()
+                .filter { Double($0.offset) * 4_000 >= along - 4_000 }
+                .map(\.element)
         } ?? []
         let course = location.course
         // Filter first, price second. This priced EVERY search hit in

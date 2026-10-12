@@ -7,6 +7,7 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
+import Network
 
 /// One shared, throttled HTTP path for the whole app. Two problems it fixes:
 ///   1. There were 8+ independent `URLSession`s, each with its own per-host
@@ -54,9 +55,13 @@ enum ThrottledNet {
         // Disk-backed, so the cache is warm across launches. App-level parsed
         // caches (AlertZoneCache etc.) sit above this unchanged; failures
         // still surface as errors, never as cached bodies.
-        cfg.urlCache = URLCache(memoryCapacity: 4 << 20, diskCapacity: 50 << 20)
+        cfg.urlCache = cache
         return URLSession(configuration: cfg)
     }()
+
+    /// The session's HTTP cache, held here so "Erase everything" can empty
+    /// it: its request URLs are positions and route points.
+    static let cache = URLCache(memoryCapacity: 4 << 20, diskCapacity: 50 << 20)
 
     /// GET a URL through the global gate.
     static func fetch(_ url: URL) async throws -> (Data, URLResponse) {
@@ -122,8 +127,13 @@ enum ThrottledNet {
                 // supersedes a viewport sweep cancels its in-flight fetches,
                 // and counting those tripped the breaker on a HEALTHY host
                 // (launch: GPS fix → map flies → mass-cancel → NWS "down").
+                // Nor is the PHONE being offline: a dead zone timed every
+                // request out against the host, and after a 30 s gap the
+                // breaker kept Overpass and weather.gov shut for two minutes
+                // of good signal — speed limits and cameras went blank.
                 if !(error is CancellationError),
-                   (error as? URLError)?.code != .cancelled {
+                   (error as? URLError)?.code != .cancelled,
+                   !NetworkPath.shared.saysOffline(error) {
                     await HostBreaker.shared.recordFailure(host)
                 } else {
                     // Cancelled: not a failure, but must release a half-open
@@ -218,6 +228,37 @@ enum CacheEviction {
 /// cooldown exactly ONE probe is admitted (no thundering herd); its outcome
 /// closes or re-opens the breaker. An HTTP response of any status is a
 /// SUCCESS here — the host answered; status handling belongs to callers.
+/// Whether the device has a network path right now — a request that failed
+/// while it had none says nothing about the host it asked.
+final class NetworkPath: @unchecked Sendable {
+    static let shared = NetworkPath()
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var up = true
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            self?.set(path.status == .satisfied)
+        }
+        monitor.start(queue: DispatchQueue(label: "flows.network-path"))
+    }
+
+    private func set(_ satisfied: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        up = satisfied
+    }
+
+    /// The error is the device's, not the host's: no path now, or an
+    /// error that only an unconnected device gives.
+    func saysOffline(_ error: Error) -> Bool {
+        let offlineCodes: [URLError.Code] = [.notConnectedToInternet, .networkConnectionLost,
+                                             .dataNotAllowed, .internationalRoamingOff]
+        if let code = (error as? URLError)?.code, offlineCodes.contains(code) { return true }
+        lock.lock(); defer { lock.unlock() }
+        return !up
+    }
+}
+
 actor HostBreaker {
     static let shared = HostBreaker()
 

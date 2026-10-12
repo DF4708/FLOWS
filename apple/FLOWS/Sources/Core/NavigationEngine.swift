@@ -105,6 +105,8 @@ final class NavigationEngine: ObservableObject {
         flatten(route: route.route)
         currentStep = firstRealStep()
         offRouteFixes = 0
+        rerouteFailures = 0
+        nextRerouteAt = .distantPast
         arrivalFired = false
         location.beginNavigationUpdates()
         // dropFirst: @Published replays the current fix SYNCHRONOUSLY on
@@ -249,11 +251,24 @@ final class NavigationEngine: ObservableObject {
     // MARK: reroute
 
     private var rerouteTask: Task<Void, Never>?
+    /// Reroutes that came back with no route in a row, and when the next may
+    /// be asked: lost and offline, every third fix asked again — about 20
+    /// directions requests a minute, enough for MapKit to throttle the
+    /// route requests that mattered.
+    private var rerouteFailures = 0
+    private var nextRerouteAt = Date.distantPast
+
+    private func rerouteFailed() {
+        rerouteFailures += 1
+        let wait = min(15 * pow(2, Double(rerouteFailures - 1)), 120)
+        nextRerouteAt = Date().addingTimeInterval(wait)
+    }
 
     private func requestReroute(from fix: CLLocation) {
         // Not after arrival: circling the lot or GPS drift indoors would
         // start a fresh leg and fire arrival a second time.
-        guard !isRerouting, !arrivalFired, let current = route else { return }
+        guard !isRerouting, !arrivalFired, let current = route,
+              Date() >= nextRerouteAt else { return }
         isRerouting = true
         offRouteFixes = 0
         let destination = points.last!
@@ -285,12 +300,17 @@ final class NavigationEngine: ObservableObject {
                 case .tollFree: request.tollPreference = .avoid
                 }
             }
-            guard let response = try? await MKDirections(request: request).calculate(),
-                  !Task.isCancelled,   // stop()/new leg superseded this reroute
+            let response = try? await MKDirections(request: request).calculate()
+            guard !Task.isCancelled else { return }   // stop()/new leg superseded this reroute
+            guard let response,
                   let newRoute = walkingEstimate
                     ? response.routes.first(where: { !$0.hasHighways }) ?? response.routes.first
-                    : response.routes.first,
-                  let self, !self.arrivalFired else { return }
+                    : response.routes.first else {
+                self?.rerouteFailed()
+                return
+            }
+            guard let self, !self.arrivalFired else { return }
+            self.rerouteFailures = 0
             var replanned = PlannedRoute(
                 route: newRoute,
                 sourceName: "Current location",

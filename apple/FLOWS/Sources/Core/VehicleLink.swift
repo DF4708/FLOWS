@@ -54,6 +54,72 @@ final class VehicleLink: NSObject, ObservableObject {
     /// Threshold for the low-tire chip (AppModel.lowTireWarning).
     static let lowPressurePsi = flows_tags_low_pressure_psi()
 
+    /// Whether the vehicle is moving at road speed right now (AppModel sets
+    /// it). Valve-cap sensors advertise to anyone in range, and they carry
+    /// no owner: a sensor is taken as this vehicle's only once it has kept
+    /// up with it — heard while moving across two minutes. Every car with
+    /// the same kit at a light or in a car park wrote into this driver's
+    /// tires ("Tire 2 low: 19 psi" from a stranger's car, all session).
+    var isMoving: () -> Bool = { false }
+
+    /// One sensor as heard: its position label and reading, when it was
+    /// last heard, and how it has kept up with this vehicle.
+    private struct Sensor {
+        var position: String
+        var psi: Double
+        var lastHeard: Date
+        var firstHeardMoving: Date?
+        var heardMoving = 0
+        var keptUp: Bool {
+            guard let firstHeardMoving else { return false }
+            return heardMoving >= 10 && lastHeard.timeIntervalSince(firstHeardMoving) >= 120
+        }
+    }
+    private var sensors: [UUID: Sensor] = [:]
+
+    /// Devices connected as a car plug-in that had no serial service.
+    private var notAdapters: Set<UUID> = []
+
+    /// A car plug-in's name (Rust `looks_like_obd_adapter`), with "elm" only
+    /// at the start of a word — "ELM327", "elm 327" — not inside one:
+    /// "Helmet" and "Telmex" were connected as the fuel reader.
+    nonisolated static func namedLikeAdapter(_ name: String) -> Bool {
+        guard flows_tags_looks_like_obd_adapter(name) else { return false }
+        let lower = name.lowercased()
+        if ["obd", "vlink", "veepeak"].contains(where: lower.contains) { return true }
+        return lower.range(of: #"(^|[^a-z])elm"#, options: .regularExpression) != nil
+    }
+
+    /// A sensor not heard for this long no longer reads: the car is gone,
+    /// or this one is parked away from it.
+    private static let sensorStaleSeconds: TimeInterval = 600
+
+    /// Fold one advertisement in and republish the tires — only when what
+    /// they read changed (each advertisement used to republish, waking the
+    /// whole drive screen several times a second).
+    private func heardSensor(_ id: UUID, position: String, psi: Double, now: Date = Date()) {
+        var sensor = sensors[id] ?? Sensor(position: position, psi: psi, lastHeard: now)
+        sensor.position = position
+        sensor.psi = psi
+        sensor.lastHeard = now
+        if isMoving() {
+            sensor.firstHeardMoving = sensor.firstHeardMoving ?? now
+            sensor.heardMoving += 1
+        }
+        sensors[id] = sensor
+        sensors = sensors.filter { now.timeIntervalSince($0.value.lastHeard) < Self.sensorStaleSeconds }
+        var tires: [String: Double] = [:]
+        var heardAt: [String: Date] = [:]
+        for s in sensors.values where s.keptUp {
+            // Two kept-up sensors on one position: the one heard last.
+            if heardAt[s.position].map({ $0 < s.lastHeard }) ?? true {
+                tires[s.position] = flows_tags_displayed_psi(s.psi)
+                heardAt[s.position] = s.lastHeard
+            }
+        }
+        if tires != tirePressuresPsi { tirePressuresPsi = tires }
+    }
+
     private var central: CBCentralManager?
     private var obdPeripheral: CBPeripheral?
     private var obdWrite: CBCharacteristic?
@@ -198,6 +264,7 @@ final class VehicleLink: NSObject, ObservableObject {
         obdFuelFraction = nil
         obdFuelReadAt = nil
         tirePressuresPsi = [:]
+        sensors = [:]
         status = "Off"
     }
 
@@ -229,6 +296,9 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             case .unauthorized:
                 self.status = "Bluetooth permission denied — enable in Settings"
             case .poweredOff:
+                // No disconnect callback comes for this: let the reader go,
+                // or it stayed "connected" and was never reconnected.
+                if let id = self.obdPeripheral?.identifier { self.dropOBDAdapter(id) }
                 self.status = "Bluetooth is off"
             default:
                 break
@@ -243,15 +313,19 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
         let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
             ?? peripheral.name
         let mfg = advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data
+        let sensorID = peripheral.identifier
         Task { @MainActor in
-            // TPMS caps: parse straight from the advertisement.
+            // TPMS caps: parse straight from the advertisement — by the
+            // sensor's own identity, not its position label alone.
             if let tpms = Self.parseTPMSAdvertisement(name: name, manufacturerData: mfg) {
-                self.tirePressuresPsi[tpms.id] = flows_tags_displayed_psi(tpms.psi)
+                guard self.scanning else { return }   // queued before stop()
+                self.heardSensor(sensorID, position: tpms.id, psi: tpms.psi)
                 return
             }
             // OBD adapters: connect once to the first likely UART device.
             if self.obdPeripheral == nil,
-               flows_tags_looks_like_obd_adapter(name ?? "") {
+               !self.notAdapters.contains(peripheral.identifier),
+               Self.namedLikeAdapter(name ?? "") {
                 self.obdPeripheral = peripheral
                 peripheral.delegate = self
                 central.connect(peripheral)
@@ -281,7 +355,22 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
     }
 
     nonisolated func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        for service in peripheral.services ?? [] {
+        let services = peripheral.services ?? []
+        guard !services.isEmpty else {
+            // No car plug-in's serial service: a device with a likely name
+            // that is something else. Held, it was the reader for good and
+            // the real one was never connected — let it go and skip it.
+            let id = peripheral.identifier
+            Task { @MainActor in
+                self.notAdapters.insert(id)
+                if self.obdPeripheral?.identifier == id {
+                    self.central?.cancelPeripheralConnection(peripheral)
+                    self.dropOBDAdapter(id)
+                }
+            }
+            return
+        }
+        for service in services {
             peripheral.discoverCharacteristics(nil, for: service)
         }
     }

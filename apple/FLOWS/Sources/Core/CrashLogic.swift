@@ -141,11 +141,13 @@ enum CrashLogic {
     /// Interpret a voice reply: true = wants help, false = stand down,
     /// nil = unclear (keep asking). Single words match on WORD BOUNDARIES
     /// ("know" is not "no", "yesterday" is not "yes"); phrases match as
-    /// substrings. Stand-down phrases win so "no, I don't need help" never
-    /// dials.
+    /// substrings. Help and injury words win unless said in the negative
+    /// (Rust `interpret_crash_reply`): "Oh no, I'm hurt" asks for help — the
+    /// stand-down words used to win, and its "no" ended the check-in for
+    /// good — while "no, I don't need help" still never dials.
     static func interpretReply(_ transcript: String) -> Bool? {
         // 1 wants help, 0 stands down, anything else is unclear.
-        switch flows_trip_vehicle_interpret_reply(transcript) {
+        switch flows_trip_vehicle_interpret_crash_reply(transcript) {
         case 1: return true
         case 0: return false
         default: return nil

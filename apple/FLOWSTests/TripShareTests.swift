@@ -138,6 +138,9 @@ final class TripShareTests: XCTestCase {
             "sms:+15550102030?&body=On%20my%20way")
         // No digits → nothing useful could open.
         XCTAssertNil(TripShareLogic.smsURLString(number: "n/a", body: "hi"))
+        // An "&" in the text is escaped, not the end of the body.
+        XCTAssertEqual(TripShareLogic.smsURLString(number: "5550102030", body: "Barnes & Noble"),
+                       "sms:5550102030?&body=Barnes%20%26%20Noble")
     }
 
     // MARK: history store — dedupe by digits, caps, persistence round-trip

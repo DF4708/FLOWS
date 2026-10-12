@@ -73,10 +73,20 @@ enum TripShareLogic {
     static func smsURLString(number: String, body: String) -> String? {
         let digits = number.filter { "0123456789+".contains($0) }
         guard !digits.isEmpty,
-              let encoded = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)
+              let encoded = body.addingPercentEncoding(withAllowedCharacters: bodyAllowed)
         else { return nil }
         return "sms:\(digits)?&body=\(encoded)"
     }
+
+    /// What may stand bare in the body: a query's characters less the ones
+    /// that end or split a query value. `.urlQueryAllowed` keeps "&" — and
+    /// "Barnes & Noble" or "diabetic & on blood thinners" ended the crash
+    /// report there, losing the medical line and the request for help.
+    static let bodyAllowed: CharacterSet = {
+        var set = CharacterSet.urlQueryAllowed
+        set.remove(charactersIn: "&+=?#")
+        return set
+    }()
 
     /// Suggestion order: frequency AND recency in one number. Every past
     /// share is worth one point that fades with a 30-day half-life, so the

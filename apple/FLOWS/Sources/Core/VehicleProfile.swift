@@ -197,6 +197,12 @@ final class VehicleStore: ObservableObject {
         }
     }
 
+    /// "Erase everything FLOWS has learned": the gauge answers too.
+    func eraseRefuelLearning() {
+        refuelLearning = RefuelLearning()
+        defaults.removeObject(forKey: Self.learningKey)
+    }
+
     /// VEHICLE TELEMETRY hook: when a source exists (OEM cloud API such as
     /// FordPass/Tesla Fleet, a Smartcar-style aggregator, or a Bluetooth
     /// OBD-II reader), it supplies real fuel fraction + tire pressures and
@@ -268,6 +274,37 @@ final class VehicleStore: ObservableObject {
         milesSinceFill = habits.miles_since_fill
         averageSpeedMph = habits.average_speed_mph
         idleFraction = habits.idle_fraction
+        followRealReading()
+    }
+
+    /// While a real fuel reading comes in (OBD reader, Smartcar), the
+    /// odometer model is kept at it — once a minute, the miles since a fill
+    /// at which the model reads what the car says. Real data stops the
+    /// refuel check-ins that reset the model, so it used to run on from the
+    /// last fill; when the reader dropped (engine off, a dead zone), that
+    /// stale model took over the gauge and said "find fuel now" on a tank
+    /// the car had just reported half full.
+    private var lastFollowed = Date.distantPast
+    private func followRealReading(now: Date = Date()) {
+        guard let profile, let real = telemetry().fuelFraction, real.isFinite,
+              now.timeIntervalSince(lastFollowed) >= 60 else { return }
+        lastFollowed = now
+        let target = min(max(real, 0), 1)
+        func modelled(_ miles: Double) -> Double {
+            profile.fuelFractionAfter(milesSinceFill: miles, averageSpeedMph: averageSpeedMph,
+                                      idleFraction: idleFraction)
+        }
+        // The model's fraction falls as the miles grow: bisect for the
+        // miles where it meets the reading, up to two tanks' worth.
+        var lo = 0.0
+        var hi = max(profile.tankCapacityUnits * profile.ratedMilesPerUnit * 2, 1)
+        guard hi.isFinite, modelled(lo).isFinite else { return }
+        for _ in 0..<40 {
+            let mid = (lo + hi) / 2
+            if modelled(mid) > target { lo = mid } else { hi = mid }
+        }
+        let miles = (lo + hi) / 2
+        if abs(miles - milesSinceFill) > 0.5 { milesSinceFill = miles }
     }
 
     /// The driver filled the tank (arriving at a gas stop, or told us so).

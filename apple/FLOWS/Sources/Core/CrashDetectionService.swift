@@ -324,13 +324,12 @@ final class CrashDetectionService: ObservableObject {
     /// Prefilled text to the emergency contact (driver taps send — apps
     /// cannot send SMS silently).
     func messageContact(number: String) {
-        let digits = number.filter { "0123456789+".contains($0) }
-        let body = emergencyReport()
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
         // RFC 5724: the body param must sit in a query — `?&body=` is the form
         // iOS reliably prefills across versions. The prior `sms:NUMBER&body=` had
         // no `?`, so Messages opened an EMPTY thread and the crash report was lost.
-        if let url = URL(string: "sms:\(digits)?&body=\(body)") {
+        // The recipe (and its escaping of "&") is shared with trip sharing.
+        if let link = TripShareLogic.smsURLString(number: number, body: emergencyReport()),
+           let url = URL(string: link) {
             UIApplication.shared.open(url)
         }
     }
@@ -361,8 +360,11 @@ final class CrashDetectionService: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 // Wait out the utterance (bounded) so we don't transcribe it.
+                // Up to 20 s: the question runs 6–8 s at rate 0.5, and the
+                // old 6 s cap opened the mic on its last words — "…say yes
+                // to get help" heard as a yes.
                 var waited = 0
-                while self.synthesizer.isSpeaking, waited < 60 {
+                while self.synthesizer.isSpeaking, waited < 200 {
                     try? await Task.sleep(for: .milliseconds(100)); waited += 1
                 }
                 // Answered, dismissed or ended while the question played: the

@@ -786,6 +786,7 @@ bool __swift_bridge__$flows_trip_vehicle_is_impact_acceleration(double accelerat
 bool __swift_bridge__$flows_trip_vehicle_is_impact_window(struct __private__FfiSlice window);
 bool __swift_bridge__$flows_trip_vehicle_is_crash(struct __private__FfiSlice window, double speed_before_mps, double speed_after_mps, double meters_from_road, bool has_meters_from_road);
 int32_t __swift_bridge__$flows_trip_vehicle_interpret_reply(struct RustStr transcript);
+int32_t __swift_bridge__$flows_trip_vehicle_interpret_crash_reply(struct RustStr transcript);
 double __swift_bridge__$flows_trip_vehicle_hos_break_due_seconds(void);
 double __swift_bridge__$flows_trip_vehicle_hos_warn_before_break_seconds(void);
 double __swift_bridge__$flows_trip_vehicle_hos_daily_driving_limit_seconds(void);
