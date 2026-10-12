@@ -276,7 +276,7 @@ struct SeasonalStore: Codable {
     static let relocationMinDays = flows_seasonal_relocation_min_days()
 
     mutating func recordOrigin(lat: Int, lon: Int, t: Double) {
-        let key = flows_seasonal_origin_key(Int64(lat), Int64(lon)).toString()
+        let key = flows_seasonal_origin_key(Int64(lat), Int64(lon)).text   // "" on a Rust panic: no trap
         let prior = origins[key] ?? OriginStat()
         let next = flows_seasonal_origin_after_trip(
             FlowsSeasonalOriginStat(weighted: prior.weighted, last_seen: prior.lastSeen,

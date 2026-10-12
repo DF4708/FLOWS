@@ -238,6 +238,20 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertEqual(out[0]?.alertID, "severe")
     }
 
+    /// A warning names the sample over the stronger-rated watch around it.
+    func testProvisionalSamplesPickTheWarningOverItsWatch() {
+        let pt = CLLocationCoordinate2D(latitude: 43.0, longitude: -89.0)
+        let out = WeatherAlertService.provisionalSamples(
+            samples: [pt],
+            cellAlerts: [WeatherAlertService.cellKey(pt): [
+                alert(id: "watch", event: "Tornado Watch", severity: 0.95),
+                alert(id: "svr", event: "Severe Thunderstorm Warning", severity: 0.88),
+            ]],
+            arrivalOffsets: nil, now: Date())
+        XCTAssertEqual(out[0]?.alertID, "svr")
+        XCTAssertEqual(out[0]?.worstEvent, "Severe Thunderstorm Warning")
+    }
+
     // MARK: state-level alert resolution (client-side spatial join)
 
     func testParseAlertFeaturesPolygonAndZoneShapes() {
@@ -265,6 +279,26 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertNil(parsed[1].polygon)          // geometry: null survives as nil
         XCTAssertEqual(parsed[1].severityScore, 0.72, accuracy: 1e-9)
         XCTAssertEqual(parsed[1].affectedZones, ["z1", "z2"])
+    }
+
+    /// An alert is in force until the EVENT ends, not until its message
+    /// lapses; with no end given, it runs on 12 h past the message.
+    func testAnAlertLastsUntilItsEventEnds() throws {
+        func alert(_ extra: [String: Any]) -> [String: Any] {
+            ["id": "urn:x",
+             "properties": ["id": "urn:x", "event": "Winter Storm Warning", "headline": "WSW",
+                            "severity": "Severe", "expires": "2026-12-01T04:00:00-06:00"]
+                .merging(extra) { $1 },
+             "geometry": NSNull()]
+        }
+        let parse = { (extra: [String: Any]) in
+            WeatherAlertService.parseAlertFeatures([alert(extra)]).first?.expires
+        }
+        let message = try XCTUnwrap(parse([:])).addingTimeInterval(-12 * 3600)
+        let ends = try XCTUnwrap(parse(["ends": "2026-12-01T20:00:00-06:00"]))
+        XCTAssertEqual(ends.timeIntervalSince(message), 16 * 3600, "until the storm ends at 20:00")
+        let early = try XCTUnwrap(parse(["ends": "2026-12-01T02:00:00-06:00"]))
+        XCTAssertEqual(early, message, "never before the message itself lapses")
     }
 
     func testStatesContainingUsesBBoxOverlap() {

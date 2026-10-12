@@ -846,6 +846,56 @@ pub fn provisional_samples(
         .collect()
 }
 
+/// Whether an alert's event is a warning — a hazard happening or imminent
+/// ("Tornado Warning", "Flash Flood Emergency") — rather than a watch, an
+/// advisory or a statement.
+fn is_warning(event: &str) -> bool {
+    let lower = event.to_ascii_lowercase();
+    lower.contains("warning") || lower.contains("emergency")
+}
+
+/// [`provisional_samples`] with a warning ranked above any watch, advisory
+/// or statement at the same cell, then by severity (ties keep the first).
+/// By severity alone a Tornado Watch (CAP "Extreme") outranked the Severe
+/// Thunderstorm Warning inside it, and the watch — a capped predictor —
+/// set the stretch's band below Red; a warning tied with its own watch on
+/// list order. Only the one alert per sample reaches the band, the
+/// escalation and the imminent check, so it must be the realized one.
+#[must_use]
+pub fn provisional_samples_warnings_first(
+    samples: &[Point],
+    cell_alerts: &BTreeMap<String, Vec<Alert>>,
+    arrival_offsets: Option<&[f64]>,
+    now: f64,
+) -> Vec<Option<Sample>> {
+    samples
+        .iter()
+        .enumerate()
+        .map(|(i, &pt)| {
+            let hits = cell_alerts.get(&cell_key(pt)?)?;
+            let offset = arrival_offsets
+                .and_then(|a| a.get(i))
+                .copied()
+                .unwrap_or(0.0);
+            let mut worst: Option<&Alert> = None;
+            for a in hits.iter().filter(|a| is_active(a.expires, offset, now)) {
+                let outranks = worst.is_none_or(|w| {
+                    let (wa, ww) = (is_warning(&a.event), is_warning(&w.event));
+                    (wa && !ww) || (wa == ww && w.severity_score < a.severity_score)
+                });
+                if outranks {
+                    worst = Some(a);
+                }
+            }
+            Some(Sample {
+                risk: worst.map_or(0.0, |w| w.severity_score),
+                worst_event: worst.map(|w| w.event.clone()),
+                alert_id: worst.map(|w| w.id.clone()),
+            })
+        })
+        .collect()
+}
+
 /// The rough state boxes as (code, south, west, north, east), in code order.
 pub const STATE_BOXES: &[(&str, f64, f64, f64, f64)] = &[
     ("AL", 30.1, -88.5, 35.0, -84.9),
@@ -1334,6 +1384,44 @@ mod tests {
         assert!(got[1].is_none());
         let late = provisional_samples(&[(43.07, -89.4)], &cells, None, 150.0);
         assert_eq!(late[0].as_ref().map(|s| s.risk), Some(0.45));
+    }
+
+    #[test]
+    fn a_warning_outranks_the_watch_around_it() {
+        let alert = |id: &str, event: &str, severity: f64| Alert {
+            id: id.to_string(),
+            event: event.to_string(),
+            severity_score: severity,
+            ..Alert::default()
+        };
+        let p = (43.07, -89.4);
+        let mut cells = BTreeMap::new();
+        cells.insert(
+            cell_key(p).unwrap(),
+            vec![
+                alert("watch", "Tornado Watch", 0.95),
+                alert("svr", "Severe Thunderstorm Warning", 0.88),
+            ],
+        );
+        let pick = |s: Vec<Option<Sample>>| s[0].as_ref().and_then(|s| s.alert_id.clone());
+        assert_eq!(
+            pick(provisional_samples(&[p], &cells, None, 0.0)),
+            Some("watch".into())
+        );
+        assert_eq!(
+            pick(provisional_samples_warnings_first(&[p], &cells, None, 0.0)),
+            Some("svr".into()),
+            "the warning, not the stronger-rated watch"
+        );
+        // Between warnings, severity still decides.
+        cells
+            .get_mut(&cell_key(p).unwrap())
+            .unwrap()
+            .push(alert("tor", "Tornado Warning", 0.95));
+        assert_eq!(
+            pick(provisional_samples_warnings_first(&[p], &cells, None, 0.0)),
+            Some("tor".into())
+        );
     }
 
     #[test]

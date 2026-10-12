@@ -461,7 +461,9 @@ actor LiveHazardFeedFetcher {
             .init(name: "returnGeometry", value: "true"),
             .init(name: "outSR", value: "4326"),
             .init(name: "f", value: "geojson"),
-            .init(name: "resultRecordCount", value: "60"),
+            // 500, not 60: a fire-season bbox on the West Coast holds more
+            // than 60 perimeters, and the one on the route could be cut.
+            .init(name: "resultRecordCount", value: "500"),
         ]
         var rings: [[CLLocationCoordinate2D]] = []
         if let u = comps?.url,
@@ -951,7 +953,9 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"maxspeed\"][\"highway\"]"
             + "(around:50,\(qlat),\(qlon));out tags 10;"
         var limit: Double?
+        var elementsAnswered = false
         if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            elementsAnswered = true
             var best: Double?
             for el in elements {
                 guard let tags = el["tags"] as? [String: Any],
@@ -961,8 +965,12 @@ actor LiveHazardFeedFetcher {
             }
             limit = best
         }
-        postedLimitCache[key] = limit
-        if postedLimitCache.count > 200 { CacheEviction.dropHalf(&postedLimitCache) }
+        // Only an answer is kept: a failed lookup cached as "no limit" left
+        // the block without one for the rest of the drive (as lanes did).
+        if elementsAnswered {
+            postedLimitCache[key] = limit
+            if postedLimitCache.count > 200 { CacheEviction.dropHalf(&postedLimitCache) }
+        }
         return limit
     }
 

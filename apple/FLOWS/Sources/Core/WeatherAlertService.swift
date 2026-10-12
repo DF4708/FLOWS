@@ -326,7 +326,8 @@ final class WeatherAlertService: ObservableObject {
                         indicesOrOne.withUnsafeBufferPointer { ci in
                             offsetsOrOne.withUnsafeBufferPointer { off in
                                 flows_hazard_provisional_samples(
-                                    la, lo, sev, exp, he, keys.joined(separator: "\u{1F}"), cc, ci,
+                                    la, lo, sev, all.map(\.event).joined(separator: "\u{1F}"),
+                                    exp, he, keys.joined(separator: "\u{1F}"), cc, ci,
                                     off, arrivalOffsets != nil, now.timeIntervalSinceReferenceDate)
                             }
                         }
@@ -705,7 +706,9 @@ final class WeatherAlertService: ObservableObject {
                 // alert banner as if the corridor cleared.
                 if score.complete { self.activeHeadlines = score.headlines }
                 onUpdate?(score)
-                try? await Task.sleep(for: .seconds(max(w.cadence, 60) * AdaptiveTuning.shared.settings.ttlMultiplier))
+                // Not stretched by the battery and heat setting: alerts are
+                // the one thing a hot or low phone must still check on time.
+                try? await Task.sleep(for: .seconds(max(w.cadence, 60)))
             }
         }
     }
@@ -731,9 +734,11 @@ final class WeatherAlertService: ObservableObject {
         /// split tornado polygons, island coastal warnings). Display-only:
         /// scoring is point-queried, but the map must tint EVERY warned area.
         var extraRings: [[CLLocationCoordinate2D]] = []
-        /// When the alert expires (imminent-alert policy: expiry within ~2 h
-        /// makes an upper-yellow risk "transient" → wait it out at a rest
-        /// area instead of driving into it).
+        /// When the hazard stops being in force — for NWS alerts the event's
+        /// `ends`, not the message's `expires` (parseAlertFeatures).
+        /// Imminent-alert policy: an end within ~2 h makes an upper-yellow
+        /// risk "transient" → wait it out at a rest area instead of driving
+        /// into it.
         var expires: Date? = nil
         /// When the incident BEGAN (onset/effective/sent) — the reach
         /// circle's clock starts here.
@@ -747,6 +752,10 @@ final class WeatherAlertService: ObservableObject {
         /// the containable area for alerts the feed ships with
         /// `geometry: null`. Empty for non-NWS providers.
         var affectedZones: [String] = []
+        /// The earlier messages this one updates (NWS `references`, their
+        /// identifiers): an update has a new id, and a dismissal of the old
+        /// one carries over to it.
+        var references: [String] = []
     }
 
     // ISO8601DateFormatter is thread-safe (Foundation guarantees it post-iOS
@@ -936,9 +945,24 @@ final class WeatherAlertService: ObservableObject {
                   let headline = (props["headline"] as? String) ?? (props["event"] as? String)
             else { return nil }
             let score = Self.severityScore((props["severity"] as? String) ?? "Unknown")
-            let expires = (props["expires"] as? String).flatMap {
+            // When the HAZARD ends, which is what every reader of `expires`
+            // means (is it in force when the car gets there, how long to
+            // shelter, is it brief enough to wait out). NWS `expires` is
+            // when this MESSAGE lapses — often just the next update — and
+            // `ends` is the event's own end: a winter storm warning whose
+            // message expired at 04:00 still ends the next evening, and was
+            // dropped from every check point reached after 04:00. With no
+            // `ends` ("until further notice", a river flood), the hazard is
+            // taken to run 12 h past the message: an unknown end is not an
+            // early one.
+            let message = (props["expires"] as? String).flatMap {
                 Self.alertDateParser.date(from: $0)
             }
+            let ends = (props["ends"] as? String).flatMap {
+                Self.alertDateParser.date(from: $0)
+            }
+            let expires = ends.map { max($0, message ?? $0) }
+                ?? message.map { $0.addingTimeInterval(12 * 3600) }
             let onset = ["onset", "effective", "sent"]
                 .compactMap { props[$0] as? String }
                 .compactMap { Self.alertDateParser.date(from: $0) }
@@ -959,7 +983,9 @@ final class WeatherAlertService: ObservableObject {
                 onset: onset,
                 sourceURL: source,
                 detail: detail,
-                affectedZones: (props["affectedZones"] as? [String]) ?? [])
+                affectedZones: (props["affectedZones"] as? [String]) ?? [],
+                references: (props["references"] as? [[String: Any]])?
+                    .compactMap { $0["identifier"] as? String } ?? [])
         }
     }
 
@@ -996,8 +1022,8 @@ final class WeatherAlertService: ObservableObject {
     }
 }
 
-/// Grid-cell → alerts cache with TTL. Alerts churn on a minutes scale; 180 s
-/// keeps route re-plans and the 240 s corridor watch fresh while letting
+/// Grid-cell → alerts cache with TTL. Alerts churn on a minutes scale; 100 s
+/// keeps route re-plans and the corridor watch fresh while letting
 /// alternates (which share most of their corridor) reuse each other's fetches.
 actor AlertZoneCache {
     private struct Entry {
@@ -1006,11 +1032,16 @@ actor AlertZoneCache {
     }
 
     private var store: [String: Entry] = [:]
-    private let ttl: TimeInterval = 180
+    /// Under the drive-time watch's fastest cadence (120 s at road speed),
+    /// so each check reads alerts no older than one tick; and NOT scaled
+    /// by the battery and heat setting like other caches — at 180 s, x2 in
+    /// Low Power Mode and x3 on a hot dashboard, a new tornado warning
+    /// reached the driver 4, 8 or 12 minutes late.
+    static let alertSeconds: TimeInterval = 100
     private var inFlight: [String: Task<[WeatherAlertService.NWSAlert]?, Never>] = [:]
 
     func get(_ key: String) -> [WeatherAlertService.NWSAlert]? {
-        guard let e = store[key], Date().timeIntervalSince(e.fetched) < AdaptiveTuning.shared.ttl(ttl) else { return nil }
+        guard let e = store[key], Date().timeIntervalSince(e.fetched) < Self.alertSeconds else { return nil }
         return e.hits
     }
 
@@ -1128,7 +1159,7 @@ actor StateAlertCache {
 
     func alerts(area: String) async -> [WeatherAlertService.NWSAlert]? {
         if let hit = store[area],
-           Date().timeIntervalSince(hit.fetched) < AdaptiveTuning.shared.ttl(180) {
+           Date().timeIntervalSince(hit.fetched) < AlertZoneCache.alertSeconds {   // as the cell cache
             return hit.alerts
         }
         if let running = inFlight[area] { return await running.value }
@@ -1253,17 +1284,24 @@ actor WMOAlertCache {
             guard let exp = capDate.date(from: item.expires)
                     ?? rfc822.date(from: item.expires) else { return true }
             return exp > now
-        }.prefix(24)
+        }
+        // Every alert in force is read, or the answer is "unknown": the list
+        // was cut at 24, and an alert whose details failed to load was
+        // dropped while the feed still counted as complete — a route could
+        // pass its check missing the one alert on it. Past 100 (no real
+        // feed's day) the answer is unknown too, rather than a guess.
+        guard items.count <= 100 else { return nil }
         var out: [WeatherAlertService.NWSAlert] = []
-        await withTaskGroup(of: [WeatherAlertService.NWSAlert].self) { group in
+        var unreadable = false
+        await withTaskGroup(of: [WeatherAlertService.NWSAlert]?.self) { group in
             for item in items {
                 group.addTask {
                     guard let u = URL(string: item.link),
                           let (d, r) = try? await ThrottledNet.fetch(u),
                           (r as? HTTPURLResponse)?.statusCode == 200,
                           let capXML = String(data: d, encoding: .utf8),
-                          let cap = WMOAlertParsing.parseCAP(capXML),
-                          !cap.polygons.isEmpty else { return [] }
+                          let cap = WMOAlertParsing.parseCAP(capXML) else { return nil }
+                    guard !cap.polygons.isEmpty else { return [] }
                     // One NWSAlert per ring, SAME id: a multi-area alert warns
                     // every ring it covers, while corridor coverage still
                     // groups the rings as one alert (dedupe is by id).
@@ -1281,8 +1319,10 @@ actor WMOAlertCache {
                     }
                 }
             }
-            for await hits in group { out.append(contentsOf: hits) }
+            for await hits in group {
+                if let hits { out.append(contentsOf: hits) } else { unreadable = true }
+            }
         }
-        return out
+        return unreadable ? nil : out
     }
 }

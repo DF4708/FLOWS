@@ -38,6 +38,11 @@ enum WMOAlertParsing {
     static func feedCode(for c: CLLocationCoordinate2D) -> String? {
         for f in feeds where c.latitude >= f.minLat && c.latitude <= f.maxLat
             && c.longitude >= f.minLon && c.longitude <= f.maxLon {
+            // Mexico's box also takes in Guatemala, El Salvador and northern
+            // Honduras (south of 17.8°N, east of 91.4°W), where its feed has
+            // no shapes: Guatemala City read "no alerts", complete, when it
+            // is a place no covered feed answers for.
+            if f.code == "mx-smn-es", c.latitude < 17.8, c.longitude > -91.4 { continue }
             return f.code
         }
         return nil

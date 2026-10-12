@@ -110,7 +110,17 @@ actor NWSForecastFetcher {
         }
         if let running = inFlight[k] { return await running.value }
         let task = Task<ForecastConditions?, Never> {
-            if let nws = await self.nwsConditions(at: c) { return nws }
+            if var nws = await self.nwsConditions(at: c) {
+                // The hourly forecast's periods carry no rainfall amounts
+                // (only NWS's raw grid data does), so wherever NWS answered,
+                // the rain total was missing and the low-ground flood booster
+                // and the water check never woke across the US. Open-Meteo's
+                // hourly amounts (keyless) fill it in.
+                if nws.qpfInches == nil, let om = await self.openMeteoConditions(at: c) {
+                    nws.qpfInches = om.qpfInches
+                }
+                return nws
+            }
             if let apple = await self.appleWeatherKitConditions(at: c) { return apple }
             if let om = await self.openMeteoConditions(at: c) {
                 FlowsDiag.logThrottled(
@@ -231,7 +241,7 @@ actor NWSForecastFetcher {
         let url = String(
             format: "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
                 + "&hourly=temperature_2m,wind_speed_10m,precipitation_probability,precipitation"
-                + "&forecast_days=1&temperature_unit=fahrenheit&wind_speed_unit=mph"
+                + "&forecast_days=2&temperature_unit=fahrenheit&wind_speed_unit=mph"
                 + "&precipitation_unit=inch&timezone=GMT",
             c.latitude, c.longitude)
         guard let u = URL(string: url),

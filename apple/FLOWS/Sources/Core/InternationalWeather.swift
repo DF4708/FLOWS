@@ -118,7 +118,9 @@ enum IntlWeatherParsing {
 
         // ISIZE trailer: uncompressed size mod 2^32 — sizes our buffer.
         let isize = data.suffix(4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
-        let capacity = max(Int(isize), deflated.count * 4, 64_000)
+        // Capped: the trailer is the server's word, and a bad one asked for
+        // up to 4 GB. Past 16 MB the decode comes up short and is refused.
+        let capacity = min(max(Int(isize), deflated.count * 4, 64_000), 16 << 20)
         var out = Data(count: capacity)
         let written = out.withUnsafeMutableBytes { dst in
             deflated.withUnsafeBytes { src in

@@ -1807,6 +1807,10 @@ final class AppModel: ObservableObject {
             }
             guard let warning = imminentWarning,
                   warning.alertID != oldValue?.alertID else { return }
+            // Once per alert per trip: a yellow banner clears when its alert
+            // leaves the look-ahead window, which shrinks with speed — slowing
+            // in traffic and speeding up again said the same advisory twice.
+            guard announcedImminentIDs.insert(warning.alertID).inserted else { return }
             if hapticAlerts { Haptics.warning() }
             // The notice is read at leisure, so it carries the official text;
             // the voice says the blunt version of a yellow warning.
@@ -1888,6 +1892,12 @@ final class AppModel: ObservableObject {
     var pendingVoiceOffer: VoiceOffer?
     /// Warnings the driver dismissed — never re-raised for the same alert.
     private var dismissedImminentIDs = Set<String>()
+    /// Alerts that have held the warning banner this trip.
+    private var shownImminentIDs = Set<String>()
+    /// Alerts already spoken (and buzzed, and noticed) this trip.
+    private var announcedImminentIDs = Set<String>()
+    /// Alerts that have raised the escalation prompt this trip.
+    private var escalationRaisedIDs = Set<String>()
     /// Cached OSM escape speeds per alert (one Overpass probe each).
     private var reachSpeeds: [String: Double] = [:]
     /// Alerts that already auto-opened the shelter list (once per alert).
@@ -4906,6 +4916,9 @@ final class AppModel: ObservableObject {
         continuationFailure = nil
         imminentWarning = nil
         dismissedImminentIDs = []
+        shownImminentIDs = []
+        announcedImminentIDs = []
+        escalationRaisedIDs = []
         shelteredImminentIDs = []
         reachSpeeds = [:]   // per-trip state like its two siblings above
         stopDelaySeconds = 0
@@ -5173,6 +5186,7 @@ final class AppModel: ObservableObject {
         // The worst actually ENCOUNTERED is the peak sample, not the blend —
         // it feeds the seasonal model's predicted-vs-observed record.
         tripObservedPeak = max(tripObservedPeak, peakR)
+        carryDismissals(score)
         if notifyImminent { updateImminentWarning(from: score) }
         // Reverse-geocode the current state on corridor updates — the
         // trucker radio retune AND the DOT work-zone feed both key off it.
@@ -5240,9 +5254,15 @@ final class AppModel: ObservableObject {
             // the driver answers it, and a driver can't answer at speed: the
             // lock screen hears about a prompt once, and again only for a
             // different hazard or a clearly worse one — not every 2 minutes.
+            // New to the driver, not just to the last prompt: with two red
+            // warnings in the window the peak flips between them as it
+            // slides, and comparing with the last prompt alone buzzed and
+            // spoke the prompt every pass (about every 2 min).
+            let alreadyRaised = raised.alertID.map { escalationRaisedIDs.contains($0) } ?? false
             let isNew = previous == nil
-                || previous?.alertID != raised.alertID
+                || (previous?.alertID != raised.alertID && !alreadyRaised)
                 || raised.newRisk > (previous?.newRisk ?? 0) + EscalationPolicy.dismissMargin
+            if let id = raised.alertID { escalationRaisedIDs.insert(id) }
             if isNew {
                 // The prompt was silent: a driver watching the road got no
                 // cue at all while a lesser faster-route offer was spoken
@@ -5269,6 +5289,24 @@ final class AppModel: ObservableObject {
     /// treatment: official summary + source link, and FLOWS reacts —
     /// life-safety warnings auto-open the matching shelter list; short-lived
     /// upper-yellow risk recommends waiting it out at a rest area.
+    /// NWS updates a warning under a NEW id that names the old one in
+    /// `references`. Dismissals were kept by id, so each update (every 15-30
+    /// min) spoke a dismissed tornado warning again, reopened its shelter
+    /// list and raised its escalation prompt again: what was decided about
+    /// the old message carries over to the update.
+    private func carryDismissals(_ score: WeatherAlertService.CorridorScore) {
+        for alert in score.alertsByID.values where !alert.references.isEmpty {
+            func carry(_ set: inout Set<String>) {
+                if alert.references.contains(where: set.contains) { set.insert(alert.id) }
+            }
+            carry(&dismissedImminentIDs)
+            carry(&shelteredImminentIDs)
+            carry(&shownImminentIDs)
+            carry(&announcedImminentIDs)
+            carry(&escalationState.dismissedAlertIDs)
+        }
+    }
+
     private func updateImminentWarning(from score: WeatherAlertService.CorridorScore) {
         guard let fix = effectivePosition else { return }
         let speed = max(location.speed, 0)
@@ -5354,9 +5392,20 @@ final class AppModel: ObservableObject {
         // flood advisory; a flood advisory never displaces a tornado, and a
         // lookout displaces nothing). The same alert refreshes freely; the
         // voice and haptics fire only when the alert ID changes.
+        //
+        // An EQUAL-ranked alert of another kind replaces it too, once: a
+        // Tornado Warning spun up in a Hurricane Warning's rain band (both
+        // rank 3) got no banner, no voice and no shelter list, under a
+        // hurricane banner that never clears by itself. An alert already
+        // shown doesn't come back over the one that replaced it, so two of
+        // a rank can't take turns.
         if let current = imminentWarning, current.alertID != warning.alertID,
-           warning.threatRank <= current.threatRank,
-           !dismissedImminentIDs.contains(current.alertID) { return }
+           !dismissedImminentIDs.contains(current.alertID),
+           warning.threatRank < current.threatRank
+            || (warning.threatRank == current.threatRank
+                && (warning.event == current.event
+                    || shownImminentIDs.contains(warning.alertID))) { return }
+        shownImminentIDs.insert(warning.alertID)
         if imminentWarning != warning { imminentWarning = warning }
         // Red alert → the shelter list for THIS hazard opens itself, once.
         if action == .shelter, !shelteredImminentIDs.contains(alert.id) {

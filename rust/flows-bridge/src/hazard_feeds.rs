@@ -144,6 +144,7 @@ mod ffi {
             sample_lats: &[f64],
             sample_lons: &[f64],
             alert_severities: &[f64],
+            alert_events_joined: &str,
             alert_expires: &[f64],
             alert_has_expires: &[i64],
             cell_keys_joined: &str,
@@ -606,6 +607,7 @@ pub fn flows_hazard_provisional_samples(
     sample_lats: &[f64],
     sample_lons: &[f64],
     alert_severities: &[f64],
+    alert_events_joined: &str,
     alert_expires: &[f64],
     alert_has_expires: &[i64],
     cell_keys_joined: &str,
@@ -616,11 +618,15 @@ pub fn flows_hazard_provisional_samples(
     now: f64,
 ) -> Vec<f64> {
     contain(Vec::new(), || {
+        // Each alert's event, so a warning outranks a watch at its cell
+        // (provisional_samples_warnings_first).
+        let events = split_joined(alert_events_joined);
         let alerts: Vec<Alert> = alert_severities
             .iter()
             .enumerate()
             .map(|(k, &s)| Alert {
                 id: k.to_string(),
+                event: events.get(k).cloned().unwrap_or_default(),
                 severity_score: s,
                 expires: (alert_has_expires.get(k).copied().unwrap_or(0) != 0)
                     .then(|| alert_expires.get(k).copied().unwrap_or(0.0)),
@@ -642,20 +648,25 @@ pub fn flows_hazard_provisional_samples(
             cells.insert(key, hits);
         }
         let offsets = has_offsets.then_some(arrival_offsets);
-        hf::provisional_samples(&points(sample_lats, sample_lons), &cells, offsets, now)
-            .iter()
-            .flat_map(|s| match s {
-                None => [0.0, 0.0, -1.0],
-                Some(s) => [
-                    1.0,
-                    s.risk,
-                    s.alert_id
-                        .as_deref()
-                        .and_then(|id| id.parse::<f64>().ok())
-                        .unwrap_or(-1.0),
-                ],
-            })
-            .collect()
+        hf::provisional_samples_warnings_first(
+            &points(sample_lats, sample_lons),
+            &cells,
+            offsets,
+            now,
+        )
+        .iter()
+        .flat_map(|s| match s {
+            None => [0.0, 0.0, -1.0],
+            Some(s) => [
+                1.0,
+                s.risk,
+                s.alert_id
+                    .as_deref()
+                    .and_then(|id| id.parse::<f64>().ok())
+                    .unwrap_or(-1.0),
+            ],
+        })
+        .collect()
     })
 }
 
