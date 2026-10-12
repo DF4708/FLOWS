@@ -857,8 +857,8 @@ public func flows_hazard_water_proximity_score(_ lats: UnsafeBufferPointer<Doubl
 public func flows_hazard_closure_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
     __swift_bridge__$flows_hazard_closure_score(lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
 }
-public func flows_hazard_route_through_closure(_ route_lats: UnsafeBufferPointer<Double>, _ route_lons: UnsafeBufferPointer<Double>, _ closure_lats: UnsafeBufferPointer<Double>, _ closure_lons: UnsafeBufferPointer<Double>) -> Bool {
-    __swift_bridge__$flows_hazard_route_through_closure(route_lats.toFfiSlice(), route_lons.toFfiSlice(), closure_lats.toFfiSlice(), closure_lons.toFfiSlice())
+public func flows_hazard_route_through_closure(_ route_lats: UnsafeBufferPointer<Double>, _ route_lons: UnsafeBufferPointer<Double>, _ closure_lats: UnsafeBufferPointer<Double>, _ closure_lons: UnsafeBufferPointer<Double>, _ line_lens: UnsafeBufferPointer<Int64>, _ directed: UnsafeBufferPointer<UInt8>) -> Bool {
+    __swift_bridge__$flows_hazard_route_through_closure(route_lats.toFfiSlice(), route_lons.toFfiSlice(), closure_lats.toFfiSlice(), closure_lons.toFfiSlice(), line_lens.toFfiSlice(), directed.toFfiSlice())
 }
 public func flows_hazard_tropical_score(_ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ max_wind_kts: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
     __swift_bridge__$flows_hazard_tropical_score(lats.toFfiSlice(), lons.toFfiSlice(), max_wind_kts.toFfiSlice(), lat, lon)
@@ -3806,17 +3806,17 @@ public func flows_transit_agency_zone<GenericToRustStr: ToRustStr>(_ gtfs_dir: G
         RustString(ptr: __swift_bridge__$flows_transit_agency_zone(gtfs_dirAsRustStr))
     })
 }
-public func flows_transit_build<GenericToRustStr: ToRustStr>(_ gtfs_dir: GenericToRustStr, _ prefix: GenericToRustStr, _ service_date: Int64) -> RustVec<RustString> {
+public func flows_transit_build<GenericToRustStr: ToRustStr>(_ gtfs_dir: GenericToRustStr, _ prefix: GenericToRustStr, _ service_date: Int64, _ day_starts: UnsafeBufferPointer<Double>) -> RustVec<RustString> {
     return prefix.toRustStr({ prefixAsRustStr in
         return gtfs_dir.toRustStr({ gtfs_dirAsRustStr in
-        RustVec(ptr: __swift_bridge__$flows_transit_build(gtfs_dirAsRustStr, prefixAsRustStr, service_date))
+        RustVec(ptr: __swift_bridge__$flows_transit_build(gtfs_dirAsRustStr, prefixAsRustStr, service_date, day_starts.toFfiSlice()))
     })
     })
 }
-public func flows_transit_build_many<GenericToRustStr: ToRustStr>(_ gtfs_dirs: GenericToRustStr, _ shift_secs: UnsafeBufferPointer<Double>, _ prefix: GenericToRustStr, _ service_date: Int64) -> RustVec<RustString> {
+public func flows_transit_build_many<GenericToRustStr: ToRustStr>(_ gtfs_dirs: GenericToRustStr, _ shift_secs: UnsafeBufferPointer<Double>, _ prefix: GenericToRustStr, _ service_date: Int64, _ day_starts: UnsafeBufferPointer<Double>) -> RustVec<RustString> {
     return prefix.toRustStr({ prefixAsRustStr in
         return gtfs_dirs.toRustStr({ gtfs_dirsAsRustStr in
-        RustVec(ptr: __swift_bridge__$flows_transit_build_many(gtfs_dirsAsRustStr, shift_secs.toFfiSlice(), prefixAsRustStr, service_date))
+        RustVec(ptr: __swift_bridge__$flows_transit_build_many(gtfs_dirsAsRustStr, shift_secs.toFfiSlice(), prefixAsRustStr, service_date, day_starts.toFfiSlice()))
     })
     })
 }

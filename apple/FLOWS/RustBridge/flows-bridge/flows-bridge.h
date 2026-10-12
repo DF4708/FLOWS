@@ -169,7 +169,7 @@ double __swift_bridge__$flows_hazard_fire_score(struct __private__FfiSlice lats,
 double __swift_bridge__$flows_hazard_seismic_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct __private__FfiSlice magnitudes, struct __private__FfiSlice age_hours, double lat, double lon);
 double __swift_bridge__$flows_hazard_water_proximity_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
 double __swift_bridge__$flows_hazard_closure_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
-bool __swift_bridge__$flows_hazard_route_through_closure(struct __private__FfiSlice route_lats, struct __private__FfiSlice route_lons, struct __private__FfiSlice closure_lats, struct __private__FfiSlice closure_lons);
+bool __swift_bridge__$flows_hazard_route_through_closure(struct __private__FfiSlice route_lats, struct __private__FfiSlice route_lons, struct __private__FfiSlice closure_lats, struct __private__FfiSlice closure_lons, struct __private__FfiSlice line_lens, struct __private__FfiSlice directed);
 double __swift_bridge__$flows_hazard_tropical_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct __private__FfiSlice max_wind_kts, double lat, double lon);
 double __swift_bridge__$flows_hazard_flood_gauge_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct RustStr categories_joined, double lat, double lon);
 double __swift_bridge__$flows_hazard_volcanic_score(struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct RustStr levels_joined, double lat, double lon);
@@ -730,8 +730,8 @@ void* __swift_bridge__$flows_tags_ranked_nearest(struct __private__FfiSlice lats
 #include <stdint.h>
 #include <stdbool.h>
 void* __swift_bridge__$flows_transit_agency_zone(struct RustStr gtfs_dir);
-void* __swift_bridge__$flows_transit_build(struct RustStr gtfs_dir, struct RustStr prefix, int64_t service_date);
-void* __swift_bridge__$flows_transit_build_many(struct RustStr gtfs_dirs, struct __private__FfiSlice shift_secs, struct RustStr prefix, int64_t service_date);
+void* __swift_bridge__$flows_transit_build(struct RustStr gtfs_dir, struct RustStr prefix, int64_t service_date, struct __private__FfiSlice day_starts);
+void* __swift_bridge__$flows_transit_build_many(struct RustStr gtfs_dirs, struct __private__FfiSlice shift_secs, struct RustStr prefix, int64_t service_date, struct __private__FfiSlice day_starts);
 void* __swift_bridge__$flows_transit_info(struct RustStr prefix);
 void* __swift_bridge__$flows_transit_city_feeds(double latitude, double longitude, int64_t limit);
 void* __swift_bridge__$flows_transit_ship_feeds(double latitude, double longitude, double reach_km, int64_t limit);

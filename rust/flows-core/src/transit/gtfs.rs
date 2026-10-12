@@ -345,6 +345,38 @@ const CARRY_DAYS: u32 = 3;
 
 const DAY_SECS: Time = 86_400;
 
+/// How far back, in seconds, each of the [`CARRY_DAYS`] days before the
+/// service date began: `[0]` is yesterday's start, measured back from
+/// today's. A trip carried from day D−k runs at its own time less
+/// `starts[k−1]`.
+///
+/// Not always a whole number of days: service days start at noon minus
+/// twelve hours in the agency's zone, and across a clock change two starts
+/// are 23 or 25 hours apart. Counting 24 put a Saturday owl bus's 25:30
+/// (01:30 EDT on the fall-back Sunday) at 01:30 EST, an hour after it left.
+/// This crate has no time-zone database, so the caller works these out
+/// (Swift's `TransitClock.dayStarts`); [`CALENDAR_DAY_STARTS`] is the answer
+/// for a stretch with no clock change.
+pub type DayStarts = [Time; CARRY_DAYS as usize];
+
+/// [`DayStarts`] with no clock change among them.
+pub const CALENDAR_DAY_STARTS: DayStarts = [DAY_SECS, 2 * DAY_SECS, 3 * DAY_SECS];
+
+/// `starts` when each lies within two hours of its whole-day count (a clock
+/// change moves one by an hour), else the calendar's: a caller's mistake
+/// must not drop or duplicate a day of trips.
+pub fn checked_day_starts(starts: [f64; CARRY_DAYS as usize]) -> DayStarts {
+    let mut out = CALENDAR_DAY_STARTS;
+    for (k, &s) in starts.iter().enumerate() {
+        let whole = f64::from(CALENDAR_DAY_STARTS[k]);
+        if !(s.is_finite() && (s - whole).abs() <= 7_200.0 && s.fract() == 0.0) {
+            return CALENDAR_DAY_STARTS;
+        }
+        out[k] = s as Time;
+    }
+    out
+}
+
 /// In a trip's days mask (bit k: runs k days before the service date), the
 /// bit saying every row is kept whatever day it ran — a frequencies.txt
 /// template, whose windows say when it runs.
@@ -968,7 +1000,17 @@ fn pick_fare(ids: &[String], offers: &HashMap<String, Offer>) -> Option<Fare> {
 /// `date` is `YYYYMMDD`; `None` uses the first weekday the calendar covers
 /// with active service (never the system clock — wrappers pass "today" in).
 pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
-    let feed = parse_feed(dir, date)?;
+    load_gtfs_on(dir, date, CALENDAR_DAY_STARTS)
+}
+
+/// [`load_gtfs`] with the real starts of the days before (see
+/// [`DayStarts`]): the app's, which knows the agency's clock changes.
+pub fn load_gtfs_on(
+    dir: &Path,
+    date: Option<u32>,
+    starts: DayStarts,
+) -> Result<GtfsLoad, GtfsError> {
+    let feed = parse_feed(dir, date, starts)?;
     Ok(assemble(vec![(feed, 0)], Vec::new(), false))
 }
 
@@ -994,7 +1036,7 @@ pub fn load_gtfs(dir: &Path, date: Option<u32>) -> Result<GtfsLoad, GtfsError> {
 /// [`GtfsLoad::skipped_feeds`], because a city's broken bus feed must never
 /// cost a rider their train times.
 pub fn load_gtfs_many(feeds: &[FeedInput], date: u32) -> Result<GtfsLoad, GtfsError> {
-    load_many(feeds, date, false)
+    load_many(feeds, date, false, &[])
 }
 
 /// [`load_gtfs_many`] for a timetable of city and ferry feeds only — one
@@ -1005,16 +1047,32 @@ pub fn load_gtfs_many(feeds: &[FeedInput], date: u32) -> Result<GtfsLoad, GtfsEr
 /// published a single city's timetable had no way to change from one bus
 /// line to the next at stops 30 m apart that its `transfers.txt` never
 /// listed.
-pub fn load_gtfs_city(feeds: &[FeedInput], date: u32) -> Result<GtfsLoad, GtfsError> {
-    load_many(feeds, date, true)
+///
+/// `starts` holds each feed's [`DayStarts`], in its own agency's clock, in
+/// the order of `feeds`; a feed without one counts whole days.
+pub fn load_gtfs_city(
+    feeds: &[FeedInput],
+    date: u32,
+    starts: &[DayStarts],
+) -> Result<GtfsLoad, GtfsError> {
+    load_many(feeds, date, true, starts)
 }
 
-fn load_many(feeds: &[FeedInput], date: u32, link_first: bool) -> Result<GtfsLoad, GtfsError> {
+fn load_many(
+    feeds: &[FeedInput],
+    date: u32,
+    link_first: bool,
+    starts: &[DayStarts],
+) -> Result<GtfsLoad, GtfsError> {
+    let starts_of = |i: usize| starts.get(i).copied().unwrap_or(CALENDAR_DAY_STARTS);
     let (first, rest) = feeds.split_first().ok_or_else(|| err("no feeds to load"))?;
-    let mut parts = vec![(parse_feed(first.dir, Some(date))?, first.shift_secs)];
+    let mut parts = vec![(
+        parse_feed(first.dir, Some(date), starts_of(0))?,
+        first.shift_secs,
+    )];
     let mut skipped = Vec::new();
     for (i, input) in rest.iter().enumerate() {
-        match parse_feed(input.dir, Some(date)) {
+        match parse_feed(input.dir, Some(date), starts_of(i + 1)) {
             Ok(p) => parts.push((p, input.shift_secs)),
             Err(e) => skipped.push((i + 1, e.0)),
         }
@@ -1023,7 +1081,15 @@ fn load_many(feeds: &[FeedInput], date: u32, link_first: bool) -> Result<GtfsLoa
 }
 
 /// Parse one feed's service day into [`FeedParts`], with nothing merged.
-fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
+fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedParts, GtfsError> {
+    // Seconds back to the start of the day k days before (k ≥ 1).
+    let day_start = |k: u32| {
+        (k as usize)
+            .checked_sub(1)
+            .and_then(|i| starts.get(i))
+            .copied()
+            .unwrap_or_else(|| DAY_SECS.saturating_mul(k))
+    };
     if !dir.is_dir() {
         return Err(err(format!("not a directory: {}", dir.display())));
     }
@@ -1057,6 +1123,10 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
     let c_id = h.req("stop_id", "stops.txt")?;
     let (c_name, c_lat, c_lon) = (h.get("stop_name"), h.get("stop_lat"), h.get("stop_lon"));
     let c_tz = h.get("stop_timezone");
+    let (c_parent, c_loc) = (h.get("parent_station"), h.get("location_type"));
+    // A station's platforms, by the station's id: a transfers.txt row may
+    // name the station and mean all of them (below).
+    let mut children: HashMap<String, Vec<u32>> = HashMap::new();
     let mut stop_ids: Vec<String> = Vec::new();
     let mut stop_names: Vec<String> = Vec::new();
     let mut stop_zones: Vec<String> = Vec::new();
@@ -1084,6 +1154,17 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             }
             _ => continue, // skip the stop; the feed keeps its other rows
         };
+        // Platforms only (location_type blank or 0): an entrance, a node or
+        // a boarding area is no place to board, and a boarding area's parent
+        // is a platform, which must keep standing for itself.
+        let parent = f(&row, c_parent).trim();
+        let boardable = matches!(f(&row, c_loc).trim(), "" | "0");
+        if boardable && !parent.is_empty() && parent != id {
+            children
+                .entry(parent.to_string())
+                .or_default()
+                .push(stop_ids.len() as u32);
+        }
         stop_index.insert(id.to_string(), stop_ids.len() as u32);
         stop_ids.push(id.to_string());
         stop_names.push(f(&row, c_name).to_string());
@@ -1284,7 +1365,7 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             parse_gtfs_time(f(&row, c_dep)),
         );
         if earlier_only {
-            let today_starts = DAY_SECS * days.trailing_zeros();
+            let today_starts = day_start(days.trailing_zeros());
             if arr.max(dep).is_some_and(|t| t < today_starts) {
                 let Ok(seq) = f(&row, Some(c_seq)).trim().parse::<u32>() else {
                     continue;
@@ -1422,7 +1503,7 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
                 if days & (1 << k) == 0 {
                     continue;
                 }
-                if let Some((pattern, events)) = carried(&pattern, &events, DAY_SECS * k) {
+                if let Some((pattern, events)) = carried(&pattern, &events, day_start(k)) {
                     for &s in &pattern {
                         stop_visits[s as usize] += 1;
                     }
@@ -1494,6 +1575,20 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             h.get("min_transfer_time"),
         );
         const DEFAULT_TRANSFER_SECS: Time = 120;
+        // A station row stands for all its platforms (GTFS): the subway
+        // lists `112,A09,2,180` while its trains stop at 112N and A09S, and
+        // walks hung on the stations alone were walks from places no train
+        // calls at. Bounded: one row joins at most this many platform
+        // pairs, and the file at most `MAX_TRANSFERS` walks in all.
+        const MAX_STATION_PAIRS: usize = 4_096;
+        const MAX_TRANSFERS: usize = 2_000_000;
+        let ends = |id: &str| -> Vec<u32> {
+            match (children.get(id), stop_index.get(id)) {
+                (Some(platforms), _) => platforms.clone(),
+                (None, Some(&s)) => vec![s],
+                (None, None) => Vec::new(),
+            }
+        };
         let mut row = Record::default();
         while r.next_into(&mut row)? {
             // Types 0/1/2 are walkable; 3 = not possible; 4/5 are in-seat
@@ -1502,20 +1597,21 @@ fn parse_feed(dir: &Path, date: Option<u32>) -> Result<FeedParts, GtfsError> {
             if matches!(ty, "3" | "4" | "5") {
                 continue;
             }
-            let (Some(&from), Some(&to)) = (
-                stop_index.get(f(&row, c_from)),
-                stop_index.get(f(&row, c_to)),
-            ) else {
-                continue;
-            };
-            if from == to {
+            let (from, to) = (ends(f(&row, c_from)), ends(f(&row, c_to)));
+            if from.len().saturating_mul(to.len()) > MAX_STATION_PAIRS {
                 continue;
             }
             let secs = f(&row, c_min)
                 .trim()
                 .parse::<Time>()
                 .unwrap_or(DEFAULT_TRANSFER_SECS);
-            transfers.push((from, to, secs));
+            for &a in &from {
+                for &b in &to {
+                    if a != b && transfers.len() < MAX_TRANSFERS {
+                        transfers.push((a, b, secs));
+                    }
+                }
+            }
         }
     }
 
@@ -3208,8 +3304,9 @@ mod tests {
         // A city's timetable alone (the app's city legs: Amtrak is asked
         // alone) joins its own first feed's stops too; a plain load of one
         // feed — Amtrak's — still joins nothing.
-        let city =
-            |dir: &Path| load_gtfs_city(&[FeedInput { dir, shift_secs: 0 }], 20260709).unwrap();
+        let city = |dir: &Path| {
+            load_gtfs_city(&[FeedInput { dir, shift_secs: 0 }], 20260709, &[]).unwrap()
+        };
         assert_eq!(
             city(&bus).n_feed_links,
             1,
@@ -3219,6 +3316,120 @@ mod tests {
         assert_eq!(load_gtfs(&rail, Some(20260709)).unwrap().n_feed_links, 0);
         let _ = fs::remove_dir_all(&rail);
         let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn a_transfer_between_stations_is_one_between_their_platforms() {
+        // transfers.txt names the stations; the trains stop at platforms.
+        let dir = write_feed(
+            "station_transfer",
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Subway,America/New_York\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon,location_type,parent_station\n\
+                     X,Start,40.60,-74.00,0,\n\
+                     S1,North St,40.70,-74.00,1,\nP1,North St uptown,40.70,-74.00,0,S1\n\
+                     B1,North St stairs,40.70,-74.00,4,P1\n\
+                     S2,South St,40.71,-74.00,1,\nP2,South St uptown,40.71,-74.00,0,S2\n\
+                     Y,End,40.90,-74.00,0,\n",
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\n1,1,One,1\nA,A,Ay,1\n",
+                ),
+                ("calendar.txt", CALENDAR),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\n1,WK,t1\nA,WK,ta\n",
+                ),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     t1,09:00:00,09:00:00,X,1\nt1,09:10:00,09:10:00,P1,2\n\
+                     ta,09:20:00,09:20:00,P2,1\nta,09:40:00,09:40:00,Y,2\n",
+                ),
+                (
+                    "transfers.txt",
+                    "from_stop_id,to_stop_id,transfer_type,min_transfer_time\nS1,S2,2,300\n",
+                ),
+            ],
+        );
+        let load = load_gtfs(&dir, Some(20260709)).unwrap();
+        let js = plan(&load.timetable, stop(&load, "X"), stop(&load, "Y"), 0, 8);
+        let j = js.first().expect("ride, walk between the stations, ride");
+        let kinds: Vec<LegKind> = j.legs.iter().map(|l| l.kind).collect();
+        assert_eq!(kinds, vec![LegKind::Ride, LegKind::Walk, LegKind::Ride]);
+        assert_eq!(j.legs[1].arr - j.legs[1].dep, 300);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_trip_from_the_day_before_moves_by_that_days_real_length() {
+        // Saturday's owl bus at 25:30 is 01:30 EDT on the fall-back Sunday
+        // (2026-11-01), whose service day began 25 hours after Saturday's:
+        // half an hour into Sunday, not the hour and a half whole days said.
+        let dir = write_feed(
+            "dst_owl",
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Bus,America/New_York\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n\
+                     A,Here,40.70,-74.00\nB,There,40.80,-74.00\n",
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\nO,1,Owl,3\n",
+                ),
+                (
+                    "calendar.txt",
+                    "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,\
+                     start_date,end_date\nSAT,0,0,0,0,0,1,0,20261001,20261130\nSUN,0,0,0,0,0,0,1,20261001,20261130\n",
+                ),
+                ("trips.txt", "route_id,service_id,trip_id\nO,SAT,o1\nO,SUN,s1\n"),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     o1,25:30:00,25:30:00,A,1\no1,25:50:00,25:50:00,B,2\n\
+                     s1,09:00:00,09:00:00,A,1\ns1,09:20:00,09:20:00,B,2\n",
+                ),
+            ],
+        );
+        let board = |load: &GtfsLoad| {
+            plan(&load.timetable, stop(load, "A"), stop(load, "B"), 0, 4)
+                .first()
+                .map(|j| j.legs[0].dep)
+        };
+        let fall_back: DayStarts = [25 * 3600, 49 * 3600, 73 * 3600];
+        let real = load_gtfs_on(&dir, Some(20261101), fall_back).unwrap();
+        assert_eq!(board(&real), Some(1_800));
+        let whole = load_gtfs(&dir, Some(20261101)).unwrap();
+        assert_eq!(board(&whole), Some(5_400), "whole days: an hour late");
+        // Starts that cannot be real fall back to whole days.
+        assert_eq!(
+            checked_day_starts([90_000.0, 176_400.0, 262_800.0]),
+            fall_back
+        );
+        assert_eq!(
+            checked_day_starts([86_400.5, 172_800.0, 259_200.0]),
+            CALENDAR_DAY_STARTS
+        );
+        assert_eq!(
+            checked_day_starts([0.0, 172_800.0, 259_200.0]),
+            CALENDAR_DAY_STARTS
+        );
+        assert_eq!(
+            checked_day_starts([f64::NAN, 172_800.0, 259_200.0]),
+            CALENDAR_DAY_STARTS
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -3257,6 +3468,7 @@ mod tests {
                 shift_secs: 0,
             }],
             20260709,
+            &[],
         )
         .unwrap();
         assert_eq!(load.n_feed_links, 0, "water between the docks");

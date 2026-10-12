@@ -624,6 +624,10 @@ struct NavigationHUD: View {
         .onChange(of: model.fuelReachabilityTight, initial: true) { _, tight in
             tankPulse = tight
         }
+        // Reset when the instruments leave (tucked, or a card took their
+        // place): the pulse starts only on a change, and coming back while
+        // still tight set true over true — the pump icon stood still.
+        .onDisappear { tankPulse = false }
     }
 
     /// The shared X that tucks a driving instrument into the top-right tray.
@@ -854,6 +858,7 @@ struct NavigationHUD: View {
         .onChange(of: over, initial: true) { _, isOver in
             overGlow = isOver
         }
+        .onDisappear { overGlow = false }   // as tankPulse: comes back pulsing
         .help(SpeedLaw.federalNote)
     }
 

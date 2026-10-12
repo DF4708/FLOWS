@@ -384,7 +384,9 @@ actor TransitFeeds {
 
         // The rest: on disk, within the budget, and with a zone we can shift
         // from, or left out.
-        var parts: [(source: Source, feed: URL, shift: Int)] = [(primary, primaryFeed, 0)]
+        // Each with its own zone, for its clock changes (TransitClock.dayStarts).
+        var parts: [(source: Source, feed: URL, shift: Int, zone: String)] =
+            [(primary, primaryFeed, 0, primaryZone)]
         for source in sources.dropFirst() where unusable[source.name] != date {
             guard let feed = try? await feedOnDisk(source, allowNetwork: allowNetwork) else { continue }
             let need = Self.worstCaseBuildBytes(feedDirectory: feed)
@@ -394,7 +396,7 @@ actor TransitFeeds {
                   let shift = TransitClock.shift(from: own, into: zone, serviceDate: date)
             else { continue } // a feed with no clock cannot be placed in ours
             budget -= need
-            parts.append((source, feed, shift))
+            parts.append((source, feed, shift, own))
         }
 
         let used = parts.map(\.source)
@@ -413,14 +415,17 @@ actor TransitFeeds {
                 // (Rust gtfs::load_gtfs_city) — built alone, a bus could not
                 // be changed for another at stops across the corner.
                 let stamp = try TransitShard.build(
-                    feedDirectory: primaryFeed.path, prefix: prefix.path, serviceDate: date
+                    feedDirectory: primaryFeed.path, prefix: prefix.path, serviceDate: date,
+                    agencyZone: primaryZone
                 )
                 sweepOldShards(before: min(date, Self.sweepCutoff()))
                 return Ready(prefix: prefix.path, stamp: stamp, credit: primary.credit,
                              operators: [primary.operatorName])
             }
             let merged = try TransitShard.build(
-                feeds: parts.map { .init(directory: $0.feed.path, shiftSeconds: $0.shift) },
+                feeds: parts.map {
+                    .init(directory: $0.feed.path, shiftSeconds: $0.shift, agencyZone: $0.zone)
+                },
                 prefix: prefix.path, serviceDate: date
             )
             if !merged.skipped.isEmpty {

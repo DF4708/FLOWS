@@ -61,6 +61,22 @@ final class TransitTimesTests: XCTestCase {
         XCTAssertEqual(plain(TransitClock.clock(moment, zone: eastern, locale: us)), "1:30 AM")
     }
 
+    /// The days before a service date began 24 hours apart — except across a
+    /// clock change, where the timetable builder must carry yesterday's owl
+    /// buses by 25 hours (fall back) or 23 (spring forward).
+    func testTheDaysBeforeBeganWhereTheClockSays() {
+        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20260923, agencyZone: eastern),
+                       [86_400, 172_800, 259_200])
+        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20261101, agencyZone: eastern),
+                       [90_000, 176_400, 262_800], "fall back: Sunday began 25 h after Saturday")
+        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20260308, agencyZone: eastern),
+                       [82_800, 169_200, 255_600], "spring forward: 23 h")
+        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20261103, agencyZone: eastern),
+                       [86_400, 172_800, 262_800], "the change two days back counts there only")
+        XCTAssertEqual(TransitClock.dayStarts(serviceDate: 20261101, agencyZone: ""),
+                       [86_400, 172_800, 259_200], "no zone: whole days")
+    }
+
     func testImpossibleDatesAndZonesAreRefused() {
         XCTAssertNil(TransitClock.dayStart(serviceDate: 20260231, agencyZone: eastern),
                      "February 31st must be refused, not rolled into March")

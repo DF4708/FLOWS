@@ -96,13 +96,25 @@ pub fn build_many(
 
 /// [`build_many`] for city and ferry feeds only — one or several — where the
 /// first feed's nearby stops are joined like the others'; see
-/// [`gtfs::load_gtfs_city`].
+/// [`gtfs::load_gtfs_city`]. `starts`: each feed's [`gtfs::DayStarts`].
 pub fn build_city(
     feeds: &[gtfs::FeedInput],
     date: u32,
+    starts: &[gtfs::DayStarts],
     prefix: &Path,
 ) -> Result<BuildReport, String> {
-    let load = gtfs::load_gtfs_city(feeds, date).map_err(|e| e.to_string())?;
+    let load = gtfs::load_gtfs_city(feeds, date, starts).map_err(|e| e.to_string())?;
+    write(&load, prefix)
+}
+
+/// [`build`] with the real starts of the days before ([`gtfs::DayStarts`]).
+pub fn build_on(
+    gtfs_dir: &Path,
+    date: Option<u32>,
+    starts: gtfs::DayStarts,
+    prefix: &Path,
+) -> Result<BuildReport, String> {
+    let load = gtfs::load_gtfs_on(gtfs_dir, date, starts).map_err(|e| e.to_string())?;
     write(&load, prefix)
 }
 

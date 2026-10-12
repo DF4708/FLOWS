@@ -534,6 +534,45 @@ pub fn route_through_closure(route: &[Point], closures: &[Point]) -> bool {
     })
 }
 
+/// One reported full closure: the closed road's line as the state drew it
+/// (one point when it gave no line), and whether it names one direction of
+/// travel — its line then runs that way, and the other carriageway is open.
+#[derive(Clone, Copy, Debug)]
+pub struct ClosedRoad<'a> {
+    pub line: &'a [Point],
+    pub directed: bool,
+}
+
+/// Whether a route DRIVES a reported full closure: runs along the closed
+/// road's line within [`CLOSED_ROAD_METERS`] for 30 m of it (or half of a
+/// shorter one), and for a closure of one direction, the way it runs. A
+/// route that only crosses the closed street, or takes the open carriageway
+/// of a divided highway beside it, is not through it — testing the line's
+/// first and middle points alone dropped those routes as closed, and could
+/// call every route closed. A closure the state gave as a single point
+/// keeps the point test ([`route_through_closure`]). Such a route is never
+/// offered (owner, 2026-10-01).
+///
+/// Deterministic; panics: none.
+#[must_use]
+pub fn route_runs_along_closure(route: &[Point], closures: &[ClosedRoad]) -> bool {
+    let points: Vec<Point> = closures
+        .iter()
+        .filter(|c| c.line.len() == 1)
+        .map(|c| c.line[0])
+        .collect();
+    if route_through_closure(route, &points) {
+        return true;
+    }
+    if route.len() < 2 {
+        return false;
+    }
+    let index = crate::tags_and_replies::RouteIndex::with_reach(route, CLOSED_ROAD_METERS);
+    closures.iter().any(|c| {
+        c.line.len() >= 2 && crate::tags_and_replies::runs_along_by(&index, c.line, c.directed)
+    })
+}
+
 // ============================================================ LiveHazardScoring
 
 /// `LiveHazardSnapshot`: every live feed, fetched once for an area.
@@ -1099,6 +1138,30 @@ mod tests {
         assert!(!route_through_closure(&route, &[]));
         assert!(!route_through_closure(&[], &[(43.0, -89.45)]));
         assert!(route_through_closure(&[(43.0, -89.45)], &[(43.0, -89.45)]));
+    }
+
+    #[test]
+    fn a_route_drives_a_closure_only_along_it_and_its_way() {
+        // East along 43°N, as above.
+        let route = [(43.0, -89.5), (43.0, -89.4), (43.0, -89.3)];
+        let closed = |line: &[Point], directed: bool| {
+            route_runs_along_closure(&route, &[ClosedRoad { line, directed }])
+        };
+        // 500 m of the road itself, eastbound: driven.
+        let east = [(43.0, -89.46), (43.0, -89.454)];
+        assert!(closed(&east, true));
+        assert!(closed(&east, false));
+        // The same stretch closed westbound only: the route drives east.
+        let west = [(43.0, -89.454), (43.0, -89.46)];
+        assert!(!closed(&west, true), "the other carriageway is open");
+        assert!(closed(&west, false), "no direction named: closed both ways");
+        // A street closed north from the route's own crossing: crossed, not driven.
+        let cross = [(43.0, -89.45), (43.01, -89.45)];
+        assert!(!closed(&cross, true));
+        assert!(!closed(&cross, false));
+        // A closure the state gave as one point still counts by the point.
+        assert!(closed(&[(43.0, -89.45)], false));
+        assert!(!route_runs_along_closure(&route, &[]));
     }
 
     /// A CRE-shaped prices file: `n` stations, accented names, three prices.

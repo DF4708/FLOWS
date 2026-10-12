@@ -263,12 +263,13 @@ pub fn posted_limit_way_counts(tags: &[(&str, &str)]) -> bool {
 }
 
 /// A route's line indexed for nearby-segment lookups: segments filed under
-/// every grid cell their box (grown by [`LIMIT_ON_ROUTE_METERS`]) touches,
-/// and the meters along the route to each vertex.
-struct RouteIndex<'a> {
+/// every grid cell their box (grown by its reach — [`LIMIT_ON_ROUTE_METERS`]
+/// for posted limits) touches, and the meters along the route to each vertex.
+pub(crate) struct RouteIndex<'a> {
     line: &'a [Point],
     along: Vec<f64>,
     cells: std::collections::HashMap<(i64, i64), Vec<usize>>,
+    reach: f64,
 }
 
 /// About 550 m of latitude: a grid cell of the route index.
@@ -283,6 +284,12 @@ fn route_cell(p: Point) -> (i64, i64) {
 
 impl<'a> RouteIndex<'a> {
     fn new(line: &'a [Point]) -> Self {
+        Self::with_reach(line, LIMIT_ON_ROUTE_METERS)
+    }
+
+    /// The index with points within `reach` meters of the line counted as
+    /// on it.
+    pub(crate) fn with_reach(line: &'a [Point], reach: f64) -> Self {
         let mut along = Vec::with_capacity(line.len());
         let mut total = 0.0;
         for (i, &p) in line.iter().enumerate() {
@@ -295,7 +302,7 @@ impl<'a> RouteIndex<'a> {
             std::collections::HashMap::new();
         // The margin in degrees, generous in longitude at any latitude FLOWS
         // drives (cos 70° ≈ 0.34).
-        let lat_margin = LIMIT_ON_ROUTE_METERS / 111_320.0;
+        let lat_margin = reach / 111_320.0;
         let lon_margin = lat_margin / 0.34;
         for s in 0..line.len().saturating_sub(1) {
             let (a, b) = (line[s], line[s + 1]);
@@ -310,11 +317,16 @@ impl<'a> RouteIndex<'a> {
                 }
             }
         }
-        RouteIndex { line, along, cells }
+        RouteIndex {
+            line,
+            along,
+            cells,
+            reach,
+        }
     }
 
-    /// Meters along the route to the nearest point of its line within
-    /// [`LIMIT_ON_ROUTE_METERS`] of `p`; `None` when the line is farther.
+    /// Meters along the route to the nearest point of its line within the
+    /// index's reach of `p`; `None` when the line is farther.
     fn along_if_near(&self, p: Point) -> Option<f64> {
         if !(p.0.is_finite() && p.1.is_finite()) {
             return None;
@@ -335,7 +347,7 @@ impl<'a> RouteIndex<'a> {
             };
             let (dx, dy) = (px - t * bx, py - t * by);
             let off = (dx * dx + dy * dy).sqrt();
-            if off <= LIMIT_ON_ROUTE_METERS && best.is_none_or(|(o, _)| off < o) {
+            if off <= self.reach && best.is_none_or(|(o, _)| off < o) {
                 let seg = self.along[s + 1] - self.along[s];
                 best = Some((off, self.along[s] + t * seg));
             }
@@ -361,6 +373,18 @@ const LIMIT_PARALLEL_SHARE: f64 = 0.9;
 /// route's segments near each point are measured, so a long route costs
 /// little per road.
 fn runs_along(index: &RouteIndex, way: &[Point]) -> bool {
+    runs_along_by(index, way, false)
+}
+
+/// The most points one hop of a road is walked at: a hop longer than
+/// 20 km (none in OpenStreetMap; a malformed feed's) is walked coarser
+/// rather than at millions of points.
+const LIMIT_WALK_STEPS: usize = 2_000;
+
+/// [`runs_along`]; with `directed`, only a stretch the route drives in the
+/// way's own direction (the route's distance growing as the way's does)
+/// counts — one carriageway of a divided road, not the other.
+pub(crate) fn runs_along_by(index: &RouteIndex, way: &[Point], directed: bool) -> bool {
     if way.len() < 2 {
         return false;
     }
@@ -372,7 +396,7 @@ fn runs_along(index: &RouteIndex, way: &[Point]) -> bool {
         if !hop.is_finite() {
             return false;
         }
-        let steps = (hop / LIMIT_WALK_METERS).ceil().max(1.0) as usize;
+        let steps = ((hop / LIMIT_WALK_METERS).ceil().max(1.0) as usize).min(LIMIT_WALK_STEPS);
         for k in 1..=steps {
             let t = k as f64 / steps as f64;
             let p = (
@@ -384,22 +408,26 @@ fn runs_along(index: &RouteIndex, way: &[Point]) -> bool {
         length += hop;
     }
     let needed = LIMIT_ALONG_METERS.min(length / 2.0);
-    // The current stretch on the route: route span (lo, hi) and where it
-    // started along the road.
-    let mut run: Option<(f64, f64, f64)> = None;
+    // The current stretch on the route: route span (lo, hi), where it
+    // started along the road, and where along the route it started.
+    let mut run: Option<(f64, f64, f64, f64)> = None;
     for &(p, on_road) in &walk {
         let Some(a) = index.along_if_near(p) else {
             run = None;
             continue;
         };
-        let (lo, hi, from) = run.map_or((a, a, on_road), |(lo, hi, from)| {
-            (lo.min(a), hi.max(a), from)
+        let (lo, hi, from, first) = run.map_or((a, a, on_road, a), |(lo, hi, from, first)| {
+            (lo.min(a), hi.max(a), from, first)
         });
         let span = hi - lo;
-        if span > 0.0 && span >= needed && span >= LIMIT_PARALLEL_SHARE * (on_road - from) {
+        if span > 0.0
+            && span >= needed
+            && span >= LIMIT_PARALLEL_SHARE * (on_road - from)
+            && (!directed || a > first)
+        {
             return true;
         }
-        run = Some((lo, hi, from));
+        run = Some((lo, hi, from, first));
     }
     false
 }

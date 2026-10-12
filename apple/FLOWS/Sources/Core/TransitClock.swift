@@ -50,6 +50,29 @@ enum TransitClock {
         return noon.addingTimeInterval(-12 * 3600)
     }
 
+    /// How many seconds back each of the three days before `serviceDate`
+    /// began, measured from its own start in the agency's clock — what the
+    /// timetable builder subtracts from a trip filed under an earlier day (an
+    /// owl bus's 25:30) to place it in today's. Whole days, except across a
+    /// clock change: the fall-back Sunday began 25 hours after the Saturday,
+    /// and counting 24 put that Saturday's 25:30 bus an hour after it left.
+    /// Whole days when the zone or the date is unknown.
+    static func dayStarts(serviceDate: Int, agencyZone: String) -> [Double] {
+        let whole = (1...3).map { Double($0 * 86_400) }
+        guard let tz = TimeZone(identifier: agencyZone),
+              let today = dayStart(serviceDate: serviceDate, agencyZone: agencyZone) else { return whole }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = tz
+        let noon = today.addingTimeInterval(12 * 3600)
+        return (1...3).map { k in
+            guard let earlier = cal.date(byAdding: .day, value: -k, to: noon) else { return whole[k - 1] }
+            let p = cal.dateComponents([.year, .month, .day], from: earlier)
+            let date = (p.year ?? 0) * 10000 + (p.month ?? 0) * 100 + (p.day ?? 0)
+            guard let start = dayStart(serviceDate: date, agencyZone: agencyZone) else { return whole[k - 1] }
+            return today.timeIntervalSince(start).rounded()
+        }
+    }
+
     /// Seconds to ADD to a feed's stored times so they read in `reference`'s
     /// clock on `serviceDate` — what merging a city's bus timetable into
     /// Amtrak's needs, since each counts from midnight in its own zone.

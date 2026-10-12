@@ -38,12 +38,18 @@
 mod ffi {
     extern "Rust" {
         fn flows_transit_agency_zone(gtfs_dir: &str) -> String;
-        fn flows_transit_build(gtfs_dir: &str, prefix: &str, service_date: i64) -> Vec<String>;
+        fn flows_transit_build(
+            gtfs_dir: &str,
+            prefix: &str,
+            service_date: i64,
+            day_starts: &[f64],
+        ) -> Vec<String>;
         fn flows_transit_build_many(
             gtfs_dirs: &str,
             shift_secs: &[f64],
             prefix: &str,
             service_date: i64,
+            day_starts: &[f64],
         ) -> Vec<String>;
         fn flows_transit_info(prefix: &str) -> Vec<String>;
         fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Vec<String>;
@@ -102,7 +108,9 @@ mod ffi {
 use std::path::Path;
 
 use crate::contain;
-use flows_core::transit::gtfs::{FeedInput, LINK_WALK_MPS};
+use flows_core::transit::gtfs::{
+    checked_day_starts, DayStarts, FeedInput, CALENDAR_DAY_STARTS, LINK_WALK_MPS,
+};
 use flows_core::transit::shard::{self, BuildReport, Departure, NearStop, Shard};
 use flows_core::transit::{Time, ALL_VEHICLES, LAND_VEHICLES, SHIP_VEHICLES};
 use flows_core::trip_shape::{self, Picked};
@@ -127,14 +135,34 @@ pub fn flows_transit_agency_zone(gtfs_dir: &str) -> String {
 
 /// Build `<prefix>.ftt` + `<prefix>.fts` from an unzipped feed directory.
 /// `service_date` is YYYYMMDD; pass 0 to let the feed's own calendar choose.
-pub fn flows_transit_build(gtfs_dir: &str, prefix: &str, service_date: i64) -> Vec<String> {
+/// `day_starts`: how many seconds back the three days before it began, in
+/// the agency's clock (Swift's `TransitClock.dayStarts`; see
+/// `gtfs::DayStarts`) — whole days unless a clock change falls among them.
+pub fn flows_transit_build(
+    gtfs_dir: &str,
+    prefix: &str,
+    service_date: i64,
+    day_starts: &[f64],
+) -> Vec<String> {
     contain(err_rows("transit: build panicked"), || {
         let date = u32::try_from(service_date).ok().filter(|d| *d >= 19000101);
-        match shard::build(Path::new(gtfs_dir), date, Path::new(prefix)) {
+        let starts = feed_day_starts(day_starts)
+            .first()
+            .copied()
+            .unwrap_or(CALENDAR_DAY_STARTS);
+        match shard::build_on(Path::new(gtfs_dir), date, starts, Path::new(prefix)) {
             Err(e) => err_rows(e),
             Ok(r) => report_rows(&r),
         }
     })
+}
+
+/// Each feed's `gtfs::DayStarts` from Swift's flat list, three to a feed;
+/// three that are not believable are the calendar's.
+fn feed_day_starts(flat: &[f64]) -> Vec<DayStarts> {
+    flat.chunks_exact(3)
+        .map(|c| checked_day_starts([c[0], c[1], c[2]]))
+        .collect()
 }
 
 fn report_rows(r: &BuildReport) -> Vec<String> {
@@ -219,12 +247,16 @@ const MAX_SHIFT_SECS: f64 = 48.0 * 3600.0;
 /// always built alone (`flows_transit_build`) — so every feed's nearby stops
 /// are joined, the first one's too (`shard::build_city`).
 ///
+/// `day_starts` holds three per feed, in each feed's own clock (as for
+/// `flows_transit_build`); a feed past the end of it counts whole days.
+///
 /// Rows: `info`, `built`, `linked␟pairs`, then any `skipped` rows.
 pub fn flows_transit_build_many(
     gtfs_dirs: &str,
     shift_secs: &[f64],
     prefix: &str,
     service_date: i64,
+    day_starts: &[f64],
 ) -> Vec<String> {
     contain(err_rows("transit: build panicked"), || {
         let Some(date) = u32::try_from(service_date).ok().filter(|d| *d >= 19000101) else {
@@ -244,7 +276,12 @@ pub fn flows_transit_build_many(
                 shift_secs: shift as i32,
             });
         }
-        match shard::build_city(&feeds, date, Path::new(prefix)) {
+        match shard::build_city(
+            &feeds,
+            date,
+            &feed_day_starts(day_starts),
+            Path::new(prefix),
+        ) {
             Err(e) => err_rows(e),
             Ok(r) => {
                 let mut rows = report_rows(&r);
@@ -569,7 +606,13 @@ mod tests {
     fn a_merge_refuses_inputs_it_cannot_place() {
         let two = format!("/a{UNIT}/b");
         assert!(
-            is_err(&flows_transit_build_many(&two, &[0.0], "/tmp/x", 20260929)),
+            is_err(&flows_transit_build_many(
+                &two,
+                &[0.0],
+                "/tmp/x",
+                20260929,
+                &[]
+            )),
             "two feeds, one shift"
         );
         assert!(
@@ -577,7 +620,8 @@ mod tests {
                 &two,
                 &[0.0, f64::NAN],
                 "/tmp/x",
-                20260929
+                20260929,
+                &[]
             )),
             "a shift that is not a number"
         );
@@ -586,12 +630,19 @@ mod tests {
                 &two,
                 &[0.0, 49.0 * 3600.0],
                 "/tmp/x",
-                20260929
+                20260929,
+                &[]
             )),
             "no two real zones are two days apart"
         );
         assert!(
-            is_err(&flows_transit_build_many(&two, &[0.0, 3600.0], "/tmp/x", 0)),
+            is_err(&flows_transit_build_many(
+                &two,
+                &[0.0, 3600.0],
+                "/tmp/x",
+                0,
+                &[]
+            )),
             "a merge must be told its day"
         );
         assert!(
@@ -599,7 +650,8 @@ mod tests {
                 &format!("/a{UNIT}"),
                 &[0.0, 0.0],
                 "/tmp/x",
-                20260929
+                20260929,
+                &[]
             )),
             "an empty directory name"
         );
@@ -707,6 +759,7 @@ mod tests {
             &[0.0],
             "/tmp/flows_bridge_no_shard",
             20260929,
+            &[],
         );
         assert!(is_err(&rows), "got {rows:?}");
     }

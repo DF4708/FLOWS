@@ -157,18 +157,27 @@ enum HazardFeedScores {
         }
     }
 
-    /// Whether a route's line runs through a road its state reports fully
-    /// closed — a flooded road among them (hazard_feeds.rs
-    /// `route_through_closure`). FLOWS never offers such a route.
+    /// Whether a route DRIVES a road its state reports fully closed — a
+    /// flooded road among them: runs along the closed line, the way it is
+    /// closed (hazard_feeds.rs `route_runs_along_closure`). Crossing a closed
+    /// street, or the open carriageway beside a closed one, is not through
+    /// it. FLOWS never offers such a route.
     static func routeThroughClosure(_ route: [CLLocationCoordinate2D],
-                                    closures: [(lat: Double, lon: Double)]) -> Bool {
+                                    closures: [LiveHazardFeedFetcher.ClosedRoad]) -> Bool {
+        let roads = closures.filter { !$0.line.isEmpty }
         // swift-bridge must never see an empty buffer.
-        guard !route.isEmpty, !closures.isEmpty else { return false }
+        guard !route.isEmpty, !roads.isEmpty else { return false }
         let rLats = route.map(\.latitude), rLons = route.map(\.longitude)
-        let cLats = closures.map(\.lat), cLons = closures.map(\.lon)
+        let cLats = roads.flatMap { $0.line.map(\.lat) }, cLons = roads.flatMap { $0.line.map(\.lon) }
+        let lens = roads.map { Int64($0.line.count) }
+        let directed = roads.map { UInt8($0.directed ? 1 : 0) }
         return two(rLats, rLons) { ra, ro in
             two(cLats, cLons) { ca, co in
-                flows_hazard_route_through_closure(ra, ro, ca, co)
+                lens.withUnsafeBufferPointer { l in
+                    directed.withUnsafeBufferPointer { d in
+                        flows_hazard_route_through_closure(ra, ro, ca, co, l, d)
+                    }
+                }
             }
         }
     }
@@ -1222,7 +1231,7 @@ actor LiveHazardFeedFetcher {
     private var wzdxRegistryFetched = Date.distantPast
     /// Per-state closure points, 15-min TTL. Failures cache empty so a dead
     /// feed doesn't re-fetch every sweep.
-    private var closureCache: [String: (Date, [(lat: Double, lon: Double)])] = [:]
+    private var closureCache: [String: (Date, [ClosedRoad])] = [:]
 
     /// Rough state bounding boxes (CONUS) — picks which feeds serve a viewport
     /// (also reused by PlacesStore to resolve a point's state shard).
@@ -1310,13 +1319,47 @@ actor LiveHazardFeedFetcher {
     /// proof (uncleared snow, flood over road, work zone) that can band Red.
     func roadClosures(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)
         async -> [(lat: Double, lon: Double)] {
+        Self.closurePoints(
+            await closedRoads(minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon),
+            minLat: minLat, minLon: minLon, maxLat: maxLat, maxLon: maxLon)
+    }
+
+    /// One state-reported full closure: the closed road's line (one point
+    /// when the feed gave no line) and whether it names one direction of
+    /// travel. WZDx draws a road event's line the way traffic drives it
+    /// ("the first coordinate is the first point a road user encounters"),
+    /// so with a direction named, the other carriageway is not closed.
+    struct ClosedRoad: Sendable {
+        let line: [(lat: Double, lon: Double)]
+        let directed: Bool
+    }
+
+    /// What scoring and the map read a closure by: its first point and, on a
+    /// longer line, its middle — once each, inside the box.
+    static func closurePoints(_ roads: [ClosedRoad], minLat: Double, minLon: Double,
+                              maxLat: Double, maxLon: Double) -> [(lat: Double, lon: Double)] {
+        var out: [(lat: Double, lon: Double)] = []
+        for road in roads {
+            guard let first = road.line.first else { continue }
+            out.append(first)
+            if road.line.count > 2 { out.append(road.line[road.line.count / 2]) }
+        }
+        var seen = Set<String>()
+        return out.filter { seen.insert("\($0.lat),\($0.lon)").inserted }.filter {
+            $0.lat >= minLat && $0.lat <= maxLat && $0.lon >= minLon && $0.lon <= maxLon
+        }
+    }
+
+    /// DOT-reported full closures touching a bbox, whole lines — what
+    /// `HazardFeedScores.routeThroughClosure` judges a route by.
+    func closedRoads(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)
+        async -> [ClosedRoad] {
         await ensureWZDxRegistry()
         guard !wzdxRegistry.isEmpty else { return [] }
         let states = Self.stateBBoxes.filter { _, b in
             b.s < maxLat && b.n > minLat && b.w < maxLon && b.e > minLon
         }.map(\.key)
-        var out: [(lat: Double, lon: Double)] = []
-        var seenPts = Set<String>()
+        var out: [ClosedRoad] = []
         var fetched = 0
         for (state, url) in wzdxRegistry where states.contains(state) {
             // Cache per FEED (a state can publish several); the old per-state
@@ -1329,7 +1372,7 @@ actor LiveHazardFeedFetcher {
             }
             guard fetched < 3 else { continue }   // request budget per sweep
             fetched += 1
-            var points: [(lat: Double, lon: Double)] = []
+            var roads: [ClosedRoad] = []
             if let (data, resp) = try? await ThrottledNet.fetch(url),
                (resp as? HTTPURLResponse)?.statusCode == 200,
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1340,36 +1383,36 @@ actor LiveHazardFeedFetcher {
                     guard impact == "all-lanes-closed" else { continue }
                     guard let geom = f["geometry"] as? [String: Any],
                           let coords = geom["coordinates"] else { continue }
-                    // LineString [[lon,lat],…] or Point [lon,lat].
-                    if let line = coords as? [[Double]], let first = line.first,
-                       first.count >= 2 {
-                        points.append((lat: first[1], lon: first[0]))
-                        if line.count > 2, let mid = line[safe: line.count / 2],
-                           mid.count >= 2 {
-                            points.append((lat: mid[1], lon: mid[0]))
+                    // WZDx 4 keeps the direction in core_details, 3 in the
+                    // properties themselves.
+                    let core = props["core_details"] as? [String: Any]
+                    let direction = ((core?["direction"] ?? props["direction"]) as? String ?? "")
+                        .lowercased()
+                    let directed = ["northbound", "southbound", "eastbound", "westbound",
+                                    "inner-loop", "outer-loop"].contains(direction)
+                    // LineString or MultiPoint [[lon,lat],…], or Point [lon,lat].
+                    if let line = coords as? [[Double]] {
+                        let points = line.prefix(5_000).compactMap { c -> (lat: Double, lon: Double)? in
+                            c.count >= 2 ? (lat: c[1], lon: c[0]) : nil
                         }
+                        if !points.isEmpty { roads.append(ClosedRoad(line: points, directed: directed)) }
                     } else if let pt = coords as? [Double], pt.count >= 2 {
-                        points.append((lat: pt[1], lon: pt[0]))
+                        roads.append(ClosedRoad(line: [(lat: pt[1], lon: pt[0])], directed: directed))
                     }
                 }
             }
             // A caller cancelled mid-read (a camera move, a replan) learned
             // nothing: caching its empty answer said "no closures" for 15 min.
             if Task.isCancelled { break }
-            closureCache[cacheKey] = (Date(), points)   // failures cache empty
+            closureCache[cacheKey] = (Date(), roads)   // failures cache empty
             if closureCache.count > 100 { CacheEviction.dropOldestHalf(&closureCache) { $0.0 } }
-            out.append(contentsOf: points)
+            out.append(contentsOf: roads)
         }
-        out = out.filter { seenPts.insert("\($0.lat),\($0.lon)").inserted }
-        return out.filter {
-            $0.lat >= minLat && $0.lat <= maxLat && $0.lon >= minLon && $0.lon <= maxLon
+        return out.filter { road in
+            road.line.contains {
+                $0.lat >= minLat && $0.lat <= maxLat && $0.lon >= minLon && $0.lon <= maxLon
+            }
         }
-    }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
 

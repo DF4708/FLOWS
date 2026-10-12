@@ -75,6 +75,8 @@ mod ffi {
             route_lons: &[f64],
             closure_lats: &[f64],
             closure_lons: &[f64],
+            line_lens: &[i64],
+            directed: &[u8],
         ) -> bool;
         fn flows_hazard_tropical_score(
             lats: &[f64],
@@ -435,19 +437,39 @@ pub fn flows_hazard_closure_score(lats: &[f64], lons: &[f64], lat: f64, lon: f64
         hf::closure_score(&points(lats, lons), (lat, lon))
     })
 }
-/// Whether the route (its line, as lats/lons) runs through any of the
-/// reported full closures.
+/// Whether the route (its line, as lats/lons) drives any of the reported
+/// full closures (`hazard_feeds::route_runs_along_closure`). The closures'
+/// lines come back to back in `closure_lats`/`closure_lons`, `line_lens`
+/// points each, and `directed[i]` is 1 when closure i names one direction
+/// of travel.
 pub fn flows_hazard_route_through_closure(
     route_lats: &[f64],
     route_lons: &[f64],
     closure_lats: &[f64],
     closure_lons: &[f64],
+    line_lens: &[i64],
+    directed: &[u8],
 ) -> bool {
     contain(false, || {
-        hf::route_through_closure(
-            &points(route_lats, route_lons),
-            &points(closure_lats, closure_lons),
-        )
+        let route = points(route_lats, route_lons);
+        let all = points(closure_lats, closure_lons);
+        let mut roads = Vec::with_capacity(line_lens.len().min(directed.len()));
+        let mut at = 0usize;
+        for (&len, &one_way) in line_lens.iter().zip(directed) {
+            let Some(end) = usize::try_from(len)
+                .ok()
+                .and_then(|n| at.checked_add(n))
+                .filter(|&end| end <= all.len())
+            else {
+                break;
+            };
+            roads.push(hf::ClosedRoad {
+                line: &all[at..end],
+                directed: one_way != 0,
+            });
+            at = end;
+        }
+        hf::route_runs_along_closure(&route, &roads)
     })
 }
 pub fn flows_hazard_tropical_score(

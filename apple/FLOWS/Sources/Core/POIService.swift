@@ -416,7 +416,10 @@ final class POIService: ObservableObject {
     /// points, run along that route WITHOUT touching the results card. The
     /// pins follow the highlighted route, and counting them handed the
     /// tapped card the most stops, so it jumped to the top of the list.
-    func touristCount(along route: PlannedRoute) async -> Int {
+    /// nil when a search could not be done (throttled twice, offline): an
+    /// unknown, never a zero — a stored 0 was never counted again and sank
+    /// that route in the tourist order.
+    func touristCount(along route: PlannedRoute) async -> Int? {
         let samples = RouteService.corridorPartition(
             of: route.route.polyline, everyMeters: 30_000).samples
         let centerCap = Int(flows_places_search_center_cap(Int64(Self.touristQueries.count)))
@@ -434,8 +437,9 @@ final class POIService: ObservableObject {
                     center: center,
                     latitudinalMeters: policy.region_meters,
                     longitudinalMeters: policy.region_meters)
-                found.append(contentsOf: await Self.pacedLocalSearch(request))
-                if Task.isCancelled { return 0 }
+                guard let items = await Self.pacedLocalSearchResult(request) else { return nil }
+                found.append(contentsOf: items)
+                if Task.isCancelled { return nil }
             }
         }
         // The same offline supplement the button's sweep merges in.
@@ -534,6 +538,12 @@ final class POIService: ObservableObject {
     /// with pharmacies in plain sight. Retries once after the throttle
     /// window and paces successive calls.
     private static func pacedLocalSearch(_ request: MKLocalSearch.Request) async -> [MKMapItem] {
+        await pacedLocalSearchResult(request) ?? []
+    }
+
+    /// `pacedLocalSearch`, telling "nothing here" ([], MapKit's
+    /// placemarkNotFound) from a search that could not be done (nil).
+    private static func pacedLocalSearchResult(_ request: MKLocalSearch.Request) async -> [MKMapItem]? {
         for attempt in 0..<2 {
             do {
                 let response = try await MKLocalSearch(request: request).start()
@@ -542,14 +552,15 @@ final class POIService: ObservableObject {
                 return response.mapItems
             } catch {
                 let mk = (error as? MKError)?.code
+                if mk == .placemarkNotFound { return [] }
                 if attempt == 0, mk == .loadingThrottled {
                     try? await Task.sleep(for: .seconds(2))
                     continue
                 }
-                return []
+                return nil
             }
         }
-        return []
+        return nil
     }
 
     private func search(

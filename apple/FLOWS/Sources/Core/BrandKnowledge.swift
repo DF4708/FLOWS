@@ -116,7 +116,7 @@ enum BrandMark {
     }
 
     /// Known chains, matched at the start of a name, longest key first.
-    private static let marks: [(key: String, mark: Mark)] = [
+    private static let markTable: [(key: String, mark: Mark)] = [
         ("bp", Mark(name: "BP", initials: "BP", background: RGB(0x009B3A), ink: RGB(0xFFE600), fuelTier: 4)),
         ("shell", Mark(name: "Shell", initials: "S", background: RGB(0xFBCE07), ink: RGB(0xDD1D21), fuelTier: 4)),
         ("exxon", Mark(name: "Exxon", initials: "E", background: RGB(0xED1B2D), ink: RGB(0xFFFFFF), fuelTier: 4)),
@@ -166,7 +166,8 @@ enum BrandMark {
         ("burger king", Mark(name: "Burger King", initials: "BK", background: RGB(0xD62300), ink: RGB(0xF5EBDC), fuelTier: nil)),
         ("culver's", Mark(name: "Culver's", initials: "C", background: RGB(0x005696), ink: RGB(0xFFFFFF), fuelTier: nil)),
         ("chick-fil-a", Mark(name: "Chick-fil-A", initials: "C", background: RGB(0xE51636), ink: RGB(0xFFFFFF), fuelTier: nil)),
-    ].sorted { $0.key.count > $1.key.count }
+    ]
+    private static let marks = byLongestKey(markTable)
 
     /// The known chain a place's name starts with, nil for any other.
     static func mark(for name: String) -> Mark? { match(name)?.mark }
@@ -191,8 +192,10 @@ enum BrandMark {
     private static func prefixMatch<T>(_ name: String,
                                        in table: [(key: String, mark: T)]) -> (key: String, value: T)? {
         let lower = name.lowercased().trimmingCharacters(in: .whitespaces)
+        // Keys are trimmed where the tables are built: trimming ~150 of
+        // them here ran for every stop row on every redraw.
         for entry in table {
-            let key = entry.key.trimmingCharacters(in: .whitespaces)
+            let key = entry.key
             guard lower.hasPrefix(key) else { continue }
             let rest = lower.dropFirst(key.count)
             if rest.isEmpty || !(rest.first?.isLetter ?? false) { return (key, entry.mark) }
@@ -204,7 +207,7 @@ enum BrandMark {
     /// 2026-10-01), by the brand's own web domain — what the logo service
     /// (BrandLogos, Brandfetch) looks a logo up by. Local businesses are not
     /// here: they get their own initials (LocalMarks). Matched like `marks`.
-    private static let logoDomains: [(key: String, mark: String)] = [
+    private static let logoDomainTable: [(key: String, mark: String)] = [
         // Fuel
         ("bp", "bp.com"), ("shell", "shell.us"), ("exxon", "exxon.com"),
         ("mobil", "mobil.com"), ("chevron", "chevron.com"), ("texaco", "texaco.com"),
@@ -273,7 +276,16 @@ enum BrandMark {
         ("super 8", "wyndhamhotels.com"), ("days inn", "wyndhamhotels.com"),
         ("la quinta", "wyndhamhotels.com"), ("ramada", "wyndhamhotels.com"),
         ("motel 6", "motel6.com"), ("red roof", "redroof.com"),
-    ].sorted { $0.key.count > $1.key.count }
+    ]
+    private static let logoDomains = byLongestKey(logoDomainTable)
+
+    /// A table longest key first (so "holiday inn" is tried before "holiday"),
+    /// its keys trimmed once here rather than on every lookup — that ran for
+    /// every stop row on every redraw.
+    private static func byLongestKey<T>(_ table: [(key: String, mark: T)]) -> [(key: String, mark: T)] {
+        table.sorted { $0.key.count > $1.key.count }
+            .map { (key: $0.key.trimmingCharacters(in: .whitespaces), mark: $0.mark) }
+    }
 
     /// The official web domain of the major chain a place's name starts
     /// with — the logo lookup's key — nil for a local business.

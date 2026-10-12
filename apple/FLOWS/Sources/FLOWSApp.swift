@@ -119,6 +119,9 @@ final class AppModel: ObservableObject {
                 guard let self, self.mode == .choosing else { return }
                 let count = await self.poi.touristCount(along: route)
                 guard !Task.isCancelled else { return }
+                // A count MapKit would not finish stays unknown (asked
+                // again at the next refresh), never a stored zero.
+                guard let count else { continue }
                 self.touristCounts[route.id] = count
             }
             guard let self, self.mode == .choosing else { return }
@@ -2375,15 +2378,34 @@ final class AppModel: ObservableObject {
 
     /// Nothing passes → replan with every request-level preference the
     /// active filters imply, hydrate, and let the relative filters resolve.
+    /// The last driving question put to the router for the choices list:
+    /// its ends and No tolls, and when.
+    private var lastRouterAsk: (key: String, at: Date)?
+
+    private static func routerAskKey(_ from: CLLocationCoordinate2D, _ to: CLLocationCoordinate2D,
+                                     tollFree: Bool) -> String {
+        String(format: "%.5f,%.5f>%.5f,%.5f|%d", from.latitude, from.longitude,
+               to.latitude, to.longitude, tollFree ? 1 : 0)
+    }
+
     private func formulateConstrainedRoute(
         _ ep: (from: CLLocationCoordinate2D, fromName: String,
                to: CLLocationCoordinate2D, toName: String)
     ) async {
+        // The same question the router answered minutes ago gets the same
+        // roads back: they deduped to nothing, cost two or three directions
+        // calls on every filter that emptied the list or slider that came to
+        // rest — and once traffic had moved an ETA past 45 s, came back as
+        // "new" twins that set off a full rescore. Asked again after five
+        // minutes, or as soon as the question changes (No tolls).
+        let key = Self.routerAskKey(ep.from, ep.to, tollFree: routeFilters.contains(.noTolls))
+        if let last = lastRouterAsk, last.key == key, Date().timeIntervalSince(last.at) < 300 { return }
         routeSearchesInFlight += 1
         defer { routeSearchesInFlight -= 1 }
         guard let raw = try? await router.planRoutes(
             from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
             includeTollFree: routeFilters.contains(.noTolls)) else { return }
+        lastRouterAsk = (key, Date())
         // Scale the fresh plan the SAME way present() scaled the cards
         // already on screen. Without this the dedupe compared a raw router
         // ETA against a pace-corrected one: for a driver whose learned
@@ -2479,6 +2501,9 @@ final class AppModel: ObservableObject {
             includeTollFree: routeFilters.contains(.noTolls),
             walking: walking)
         try superseded()
+        if !walking {
+            lastRouterAsk = (Self.routerAskKey(from, to, tollFree: routeFilters.contains(.noTolls)), Date())
+        }
         // Apple's pedestrian router refuses long walks — but "too far to walk"
         // is not an answer. Route along LOCAL ROADS (avoid-highways: walkers
         // can't use freeways) and compute the ETA at real walking pace, clearly
@@ -4309,7 +4334,9 @@ final class AppModel: ObservableObject {
             onProgress: onProgress)
         async let onDeviceF = Self.corridorForecasts(at: part.samples)
         // DOT closures along the corridor (WZDx): realized blocked-road proof.
-        async let closuresF = LiveHazardFeedFetcher.shared.roadClosures(
+        // Whole lines: a route drives a closure only along it (closedRoads);
+        // scoring and the live watch read its points (closurePoints).
+        async let closuresF = LiveHazardFeedFetcher.shared.closedRoads(
             minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
         // FLOOD SUPPORTING EVIDENCE — the topographic analysis the waterline
         // model gates on (a road between local min and max floods only WITH
@@ -4355,7 +4382,10 @@ final class AppModel: ObservableObject {
                 .map { score.samples[$0].coordinate }
             : []
         async let waterF = LiveHazardFeedFetcher.shared.waterProximity(near: waterProbe)
-        let corridorClosures = await closuresF
+        let corridorRoads = await closuresF
+        let corridorClosures = LiveHazardFeedFetcher.closurePoints(
+            corridorRoads,
+            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
         let corridorLive = await liveF
         // The live watch reads these once the caller adopts them.
         let feeds = CorridorFeeds(closures: corridorClosures, live: corridorLive, box: bbox)
@@ -4441,7 +4471,7 @@ final class AppModel: ObservableObject {
         r.alertHeadlines = score.headlines
         r.alertEvents = score.events
         r.throughClosedRoad = HazardFeedScores.routeThroughClosure(
-            FasterRoutePolicy.coordinates(of: r.route.polyline), closures: corridorClosures)
+            FasterRoutePolicy.coordinates(of: r.route.polyline), closures: corridorRoads)
         r.alertPolygons = score.alertPolygons
         r.riskSamples = blended
 

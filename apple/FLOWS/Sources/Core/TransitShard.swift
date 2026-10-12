@@ -117,10 +117,16 @@ enum TransitShard {
         flows_transit_agency_zone(feedDirectory).text
     }
 
-    /// Build the shard pair for a service date from an unzipped feed.
+    /// Build the shard pair for a service date from an unzipped feed. The
+    /// agency's zone places the trips still running from the days before
+    /// across a clock change (`TransitClock.dayStarts`); "" counts whole days.
     @discardableResult
-    static func build(feedDirectory: String, prefix: String, serviceDate: Int) throws -> Stamp {
-        let rows = decode(flows_transit_build(feedDirectory, prefix, Int64(serviceDate)))
+    static func build(feedDirectory: String, prefix: String, serviceDate: Int,
+                      agencyZone: String = "") throws -> Stamp {
+        let starts = TransitClock.dayStarts(serviceDate: serviceDate, agencyZone: agencyZone)
+        let rows = decode(starts.withUnsafeBufferPointer {
+            flows_transit_build(feedDirectory, prefix, Int64(serviceDate), $0)
+        })
         if let message = firstError(rows) { throw Failure.notBuilt(message) }
         guard let stamp = stamp(rows) else { throw Failure.notBuilt("the feed produced no timetable") }
         return stamp
@@ -131,6 +137,8 @@ enum TransitShard {
     struct FeedPart: Equatable {
         let directory: String
         let shiftSeconds: Int
+        /// The feed's own agency zone, for its clock changes ("" = whole days).
+        var agencyZone: String = ""
     }
 
     /// What a merged build produced.
@@ -153,8 +161,14 @@ enum TransitShard {
         guard !feeds.isEmpty else { throw Failure.notBuilt("no feeds to build from") }
         let joined = feeds.map(\.directory).joined(separator: "\u{1F}")
         let shifts = feeds.map { Double($0.shiftSeconds) }
-        let rows = decode(shifts.withUnsafeBufferPointer {
-            flows_transit_build_many(joined, $0, prefix, Int64(serviceDate))
+        // Three per feed, each in the feed's own clock.
+        let starts = feeds.flatMap {
+            TransitClock.dayStarts(serviceDate: serviceDate, agencyZone: $0.agencyZone)
+        }
+        let rows = decode(shifts.withUnsafeBufferPointer { shiftBuffer in
+            starts.withUnsafeBufferPointer { startBuffer in
+                flows_transit_build_many(joined, shiftBuffer, prefix, Int64(serviceDate), startBuffer)
+            }
         })
         if let message = firstError(rows) { throw Failure.notBuilt(message) }
         guard let stamp = stamp(rows) else { throw Failure.notBuilt("the feeds produced no timetable") }

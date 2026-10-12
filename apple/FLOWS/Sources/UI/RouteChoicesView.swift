@@ -250,7 +250,7 @@ struct RouteChoicesView: View {
         _ shape: TripShape, from start: CLLocationCoordinate2D, fromName: String,
         to end: CLLocationCoordinate2D, toName: String, departing: Date
     ) async -> (trip: CityTrip, note: String?)? {
-        let mayFetch = model.mode != .navigating
+        let mayFetch = model.mode != .navigating && !model.breadcrumbs.isOffline   // as publishedTrain
         let chosen = await cityTrip(from: start, fromName: fromName, to: end, toName: toName,
                                     departing: departing, vehicles: shape.localVehicles,
                                     mayFetch: mayFetch)
@@ -628,7 +628,9 @@ struct RouteChoicesView: View {
                                 departing: Date) async -> PublishedTrain? {
         // A driver's connection belongs to the road ahead, not to a schedule
         // refresh; mid-drive we use a timetable only if one is already here.
-        let mayFetch = model.mode != .navigating
+        // Offline, likewise: a week-old copy answered only after the refresh
+        // it cannot make had waited out its timeouts (a minute or two).
+        let mayFetch = model.mode != .navigating && !model.breadcrumbs.isOffline
         guard let ready = try? await TransitFeeds.shared.ready(
                 TransitFeeds.amtrak, on: departing, allowNetwork: mayFetch),
               let answer = try? TransitShard.departures(
@@ -768,7 +770,7 @@ struct RouteChoicesView: View {
         let dest = MKMapItem(placemark: MKPlacemark(coordinate: ep.to))
         let startName = ep.fromName.isEmpty ? "your start" : ep.fromName
         let destName = ep.toName.isEmpty ? "your destination" : ep.toName
-        let mayFetch = model.mode != .navigating
+        let mayFetch = model.mode != .navigating && !model.breadcrumbs.isOffline   // as publishedTrain
         model.transitOptions[.ship] = TransitOption(
             title: "Ship", detail: "Looking up ferry times…", fare: 0, destination: dest)
 
