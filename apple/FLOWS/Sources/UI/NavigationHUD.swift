@@ -88,6 +88,9 @@ struct NavigationHUD: View {
     @State private var liveMph: Double = 0
     @State private var accelMphPerSec: Double = 0
     @State private var lastFixTime: Date?
+    /// When the last fix with a real speed came: a gap in speed holds the
+    /// reading only briefly.
+    @State private var lastGoodSpeedAt: Date?
     @State private var lastFixMph: Double = 0
     /// Breathing phase for the over-the-red-line speed glow.
     @State private var overGlow = false
@@ -252,12 +255,19 @@ struct NavigationHUD: View {
             guard let fix else { return }
             // A negative speed is "unknown" (a tunnel, a Wi-Fi fix), not a
             // stop: read as 0 mph, one bad fix made a hard stop and a hard
-            // start and turned the economy icon red. The last reading
-            // stands, and the next good one starts the rate afresh.
+            // start and turned the economy icon red. The last reading stands
+            // for a few seconds; longer, it is no reading at all (0, and no
+            // rate) rather than an old 70 shown indefinitely. The next good
+            // fix starts the rate afresh.
             guard fix.speed >= 0 else {
                 lastFixTime = nil
+                if lastGoodSpeedAt.map({ fix.timestamp.timeIntervalSince($0) > 5 }) ?? true {
+                    liveMph = 0
+                    accelMphPerSec = 0
+                }
                 return
             }
+            lastGoodSpeedAt = fix.timestamp
             let mph = fix.speed * 2.236936
             if let last = lastFixTime {
                 let dt = fix.timestamp.timeIntervalSince(last)

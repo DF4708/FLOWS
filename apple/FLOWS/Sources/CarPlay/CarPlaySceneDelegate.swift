@@ -171,9 +171,17 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         }
         interfaceController?.popToRootTemplate(animated: true, completion: nil)
         Task { [weak self] in
-            guard let routes = try? await model.plan(
-                from: here, fromName: "Current location",
-                to: coordinate, toName: name), !routes.isEmpty else {
+            let routes: [PlannedRoute]
+            do {
+                routes = try await model.plan(
+                    from: here, fromName: "Current location",
+                    to: coordinate, toName: name)
+            } catch is CancellationError {
+                return   // superseded on the phone (Walk/Drive switched): not "no route"
+            } catch {
+                routes = []
+            }
+            guard !routes.isEmpty else {
                 self?.showNotice(["No route found to \(name)."])
                 return
             }

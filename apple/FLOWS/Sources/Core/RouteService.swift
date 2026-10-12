@@ -136,6 +136,10 @@ struct PlannedRoute: Identifiable {
     /// ELECTRIC vehicles: mile mark of the first stretch with NO charger in
     /// reach (nil = chargers found along the whole route, or not an EV).
     var evChargingGapMiles: Double?
+    /// ELECTRIC vehicles: mile mark of the first stretch whose charger search
+    /// could not be done (throttled, offline) when no gap was found — an
+    /// unknown the card says out loud, not a pass.
+    var evChargingUncheckedMiles: Double?
     /// Flips when the physical-attribute pass (grades / clearances / FEMA /
     /// EV gaps) has run. Attributes hydrate SEPARATELY from the weather
     /// verdict — Overpass/EPQS latency must not hold the GO gate hostage —
@@ -248,6 +252,7 @@ struct PlannedRoute: Identifiable {
         clearanceDataUnavailable = hydrated.clearanceDataUnavailable
         femaFloodFraction = hydrated.femaFloodFraction
         evChargingGapMiles = hydrated.evChargingGapMiles
+        evChargingUncheckedMiles = hydrated.evChargingUncheckedMiles
         attributesScored = hydrated.attributesScored
     }
 

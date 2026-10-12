@@ -3980,8 +3980,15 @@ final class AppModel: ObservableObject {
         // patch the live leg instead of the (cleared) choice cards.
         // Only roads on offer: a road through a closure (judged in phase 1)
         // is never shown, and its bridge and grade lookups were wasted.
+        // And the leg being driven, when its own pass never finished: GO
+        // pressed mid-pass leaves startLeg's hydration to this one, and a
+        // trip planned meanwhile (Siri, CarPlay) cancels this one — the new
+        // pass, over only the held choices, never fetched the live leg.
+        // (hydrateAttributes skips a route already done.)
+        let live = [navigation.route].compactMap { $0 }
         let pending = routeChoices.isEmpty
-            ? [navigation.route].compactMap { $0 } : passableChoices
+            ? live
+            : passableChoices + live.filter { leg in !routeChoices.contains { $0.id == leg.id } }
         await withTaskGroup(of: Void.self) { group in
             for r in pending {
                 group.addTask { await self.hydrateAttributes(r) }
@@ -4604,6 +4611,7 @@ final class AppModel: ObservableObject {
             let checkpoints = RouteService.samplePoints(
                 of: r.route.polyline, everyMeters: intervalMeters)
             var gapAtMile: Double?
+            var uncheckedAtMile: Double?
             for (i, pt) in checkpoints.enumerated().dropFirst() {
                 let request = MKLocalSearch.Request()
                 request.naturalLanguageQuery = "EV charging station"
@@ -4613,22 +4621,29 @@ final class AppModel: ObservableObject {
                                                     longitudinalMeters: 50_000)
                 // Only a search that answered "nothing here" is a gap (MapKit
                 // throws placemarkNotFound for that). Throttled, offline or
-                // cancelled is not knowing — it put a red "No charger found"
-                // on every EV card whenever MapKit pushed back.
-                let found: Bool?
-                do {
-                    found = try await MKLocalSearch(request: request).start().mapItems.isEmpty == false
-                } catch let error as MKError where error.code == .placemarkNotFound {
-                    found = false
-                } catch {
-                    found = nil
+                // cancelled is not knowing: it is asked once more, and if it
+                // still can't be told the card says the stretch is unchecked
+                // — never a red gap it didn't find, never a silent pass.
+                var found: Bool?
+                for attempt in 0..<2 where found == nil && !Task.isCancelled {
+                    if attempt > 0 { try? await Task.sleep(for: .seconds(2)) }
+                    do {
+                        found = try await MKLocalSearch(request: request).start().mapItems.isEmpty == false
+                    } catch let error as MKError where error.code == .placemarkNotFound {
+                        found = false
+                    } catch {
+                        found = nil
+                    }
                 }
+                let mile = Double(i) * intervalMeters / 1609.344
                 if found == false {
-                    gapAtMile = Double(i) * intervalMeters / 1609.344
+                    gapAtMile = mile
                     break
                 }
+                if found == nil, uncheckedAtMile == nil { uncheckedAtMile = mile }
             }
             r.evChargingGapMiles = gapAtMile
+            r.evChargingUncheckedMiles = gapAtMile == nil ? uncheckedAtMile : nil
         }
         r.attributesScored = true
         return r

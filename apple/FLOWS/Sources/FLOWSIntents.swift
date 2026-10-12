@@ -734,10 +734,20 @@ struct StartTripIntent: AppIntent {
             place = hits[idx]
         }
         let name = place.name ?? destination
-        guard let routes = try? await model.plan(
+        let routes: [PlannedRoute]
+        do {
+            routes = try await model.plan(
                 from: from, fromName: start.label,
-                to: place.placemark.coordinate, toName: name),
-              !routes.isEmpty else {
+                to: place.placemark.coordinate, toName: name)
+        } catch is CancellationError {
+            // Walk or Drive was switched on screen while this planned: the
+            // plan it started answers, and this one is not "no route".
+            return .result(dialog: IntentDialog(
+                "The trip changed on screen while I planned. Ask me again."))
+        } catch {
+            routes = []
+        }
+        guard !routes.isEmpty else {
             return .result(dialog: IntentDialog("No route found to \(name)."))
         }
         // The route CHOICES show on screen (risk colors and all); the spoken

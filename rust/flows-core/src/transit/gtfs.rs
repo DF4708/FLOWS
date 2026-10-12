@@ -1648,7 +1648,15 @@ fn assemble(
     let mut n_trips = 0usize;
     let mut n_events = 0usize;
     let mut n_overtake_splits = 0usize;
+    // Stops a ferry calls at: two of one feed's terminals are water apart,
+    // however near (see link_feeds).
+    let mut by_ship = vec![false; stop_latlon.len()];
     for key in keys {
+        if route_modes[key.0 as usize] == Mode::Ship {
+            for &s in &key.1 {
+                by_ship[s as usize] = true;
+            }
+        }
         let mut trips = groups.remove(&key).unwrap();
         // Total deterministic order: first departure, then the full (dep, arr)
         // sequence as a tiebreak.
@@ -1701,6 +1709,7 @@ fn assemble(
         &stop_latlon,
         &stop_visits,
         &stop_feed,
+        &by_ship,
         link_first,
     );
 
@@ -1742,6 +1751,10 @@ fn assemble(
 ///   a one-minute ride on a third (seen live: Chicago to UW-Milwaukee took
 ///   three changes, the last a single stop, instead of a two-minute walk).
 ///
+/// Never two ferry terminals of one feed (`by_ship`): straight-line distance
+/// does not see the water between them, and a short river ferry's own two
+/// docks are well inside a walk's reach.
+///
 /// Without `link_first` the FIRST feed's own stops are left exactly as its
 /// publisher described them: Amtrak models each station deliberately, and a
 /// shard of Amtrak alone stays byte-identical to what it has always been.
@@ -1755,6 +1768,7 @@ fn link_feeds(
     latlon: &[(i32, i32)],
     visits: &[u32],
     feed: &[u16],
+    by_ship: &[bool],
     link_first: bool,
 ) -> usize {
     if !link_first
@@ -1784,6 +1798,12 @@ fn link_feeds(
             }
             if !link_first && feed[a as usize] == feed[b as usize] && feed[a as usize] == 0 {
                 continue; // the first feed's own walks are its publisher's business
+            }
+            if feed[a as usize] == feed[b as usize] && by_ship[a as usize] && by_ship[b as usize] {
+                // Two terminals of one ferry operator are a river apart, not
+                // a walk: Canby's are 230 m apart, and a walk there beat
+                // every sailing, so the ferry was never offered.
+                continue;
             }
             let (lb, lob) = latlon[b as usize];
             let meters = haversine_km(
@@ -3199,6 +3219,54 @@ mod tests {
         assert_eq!(load_gtfs(&rail, Some(20260709)).unwrap().n_feed_links, 0);
         let _ = fs::remove_dir_all(&rail);
         let _ = fs::remove_dir_all(&bus);
+    }
+
+    #[test]
+    fn a_river_ferrys_two_docks_are_not_a_walk() {
+        // Docks ~200 m apart across a river (route_type 4). Linked as a
+        // walk, the walk beat the 10-minute sailing and the ferry vanished.
+        let ferry = write_feed(
+            "city_ferry",
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Ferry,America/Chicago\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n\
+                     N,North Dock,45.00000,-122.00000\n\
+                     S,South Dock,45.00180,-122.00000\n",
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\nF,,River Ferry,4\n",
+                ),
+                ("calendar.txt", CALENDAR),
+                ("trips.txt", "route_id,service_id,trip_id\nF,WK,f1\n"),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     f1,09:00:00,09:00:00,N,1\nf1,09:10:00,09:10:00,S,2\n",
+                ),
+            ],
+        );
+        let load = load_gtfs_city(
+            &[FeedInput {
+                dir: &ferry,
+                shift_secs: 0,
+            }],
+            20260709,
+        )
+        .unwrap();
+        assert_eq!(load.n_feed_links, 0, "water between the docks");
+        let js = plan(&load.timetable, stop(&load, "N"), stop(&load, "S"), 0, 4);
+        let j = js.first().expect("the sailing");
+        assert_eq!(
+            j.legs.iter().map(|l| l.kind).collect::<Vec<_>>(),
+            vec![LegKind::Ride]
+        );
+        let _ = fs::remove_dir_all(&ferry);
     }
 
     #[test]

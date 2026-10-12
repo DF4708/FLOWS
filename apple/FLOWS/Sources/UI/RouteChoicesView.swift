@@ -2220,6 +2220,9 @@ struct RouteChoicesView: View {
         if let gap = route.evChargingGapMiles {
             points.append((String(format: "No charger found near mile %.0f — check your range", gap),
                            false))
+        } else if let unchecked = route.evChargingUncheckedMiles {
+            points.append((String(format: "Couldn't check for chargers near mile %.0f — check your range",
+                                  unchecked), false))
         }
         let choices = ctx.choices
         let fastestETA = ctx.fastestETA
@@ -2869,6 +2872,12 @@ private struct RouteCard: View {
                       systemImage: "bolt.slash.fill")
                     .scaledFont(.footnote, weight: .bold)
                     .foregroundStyle(Theme.riskRed)
+            } else if let unchecked = route.evChargingUncheckedMiles {
+                Label(String(format: "Couldn't check for chargers near mile %.0f — verify "
+                             + "range before taking this route", unchecked),
+                      systemImage: "exclamationmark.triangle.fill")
+                    .scaledFont(.footnote, weight: .bold)
+                    .foregroundStyle(.orange)
             }
 
             // Active alerts on top of the field.
