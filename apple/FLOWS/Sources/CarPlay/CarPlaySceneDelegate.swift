@@ -211,7 +211,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             titleVariants: [lead.map { $0 + " " + title } ?? title],
             actions: [
                 CPAlertAction(title: "Go", style: .default) { [weak self] _ in
-                    Task { @MainActor in self?.answerTripOffer(named: name) }
+                    Task { @MainActor in self?.answerTripOffer(named: name, shown: route.id) }
                 },
                 CPAlertAction(title: "Not now", style: .cancel) { [weak self] _ in
                     Task { @MainActor in
@@ -223,14 +223,29 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
         presentReplacing(alert)
     }
 
+    /// Go on the alert showing route `shown`. The offer may have moved on
+    /// since it went up — Siri staged another trip, or the phone cleared it —
+    /// and Go started whatever was staged NOW: the alert for trip A started
+    /// trip B. Then the trip staged now is offered instead, or the car screen
+    /// says nothing is waiting.
     @MainActor
-    private func answerTripOffer(named name: String) {
+    private func answerTripOffer(named name: String, shown: UUID) {
         guard let model = AppModel.shared else { return }
         interfaceController?.dismissTemplate(animated: true) { [weak self] _, _ in
             Task { @MainActor in
+                guard case .trip(let staged, let stagedName)? = model.pendingVoiceOffer else {
+                    self?.showNotice(["Nothing is waiting to start."])
+                    return
+                }
+                guard staged.id == shown else {
+                    self?.offerTrip(staged, named: stagedName, lead: "The trip changed.")
+                    return
+                }
                 switch model.acceptTripOffer() {
-                case .started, .nothing:
+                case .started:
                     break
+                case .nothing:
+                    self?.showNotice(["Nothing is waiting to start."])
                 case .closed:
                     self?.showNotice(["Every road found is closed ahead.", "Roads closed ahead."])
                 case .stillChecking:

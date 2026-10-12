@@ -157,12 +157,18 @@ actor YelpLink {
         }
     }
 
-    private var cache: [String: BusinessInfo] = [:]
+    /// Answers for 15 minutes, a "no match" included: "open now" is only
+    /// true for a while (a breakfast place looked up at 5:50 stayed hidden
+    /// as closed all morning), and a miss was asked again on every search.
+    private var cache: [String: (at: Date, info: BusinessInfo?)] = [:]
+    static let answerSeconds: TimeInterval = 900
 
     func info(name: String, latitude: Double, longitude: Double) async -> BusinessInfo? {
         guard !apiKey.isEmpty else { return nil }
         let key = "\(name)|\(Int(latitude * 500))|\(Int(longitude * 500))"
-        if let hit = cache[key] { return hit }
+        if let hit = cache[key], Date().timeIntervalSince(hit.at) < Self.answerSeconds {
+            return hit.info
+        }
         // .urlQueryAllowed leaves & = + literal, truncating the term param
         // for names like "Dave & Buster's" — use a strict component set.
         var allowed = CharacterSet.urlQueryAllowed
@@ -174,16 +180,21 @@ actor YelpLink {
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         guard let (data, resp) = try? await ThrottledNet.fetch(request),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let businesses = json["businesses"] as? [[String: Any]],
-              let first = businesses.first else { return nil }
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }   // not answered: asked again next time
+        guard let businesses = json["businesses"] as? [[String: Any]],
+              let first = businesses.first else {
+            cache[key] = (Date(), nil)   // answered: no match
+            if cache.count > 300 { CacheEviction.dropHalf(&cache) }
+            return nil
+        }
         let hoursBlock = (first["business_hours"] as? [[String: Any]])?.first
         let info = BusinessInfo(rating: first["rating"] as? Double,
                                 price: first["price"] as? String,
                                 isOpenNow: hoursBlock?["is_open_now"] as? Bool,
                                 url: (first["url"] as? String).flatMap(URL.init),
                                 source: .yelp)
-        cache[key] = info
+        cache[key] = (Date(), info)
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
     }
@@ -202,7 +213,8 @@ actor GooglePlacesLink {
     var apiKey: String = ""
     func setKey(_ key: String) { apiKey = key }
 
-    private var cache: [String: YelpLink.BusinessInfo] = [:]
+    /// As YelpLink's: 15 minutes, a miss included.
+    private var cache: [String: (at: Date, info: YelpLink.BusinessInfo?)] = [:]
 
     /// Text Search (New), field-masked to exactly what the rows display:
     /// rating, price level, open-now. Location-biased to the placemark.
@@ -210,7 +222,9 @@ actor GooglePlacesLink {
         async -> YelpLink.BusinessInfo? {
         guard !apiKey.isEmpty else { return nil }
         let key = "\(name)|\(Int(latitude * 500))|\(Int(longitude * 500))"
-        if let hit = cache[key] { return hit }
+        if let hit = cache[key], Date().timeIntervalSince(hit.at) < YelpLink.answerSeconds {
+            return hit.info
+        }
         guard let url = URL(string: "https://places.googleapis.com/v1/places:searchText")
         else { return nil }
         var request = URLRequest(url: url)
@@ -232,9 +246,13 @@ actor GooglePlacesLink {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         guard let (data, resp) = try? await ThrottledNet.fetch(request),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let places = json["places"] as? [[String: Any]],
-              let first = places.first else { return nil }
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }   // not answered: asked again next time
+        guard let places = json["places"] as? [[String: Any]], let first = places.first else {
+            cache[key] = (Date(), nil)   // answered: no match
+            if cache.count > 300 { CacheEviction.dropHalf(&cache) }
+            return nil
+        }
         // PRICE_LEVEL_* → the "$"…"$$$$" string the cost-tier mapper expects.
         let price: String? = (first["priceLevel"] as? String).flatMap {
             switch $0 {
@@ -251,7 +269,7 @@ actor GooglePlacesLink {
         let info = YelpLink.BusinessInfo(rating: first["rating"] as? Double,
                                          price: price, isOpenNow: openNow,
                                          hours: hours, source: .google)
-        cache[key] = info
+        cache[key] = (Date(), info)
         if cache.count > 300 { CacheEviction.dropHalf(&cache) }
         return info
     }

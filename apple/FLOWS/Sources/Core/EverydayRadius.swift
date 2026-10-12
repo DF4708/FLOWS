@@ -228,10 +228,15 @@ struct EverydayStore: Codable, Equatable {
             places.append(EverydayPlace(id: id, name: name, latitude: lat, longitude: lon,
                                         street: street, city: city, seen: 1))
             // Bounded store: evict the least-used (then least-seen, then
-            // stalest) entry so one category can't grow without limit.
+            // stalest) entry so one category can't grow without limit —
+            // among the places already kept. The newcomer (0 uses, seen
+            // once) was itself always the least-used once a category was
+            // full, so it went straight back out and no new regular stop
+            // was ever learned.
             if places.count > Self.maxPlacesPerCategory {
-                let uses = places.map { Int64($0.uses) }, seen = places.map { Int64($0.seen) }
-                let last = places.map(\.lastUsedT)
+                let kept = places.dropLast()
+                let uses = kept.map { Int64($0.uses) }, seen = kept.map { Int64($0.seen) }
+                let last = kept.map(\.lastUsedT)
                 let evict = uses.withUnsafeBufferPointer { u in
                     seen.withUnsafeBufferPointer { s in
                         last.withUnsafeBufferPointer { l in flows_learning_everyday_evict_index(u, s, l) }

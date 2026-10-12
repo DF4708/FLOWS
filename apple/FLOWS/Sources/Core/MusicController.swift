@@ -290,8 +290,17 @@ final class MusicController: ObservableObject {
     /// as "nothing local", which sends the handoff to radio instead.
     var hasLocalMusic: Bool {
         guard MPMediaLibrary.authorizationStatus() == .authorized else { return false }
-        return Self.deviceSongsQuery().items?.isEmpty == false
+        // Kept five minutes: the weak-signal check asks on every GPS fix,
+        // and each answer built the whole local-songs list on the main
+        // thread. A library changes far slower than that.
+        if let checked = localMusicChecked, Date().timeIntervalSince(checked.at) < 300 {
+            return checked.has
+        }
+        let has = Self.deviceSongsQuery().items?.isEmpty == false
+        localMusicChecked = (Date(), has)
+        return has
     }
+    private var localMusicChecked: (at: Date, has: Bool)?
 
     /// Does what's playing right now depend on the network? Drives the
     /// offline handoff — local files keep playing and must not be yanked.
@@ -599,13 +608,17 @@ final class MusicController: ObservableObject {
     var onPlaybackStopped: (() -> Void)?
 
     /// One-tap genre play from the library; shuffled library when no track
-    /// carries the genre (genre strings come from the fixed genreRows list,
-    /// so no AppleScript quoting is needed).
+    /// carries the genre. The genre can be free text (playSearchOrGenre, a
+    /// spoken ask), so it is escaped for the AppleScript string: a quote in
+    /// it broke the script and the whole library played instead.
     func playGenre(_ genre: String) {
         stopRadioForMusic()
+        let quoted = genre
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
         run("tell application \"Music\" to set shuffle enabled to true")
         if run("tell application \"Music\" to play (some track of library playlist 1 "
-               + "whose genre contains \"\(genre)\")") == nil {
+               + "whose genre contains \"\(quoted)\")") == nil {
             playLibraryShuffled()
         } else {
             playOrder = .shuffle

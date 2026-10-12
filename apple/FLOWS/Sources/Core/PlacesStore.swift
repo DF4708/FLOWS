@@ -131,7 +131,13 @@ final class PlacesStore: ObservableObject {
     private var shardLoads: [String: Task<PlacesShard?, Never>] = [:]
 
     private func shard(for state: String) async -> PlacesShard? {
-        if let hit = cache[state] { return hit }
+        if let hit = cache[state] {
+            // A hit is a use: to the back of the line. Without this the
+            // "LRU" was first-in-first-out, and near a state line the shard
+            // in use was evicted and its 10 MB re-hashed again and again.
+            if let at = lru.firstIndex(of: state) { lru.append(lru.remove(at: at)) }
+            return hit
+        }
         if let running = shardLoads[state] { return await running.value }
         // Construction runs DETACHED: PlacesShard.init hashes every byte of
         // the 10 MB+ file and builds an offset per record (~1M for a big

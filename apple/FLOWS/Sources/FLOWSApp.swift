@@ -652,10 +652,11 @@ final class AppModel: ObservableObject {
                 turnNearSpoken
                     ? guidance.instruction
                     : SiriSummaries.spokenTurnDistance(meters: guidance.distanceToManeuver)
-                        + ", " + guidance.instruction)
+                        + ", " + guidance.instruction,
+                topic: SpeechTopic.turn)
         } else if !turnNearSpoken, guidance.distanceToManeuver < 150 {
             turnNearSpoken = true
-            VoiceAnnouncer.shared.announce(guidance.instruction)
+            VoiceAnnouncer.shared.announce(guidance.instruction, topic: SpeechTopic.turn)
         }
     }
     @Published var notifyFuel = UserDefaults.standard.object(forKey: "flows.notifyFuel") as? Bool ?? true {
@@ -2870,8 +2871,11 @@ final class AppModel: ObservableObject {
                 // for direction, but the stretch right in front of the walker
                 // is refreshed with Apple's real pedestrian network as they go.
                 self.refineWalkingPathIfNeeded(from: fix.coordinate)
-                // Stream guidance to the Apple Watch (map + wrist taps).
-                if let g = self.navigation.guidance {
+                // Stream guidance to the Apple Watch (map + wrist taps) —
+                // not once arrived: the guidance keeps running for the
+                // arrived banner, and the wrist went from "Arrived" back to
+                // the last turn and "0 ft" two seconds later.
+                if let g = self.navigation.guidance, self.arrivedAt == nil {
                     let miles = g.distanceToManeuver / 1609.344
                     let text = miles < 0.19
                         ? "\(Int((g.distanceToManeuver / 0.3048 / 50).rounded() * 50)) ft"
@@ -2937,6 +2941,8 @@ final class AppModel: ObservableObject {
             return (self.radio.playingChannelID != nil && !self.radio.isPaused)
                 || self.scanner.isListening
         }
+        // FLOWS's own station turns down under its spoken lines.
+        VoiceAnnouncer.shared.duckOwnAudio = { [weak self] on in self?.radio.duck(on) }
         // Telemetry ladder: OEM cloud (Smartcar) → Bluetooth (OBD adapter /
         // TPMS caps) → nothing (odometer model carries on). Real fuel data
         // silences the gauge check-ins automatically — while it is current:

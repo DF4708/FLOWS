@@ -43,6 +43,22 @@ struct SpeechLineQueue<Line> {
         return entry
     }
 
+    /// Queue a line ahead of every waiting one — a warning, which must not
+    /// wait behind a music reply and two turn directions. Answers the entry
+    /// to start now when nothing is playing.
+    mutating func enqueueFirst(_ line: Line, topic: String?) -> Entry? {
+        lastSerial += 1
+        let entry = Entry(serial: lastSerial, line: line, topic: topic)
+        guard current == nil else {
+            // Behind any warning already waiting, ahead of everything else.
+            let at = waiting.firstIndex { !SpeechTopic.isUrgent($0.topic) } ?? waiting.endIndex
+            waiting.insert(entry, at: at)
+            return nil
+        }
+        current = entry
+        return entry
+    }
+
     /// The playing line finished or was stopped. Answers the next line to
     /// start. A late or repeated report (another serial) changes nothing, so
     /// the queue never skips a line.
@@ -84,4 +100,15 @@ enum SpeechTopic {
     static let trafficOffer = "traffic-offer"
     static let escalation = "escalation"
     static let fuelLastChance = "fuel-last-chance"
+    /// A turn direction: a newer one makes any still waiting stale — said
+    /// after a long warning, "in a quarter mile, turn left" came after the
+    /// turn.
+    static let turn = "turn"
+
+    /// A warning: spoken before anything waiting, and over a music reply or
+    /// a turn line already playing.
+    static func isUrgent(_ topic: String?) -> Bool {
+        guard let topic else { return false }
+        return topic.hasPrefix("imminent.") || topic == escalation
+    }
 }

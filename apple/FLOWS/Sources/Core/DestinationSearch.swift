@@ -288,6 +288,7 @@ final class DestinationSearch: NSObject, ObservableObject {
             completer.region = MKCoordinateRegion(
                 center: center, latitudinalMeters: 50_000, longitudinalMeters: 50_000)
         }
+        awaitingAnswers = true
         completer.queryFragment = trimmed
     }
 
@@ -315,7 +316,15 @@ final class DestinationSearch: NSObject, ObservableObject {
         suppressNextUpdate = true
         suggestions = []
         pinnedRows = []
+        // The completer's answer to the last keystroke, still on its way,
+        // brought the list back over the pick: no answers until the field
+        // is typed in again.
+        completer.cancel()
+        awaitingAnswers = false
     }
+
+    /// Whether completer answers are wanted: from a query until a pick.
+    private var awaitingAnswers = false
 
     func clear() {
         suggestions = []
@@ -331,6 +340,7 @@ extension DestinationSearch: MKLocalSearchCompleterDelegate {
             Suggestion(title: $0.title, subtitle: $0.subtitle)
         }
         Task { @MainActor in
+            guard self.awaitingAnswers else { return }   // a pick came first (accept)
             self.suggestions = Self.blend(pinned: self.pinnedRows, completions: Array(rows))
         }
     }

@@ -144,7 +144,9 @@ final class TruckerRadio: ObservableObject {
     /// data). Resuming re-tunes to LIVE.
     func pauseOrResume() {
         if isPaused {
-            if let channel = lastPlayed { play(channel) }
+            // The genre or search queue stays: resuming wiped it, and the
+            // next skip started "stations near you" instead of rock.
+            if let channel = lastPlayed { play(channel, clearQueue: false) }
             return
         }
         guard playingChannelID != nil else {
@@ -155,9 +157,66 @@ final class TruckerRadio: ObservableObject {
         player?.pause()
         isPaused = true
         status = "Paused — press play to go back on air."
+        handBackSession()
     }
 
     private var player: AVPlayer?
+
+    /// Under a spoken line (VoiceAnnouncer.duckOwnAudio): the station plays
+    /// at a quarter volume, then comes back.
+    private var ducked = false
+    func duck(_ on: Bool) {
+        ducked = on
+        player?.volume = on ? 0.25 : 1
+    }
+
+    /// The radio went quiet: the audio session goes back, so the driver's
+    /// own music isn't left ducked under a session nothing is using (a line
+    /// spoken while the radio played set a ducking one, and the radio
+    /// counted as FLOWS's own sound so it was never handed back).
+    private func handBackSession() {
+        #if os(iOS)
+        VoiceAnnouncer.shared.releaseSessionWhenQuiet()
+        #endif
+    }
+
+    /// A phone call, Siri or another app took the audio: the station is
+    /// paused as far as FLOWS knows too — it kept "playing", so "play in
+    /// FLOWS" answered "Playing." to silence, the session was never handed
+    /// back, and the next auto-retune brought the radio back on its own —
+    /// and comes back when the interruption says it may.
+    private var interruptionObserver: NSObjectProtocol?
+    private var pausedByInterruption = false
+    private func observeInterruptions() {
+        #if os(iOS)
+        interruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            let info = note.userInfo
+            let type = (info?[AVAudioSessionInterruptionTypeKey] as? UInt)
+                .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
+            let options = (info?[AVAudioSessionInterruptionOptionKey] as? UInt)
+                .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
+            Task { @MainActor in
+                guard let self else { return }
+                switch type {
+                case .began?:
+                    guard self.playingChannelID != nil, !self.isPaused else { return }
+                    self.player?.pause()
+                    self.isPaused = true
+                    self.pausedByInterruption = true
+                    self.status = "Paused — press play to go back on air."
+                case .ended?:
+                    guard self.pausedByInterruption else { return }
+                    self.pausedByInterruption = false
+                    if options.contains(.shouldResume), self.isPaused { self.pauseOrResume() }
+                default:
+                    break
+                }
+            }
+        }
+        #endif
+    }
 
     /// Run just before a station starts — the one place the other players
     /// are told to stop (AppModel wires it to MusicController.pauseForRadio).
@@ -180,6 +239,7 @@ final class TruckerRadio: ObservableObject {
             lastPlayed = try? JSONDecoder().decode(Channel.self, from: data)
         }
         configureRemoteCommands()
+        observeInterruptions()
         // Relay hosts rotate stations — refresh the live list once per
         // launch and prune entries that stopped streaming.
         Task { await refreshStations() }
@@ -392,7 +452,7 @@ final class TruckerRadio: ObservableObject {
         let item = AVPlayerItem(url: url)
         let p = AVPlayer(playerItem: item)
         p.automaticallyWaitsToMinimizeStalling = true
-        p.volume = 1
+        p.volume = ducked ? 0.25 : 1
         statusObservation = item.observe(\.status) { [weak self] item, _ in
             Task { @MainActor in
                 switch item.status {
@@ -545,7 +605,11 @@ final class TruckerRadio: ObservableObject {
         playingChannelID = nil
         status = nil
         isPaused = false
+        pausedByInterruption = false
         pinnedChannelID = nil
         updateNowPlaying(nil)
+        // (A station started right after this keeps the session: the hand-
+        // back waits a beat and leaves FLOWS's own sound alone.)
+        handBackSession()
     }
 }

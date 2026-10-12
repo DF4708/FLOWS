@@ -829,7 +829,7 @@ final class RadioAndSpotifyTests: XCTestCase {
         let call = SpotifyWebAPI.searchCall(query: "classic country & hits")
         XCTAssertEqual(call.method, "GET")
         XCTAssertEqual(call.path,
-                       "/v1/search?q=classic%20country%20%26%20hits&type=playlist&limit=1")
+                       "/v1/search?q=classic%20country%20%26%20hits&type=playlist&limit=5")
     }
 
     func testParsePlaylistContextReadsTheFirstPlaylist() throws {
@@ -843,6 +843,9 @@ final class RadioAndSpotifyTests: XCTestCase {
         XCTAssertNil(SpotifyWebAPI.parsePlaylistContext(
             Data(#"{"playlists":{"items":[]}}"#.utf8)))
         XCTAssertNil(SpotifyWebAPI.parsePlaylistContext(Data("x".utf8)))
+        // A playlist Spotify no longer serves comes back null: passed over.
+        let withNull = Data(#"{"playlists":{"items":[null,{"uri":"spotify:playlist:B","name":"B"}]}}"#.utf8)
+        XCTAssertEqual(SpotifyWebAPI.parsePlaylistContext(withNull)?.uri, "spotify:playlist:B")
     }
 
     func testURLRequestCarriesAJSONBodyWhenGiven() throws {

@@ -7,38 +7,26 @@
 // -----------------------------------------------------------------------------
 
 import Foundation
-#if canImport(AVFoundation)
-import AVFoundation
-#endif
 
 /// Spoken advisories for a driver whose eyes belong on the road (the fuel
-/// warning today). Deliberately NOT the crash check-in's voice: that flow
-/// owns its own synthesizer and audio session because it must keep talking
-/// and then listen for a reply — an advisory must never interrupt it.
+/// warning, the camera ahead). Deliberately NOT the crash check-in's voice:
+/// that flow owns its own synthesizer and audio session because it must keep
+/// talking and then listen for a reply — an advisory must never interrupt it.
 ///
-/// Like VoiceAnnouncer, it hands the synthesizer one line at a time from a
-/// SpeechLineQueue, so closing the fuel warning takes its line back without
-/// cutting anything else.
+/// Its lines are spoken by VoiceAnnouncer, in the one queue every FLOWS line
+/// shares. It had a synthesizer of its own, and two voices spoke at once: a
+/// "red light camera ahead" over an imminent warning garbled both. What it
+/// keeps is its repeat guard; closing a message (its topic) still takes its
+/// line back without cutting anything else.
 @MainActor
-final class DriveVoice: NSObject {
+final class DriveVoice {
     static let shared = DriveVoice()
-
-    #if canImport(AVFoundation)
-    private let synthesizer = AVSpeechSynthesizer()
-    private var playing: (serial: Int, utterance: AVSpeechUtterance, since: ContinuousClock.Instant)?
-    #endif
-    private var queue = SpeechLineQueue<String>()
 
     /// The last thing said, so a repeating condition doesn't repeat itself
     /// out loud every time the range ticks down another mile.
     private var lastSpoken: String?
 
-    private override init() {
-        super.init()
-        #if canImport(AVFoundation)
-        synthesizer.delegate = self
-        #endif
-    }
+    private init() {}
 
     /// Say it once. `force` re-says an identical line (a fresh trigger for
     /// the same text), otherwise repeats are swallowed. `topic` names the
@@ -48,92 +36,19 @@ final class DriveVoice: NSObject {
         guard !text.isEmpty else { return }
         guard force || text != lastSpoken else { return }
         lastSpoken = text
-        #if canImport(AVFoundation)
-        // A line whose finish report never came must not hold up the rest —
-        // but a line just handed over isn't speaking yet either
-        // (VoiceAnnouncer.lostLineGrace).
-        if queue.isBusy, !synthesizer.isSpeaking,
-           playing.map({ ContinuousClock.now - $0.since > VoiceAnnouncer.lostLineGrace }) ?? true {
-            playing = nil
-            if let next = queue.abandonCurrent() { start(next) }
-        }
-        #endif
-        if let now = queue.enqueue(text, topic: topic) { start(now) }
+        VoiceAnnouncer.shared.announce(text, topic: topic)
     }
 
     /// Take back a message's lines: the one being read stops, queued ones
     /// never start.
     func cancel(topic: String) {
-        let result = queue.cancel(topic: topic)
-        #if canImport(AVFoundation)
-        if result.stopCurrent { synthesizer.stopSpeaking(at: .immediate) }
-        #endif
-        if result.stopCurrent || result.removed > 0 {
-            FlowsDiag.log(.info, "voice", "cancel \(topic): playing=\(result.stopCurrent) "
-                          + "queued=\(result.removed)")
-        }
+        VoiceAnnouncer.shared.cancel(topic: topic)
     }
 
     /// Clear the repeat guard (trip end, or the condition cleared) so the
     /// same advisory can be spoken again on a later trip.
     func reset() { lastSpoken = nil }
 
-    /// A line is playing or queued (VoiceAnnouncer waits for quiet before
-    /// handing the audio session back).
-    var isSpeaking: Bool { queue.isBusy }
-
-    private func start(_ entry: SpeechLineQueue<String>.Entry) {
-        #if canImport(AVFoundation)
-        // Duck rather than stop: navigation prompts and music share this
-        // road, and an advisory should not kill either outright. It set no
-        // session at all, so a line spoken first stopped the music (and the
-        // silent switch muted it). The crash check-in's session and a reply
-        // being listened for are left alone: switching either to playback
-        // would shut its microphone (a yes to a faster road was lost under
-        // a camera line).
-        let announcer = VoiceAnnouncer.shared
-        #if os(iOS)
-        let listening = announcer.checkInHoldsSession() || VoiceReply.shared.isListening
-        #else
-        let listening = announcer.checkInHoldsSession()
-        #endif
-        if !listening { announcer.activateSpokenSession() }
-        let utterance = AVSpeechUtterance(string: entry.line)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        #if os(iOS)
-        // The driver's Personal Voice, like every other FLOWS line.
-        if let voice = announcer.personalVoice { utterance.voice = voice }
-        #endif
-        playing = (entry.serial, utterance, .now)
-        synthesizer.speak(utterance)
-        #endif
-    }
-
-    #if canImport(AVFoundation)
-    private func lineEnded(_ id: ObjectIdentifier) {
-        guard let current = playing, ObjectIdentifier(current.utterance) == id else { return }
-        playing = nil
-        if let next = queue.finished(serial: current.serial) {
-            start(next)
-        } else {
-            VoiceAnnouncer.shared.releaseSessionWhenQuiet()
-        }
-    }
-    #endif
+    /// A FLOWS line is playing or queued.
+    var isSpeaking: Bool { VoiceAnnouncer.shared.isSpeaking }
 }
-
-#if canImport(AVFoundation)
-extension DriveVoice: AVSpeechSynthesizerDelegate {
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                                       didFinish utterance: AVSpeechUtterance) {
-        let id = ObjectIdentifier(utterance)
-        Task { @MainActor in self.lineEnded(id) }
-    }
-
-    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                                       didCancel utterance: AVSpeechUtterance) {
-        let id = ObjectIdentifier(utterance)
-        Task { @MainActor in self.lineEnded(id) }
-    }
-}
-#endif

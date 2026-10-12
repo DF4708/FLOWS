@@ -170,6 +170,7 @@ final class RadioBrowser: ObservableObject {
         guard !query.isEmpty else { return }
         status = "Finding stations…"
         guard let host = await ensureHost() else {
+            stations = []   // an old search's list must not answer this one
             status = "Station list didn't load. Check the connection and try again."
             return
         }
@@ -179,6 +180,7 @@ final class RadioBrowser: ObservableObject {
             Self.searchURL(host: host, state: nil, name: nil,
                            tag: query.lowercased()))
         guard let merged = Self.merged(nameHits: byName, tagHits: byGenre) else {
+            stations = []   // (the failed search played the LAST one's top hit)
             status = "Station list didn't load. Check the connection and try again."
             return
         }
@@ -191,6 +193,7 @@ final class RadioBrowser: ObservableObject {
         guard let host = await ensureHost(),
               let found = await fetchStations(
                 Self.searchURL(host: host, state: state, name: name)) else {
+            stations = []
             status = "Station list didn't load. Check the connection and try again."
             return
         }

@@ -58,18 +58,22 @@ enum SpotifyWebAPI {
         var allowed = CharacterSet.urlQueryAllowed
         allowed.remove(charactersIn: "&=+?")
         let q = query.addingPercentEncoding(withAllowedCharacters: allowed) ?? query
-        return Call(method: "GET", path: "/v1/search?q=\(q)&type=playlist&limit=1")
+        // Five, so a null in first place (see parsePlaylistContext) is passed over.
+        return Call(method: "GET", path: "/v1/search?q=\(q)&type=playlist&limit=5")
     }
 
     /// Search payload → the first playlist's (uri, name), nil when the
     /// catalog had nothing playable for the ask.
     static func parsePlaylistContext(_ data: Data) -> (uri: String, name: String)? {
+        // Items one at a time: Spotify answers `null` in place of playlists
+        // it no longer serves, and one null failed the whole `[[String:
+        // Any]]` cast — the ask fell back to opening a search.
         guard let json = try? JSONSerialization.jsonObject(with: data)
                 as? [String: Any],
-              let items = ((json["playlists"] as? [String: Any])?["items"]
-                as? [[String: Any]]),
-              let first = items.first,
-              let uri = first["uri"] as? String, !uri.isEmpty else { return nil }
+              let items = (json["playlists"] as? [String: Any])?["items"] as? [Any],
+              let first = items.lazy.compactMap({ $0 as? [String: Any] })
+                .first(where: { ($0["uri"] as? String)?.isEmpty == false }),
+              let uri = first["uri"] as? String else { return nil }
         return (uri: uri, name: first["name"] as? String ?? "Spotify")
     }
 

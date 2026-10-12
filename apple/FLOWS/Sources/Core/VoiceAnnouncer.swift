@@ -49,7 +49,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     #if os(iOS)
     /// The user's own Personal Voice (Settings → Accessibility), used for
     /// FLOWS's speech when the toggle is on and the system granted access.
-    /// nil = the default system voice. DriveVoice's advisories read it too.
+    /// nil = the default system voice. DriveVoice's advisories are spoken here too.
     private(set) var personalVoice: AVSpeechSynthesisVoice?
     /// A pending hand-back of the audio session (releaseSessionWhenQuiet).
     private var releaseTask: Task<Void, Never>?
@@ -94,7 +94,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     func announce(_ text: String, topic: String? = nil) {
         guard !text.isEmpty else { return }
         // The crash check-in's session and a reply being listened for are
-        // left alone, as DriveVoice leaves them: switching either to
+        // left alone: switching either to
         // playback shuts its microphone, and a turn line landing in the
         // listen lost the driver's yes (or their "I need help"). Both
         // sessions play out loud, so the line is still heard.
@@ -111,8 +111,25 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             playing = nil
             if let next = queue.abandonCurrent() { start(next) }
         }
+        // A newer turn direction makes any still waiting stale.
+        if topic == SpeechTopic.turn { _ = queue.cancel(topic: SpeechTopic.turn) }
+        if SpeechTopic.isUrgent(topic) {
+            if let now = queue.enqueueFirst(text, topic: topic) {
+                start(now)
+            } else if let current = queue.current, !SpeechTopic.isUrgent(current.topic) {
+                // Over a music reply or a turn line: it stops, and its
+                // cancel report starts the warning (first in line).
+                synthesizer.stopSpeaking(at: .immediate)
+            }
+            return
+        }
         if let now = queue.enqueue(text, topic: topic) { start(now) }
     }
+
+    /// Set by AppModel: turn FLOWS's own radio down while a line plays, up
+    /// after. `.duckOthers` lowers only other apps; the station is FLOWS's
+    /// own player, and a warning was read at the radio's full volume.
+    var duckOwnAudio: (Bool) -> Void = { _ in }
 
     /// Take back a message's lines: the one being read stops mid-sentence,
     /// queued ones never start. Other lines carry on.
@@ -133,6 +150,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         queue.cancelAll()
         playing = nil
         synthesizer.stopSpeaking(at: .immediate)
+        duckOwnAudio(false)
     }
 
     /// The session every spoken line plays in: plain playback (lines never
@@ -158,7 +176,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             // line queued right behind this one to start.
             try? await Task.sleep(for: .milliseconds(300))
             guard let self, !Task.isCancelled, !self.isSpeaking,
-                  !DriveVoice.shared.isSpeaking, !VoiceReply.shared.isListening,
+                  !VoiceReply.shared.isListening,
                   !self.checkInHoldsSession(), !self.ownAudioPlaying() else { return }
             try? AVAudioSession.sharedInstance().setActive(
                 false, options: .notifyOthersOnDeactivation)
@@ -173,6 +191,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         if let personalVoice { utterance.voice = personalVoice }
         #endif
         playing = (entry.serial, utterance, .now)
+        duckOwnAudio(true)
         synthesizer.speak(utterance)
     }
 
@@ -184,6 +203,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         if let next = queue.finished(serial: current.serial) {
             start(next)
         } else {
+            duckOwnAudio(false)
             releaseSessionWhenQuiet()
         }
     }

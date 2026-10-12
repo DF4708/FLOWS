@@ -50,7 +50,7 @@ enum TripNeeds {
         }
 
         /// The stop's label, as the schedule orders it.
-        var label: String { flows_trip_vehicle_need_label(rustCode).toString() }
+        var label: String { flows_trip_vehicle_need_label(rustCode).text }   // .text: never traps on ""
 
         var symbol: String {
             switch self {
