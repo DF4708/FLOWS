@@ -42,7 +42,7 @@ struct HarmonicClimatology {
               })
         else { return nil }
         table = parsed
-        families = parsed.families().map { $0.as_str().toString() }
+        families = parsed.families().map { $0.text }
     }
 
     /// Reconstructed score for a ZIP + family at a week-of-year (0…51).
@@ -63,7 +63,7 @@ struct HarmonicClimatology {
     func zipIndexMap() -> [String: Int] {
         var map: [String: Int] = [:]
         for (i, z) in table.zips().enumerated() {
-            let key = z.as_str().toString()
+            let key = z.text
             if map[key] == nil { map[key] = i }
         }
         return map

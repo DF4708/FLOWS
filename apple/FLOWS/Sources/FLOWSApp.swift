@@ -697,11 +697,16 @@ final class AppModel: ObservableObject {
 
     /// Emergency contact + medical notes for the crash flow (Medical ID is
     /// not readable by apps — these live here instead).
-    @Published var emergencyContactName = UserDefaults.standard.string(forKey: "flows.iceName") ?? "" {
-        didSet { UserDefaults.standard.set(emergencyContactName, forKey: "flows.iceName") }
+    /// A person's name and number: Keychain like the medical notes, not the
+    /// preferences plist that backups carry. Earlier builds' copy moves over
+    /// on first launch and the plaintext one is removed.
+    @Published var emergencyContactName =
+        SecureStore.migrateFromDefaults(key: "emergencyContactName", defaultsKey: "flows.iceName") {
+        didSet { SecureStore.set(emergencyContactName, for: "emergencyContactName") }
     }
-    @Published var emergencyContactPhone = UserDefaults.standard.string(forKey: "flows.icePhone") ?? "" {
-        didSet { UserDefaults.standard.set(emergencyContactPhone, forKey: "flows.icePhone") }
+    @Published var emergencyContactPhone =
+        SecureStore.migrateFromDefaults(key: "emergencyContactPhone", defaultsKey: "flows.icePhone") {
+        didSet { SecureStore.set(emergencyContactPhone, for: "emergencyContactPhone") }
     }
     // Health data -> Keychain, not plaintext UserDefaults (backed up, readable).
     @Published var medicalNotes =

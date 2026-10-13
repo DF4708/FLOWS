@@ -133,7 +133,7 @@ enum AirTravel {
         var out: [Airport] = []
         var i = 0
         for row in rows {
-            let text: String = row.as_str().toString()
+            let text: String = row.text
             let parts: [String] = text
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false)
                 .map(String.init)

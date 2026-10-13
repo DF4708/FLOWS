@@ -179,7 +179,7 @@ struct SeasonalStore: Codable {
         let hubs = hubPath.flatMap { [$0.latitude, $0.longitude] }
         let keys = hubs.withUnsafeBufferPointer { flows_seasonal_path_edge_keys($0) }
         for key in keys {
-            let s = key.as_str().toString()
+            let s = key.text
             var er = edges[s] ?? EdgeRecord()
             var ws = er.weeks[week] ?? WeekStat()
             ws.add(observed: observed, predicted: observed, t: t,

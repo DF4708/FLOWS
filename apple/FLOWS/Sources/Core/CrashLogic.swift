@@ -111,10 +111,10 @@ enum CrashLogic {
 
     /// Words that count as "yes, I need help" from the voice check-in —
     /// broad on purpose: a hurt driver won't pick canonical phrasing.
-    static let assistWords: [String] = flows_trip_vehicle_assist_words().map { $0.as_str().toString() }
+    static let assistWords: [String] = flows_trip_vehicle_assist_words().map { $0.text }
     /// Words that stand down the check-in loop. Checked FIRST so "no, I
     /// don't need help" never reads as an assist request.
-    static let okWords: [String] = flows_trip_vehicle_ok_words().map { $0.as_str().toString() }
+    static let okWords: [String] = flows_trip_vehicle_ok_words().map { $0.text }
 
     static func isImpact(accelerationG: Double) -> Bool {
         flows_trip_vehicle_is_impact_acceleration(accelerationG)

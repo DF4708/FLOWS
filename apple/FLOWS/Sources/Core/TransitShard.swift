@@ -239,7 +239,7 @@ enum TransitShard {
     private static func decode(_ rows: RustVec<RustString>) -> [[String]] {
         var out: [[String]] = []
         for row in rows {
-            let text: String = row.as_str().toString()
+            let text: String = row.text
             out.append(
                 text.split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
             )

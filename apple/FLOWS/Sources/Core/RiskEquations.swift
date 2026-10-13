@@ -354,7 +354,7 @@ enum HazardRanking {
 /// Tables read once from rust/flows-core, so Swift holds no copy of them.
 enum RustTables {
     private static func strings(_ v: RustVec<RustString>) -> [String] {
-        v.map { $0.as_str().toString() }
+        v.map { $0.text }
     }
     static let primary: [String] = strings(flows_primary_families())
     static let secondary: [String] = strings(flows_secondary_families())

@@ -344,6 +344,17 @@ enum HazardFeedScores {
 actor LiveHazardFeedFetcher {
     static let shared = LiveHazardFeedFetcher()
 
+    /// A failed refresh waits this long before the next try, so a feed that
+    /// is down costs its timeout once, not on every plan and sweep. Stale
+    /// data (or nothing) is what the feed answers meanwhile, as before.
+    private static let retryAfterFailure: TimeInterval = 90
+
+    /// The fetched-at stamp that puts the next try `retryAfterFailure` from
+    /// now, whatever the feed's own TTL.
+    private static func failedStamp(ttl: TimeInterval) -> Date {
+        Date().addingTimeInterval(-max(ttl - retryAfterFailure, 0))
+    }
+
     // MARK: fire — NOAA HMS hotspots (one NA-wide file, 30-min TTL)
 
     private var fireHotspots: [(lat: Double, lon: Double, frp: Double)] = []
@@ -408,7 +419,10 @@ actor LiveHazardFeedFetcher {
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]] else { return quakes }
+              let features = json["features"] as? [[String: Any]] else {
+            quakesFetched = Self.failedStamp(ttl: 300)
+            return quakes
+        }
         let now = Date().timeIntervalSince1970 * 1000
         quakes = features.compactMap { f in
             guard let geo = f["geometry"] as? [String: Any],
@@ -435,7 +449,10 @@ actor LiveHazardFeedFetcher {
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let now = json["0"] as? [String: Any] else { return spaceWx }
+              let now = json["0"] as? [String: Any] else {
+            spaceWxFetched = Self.failedStamp(ttl: 1800)
+            return spaceWx
+        }
         func scale(_ k: String) -> Int {
             guard let blk = now[k] as? [String: Any],
                   let s = blk["Scale"] as? String, let v = Int(s) else { return 0 }
@@ -503,8 +520,10 @@ actor LiveHazardFeedFetcher {
             if firePerimCache.count > 40 { CacheEviction.dropOldestHalf(&firePerimCache) { $0.0 } }
             return rings
         }
-        // Fetch failed: keep the still-active perimeters (timestamp untouched
-        // so the next call retries) rather than reporting "no fire".
+        // Fetch failed: keep the still-active perimeters rather than
+        // reporting "no fire", and hold off the retry a little (the entry
+        // is dated so it expires `retryAfterFailure` from now).
+        firePerimCache[key] = (Self.failedStamp(ttl: 1800), stale ?? rings)
         return stale ?? rings
     }
 
@@ -541,6 +560,7 @@ actor LiveHazardFeedFetcher {
             if floodCache.count > 40 { CacheEviction.dropOldestHalf(&floodCache) { $0.0 } }
             return out
         }
+        floodCache[key] = (Self.failedStamp(ttl: 900), stale ?? out)
         return stale ?? out
     }
 
@@ -661,7 +681,10 @@ actor LiveHazardFeedFetcher {
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else { return volcanoes }
+        else {
+            volcanoesFetched = Self.failedStamp(ttl: 1800)
+            return volcanoes
+        }
         var out: [(lat: Double, lon: Double, level: String)] = []
         for row in rows {
             guard let name = (row["volcano_name"] as? String)?.lowercased(),
@@ -787,7 +810,10 @@ actor LiveHazardFeedFetcher {
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let active = json["activeStorms"] as? [[String: Any]] else { return storms }
+              let active = json["activeStorms"] as? [[String: Any]] else {
+            stormsFetched = Self.failedStamp(ttl: 1800)
+            return storms
+        }
         storms = active.compactMap { s in
             guard let lat = s["latitudeNumeric"] as? Double,
                   let lon = s["longitudeNumeric"] as? Double else { return nil }
@@ -882,7 +908,10 @@ actor LiveHazardFeedFetcher {
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let features = json["features"] as? [[String: Any]] else { return spcZones }
+              let features = json["features"] as? [[String: Any]] else {
+            spcFetched = Self.failedStamp(ttl: 3600)
+            return spcZones
+        }
         var zones: [(rings: [[CLLocationCoordinate2D]], score: Double)] = []
         for f in features {
             let props = f["properties"] as? [String: Any]
@@ -924,7 +953,9 @@ actor LiveHazardFeedFetcher {
         let query = "[out:json][timeout:10];way[\"maxspeed\"](around:2000,"
             + "\(point.latitude),\(point.longitude));out tags 40;"
         var mph = PursuitReach.defaultSpeedMph
+        var answered = false
         if let elements = await LiveHazardFeedFetcher.overpassElements(query) {
+            answered = true
             var best = 0.0
             for el in elements {
                 guard let tags = el["tags"] as? [String: Any],
@@ -937,8 +968,12 @@ actor LiveHazardFeedFetcher {
             }
             if best > 0 { mph = best }
         }
-        speedCache[key] = mph
-        if speedCache.count > 100 { CacheEviction.dropHalf(&speedCache) }
+        // Only an answer is kept: the default stored for a failed lookup
+        // stood for this cell for the rest of the session.
+        if answered {
+            speedCache[key] = mph
+            if speedCache.count > 100 { CacheEviction.dropHalf(&speedCache) }
+        }
         return mph
     }
 
@@ -1394,10 +1429,12 @@ actor LiveHazardFeedFetcher {
             guard fetched < 3 else { continue }   // request budget per sweep
             fetched += 1
             var roads: [ClosedRoad] = []
+            var answered = false
             if let (data, resp) = try? await ThrottledNet.fetch(url),
                (resp as? HTTPURLResponse)?.statusCode == 200,
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let features = json["features"] as? [[String: Any]] {
+                answered = true
                 for f in features {
                     guard let props = f["properties"] as? [String: Any] else { continue }
                     let impact = ((props["vehicle_impact"] as? String) ?? "").lowercased()
@@ -1432,7 +1469,15 @@ actor LiveHazardFeedFetcher {
             // A caller cancelled mid-read (a camera move, a replan) learned
             // nothing: caching its empty answer said "no closures" for 15 min.
             if Task.isCancelled { break }
-            closureCache[cacheKey] = (Date(), roads)   // failures cache empty
+            if answered {
+                closureCache[cacheKey] = (Date(), roads)
+            } else {
+                // A feed that did not answer is not an empty feed: keep what
+                // it last said and try again soon, rather than "no closures"
+                // for the full 15 minutes.
+                roads = closureCache[cacheKey]?.1 ?? []
+                closureCache[cacheKey] = (Self.failedStamp(ttl: 900), roads)
+            }
             if closureCache.count > 100 { CacheEviction.dropOldestHalf(&closureCache) { $0.0 } }
             out.append(contentsOf: roads)
         }

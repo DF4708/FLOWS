@@ -305,4 +305,43 @@ final class RiskRealizationTests: XCTestCase {
         XCTAssertEqual(host(19.43, -99.13), "smn.conagua.gob.mx")     // Mexico City
         XCTAssertEqual(host(25.67, -100.31), "smn.conagua.gob.mx")    // Monterrey
     }
+
+    /// The northern border, town by town: Maine, northern New York and
+    /// Vermont, Lake Ontario's south shore and Michigan's Huron coast are
+    /// US (a flat "north of 44.8°" box sent them to Environment Canada), and
+    /// the Maritimes and northwestern Ontario are not (a box that stopped at
+    /// 44.8° and at the Great Lakes sent Halifax and Thunder Bay to NWS).
+    func testOfficialURLAlongTheNorthernBorder() {
+        func canada(_ lat: Double, _ lon: Double) -> Bool {
+            RiskAdvice.officialURL(latitude: lat, longitude: lon)?.host == "weather.gc.ca"
+        }
+        let us: [(String, Double, Double)] = [
+            ("Caribou ME", 46.86, -68.01), ("Fort Kent ME", 47.26, -68.59),
+            ("Houlton ME", 46.13, -67.84), ("Jackman ME", 45.63, -70.26),
+            ("Bangor ME", 44.80, -68.77), ("Pittsburg NH", 45.05, -71.39),
+            ("Burlington VT", 44.48, -73.21), ("St. Albans VT", 44.81, -73.08),
+            ("Plattsburgh NY", 44.70, -73.45), ("Watertown NY", 43.97, -75.91),
+            ("Oswego NY", 43.46, -76.51), ("Rochester NY", 43.16, -77.61),
+            ("Buffalo NY", 42.89, -78.88), ("Alpena MI", 45.06, -83.43),
+            ("Detroit MI", 42.33, -83.05), ("Sault Ste. Marie MI", 46.50, -84.35),
+            ("Duluth MN", 46.79, -92.10), ("Minneapolis MN", 44.98, -93.27),
+            ("Fargo ND", 46.88, -96.79), ("Seattle WA", 47.61, -122.33),
+        ]
+        for (name, lat, lon) in us {
+            XCTAssertFalse(canada(lat, lon), "\(name) is in the US")
+        }
+        let ca: [(String, Double, Double)] = [
+            ("Montreal QC", 45.50, -73.57), ("Quebec City QC", 46.81, -71.21),
+            ("Lac-Megantic QC", 45.58, -70.88), ("Ottawa ON", 45.42, -75.70),
+            ("Kingston ON", 44.23, -76.49), ("Toronto ON", 43.65, -79.38),
+            ("Sudbury ON", 46.49, -81.00), ("Thunder Bay ON", 48.38, -89.25),
+            ("Winnipeg MB", 49.90, -97.14), ("Vancouver BC", 49.28, -123.12),
+            ("Moncton NB", 46.09, -64.80), ("Woodstock NB", 46.15, -67.60),
+            ("Halifax NS", 44.65, -63.57), ("Yarmouth NS", 43.83, -66.12),
+            ("St. John's NL", 47.56, -52.71),
+        ]
+        for (name, lat, lon) in ca {
+            XCTAssertTrue(canada(lat, lon), "\(name) is in Canada")
+        }
+    }
 }

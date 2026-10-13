@@ -167,7 +167,7 @@ enum SpeedLaw {
 enum CompassReading {
     /// The 16 points clockwise from north, read from rust/flows-core once;
     /// NWSForecastService indexes it to turn a wind word into degrees.
-    static let points: [String] = flows_vehicle_policy_compass_points().map { $0.as_str().toString() }
+    static let points: [String] = flows_vehicle_policy_compass_points().map { $0.text }
 
     /// Normalize any heading (including the -1 CoreLocation reports when it
     /// has no course) into 0..<360.

@@ -86,10 +86,14 @@ final class BreadcrumbTrail: ObservableObject {
         return (reversed, meters)
     }
 
+    /// Encoded and written on the persist queue: a trail of thousands of
+    /// points was encrypted and written on the main thread, in the GPS sink,
+    /// every few hundred meters of every drive.
     private func persist() {
         sinceSave = 0
         let raw = points.map { [$0.latitude, $0.longitude] }
-        _ = SecureBehaviorStore.save(raw, to: url)
+        let url = self.url
+        SecureBehaviorStore.persistQueue.async { _ = SecureBehaviorStore.save(raw, to: url) }
     }
 
     /// "Erase everything FLOWS has learned" reaches this too.
@@ -101,6 +105,10 @@ final class BreadcrumbTrail: ObservableObject {
     /// encrypted in the first place.
     func erase() {
         points = []
-        SecureBehaviorStore.shred(url)
+        sinceSave = 0
+        // Behind any write already queued, so a late write cannot bring the
+        // file back.
+        let url = self.url
+        SecureBehaviorStore.persistQueue.sync { SecureBehaviorStore.shred(url) }
     }
 }

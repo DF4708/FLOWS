@@ -66,8 +66,8 @@ struct VehicleSpec: Equatable, Identifiable {
 /// rust/flows-bridge/tests/fixtures/swift_trip_vehicle_oracle.tsv.
 enum VehicleSpecs {
     static let all: [VehicleSpec] = {
-        let makes = flows_trip_vehicle_spec_makes().map { $0.as_str().toString() }
-        let models = flows_trip_vehicle_spec_models().map { $0.as_str().toString() }
+        let makes = flows_trip_vehicle_spec_makes().map { $0.text }
+        let models = flows_trip_vehicle_spec_models().map { $0.text }
         let numbers = Array(flows_trip_vehicle_spec_numbers())
         let slots = Int(flows_trip_vehicle_spec_number_slots())
         // Fuel code, city, highway, tank, height, GVWR, tow capacity, GCWR,
@@ -94,7 +94,7 @@ enum VehicleSpecs {
 
     /// Distinct makes, table order preserved.
     static var makes: [String] {
-        flows_trip_vehicle_distinct_makes().map { $0.as_str().toString() }
+        flows_trip_vehicle_distinct_makes().map { $0.text }
     }
 
     /// Models for one make (the filterable table the editor drives).

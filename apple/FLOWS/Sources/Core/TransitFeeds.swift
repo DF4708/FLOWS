@@ -120,7 +120,7 @@ actor TransitFeeds {
     private static func sources(_ rows: RustVec<RustString>) -> [Source] {
         var out: [Source] = []
         for row in rows {
-            let f = row.as_str().toString()
+            let f = row.text
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
             guard f.count == 10, f[0] == "feed", let url = URL(string: f[3]),
                   let minLat = Double(f[5]), let maxLat = Double(f[6]),

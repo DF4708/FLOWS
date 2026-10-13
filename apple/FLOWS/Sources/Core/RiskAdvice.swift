@@ -6,6 +6,7 @@
 // permission of the copyright holder.
 // -----------------------------------------------------------------------------
 
+import CoreLocation
 import Foundation
 
 /// Expert-recommended actions for a tapped risk symbol, SCALED to the band —
@@ -241,16 +242,7 @@ enum RiskAdvice {
     /// the issuing agency. US is the default; a location routes to a foreign
     /// agency only when it is unambiguously across the border.
     static func officialURL(latitude: Double, longitude: Double) -> URL? {
-        // Alaska is US (NWS) despite its high latitude — resolve it BEFORE the
-        // Canada box, which would otherwise send Anchorage/Fairbanks/Juneau to
-        // Environment Canada. West of the panhandle border (~-130.5) at high
-        // latitude is Alaska; a sliver of far-NW BC is the only trade-off.
-        let isAlaska = latitude > 51 && longitude < -130.5
-        // Canada: high-latitude mainland EAST of Alaska, plus the two Great
-        // Lakes strips where the border dips below 49°N.
-        if !isAlaska, latitude > 49
-            || (latitude > 44.8 && longitude > -83.6 && longitude < -52)
-            || (latitude > 43.4 && longitude > -81.8 && longitude < -76.3) {
+        if isNorthOfTheBorder(latitude: latitude, longitude: longitude) {
             return URL(string: "https://weather.gc.ca/en/location/index.html"
                        + String(format: "?coords=%.3f,%.3f", latitude, longitude))
         }
@@ -271,6 +263,51 @@ enum RiskAdvice {
         return URL(string: String(format:
             "https://forecast.weather.gov/MapClick.php?lat=%.4f&lon=%.4f",
             latitude, longitude))
+    }
+
+    /// Maine's land (north of 44.8°N), drawn along the Quebec and New
+    /// Brunswick border as (latitude, longitude): the 45th parallel's end at
+    /// -71.5, Coburn Gore, Armstrong, the highlands to Estcourt Station, the
+    /// St. John River to Hamlin, the -67.78 monument line, then the St. Croix.
+    private static let maine: [CLLocationCoordinate2D] = [
+        (44.6, -71.5), (45.01, -71.5), (45.30, -71.08), (45.40, -70.80), (45.77, -70.39),
+        (46.40, -70.05), (47.10, -70.0), (47.46, -69.23), (47.36, -68.33), (47.07, -67.78),
+        (45.93, -67.78), (45.57, -67.43), (45.18, -67.28), (44.6, -66.9),
+    ].map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }
+
+    /// Is the point on the Canadian side of the border? West to east, the
+    /// border as the bands the Weather Service and Environment Canada split
+    /// it by: the 49th parallel, the Rainy River and Superior, Huron's
+    /// Michigan shore, Lake Ontario, the St. Lawrence, the 45th parallel,
+    /// Maine's outline, and the Maritimes beyond it. Alaska (US) is read
+    /// first, ahead of its high latitude. Border towns within ~0.05° are
+    /// inherently ambiguous at this resolution.
+    static func isNorthOfTheBorder(latitude lat: Double, longitude lon: Double) -> Bool {
+        if lat > 51 && lon < -130.5 { return false }               // Alaska
+        if lon <= -95.15 { return lat > 49.0 }                     // the 49th parallel
+        if lon <= -89.6 {                                          // Rainy River → Pigeon River
+            let knots: [(lon: Double, lat: Double)] = [
+                (-95.15, 49.0), (-94.6, 48.8), (-93.4, 48.6), (-92.0, 48.3), (-89.6, 48.0)]
+            guard let i = knots.indices.dropLast().first(where: { lon <= knots[$0 + 1].lon })
+            else { return lat > 48.0 }
+            let a = knots[i], b = knots[i + 1]
+            let t = (lon - a.lon) / (b.lon - a.lon)
+            return lat > a.lat + t * (b.lat - a.lat) + 0.02
+        }
+        if lon <= -83.6 { return lat > 47.8 }                      // Superior's Canadian shore
+        if lon <= -82.0 { return lat > 45.5 }                      // Michigan ends below 45.5
+        if lon <= -78.0 { return lat > 43.4 }                      // Ontario's south shore
+        if lon <= -76.35 { return lat > 43.75 }                    // Lake Ontario's east end
+        if lon <= -74.75 {                                         // the St. Lawrence
+            return lat > 44.12 + (lon + 76.35) / 1.6 * 0.88
+        }
+        if lon <= -71.5 { return lat > 45.03 }                     // the 45th parallel
+        if lon <= -66.9 {
+            return lat > 44.8
+                && !HazardFeedScores.pointInPolygon(
+                    CLLocationCoordinate2D(latitude: lat, longitude: lon), maine)
+        }
+        return lon < -52 && lat > 43.0                             // the Maritimes
     }
 
     /// The latitude of the US–Mexico border for the WESTERN segment

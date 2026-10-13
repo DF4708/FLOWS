@@ -716,7 +716,7 @@ enum ShipTravel {
         for row in flows_transit_ferry_crossings(start.latitude, start.longitude,
                                                  end.latitude, end.longitude,
                                                  reachMeters, Int64(limit)) {
-            let f = row.as_str().toString()
+            let f = row.text
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
             guard f.count == 20, f[0] == "ferry",
                   let bLat = Double(f[6]), let bLon = Double(f[7]),

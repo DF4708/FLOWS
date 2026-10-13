@@ -37,8 +37,8 @@ device and stored only on your device:
   Trucker mode's NOAA Weather Radio streams come from weatherusa.net's
   public relays (radio.weatherusa.net); no location or personal data is
   sent to that host — the app only downloads the audio stream.
-- **Vehicle profile, trip settings, emergency contact** — stored in the
-  app's local preferences on your device only.
+- **Vehicle profile, trip settings** — stored in the app's local
+  preferences on your device only.
 - **Favorites (Home, Work, saved places)** — encrypted on your device under
   their own key, separate from the learned-data key below, so "Erase
   everything FLOWS has learned" leaves the addresses you typed in place.
@@ -98,8 +98,8 @@ device and stored only on your device:
   you have physically driven were written as plain text and had no eraser
   at all, so the most sensitive data here outlived the button that
   promises otherwise.
-- **Medical notes, trip-share contacts and connected-account secrets** —
-  stored in the device Keychain (never synced; on an iPhone never included
+- **Emergency contact, medical notes, trip-share contacts and
+  connected-account secrets** — stored in the device Keychain (never synced; on an iPhone never included
   in backups — on a Mac the login keychain is part of a Time Machine
   backup, locked with your Mac password). Medical notes appear only in the
   crash-report message YOU send.

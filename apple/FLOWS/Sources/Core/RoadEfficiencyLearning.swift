@@ -182,8 +182,11 @@ final class RoadEfficiencyModel: ObservableObject {
                       roadClass: roadClass)
     }
 
+    /// Encoded and written on the persist queue, off the GPS sink.
     private func persist() {
-        _ = SecureBehaviorStore.save(store, to: url)
+        let snapshot = store
+        let url = self.url
+        SecureBehaviorStore.persistQueue.async { _ = SecureBehaviorStore.save(snapshot, to: url) }
     }
 
     /// "Erase everything FLOWS has learned" reaches this too.
@@ -200,6 +203,9 @@ final class RoadEfficiencyModel: ObservableObject {
         pendingUnits = 0
         pendingArea = nil
         pendingClass = nil
-        SecureBehaviorStore.shred(url)
+        // Behind any write already queued, so a late write cannot bring the
+        // file back.
+        let url = self.url
+        SecureBehaviorStore.persistQueue.sync { SecureBehaviorStore.shred(url) }
     }
 }

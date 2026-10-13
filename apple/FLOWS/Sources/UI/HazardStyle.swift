@@ -227,7 +227,7 @@ struct ScannerIncidentPin: View {
 
 /// Names read from the Rust classifier once.
 enum AlertTables {
-    static let displayKindNames: [String] = flows_alerts_display_kind_names().map { $0.as_str().toString() }
+    static let displayKindNames: [String] = flows_alerts_display_kind_names().map { $0.text }
     /// The name at a classifier index, or the generic hazard for anything out
     /// of range (which includes the bridge's containment fallback).
     static func name(at index: Int) -> String {
