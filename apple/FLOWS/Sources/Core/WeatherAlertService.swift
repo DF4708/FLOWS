@@ -42,16 +42,38 @@ final class WeatherAlertService: ObservableObject {
     /// moved (extended, it keeps its new end). They used to be appended to
     /// only, so a warning that expired mid-drive stayed on the map until the
     /// leg ended.
+    ///
+    /// `looked`: the places a COMPLETE score checked. A drawn shape with one
+    /// of them inside it, and no shape of the same warning among `live`, is
+    /// a warning that was cancelled, replaced by a re-issue, or let go
+    /// early: it leaves with the pass that no longer finds it. (Without
+    /// this it stayed until its own end time, and one with no end time
+    /// until the leg ended.) A shape nothing was checked inside leaves it
+    /// alone, and so does an empty `looked`.
     nonisolated static func mergedPolygons(_ existing: [AlertPolygon], live: [AlertPolygon],
-                                           now: Date) -> [AlertPolygon] {
+                                           now: Date,
+                                           looked: [CLLocationCoordinate2D] = []) -> [AlertPolygon] {
+        func sameWarning(_ q: AlertPolygon, _ p: AlertPolygon) -> Bool {
+            q.event == p.event
+                && (q.coordinates.first.flatMap { qf in
+                    p.coordinates.first.map { POIRanking.meters(qf, $0) < 50 }
+                } ?? false)
+        }
         var polygons = existing.filter { !$0.hasExpired(at: now) }
-        for p in live where !p.hasExpired(at: now) {
-            let same = polygons.firstIndex { q in
-                q.event == p.event
-                    && (q.coordinates.first.flatMap { qf in
-                        p.coordinates.first.map { POIRanking.meters(qf, $0) < 50 }
-                    } ?? false)
+        if !looked.isEmpty {
+            polygons = polygons.filter { q in
+                if live.contains(where: { sameWarning(q, $0) }) { return true }
+                let lats = q.coordinates.map(\.latitude), lons = q.coordinates.map(\.longitude)
+                guard let s = lats.min(), let n = lats.max(),
+                      let w = lons.min(), let e = lons.max() else { return true }
+                return !looked.contains { pt in
+                    pt.latitude >= s && pt.latitude <= n && pt.longitude >= w && pt.longitude <= e
+                        && HazardFeedScores.pointInPolygon(pt, q.coordinates)
+                }
             }
+        }
+        for p in live where !p.hasExpired(at: now) {
+            let same = polygons.firstIndex { sameWarning($0, p) }
             if let same {
                 if polygons[same].expires != p.expires { polygons[same] = p }
             } else {
@@ -90,6 +112,11 @@ final class WeatherAlertService: ObservableObject {
         /// id of their worst alert, so the imminent-alert engine can join a
         /// risky sample back to its official summary + source link.
         var alertsByID: [String: NWSAlert] = [:]
+        /// Every place this score looked at: the check points and the road
+        /// points between them. A shape drawn from an earlier score with one
+        /// of these inside it and no alert here to draw it is a warning that
+        /// is gone (`mergedPolygons`).
+        var looked: [CLLocationCoordinate2D] = []
     }
 
     /// One-shot corridor score for route ranking.
@@ -334,7 +361,12 @@ final class WeatherAlertService: ObservableObject {
             samples: riskSamples,
             alertPolygons: polygons,
             complete: fetchFailures == 0,
-            alertsByID: Dictionary(uniqueKeysWithValues: unique.map { ($0.id, $0) }))
+            alertsByID: Dictionary(uniqueKeysWithValues: unique.map { ($0.id, $0) }),
+            // Only the between-points the lists answered: one they could
+            // not answer must not read as "looked, found nothing".
+            looked: samples + along.enumerated().compactMap { k, spot in
+                betweenHits[Self.betweenKeyPrefix + String(k)] == nil ? nil : spot.point
+            })
     }
 
     /// 0.25° cell key (~28 km): matches NWS zone scale without merging

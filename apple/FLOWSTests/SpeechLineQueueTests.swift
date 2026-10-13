@@ -107,6 +107,26 @@ final class SpeechLineQueueTests: XCTestCase {
         XCTAssertNil(t.finished(serial: t.current!.serial))
     }
 
+    /// A turn direction that waited out a long warning describes a turn the
+    /// car has gone by: dropped when its turn comes. Other lines are kept
+    /// however long they waited.
+    func testATurnLineThatWaitedTooLongIsNotSaid() {
+        var q = SpeechLineQueue<String>()
+        _ = q.enqueue("tornado", topic: SpeechTopic.imminent("A"))
+        let warning = q.current!.serial
+        _ = q.enqueue("in a quarter mile, turn left", topic: SpeechTopic.turn)
+        _ = q.enqueue("music reply", topic: nil)
+        let late = Date().addingTimeInterval(SpeechLineQueue<String>.turnLineLifetime + 5)
+        XCTAssertEqual(q.finished(serial: warning, now: late)?.line, "music reply")
+        // Within its lifetime it is still said.
+        var fresh = SpeechLineQueue<String>()
+        _ = fresh.enqueue("tornado", topic: SpeechTopic.imminent("A"))
+        let first = fresh.current!.serial
+        _ = fresh.enqueue("turn left", topic: SpeechTopic.turn)
+        XCTAssertEqual(fresh.finished(serial: first, now: Date().addingTimeInterval(5))?.line,
+                       "turn left")
+    }
+
     func testTopicsNameTheirMessage() {
         XCTAssertEqual(SpeechTopic.imminent("abc"), "imminent.abc")
         XCTAssertNotEqual(SpeechTopic.trafficOffer, SpeechTopic.escalation)

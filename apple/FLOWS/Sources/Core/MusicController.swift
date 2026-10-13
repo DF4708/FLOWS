@@ -112,7 +112,19 @@ final class MusicController: ObservableObject {
     /// Published so CarPlay can redraw its buttons when the pick changes.
     @Published var provider: MusicProvider = MusicProvider(
         rawValue: UserDefaults.standard.string(forKey: "flows.musicProvider") ?? ""
-    ) ?? .radio
+    ) ?? .radio {
+        didSet {
+            guard provider != oldValue else { return }
+            // The system player's album art and state are Apple Music's
+            // alone: the Spotify and radio tiles showed the last album.
+            if radioActive || spotifyActive {
+                artwork = nil
+            } else if activated {
+                refresh()
+                readNowPlayingFields()
+            }
+        }
+    }
 
     /// True when the transport calls drive the PICKED service rather than
     /// falling through to Apple Music — the one gate every surface checks
@@ -193,7 +205,10 @@ final class MusicController: ObservableObject {
     var onPlaybackStopped: (() -> Void)?
 
     private func refresh() {
-        guard !spotifyActive else { return }   // Music.app state isn't ours
+        // Music.app's state is not ours while Spotify or the radio is the
+        // service: its notifications overwrote the radio's play/pause and
+        // track name (syncFromRadio) until the next transport press.
+        guard !spotifyActive, !radioActive else { return }
         let wasPlaying = isPlaying
         isPlaying = player.playbackState == .playing
         shuffleOn = player.shuffleMode != .off
@@ -209,7 +224,12 @@ final class MusicController: ObservableObject {
             trackBoundaryAction = nil
             action()
         }
-        guard !spotifyActive else { return }
+        guard !spotifyActive, !radioActive else { return }
+        readNowPlayingFields()
+    }
+
+    /// The system player's title and artwork, into the published fields.
+    private func readNowPlayingFields() {
         trackName = player.nowPlayingItem?.title ?? ""
         artwork = player.nowPlayingItem?.artwork?
             .image(at: CGSize(width: 64, height: 64))?.cgImage
@@ -222,7 +242,10 @@ final class MusicController: ObservableObject {
     /// song off mid-chorus. Runs immediately when nothing is playing, so
     /// a paused or silent player never strands the caller.
     func atNextTrackBoundary(_ action: @escaping () -> Void) {
-        guard isPlaying, player.nowPlayingItem != nil else {
+        // Not while the radio is the service: its `isPlaying` is the station's,
+        // Music is paused behind it and never changes track — the switch-back
+        // waited for a boundary that could not come.
+        guard isPlaying, !radioActive, player.nowPlayingItem != nil else {
             action()
             return
         }
@@ -488,20 +511,38 @@ final class MusicController: ObservableObject {
         return error == nil ? result : nil
     }
 
+    /// The app the transport scripts: Spotify when it is the pick, else Music.
+    private var scriptedApp: String { provider == .spotify ? "Spotify" : "Music" }
+
     private func refresh() {
-        isPlaying = run("tell application \"Music\" to player state is playing")?
+        // The radio's state is mirrored (syncFromRadio); reading Music for it
+        // showed Music's play state beside the station.
+        guard !radioActive else { return }
+        let app = scriptedApp
+        // Asked of the app that was picked, and never launching it to ask:
+        // a Music.app read launched Music on every press with Spotify picked.
+        guard run("application \"\(app)\" is running")?.booleanValue == true else {
+            isPlaying = false
+            return
+        }
+        isPlaying = run("tell application \"\(app)\" to player state is playing")?
             .booleanValue ?? false
-        shuffleOn = run("tell application \"Music\" to shuffle enabled")?
+        shuffleOn = run(provider == .spotify
+                        ? "tell application \"Spotify\" to shuffling"
+                        : "tell application \"Music\" to shuffle enabled")?
             .booleanValue ?? false
     }
 
-    /// Music.app updates its player state a beat AFTER the command lands —
-    /// refreshing immediately read the OLD state (the "flipped icon" bug).
+    /// The picked app updates its player state a beat AFTER the command
+    /// lands — refreshing immediately read the OLD state (the "flipped icon"
+    /// bug).
     private func refreshSoon() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            self?.refresh()
-            self?.trackName = self?.run(
-                "tell application \"Music\" to get name of current track")?
+            guard let self, !self.radioActive else { return }
+            self.refresh()
+            guard self.isPlaying else { return }
+            self.trackName = self.run(
+                "tell application \"\(self.scriptedApp)\" to get name of current track")?
                 .stringValue ?? ""
         }
     }
@@ -579,8 +620,10 @@ final class MusicController: ObservableObject {
     }
 
     /// Personal Apple Music stations aren't scriptable via Apple Events —
-    /// the shuffled library is the stand-in.
+    /// the shuffled library is the stand-in. Spotify has no library to
+    /// script: its own queue resumes instead of launching Music beside it.
     func playMyStation() {
+        if provider == .spotify { resumeRecent(); return }
         playLibraryShuffled()
     }
 
@@ -612,6 +655,9 @@ final class MusicController: ObservableObject {
     /// spoken ask), so it is escaped for the AppleScript string: a quote in
     /// it broke the script and the whole library played instead.
     func playGenre(_ genre: String) {
+        // Spotify cannot be asked for a genre over Apple Events: its own
+        // queue resumes, rather than Music launching beside it.
+        if provider == .spotify { resumeRecent(); return }
         stopRadioForMusic()
         let quoted = genre
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -646,16 +692,24 @@ final class MusicController: ObservableObject {
 
     func cyclePlayOrder() {
         if radioActive { return }   // live radio has no play order
+        let spotify = provider == .spotify   // its own words for the same three
         switch playOrder {
         case .ordered:
-            run("tell application \"Music\" to set shuffle enabled to true")
+            run(spotify ? "tell application \"Spotify\" to set shuffling to true"
+                        : "tell application \"Music\" to set shuffle enabled to true")
             playOrder = .shuffle
         case .shuffle:
-            run("tell application \"Music\" to set shuffle enabled to false")
-            run("tell application \"Music\" to set song repeat to all")
+            if spotify {
+                run("tell application \"Spotify\" to set shuffling to false")
+                run("tell application \"Spotify\" to set repeating to true")
+            } else {
+                run("tell application \"Music\" to set shuffle enabled to false")
+                run("tell application \"Music\" to set song repeat to all")
+            }
             playOrder = .loop
         case .loop:
-            run("tell application \"Music\" to set song repeat to off")
+            run(spotify ? "tell application \"Spotify\" to set repeating to false"
+                        : "tell application \"Music\" to set song repeat to off")
             playOrder = .ordered
         }
         refreshSoon()

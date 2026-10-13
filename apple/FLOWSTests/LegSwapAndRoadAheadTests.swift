@@ -354,6 +354,32 @@ final class LegSwapAndRoadAheadTests: XCTestCase {
         XCTAssertEqual(WeatherAlertService.mergedPolygons([drawn], live: [other], now: now).count, 2)
     }
 
+    /// A warning that is cancelled or re-issued leaves the map with the pass
+    /// that no longer finds it — not at its end time, and (with no end time)
+    /// not at the end of the leg. A shape nothing was checked inside stays.
+    func testACancelledOrReissuedWarningLeavesTheMap() {
+        let now = Date()
+        let drawn = polygon("Tornado Warning", expires: nil)
+        let inside = CLLocationCoordinate2D(latitude: 41.08, longitude: -104.78)
+        let away = CLLocationCoordinate2D(latitude: 44.0, longitude: -100.0)
+        // looked inside it, nothing in force draws it: gone
+        XCTAssertTrue(WeatherAlertService.mergedPolygons(
+            [drawn], live: [], now: now, looked: [inside]).isEmpty)
+        // nothing was looked at inside it: stays (it may simply be ahead)
+        XCTAssertEqual(WeatherAlertService.mergedPolygons(
+            [drawn], live: [], now: now, looked: [away]).count, 1)
+        // no pass to judge by: stays
+        XCTAssertEqual(WeatherAlertService.mergedPolygons([drawn], live: [], now: now).count, 1)
+        // still in force: stays, and is not redrawn
+        let same = polygon("Tornado Warning", expires: nil)
+        XCTAssertEqual(WeatherAlertService.mergedPolygons(
+            [drawn], live: [same], now: now, looked: [inside]).map(\.id), [drawn.id])
+        // re-issued over a new shape: the old one goes, the new one joins
+        let moved = polygon("Tornado Warning", expires: nil, at: 41.5)
+        XCTAssertEqual(WeatherAlertService.mergedPolygons(
+            [drawn], live: [moved], now: now, looked: [inside]).map(\.id), [moved.id])
+    }
+
     // MARK: what is said
 
     /// The rising-risk prompt is spoken: what raised it, one period, no

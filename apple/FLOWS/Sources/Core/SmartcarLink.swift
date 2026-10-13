@@ -42,6 +42,17 @@ final class SmartcarLink: ObservableObject {
     /// and an old one stops standing in for the tank (`FuelReading.freshest`).
     private(set) var fuelReadAt: Date?
     @Published private(set) var tirePressuresPsi: [String: Double] = [:]
+    /// When the tire pressures were fetched: a car out of reach for a while
+    /// stops standing in for the tires (the readings had no age at all).
+    private(set) var tireReadAt: Date?
+    static let tireStaleSeconds: TimeInterval = 900
+
+    /// The driver's own vehicle (make, model), asked of AppModel: with
+    /// several cars on the account the first listed one was read, whoever's
+    /// it was. nil keeps the first.
+    var wantedVehicle: () -> (make: String, model: String)? = { nil }
+    /// The car chosen from the account, kept until it is gone from it.
+    private var chosenVehicleID: String?
 
     var fuelReading: FuelReading? {
         guard let fuelFraction, let fuelReadAt else { return nil }
@@ -177,6 +188,12 @@ final class SmartcarLink: ObservableObject {
         guard !refreshing else { return }
         refreshing = true
         defer { refreshing = false }
+        // Before any early return: a refresh that cannot reach Smartcar is
+        // exactly when old tire readings must stop being believed.
+        if let at = tireReadAt, Date().timeIntervalSince(at) > Self.tireStaleSeconds {
+            tirePressuresPsi = [:]
+            tireReadAt = nil
+        }
         if accessToken == nil, let refresh = refreshToken {
             // Refresh REFUSED (grant revoked/expired) → tear down the stale
             // session instead of leaving it "Connected" forever with dead data
@@ -203,13 +220,21 @@ final class SmartcarLink: ObservableObject {
             status = "Can't reach Smartcar right now."
             return
         }
-        guard let vehicles = ids["vehicles"] as? [String], let first = vehicles.first else {
+        guard let vehicles = ids["vehicles"] as? [String], !vehicles.isEmpty else {
             status = "No vehicles on the account."
             return
         }
+        guard let first = await pickVehicle(from: vehicles, token: token) else { return }
         if let fuel = await get("https://api.smartcar.com/v2.0/vehicles/\(first)/fuel",
                                 token: token),
            let percent = fuel["percentRemaining"] as? Double {
+            fuelFraction = percent
+            fuelReadAt = Date()
+        } else if let battery = await get(
+            "https://api.smartcar.com/v2.0/vehicles/\(first)/battery", token: token),
+                  let percent = battery["percentRemaining"] as? Double {
+            // An electric car has no fuel endpoint: its charge is the tank
+            // (the scope asked for read_battery all along; nothing read it).
             fuelFraction = percent
             fuelReadAt = Date()
         }
@@ -224,10 +249,42 @@ final class SmartcarLink: ObservableObject {
                     out[label] = (kPa * 0.145038 * 10).rounded() / 10
                 }
             }
-            if !out.isEmpty { tirePressuresPsi = out }
+            if !out.isEmpty {
+                tirePressuresPsi = out
+                tireReadAt = Date()
+            }
         }
         status = fuelFraction.map { String(format: "Fuel from your car: %.0f%%", $0 * 100) }
             ?? "Connected — this car doesn't share its fuel level."
+    }
+
+    /// The car to read among those on the account: the one chosen before
+    /// while it is still listed; else, with several, the one whose make and
+    /// model are the driver's own vehicle; else the first (a car whose
+    /// details cannot be read is passed over). nil only for an empty list.
+    private func pickVehicle(from vehicles: [String], token: String) async -> String? {
+        if let kept = chosenVehicleID, vehicles.contains(kept) { return kept }
+        chosenVehicleID = nil
+        guard vehicles.count > 1, let wanted = wantedVehicle() else {
+            chosenVehicleID = vehicles.first
+            return vehicles.first
+        }
+        let make = wanted.make.lowercased(), model = wanted.model.lowercased()
+        for id in vehicles.prefix(8) {
+            guard let attrs = await get("https://api.smartcar.com/v2.0/vehicles/\(id)",
+                                        token: token) else { continue }
+            let theirMake = (attrs["make"] as? String)?.lowercased() ?? ""
+            let theirModel = (attrs["model"] as? String)?.lowercased() ?? ""
+            if !make.isEmpty, theirMake == make,
+               model.isEmpty || theirModel == model || theirModel.contains(model)
+                || model.contains(theirModel) {
+                chosenVehicleID = id
+                return id
+            }
+        }
+        // None is the driver's vehicle by name: the first, as before.
+        chosenVehicleID = vehicles.first
+        return vehicles.first
     }
 
     func disconnect() {
@@ -236,6 +293,8 @@ final class SmartcarLink: ObservableObject {
         fuelFraction = nil
         fuelReadAt = nil
         tirePressuresPsi = [:]
+        tireReadAt = nil
+        chosenVehicleID = nil
         connected = false
         SecureStore.set(nil, for: "smartcar.refresh")
         status = "Disconnected."

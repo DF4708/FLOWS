@@ -28,6 +28,22 @@ final class LiveHazardRouteTests: XCTestCase {
         XCTAssertEqual(FlowsCore.riskBand(score: risk), .red, "\(risk)")
     }
 
+    /// A warning area is reached at its edge: the imminent banner measures
+    /// to it, not to the check point somewhere inside.
+    func testMetersToRingsReadsTheNearestEdgeAndZeroInside() {
+        let box = [CLLocationCoordinate2D(latitude: 43.0, longitude: -89.5),
+                   CLLocationCoordinate2D(latitude: 43.2, longitude: -89.5),
+                   CLLocationCoordinate2D(latitude: 43.2, longitude: -89.3),
+                   CLLocationCoordinate2D(latitude: 43.0, longitude: -89.3)]
+        let inside = CLLocationCoordinate2D(latitude: 43.1, longitude: -89.4)
+        let south = CLLocationCoordinate2D(latitude: 42.9, longitude: -89.4)   // 0.1° below
+        XCTAssertEqual(HazardFeedScores.metersToRings([box], from: inside), 0)
+        XCTAssertEqual(HazardFeedScores.metersToRings([box], from: south) ?? 0, 11_132, accuracy: 100)
+        // no usable ring: no answer, never a made-up zero
+        XCTAssertNil(HazardFeedScores.metersToRings([], from: south))
+        XCTAssertNil(HazardFeedScores.metersToRings([[inside]], from: south))
+    }
+
     func testNothingLiveChangesNothing() {
         // Empty snapshot: the band input is bit-identical to the call without it.
         let live = HazardFeedScores.live(at: pt, snapshot: .empty).bandInputContribution

@@ -440,8 +440,16 @@ final class EverydayPlaces: ObservableObject {
             e.lastUsed = p.lastUsedT
             return e
         }
-        return DestinationPrediction.rank(
+        let ranked = DestinationPrediction.rank(
             evidence, now: now.timeIntervalSince1970, limit: limit)
+        // Offered unprompted (the CarPlay rows, the empty destination field),
+        // so only when sure: a place tapped once read "You've been here
+        // recently" as a prediction. A weak guess about where someone is
+        // going is worse than silence — recents still list below.
+        let topEvidence = ranked.first
+            .flatMap { top in evidence.first { $0.id == top.id }?.totalHits } ?? 0
+        return DestinationPrediction.isConfident(ranked, minimumEvidence: topEvidence)
+            ? ranked : []
     }
 
     /// Learn from a completed trip: the straight-line start→end miles feed

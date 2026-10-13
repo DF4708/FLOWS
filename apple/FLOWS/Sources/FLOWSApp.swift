@@ -2991,6 +2991,10 @@ final class AppModel: ObservableObject {
             for (k, v) in self.vehicleLink.tirePressuresPsi { tires[k] = v }
             return (fuel, tires.isEmpty ? nil : tires.values.sorted())
         }
+        // Several cars on a Smartcar account: the driver's own is read.
+        smartcar.wantedVehicle = { [weak self] in
+            self?.vehicle.profile.map { ($0.make, $0.model) }
+        }
         let key = yelpAPIKey
         Task { await YelpLink.shared.setKey(key) }
         let gKey = googlePlacesAPIKey
@@ -5220,7 +5224,7 @@ final class AppModel: ObservableObject {
             }
             // Every pass, so a warning that ends leaves the map on time.
             let polygons = WeatherAlertService.mergedPolygons(
-                live.alertPolygons, live: score.alertPolygons, now: Date())
+                live.alertPolygons, live: score.alertPolygons, now: Date(), looked: score.looked)
             if polygons.map(\.id) != live.alertPolygons.map(\.id) {
                 live.alertPolygons = polygons
                 changed = true

@@ -205,6 +205,10 @@ final class CrashDetectionService: ObservableObject {
         // contact to the start of the trip.
         reverseGeocodedAddress = nil
         resolveAddress()
+        // The question comes first: an advisory line mid-sentence (or the
+        // ones waiting) is cut, so the question is not talked over and the
+        // microphone does not open on another voice.
+        VoiceAnnouncer.shared.stop()
         state = .checkingIn(attempt: 1)
         // Re-ask FOREVER until answered or physically dismissed — a
         // concussed driver may surface minutes later.
@@ -360,11 +364,21 @@ final class CrashDetectionService: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 // Wait out the utterance (bounded) so we don't transcribe it.
-                // Up to 20 s: the question runs 6–8 s at rate 0.5, and the
-                // old 6 s cap opened the mic on its last words — "…say yes
-                // to get help" heard as a yes.
+                // First for it to BEGIN: `isSpeaking` turns true some
+                // milliseconds after `speak()`, and a loop that tested it at
+                // once read "not yet" as "done" and opened the microphone
+                // under the question itself.
+                var began = 0
+                while !self.synthesizer.isSpeaking, began < 15 {
+                    try? await Task.sleep(for: .milliseconds(100)); began += 1
+                }
+                // Then for it to END, and for any other FLOWS voice (a
+                // warning cut in) to end too. Up to 20 s: the question runs
+                // 6–8 s at rate 0.5, and the old 6 s cap opened the mic on
+                // its last words — "…say yes to get help" heard as a yes.
                 var waited = 0
-                while self.synthesizer.isSpeaking, waited < 200 {
+                while self.synthesizer.isSpeaking || VoiceAnnouncer.shared.isSpeaking,
+                      waited < 200 {
                     try? await Task.sleep(for: .milliseconds(100)); waited += 1
                 }
                 // Answered, dismissed or ended while the question played: the

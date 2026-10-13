@@ -21,7 +21,15 @@ struct SpeechLineQueue<Line> {
         /// The message this line reads out (see SpeechTopic); nil for lines
         /// no close can take back, such as a turn direction.
         let topic: String?
+        /// When the line was queued: a turn direction that waited out a long
+        /// warning is stale (see `turnLineLifetime`).
+        var queuedAt = Date()
     }
+
+    /// A turn direction older than this when its turn comes to be said is
+    /// dropped: it describes a turn the car has gone by (15 s is a quarter
+    /// mile at 60 mph, past the maneuver it announced).
+    static var turnLineLifetime: TimeInterval { 15 }
 
     /// The line the synthesizer is saying.
     private(set) var current: Entry?
@@ -82,8 +90,12 @@ struct SpeechLineQueue<Line> {
     /// The playing line finished or was stopped. Answers the next line to
     /// start. A late or repeated report (another serial) changes nothing, so
     /// the queue never skips a line.
-    mutating func finished(serial: Int) -> Entry? {
+    mutating func finished(serial: Int, now: Date = Date()) -> Entry? {
         guard current?.serial == serial else { return nil }
+        waiting.removeAll {
+            $0.topic == SpeechTopic.turn
+                && now.timeIntervalSince($0.queuedAt) > Self.turnLineLifetime
+        }
         current = waiting.isEmpty ? nil : waiting.removeFirst()
         return current
     }

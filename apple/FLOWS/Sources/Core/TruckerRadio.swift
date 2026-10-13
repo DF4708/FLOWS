@@ -79,7 +79,13 @@ final class TruckerRadio: ObservableObject {
         flows_rides_radio_is_car_band(channel) ? "AM 530 or 1610 kHz" : nil
     }
 
-    @Published private(set) var channels: [Channel]
+    @Published private(set) var channels: [Channel] {
+        didSet { stationCache = nil }
+    }
+    /// `tunableStations`, built once per station list: it was rebuilt
+    /// on every GPS fix, about 67 bridge calls each, for positions that
+    /// change only when the list does.
+    private var stationCache: [RadioTuning.Station]?
     @Published private(set) var playingChannelID: String?
     @Published private(set) var status: String?
     /// A weather station the driver chose by hand over the nearest one (the
@@ -531,11 +537,14 @@ final class TruckerRadio: ObservableObject {
 
     /// Every channel the tuner can rank, as RadioTuning sees them.
     var tunableStations: [RadioTuning.Station] {
-        channels.compactMap { ch in
+        if let stationCache { return stationCache }
+        let built = channels.compactMap { ch -> RadioTuning.Station? in
             guard let p = Self.position(of: ch) else { return nil }
             return RadioTuning.Station(id: ch.id, coordinate: p.coordinate,
                                        isExact: p.isExact)
         }
+        stationCache = built
+        return built
     }
 
     /// Nearest transmitter by straight-line distance to the GPS position —

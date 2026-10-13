@@ -70,12 +70,20 @@ struct MusicControlIntent: AppIntent {
             }
             return .result(dialog: radioControl(model))
         }
+        // Spotify's state is only what FLOWS's own presses left it: music
+        // started in Spotify's own app read as "not playing", so "pause"
+        // did nothing and Siri said "Paused." Read it before deciding.
+        let spotify = music.provider == .spotify && SpotifyRemote.shared.linked
+        if spotify, action == .play || action == .pause {
+            await SpotifyRemote.shared.refreshStateIfStale()
+        }
+        let playing = spotify ? SpotifyRemote.shared.isPlaying : music.isPlaying
         switch action {
         case .play:
-            if !music.isPlaying { music.playPause() }
+            if !playing { music.playPause() }
             return .result(dialog: "Playing.")
         case .pause:
-            if music.isPlaying { music.playPause() }
+            if playing { music.playPause() }
             return .result(dialog: "Paused.")
         case .skip, .nextSong:
             music.skip()

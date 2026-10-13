@@ -243,37 +243,52 @@ final class SpotifyRemote: ObservableObject {
         }
     }
 
+    /// When the player state was last READ from Spotify. `isPlaying` is
+    /// otherwise only what FLOWS's own commands left it: false at launch,
+    /// and wrong when the music was started in Spotify's own app.
+    private(set) var stateReadAt: Date?
+
+    /// Read the state now unless it was read within `maxAge` seconds — for
+    /// a caller that is about to decide on `isPlaying` (Siri's play/pause).
+    func refreshStateIfStale(maxAge: TimeInterval = 20) async {
+        if let at = stateReadAt, Date().timeIntervalSince(at) < maxAge { return }
+        await fetchState()
+    }
+
     /// Read the real player state a beat after a command (Spotify's player
     /// state settles server-side after the command returns — the same
     /// lesson as the macOS refreshSoon).
     private func refresh(afterSeconds delay: Double) {
-        guard linked,
-              let request = SpotifyWebAPI.urlRequest(for: SpotifyWebAPI.playerState,
-                                                     token: token)
-        else { return }
+        guard linked else { return }
         Task { [weak self] in
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
-            guard let (data, resp) = try? await ThrottledNet.fetch(request),
-                  let code = (resp as? HTTPURLResponse)?.statusCode else { return }
-            await MainActor.run {
-                guard let self else { return }
-                if code == 200, let state = SpotifyWebAPI.parsePlayerState(data) {
-                    self.isPlaying = state.isPlaying
-                    self.trackName = state.track
-                    self.playOrder = SpotifyWebAPI.order(shuffle: state.shuffle,
-                                                         repeatOn: state.repeatOn)
-                    self.status = nil
-                } else if code == 204 {
-                    // 204 = token fine, but no Spotify device is active.
-                    self.isPlaying = false
-                    self.status = "Open Spotify and play one song first — "
-                        + "then the buttons here take over."
-                } else {
-                    self.status = SpotifyWebAPI.plainWords(status: code)
-                }
-            }
+            await self?.fetchState()
+        }
+    }
+
+    private func fetchState() async {
+        guard linked,
+              let request = SpotifyWebAPI.urlRequest(for: SpotifyWebAPI.playerState,
+                                                     token: token),
+              let (data, resp) = try? await ThrottledNet.fetch(request),
+              let code = (resp as? HTTPURLResponse)?.statusCode else { return }
+        if code == 200, let state = SpotifyWebAPI.parsePlayerState(data) {
+            isPlaying = state.isPlaying
+            trackName = state.track
+            playOrder = SpotifyWebAPI.order(shuffle: state.shuffle,
+                                            repeatOn: state.repeatOn)
+            status = nil
+            stateReadAt = Date()
+        } else if code == 204 {
+            // 204 = token fine, but no Spotify device is active.
+            isPlaying = false
+            status = "Open Spotify and play one song first — "
+                + "then the buttons here take over."
+            stateReadAt = Date()
+        } else {
+            status = SpotifyWebAPI.plainWords(status: code)
         }
     }
 }
