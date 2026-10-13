@@ -717,6 +717,16 @@ final class WMOAlertTests: XCTestCase {
         // US point → no WMO feed (handled by NWS).
         XCTAssertNil(WMOAlertParsing.feedCode(
             for: .init(latitude: 43.07, longitude: -89.4)))
+        // Guatemala inside Mexico's box has no feed, west or east, while
+        // Chiapas and Tapachula stay on Mexico's.
+        XCTAssertNil(WMOAlertParsing.feedCode(
+            for: .init(latitude: 14.84, longitude: -91.52)))   // Quetzaltenango
+        XCTAssertNil(WMOAlertParsing.feedCode(
+            for: .init(latitude: 14.63, longitude: -90.51)))   // Guatemala City
+        XCTAssertEqual(WMOAlertParsing.feedCode(
+            for: .init(latitude: 16.25, longitude: -92.13)), "mx-smn-es")   // Comitán
+        XCTAssertEqual(WMOAlertParsing.feedCode(
+            for: .init(latitude: 14.91, longitude: -92.26)), "mx-smn-es")   // Tapachula
     }
 
     func testRSSAndCAPParsing() {

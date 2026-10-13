@@ -327,7 +327,7 @@ impl<'a> RouteIndex<'a> {
 
     /// Meters along the route to the nearest point of its line within the
     /// index's reach of `p`; `None` when the line is farther.
-    fn along_if_near(&self, p: Point) -> Option<f64> {
+    pub(crate) fn along_if_near(&self, p: Point) -> Option<f64> {
         if !(p.0.is_finite() && p.1.is_finite()) {
             return None;
         }

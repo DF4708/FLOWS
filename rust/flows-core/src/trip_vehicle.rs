@@ -546,7 +546,9 @@ const CRASH_HELP_WORDS: &[&str] = &[
 ];
 
 /// Those words said in the negative — taken out of the reply before it is
-/// read for help, and read as standing down.
+/// read for help, and read as standing down. Never a bare "no" before a
+/// help word: speech recognition writes no punctuation, so "No… help me"
+/// arrives as "no help me" and "No! Ambulance!" as "no ambulance".
 const CRASH_HELP_NEGATED: &[&str] = &[
     "don't need any help",
     "dont need any help",
@@ -557,15 +559,15 @@ const CRASH_HELP_NEGATED: &[&str] = &[
     "don't need an ambulance",
     "dont need an ambulance",
     "do not need an ambulance",
-    "no ambulance",
-    "no help",
+    "no ambulance needed",
+    "no help needed",
+    "need no help",
     "not hurt",
     "not injured",
     "not bleeding",
     "not trapped",
     "not stuck",
     "not an emergency",
-    "no emergency",
     "don't call",
     "dont call",
     "do not call",
@@ -1552,6 +1554,11 @@ mod tests {
         // A stand-down word no longer outweighs a call for help.
         assert_eq!(interpret_crash_reply("Oh no, I'm hurt"), Some(true));
         assert_eq!(interpret_crash_reply("no... help me"), Some(true));
+        // …and as speech recognition writes it, with no punctuation.
+        assert_eq!(interpret_crash_reply("no help me"), Some(true));
+        assert_eq!(interpret_crash_reply("no ambulance"), Some(true));
+        assert_eq!(interpret_crash_reply("no emergency"), Some(true));
+        assert_eq!(interpret_crash_reply("no help needed"), Some(false));
         assert_eq!(interpret_crash_reply("no wait I need help"), Some(true));
         assert_eq!(
             interpret_crash_reply("cancel that, I'm trapped"),

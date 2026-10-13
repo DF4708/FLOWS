@@ -27,6 +27,8 @@ struct SpeechLineQueue<Line> {
     private(set) var current: Entry?
     private var waiting: [Entry] = []
     private var lastSerial = 0
+    /// The playing line already queued again (requeueCurrentBehindWarnings).
+    private var requeued: Int?
 
     /// A line is playing or waiting to.
     var isBusy: Bool { current != nil }
@@ -57,6 +59,24 @@ struct SpeechLineQueue<Line> {
         }
         current = entry
         return entry
+    }
+
+    /// A warning is about to cut the playing line: queue it again, after the
+    /// warnings waiting and ahead of everything else, so it is said once the
+    /// warning is. Its callers had marked it said — a cut fuel last-chance
+    /// line, camera line or traffic offer never came back. Not a turn
+    /// direction: said after a warning it came after the turn, and the next
+    /// one replaces it.
+    mutating func requeueCurrentBehindWarnings() {
+        // Once per line: a second warning before the cut's report would
+        // queue it twice.
+        guard let playing = current, !SpeechTopic.isUrgent(playing.topic),
+              playing.topic != SpeechTopic.turn, requeued != playing.serial else { return }
+        requeued = playing.serial
+        lastSerial += 1
+        let again = Entry(serial: lastSerial, line: playing.line, topic: playing.topic)
+        let at = waiting.firstIndex { !SpeechTopic.isUrgent($0.topic) } ?? waiting.endIndex
+        waiting.insert(again, at: at)
     }
 
     /// The playing line finished or was stopped. Answers the next line to

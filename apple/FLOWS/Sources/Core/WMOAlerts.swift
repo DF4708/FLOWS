@@ -39,13 +39,28 @@ enum WMOAlertParsing {
         for f in feeds where c.latitude >= f.minLat && c.latitude <= f.maxLat
             && c.longitude >= f.minLon && c.longitude <= f.maxLon {
             // Mexico's box also takes in Guatemala, El Salvador and northern
-            // Honduras (south of 17.8°N, east of 91.4°W), where its feed has
-            // no shapes: Guatemala City read "no alerts", complete, when it
-            // is a place no covered feed answers for.
-            if f.code == "mx-smn-es", c.latitude < 17.8, c.longitude > -91.4 { continue }
+            // Honduras, where its feed has no shapes: Guatemala City read
+            // "no alerts", complete, when it is a place no covered feed
+            // answers for.
+            if f.code == "mx-smn-es", southOfMexico(c) { continue }
             return f.code
         }
         return nil
+    }
+
+    /// Whether a point in Mexico's box lies past its southern border: the
+    /// Suchiate and the highlands, the 16.07°N parallel, the Usumacinta, the
+    /// 91°W meridian and 17.82°N, as steps. Slivers by the border err to
+    /// the south — "unknown" fails safe where "no alerts" does not. One cut
+    /// at 91.4°W left Quetzaltenango, San Marcos and Huehuetenango on
+    /// Mexico's feed.
+    static func southOfMexico(_ c: CLLocationCoordinate2D) -> Bool {
+        let (lat, lon) = (c.latitude, c.longitude)
+        if lat < 15.2 { return lon > -92.25 }
+        if lat < 16.07 { return lon > -92.0 }
+        if lat < 16.5 { return lon > -90.6 }
+        if lat < 17.82 { return lon > -91.0 }
+        return false
     }
 
     static func rssURL(code: String) -> URL? {

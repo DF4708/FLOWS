@@ -69,16 +69,22 @@ final class VehicleLink: NSObject, ObservableObject {
         var psi: Double
         var lastHeard: Date
         var firstHeardMoving: Date?
+        var lastHeardMoving: Date?
         var heardMoving = 0
+        /// Heard while moving across two minutes — the moving hears alone:
+        /// ten seconds alongside a car and a long red light beside it,
+        /// counted by its last hear at all, passed.
         var keptUp: Bool {
-            guard let firstHeardMoving else { return false }
-            return heardMoving >= 10 && lastHeard.timeIntervalSince(firstHeardMoving) >= 120
+            guard let firstHeardMoving, let lastHeardMoving else { return false }
+            return heardMoving >= 10 && lastHeardMoving.timeIntervalSince(firstHeardMoving) >= 120
         }
     }
     private var sensors: [UUID: Sensor] = [:]
 
     /// Devices connected as a car plug-in that had no serial service.
     private var notAdapters: Set<UUID> = []
+    /// Service discoveries that failed, per device: three in a row skip it.
+    private var failedDiscoveries: [UUID: Int] = [:]
 
     /// A car plug-in's name (Rust `looks_like_obd_adapter`), with "elm" only
     /// at the start of a word — "ELM327", "elm 327" — not inside one:
@@ -104,6 +110,7 @@ final class VehicleLink: NSObject, ObservableObject {
         sensor.lastHeard = now
         if isMoving() {
             sensor.firstHeardMoving = sensor.firstHeardMoving ?? now
+            sensor.lastHeardMoving = now
             sensor.heardMoving += 1
         }
         sensors[id] = sensor
@@ -163,6 +170,8 @@ final class VehicleLink: NSObject, ObservableObject {
 
     private func start() {
         status = "Looking for tire sensors and car plug-ins…"
+        notAdapters = []   // a fresh look tries every likely name again
+        failedDiscoveries = [:]
         central = CBCentralManager(delegate: self, queue: .main)
         startMFiIfAvailable()
     }
@@ -360,9 +369,15 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
             // No car plug-in's serial service: a device with a likely name
             // that is something else. Held, it was the reader for good and
             // the real one was never connected — let it go and skip it.
+            // A discovery that failed proved nothing: let it go, and skip
+            // it only after three.
             let id = peripheral.identifier
+            let failed = error != nil
             Task { @MainActor in
-                self.notAdapters.insert(id)
+                if failed { self.failedDiscoveries[id, default: 0] += 1 }
+                if !failed || self.failedDiscoveries[id, default: 0] >= 3 {
+                    self.notAdapters.insert(id)
+                }
                 if self.obdPeripheral?.identifier == id {
                     self.central?.cancelPeripheralConnection(peripheral)
                     self.dropOBDAdapter(id)

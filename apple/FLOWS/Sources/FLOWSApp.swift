@@ -103,7 +103,10 @@ final class AppModel: ObservableObject {
 
     /// Count the routes that have no count yet, one at a time, then let an
     /// untapped highlight follow the top card the new order may bring.
-    func refreshTouristCounts() {
+    /// A count MapKit would not finish is asked again after a pause, up to
+    /// three times: the order waits for every card, and one throttled
+    /// search held it off until the driver changed something.
+    func refreshTouristCounts(attempt: Int = 0) {
         touristCountTask?.cancel()
         // Roads through a closure are never offered: no MapKit searches on them.
         let pending = passableChoices.filter { touristCounts[$0.id] == nil }
@@ -114,18 +117,27 @@ final class AppModel: ObservableObject {
             // a minute.
             await self?.touristListTask?.value
             guard !Task.isCancelled else { return }
+            var missed = false
             for route in pending {
                 // A plan left for Edit or GO needs no more counts.
                 guard let self, self.mode == .choosing else { return }
                 let count = await self.poi.touristCount(along: route)
                 guard !Task.isCancelled else { return }
                 // A count MapKit would not finish stays unknown (asked
-                // again at the next refresh), never a stored zero.
-                guard let count else { continue }
+                // again), never a stored zero.
+                guard let count else {
+                    missed = true
+                    continue
+                }
                 self.touristCounts[route.id] = count
             }
             guard let self, self.mode == .choosing else { return }
             self.ensureHighlightValid()
+            guard missed, attempt < 3 else { return }
+            try? await Task.sleep(for: .seconds(30))
+            guard !Task.isCancelled, self.mode == .choosing,
+                  self.routeFilters.contains(.tourist) else { return }
+            self.refreshTouristCounts(attempt: attempt + 1)
         }
     }
 
@@ -1902,6 +1914,9 @@ final class AppModel: ObservableObject {
     private var reachSpeeds: [String: Double] = [:]
     /// Alerts that already auto-opened the shelter list (once per alert).
     private var shelteredImminentIDs = Set<String>()
+    /// Each alert seen this trip: its event and threat rank, so an update
+    /// inherits a decision only about the same alert (`carryDismissals`).
+    private var alertEventsSeen: [String: (event: String, rank: Int)] = [:]
 
     /// Unplanned stopped time (e.g. sheltering from a storm) — folded into
     /// every displayed ETA. The scenario's "+1 hour sheltering" adjustment.
@@ -2710,8 +2725,14 @@ final class AppModel: ObservableObject {
         }
         openDispatch.refresh(near: location.coordinate)
         // Tire sensors count as this vehicle's once they keep up with it at
-        // road speed (VehicleLink.isMoving).
-        vehicleLink.isMoving = { [weak self] in (self?.location.latest?.speed ?? 0) > 5 }
+        // road speed (VehicleLink.isMoving). A fresh fix only: off a trip
+        // the 100 m filter sends none while parked, and the last speed
+        // before the stop read as moving for as long as it sat there.
+        vehicleLink.isMoving = { [weak self] in
+            guard let fix = self?.location.latest,
+                  -fix.timestamp.timeIntervalSinceNow < 30 else { return false }
+            return fix.speed > 5
+        }
         MusicController.shared.provider = musicProvider   // same didSet gap
         if personalVoiceAnnouncements {                   // same didSet gap
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
@@ -3042,6 +3063,13 @@ final class AppModel: ObservableObject {
     /// Ten hours off duty start a new driving window (FMCSA).
     static let offDutyResetSeconds: TimeInterval = 10 * 3600
     private var windowSavedAt = Date.distantPast
+    /// The last fix that counted as driving (saved, within a minute, as
+    /// `flows.hos.windowAt`). The first fix of a trip measures the rest
+    /// from it: after a relaunch, or a trip ended still rolling, there was
+    /// no stop on record, and a night's rest restored "10 h driven" for
+    /// the morning.
+    private var lastDrivingFix: Date? =
+        UserDefaults.standard.object(forKey: "flows.hos.windowAt") as? Date
 
     var hosStatus: HOSRules.Status {
         if drivingInWindowSeconds >= HOSRules.dailyDrivingLimitSeconds { return .limitReached }
@@ -3052,8 +3080,9 @@ final class AppModel: ObservableObject {
         let now = fix.timestamp
         defer { lastClockFix = now }
         // No fixes across a stop (the app closed or suspended) is the stop
-        // itself, as long a rest as the gap.
-        let gap = lastClockFix.map { now.timeIntervalSince($0) } ?? 0
+        // itself, as long a rest as the gap — from the last driving fix
+        // when this is a trip's first.
+        let gap = (lastClockFix ?? lastDrivingFix).map { now.timeIntervalSince($0) } ?? 0
         if gap >= HOSRules.breakResetSeconds { drivingSeconds = 0 }
         if gap >= Self.offDutyResetSeconds { drivingInWindowSeconds = 0 }
         let dt = lastClockFix.map { min(now.timeIntervalSince($0), 30) } ?? 0
@@ -3072,6 +3101,7 @@ final class AppModel: ObservableObject {
                 }
             }
             stoppedSince = nil
+            lastDrivingFix = now
             if now.timeIntervalSince(windowSavedAt) >= 60 {
                 windowSavedAt = now
                 UserDefaults.standard.set(drivingInWindowSeconds, forKey: "flows.hos.window")
@@ -3191,6 +3221,7 @@ final class AppModel: ObservableObject {
         drivingInWindowSeconds = 0
         UserDefaults.standard.removeObject(forKey: "flows.hos.window")
         UserDefaults.standard.removeObject(forKey: "flows.hos.windowAt")
+        lastDrivingFix = nil
         ThrottledNet.cache.removeAllCachedResponses()
         limitsHabit = []
         UserDefaults.standard.removeObject(forKey: "flows.limitsHabit")
@@ -3738,12 +3769,24 @@ final class AppModel: ObservableObject {
         // Only the samples from about where the car is on: the whole line was
         // passed, from its start, so a station by the road already driven
         // still counted as "ahead" and kept the warning quiet.
+        // Each sample at its real distance along the line: a sample sits at
+        // the first point past 4 km from the last, so counting them as k ×
+        // 4 km fell behind on a long route and dropped the ones just ahead.
         let along = navigation.guidance?.alongMeters ?? 0
-        let routeAhead = navigation.route.map {
-            RouteService.samplePoints(of: $0.route.polyline, everyMeters: 4_000)
-                .enumerated()
-                .filter { Double($0.offset) * 4_000 >= along - 4_000 }
-                .map(\.element)
+        let routeAhead: [CLLocationCoordinate2D] = navigation.route.map { planned in
+            let parts = RouteService.corridorPartition(of: planned.route.polyline,
+                                                       everyMeters: 4_000)
+            var sampleAlong = 0.0
+            var ahead: [CLLocationCoordinate2D] = []
+            for (i, sample) in parts.samples.enumerated() {
+                if sampleAlong >= along - 4_000 { ahead.append(sample) }
+                guard i < parts.segments.count else { continue }
+                let hops = parts.segments[i]
+                for k in hops.indices.dropFirst() {
+                    sampleAlong += POIRanking.meters(hops[k - 1], hops[k])
+                }
+            }
+            return ahead
         } ?? []
         let course = location.course
         // Filter first, price second. This priced EVERY search hit in
@@ -4920,6 +4963,7 @@ final class AppModel: ObservableObject {
         announcedImminentIDs = []
         escalationRaisedIDs = []
         shelteredImminentIDs = []
+        alertEventsSeen = [:]
         reachSpeeds = [:]   // per-trip state like its two siblings above
         stopDelaySeconds = 0
         shelteredSecondsBanked = 0
@@ -5293,9 +5337,22 @@ final class AppModel: ObservableObject {
     /// `references`. Dismissals were kept by id, so each update (every 15-30
     /// min) spoke a dismissed tornado warning again, reopened its shelter
     /// list and raised its escalation prompt again: what was decided about
-    /// the old message carries over to the update.
+    /// the old message carries over to the update. Only to the same event,
+    /// ranked no higher: a watch upgraded to a warning is an Update that
+    /// references the watch, and a dismissed Hurricane Watch must not
+    /// silence the Hurricane Warning that replaces it.
     private func carryDismissals(_ score: WeatherAlertService.CorridorScore) {
+        let rankOf = { (alert: WeatherAlertService.NWSAlert) in
+            ImminentAlerts.threatRank(event: alert.event, severityScore: alert.severityScore)
+        }
         for alert in score.alertsByID.values where !alert.references.isEmpty {
+            let rank = rankOf(alert)
+            let sameAlert = alert.references.contains { ref in
+                guard let old = alertEventsSeen[ref] else { return false }
+                return old.event.caseInsensitiveCompare(alert.event) == .orderedSame
+                    && old.rank >= rank
+            }
+            guard sameAlert else { continue }
             func carry(_ set: inout Set<String>) {
                 if alert.references.contains(where: set.contains) { set.insert(alert.id) }
             }
@@ -5304,6 +5361,10 @@ final class AppModel: ObservableObject {
             carry(&shownImminentIDs)
             carry(&announcedImminentIDs)
             carry(&escalationState.dismissedAlertIDs)
+        }
+        if alertEventsSeen.count > 2_000 { alertEventsSeen.removeAll() }
+        for alert in score.alertsByID.values {
+            alertEventsSeen[alert.id] = (alert.event, rankOf(alert))
         }
     }
 
@@ -5398,13 +5459,18 @@ final class AppModel: ObservableObject {
         // rank 3) got no banner, no voice and no shelter list, under a
         // hurricane banner that never clears by itself. An alert already
         // shown doesn't come back over the one that replaced it, so two of
-        // a rank can't take turns.
+        // a rank can't take turns. A held banner (shelter, lookout) gives
+        // way at its rank only to one asking the same: a yellow warning of
+        // rank 2 took a red Flash Flood Warning's place as the look-ahead
+        // shrank, and the red one, already shown, could not come back.
         if let current = imminentWarning, current.alertID != warning.alertID,
            !dismissedImminentIDs.contains(current.alertID),
            warning.threatRank < current.threatRank
             || (warning.threatRank == current.threatRank
                 && (warning.event == current.event
-                    || shownImminentIDs.contains(warning.alertID))) { return }
+                    || shownImminentIDs.contains(warning.alertID)
+                    || ([.shelter, .lookout].contains(current.action)
+                        && warning.action != current.action))) { return }
         shownImminentIDs.insert(warning.alertID)
         if imminentWarning != warning { imminentWarning = warning }
         // Red alert → the shelter list for THIS hazard opens itself, once.
@@ -6578,6 +6644,7 @@ final class AppModel: ObservableObject {
             return
         }
         arrivedAt = finalDestination?.name ?? navigation.route?.destinationName
+        location.arrivedUpdates()
         // Learn from the completed trip: the plan-time prediction vs. the worst
         // risk actually encountered → the on-device seasonal model (frequency-
         // gated, decaying, bucketed by week-of-year). Final destination only,

@@ -1400,8 +1400,15 @@ actor LiveHazardFeedFetcher {
                                     "inner-loop", "outer-loop"].contains(direction)
                     // LineString or MultiPoint [[lon,lat],…], or Point [lon,lat].
                     if let line = coords as? [[Double]] {
-                        let points = line.prefix(5_000).compactMap { c -> (lat: Double, lon: Double)? in
+                        var points = line.prefix(5_000).compactMap { c -> (lat: Double, lon: Double)? in
                             c.count >= 2 ? (lat: c[1], lon: c[0]) : nil
+                        }
+                        // A MultiPoint is the closure's start and end
+                        // (WZDx), not a line along the road: the straight
+                        // hops between more points would leave it.
+                        if (geom["type"] as? String) == "MultiPoint", points.count > 2,
+                           let first = points.first, let last = points.last {
+                            points = [first, last]
                         }
                         if !points.isEmpty { roads.append(ClosedRoad(line: points, directed: directed)) }
                     } else if let pt = coords as? [Double], pt.count >= 2 {

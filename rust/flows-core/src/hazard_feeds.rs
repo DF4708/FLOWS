@@ -549,17 +549,25 @@ pub struct ClosedRoad<'a> {
 /// route that only crosses the closed street, or takes the open carriageway
 /// of a divided highway beside it, is not through it — testing the line's
 /// first and middle points alone dropped those routes as closed, and could
-/// call every route closed. A closure the state gave as a single point
-/// keeps the point test ([`route_through_closure`]). Such a route is never
-/// offered (owner, 2026-10-01).
+/// call every route closed. A closure the state gave as a single point, or
+/// as a line shorter than [`CLOSED_ROAD_METERS`] (its ends one place), keeps
+/// the point test ([`route_through_closure`]); one given by its two ends
+/// alone also counts when the route passes both ([`passes_both_ends`]).
+/// Such a route is never offered (owner, 2026-10-01).
 ///
 /// Deterministic; panics: none.
 #[must_use]
 pub fn route_runs_along_closure(route: &[Point], closures: &[ClosedRoad]) -> bool {
+    let short = |line: &[Point]| {
+        line.windows(2)
+            .map(|w| meters(w[0].0, w[0].1, w[1].0, w[1].1))
+            .sum::<f64>()
+            < CLOSED_ROAD_METERS
+    };
     let points: Vec<Point> = closures
         .iter()
-        .filter(|c| c.line.len() == 1)
-        .map(|c| c.line[0])
+        .filter(|c| short(c.line))
+        .filter_map(|c| c.line.first().copied())
         .collect();
     if route_through_closure(route, &points) {
         return true;
@@ -569,8 +577,33 @@ pub fn route_runs_along_closure(route: &[Point], closures: &[ClosedRoad]) -> boo
     }
     let index = crate::tags_and_replies::RouteIndex::with_reach(route, CLOSED_ROAD_METERS);
     closures.iter().any(|c| {
-        c.line.len() >= 2 && crate::tags_and_replies::runs_along_by(&index, c.line, c.directed)
+        c.line.len() >= 2
+            && !short(c.line)
+            && (crate::tags_and_replies::runs_along_by(&index, c.line, c.directed)
+                || (c.line.len() == 2
+                    && passes_both_ends(&index, c.line[0], c.line[1], c.directed)))
     })
+}
+
+/// A closure given by its two ends alone (a WZDx MultiPoint, or a line drawn
+/// as one straight hop): the route passes near both ends — the start first,
+/// for a closure of one direction — and drives no more than twice the
+/// straight gap between them, plus the reach at each end. On a bend the
+/// straight hop leaves the road, so walking it missed a route through the
+/// bend; a route around the block passes both ends too, but drives farther.
+fn passes_both_ends(
+    index: &crate::tags_and_replies::RouteIndex,
+    start: Point,
+    end: Point,
+    directed: bool,
+) -> bool {
+    let (Some(at_start), Some(at_end)) = (index.along_if_near(start), index.along_if_near(end))
+    else {
+        return false;
+    };
+    let gap = meters(start.0, start.1, end.0, end.1);
+    (!directed || at_end > at_start)
+        && (at_end - at_start).abs() <= 2.0 * gap + 2.0 * CLOSED_ROAD_METERS
 }
 
 // ============================================================ LiveHazardScoring
@@ -846,21 +879,30 @@ pub fn provisional_samples(
         .collect()
 }
 
-/// Whether an alert's event is a warning — a hazard happening or imminent
-/// ("Tornado Warning", "Flash Flood Emergency") — rather than a watch, an
-/// advisory or a statement.
-fn is_warning(event: &str) -> bool {
-    let lower = event.to_ascii_lowercase();
-    lower.contains("warning") || lower.contains("emergency")
+/// Where an alert stands against the others in its cell: the app's
+/// [`threat_rank`](crate::alerts::threat_rank) (risk to life 3, realized
+/// hazard 2, predictor 1, lookout 0), except that a Red CAP severity does
+/// not lift a watch or an advisory out of the predictors — a Tornado Watch
+/// rated "Extreme" still ranks below the warning inside it.
+fn sample_tier(event: &str, severity_score: f64) -> u8 {
+    let rank = crate::alerts::threat_rank(event, severity_score);
+    if rank == 2 && crate::families::alert_family(event).is_some_and(crate::families::is_secondary)
+    {
+        1
+    } else {
+        rank
+    }
 }
 
-/// [`provisional_samples`] with a warning ranked above any watch, advisory
-/// or statement at the same cell, then by severity (ties keep the first).
-/// By severity alone a Tornado Watch (CAP "Extreme") outranked the Severe
-/// Thunderstorm Warning inside it, and the watch — a capped predictor —
-/// set the stretch's band below Red; a warning tied with its own watch on
-/// list order. Only the one alert per sample reaches the band, the
-/// escalation and the imminent check, so it must be the realized one.
+/// [`provisional_samples`] with the alerts in a cell ranked by
+/// [`sample_tier`], then by severity (ties keep the first). By severity
+/// alone a Tornado Watch (CAP "Extreme") outranked the Severe Thunderstorm
+/// Warning inside it, and the watch — a capped predictor — set the
+/// stretch's band below Red. Ranking by the word "warning" instead let a
+/// Red Flag Warning hide an Evacuation Immediate and an AMBER "Child
+/// Abduction Emergency" hide a Hurricane Watch. Only the one alert per
+/// sample reaches the band, the escalation and the imminent check, so it
+/// must be the gravest.
 #[must_use]
 pub fn provisional_samples_warnings_first(
     samples: &[Point],
@@ -880,8 +922,9 @@ pub fn provisional_samples_warnings_first(
             let mut worst: Option<&Alert> = None;
             for a in hits.iter().filter(|a| is_active(a.expires, offset, now)) {
                 let outranks = worst.is_none_or(|w| {
-                    let (wa, ww) = (is_warning(&a.event), is_warning(&w.event));
-                    (wa && !ww) || (wa == ww && w.severity_score < a.severity_score)
+                    let ta = sample_tier(&a.event, a.severity_score);
+                    let tw = sample_tier(&w.event, w.severity_score);
+                    ta > tw || (ta == tw && w.severity_score < a.severity_score)
                 });
                 if outranks {
                     worst = Some(a);
@@ -1209,9 +1252,36 @@ mod tests {
         let cross = [(43.0, -89.45), (43.01, -89.45)];
         assert!(!closed(&cross, true));
         assert!(!closed(&cross, false));
-        // A closure the state gave as one point still counts by the point.
+        // A closure the state gave as one point still counts by the point,
+        // and so does a line whose two ends are the same place.
         assert!(closed(&[(43.0, -89.45)], false));
+        assert!(closed(&[(43.0, -89.45), (43.0, -89.45)], true));
+        assert!(!closed(&[], false));
         assert!(!route_runs_along_closure(&route, &[]));
+    }
+
+    #[test]
+    fn a_closure_given_by_its_ends_counts_through_a_bend() {
+        // East along 43°N, then north up -89.45.
+        let bend = [(43.0, -89.5), (43.0, -89.45), (43.05, -89.45)];
+        let closed = |route: &[Point], line: &[Point], directed: bool| {
+            route_runs_along_closure(route, &[ClosedRoad { line, directed }])
+        };
+        // Its ends on either side of the corner: the straight hop cuts it.
+        let ends = [(43.0, -89.46), (43.01, -89.45)];
+        assert!(closed(&bend, &ends, true));
+        assert!(closed(&bend, &ends, false));
+        let back = [(43.01, -89.45), (43.0, -89.46)];
+        assert!(!closed(&bend, &back, true), "closed the other way");
+        // A route around the closed block passes both its ends, farther.
+        let around = [
+            (42.99, -89.46),
+            (43.01, -89.46),
+            (43.01, -89.45),
+            (42.99, -89.45),
+        ];
+        let block = [(43.0, -89.46), (43.0, -89.45)];
+        assert!(!closed(&around, &block, false));
     }
 
     /// A CRE-shaped prices file: `n` stations, accented names, three prices.
@@ -1413,14 +1483,56 @@ mod tests {
             Some("svr".into()),
             "the warning, not the stronger-rated watch"
         );
-        // Between warnings, severity still decides.
+        // Between realized hazards, severity still decides.
+        cells.get_mut(&cell_key(p).unwrap()).unwrap().push(alert(
+            "ffw",
+            "Flash Flood Warning",
+            0.92,
+        ));
+        assert_eq!(
+            pick(provisional_samples_warnings_first(&[p], &cells, None, 0.0)),
+            Some("ffw".into())
+        );
+        // A risk to life beats them all, whatever its severity.
         cells
             .get_mut(&cell_key(p).unwrap())
             .unwrap()
-            .push(alert("tor", "Tornado Warning", 0.95));
+            .push(alert("tor", "Tornado Warning", 0.75));
         assert_eq!(
             pick(provisional_samples_warnings_first(&[p], &cells, None, 0.0)),
             Some("tor".into())
+        );
+    }
+
+    #[test]
+    fn an_evacuation_outranks_a_warning_and_a_lookout_ranks_last() {
+        let alert = |id: &str, event: &str, severity: f64| Alert {
+            id: id.to_string(),
+            event: event.to_string(),
+            severity_score: severity,
+            ..Alert::default()
+        };
+        let p = (43.07, -89.4);
+        let pick = |list: Vec<Alert>| {
+            let mut cells = BTreeMap::new();
+            cells.insert(cell_key(p).unwrap(), list);
+            provisional_samples_warnings_first(&[p], &cells, None, 0.0)[0]
+                .as_ref()
+                .and_then(|s| s.alert_id.clone())
+        };
+        assert_eq!(
+            pick(vec![
+                alert("evac", "Evacuation Immediate", 0.95),
+                alert("rfw", "Red Flag Warning", 0.88),
+            ]),
+            Some("evac".into())
+        );
+        assert_eq!(
+            pick(vec![
+                alert("amber", "Child Abduction Emergency", 0.95),
+                alert("hu", "Hurricane Watch", 0.5),
+            ]),
+            Some("hu".into())
         );
     }
 

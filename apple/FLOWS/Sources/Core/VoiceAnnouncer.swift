@@ -117,8 +117,10 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             if let now = queue.enqueueFirst(text, topic: topic) {
                 start(now)
             } else if let current = queue.current, !SpeechTopic.isUrgent(current.topic) {
-                // Over a music reply or a turn line: it stops, and its
-                // cancel report starts the warning (first in line).
+                // Over any other line: it stops, and its cancel report
+                // starts the warning (first in line); it is said again
+                // after, unless it was a turn direction.
+                queue.requeueCurrentBehindWarnings()
                 synthesizer.stopSpeaking(at: .immediate)
             }
             return
@@ -149,6 +151,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     func stop() {
         queue.cancelAll()
         playing = nil
+        lostLineWatch?.cancel()
         synthesizer.stopSpeaking(at: .immediate)
         duckOwnAudio(false)
     }
@@ -193,6 +196,28 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         playing = (entry.serial, utterance, .now)
         duckOwnAudio(true)
         synthesizer.speak(utterance)
+        watchForLostReport(serial: entry.serial)
+    }
+
+    /// Watches the line just handed over: one whose finish report never
+    /// comes is let go once the synthesizer is quiet. The radio came back up
+    /// only on a report, so a lost one left the station at a quarter volume
+    /// until FLOWS next spoke — off a trip, possibly for good.
+    private var lostLineWatch: Task<Void, Never>?
+    private func watchForLostReport(serial: Int) {
+        lostLineWatch?.cancel()
+        lostLineWatch = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.lostLineGrace)
+                guard let self, !Task.isCancelled,
+                      let current = self.playing, current.serial == serial else { return }
+                if !self.synthesizer.isSpeaking,
+                   ContinuousClock.now - current.since > Self.lostLineGrace {
+                    self.lineEnded(ObjectIdentifier(current.utterance))
+                    return
+                }
+            }
+        }
     }
 
     /// A line finished or was stopped: the next one starts. Only the line's

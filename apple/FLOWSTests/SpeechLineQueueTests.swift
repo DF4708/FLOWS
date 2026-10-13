@@ -87,6 +87,26 @@ final class SpeechLineQueueTests: XCTestCase {
         XCTAssertNil(q.abandonCurrent())
     }
 
+    func testALineCutByAWarningIsSaidAfterIt() {
+        var q = SpeechLineQueue<String>()
+        _ = q.enqueue("last fuel", topic: SpeechTopic.fuelLastChance)
+        let cut = q.current!.serial
+        _ = q.enqueue("music", topic: nil)
+        _ = q.enqueueFirst("tornado", topic: SpeechTopic.imminent("A"))
+        q.requeueCurrentBehindWarnings()
+        XCTAssertEqual(q.finished(serial: cut)?.line, "tornado")
+        XCTAssertEqual(q.finished(serial: q.current!.serial)?.line, "last fuel")
+        XCTAssertEqual(q.finished(serial: q.current!.serial)?.line, "music")
+        // A cut turn direction is not said late.
+        var t = SpeechLineQueue<String>()
+        _ = t.enqueue("turn left", topic: SpeechTopic.turn)
+        let turn = t.current!.serial
+        _ = t.enqueueFirst("tornado", topic: SpeechTopic.imminent("A"))
+        t.requeueCurrentBehindWarnings()
+        XCTAssertEqual(t.finished(serial: turn)?.line, "tornado")
+        XCTAssertNil(t.finished(serial: t.current!.serial))
+    }
+
     func testTopicsNameTheirMessage() {
         XCTAssertEqual(SpeechTopic.imminent("abc"), "imminent.abc")
         XCTAssertNotEqual(SpeechTopic.trafficOffer, SpeechTopic.escalation)

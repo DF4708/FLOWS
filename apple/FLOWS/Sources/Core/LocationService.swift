@@ -58,6 +58,7 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
     /// camera and instruction state advance on each one.
     func beginNavigationUpdates() {
         navigating = true
+        arrived = false
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
         #if os(iOS)
@@ -72,8 +73,21 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
         manager.startUpdatingLocation()
     }
 
+    /// The trip arrived: the arrived screen keeps the drive's cadence, but
+    /// iOS may pause it once the phone sits still. Navigation runs on until
+    /// the driver taps Done, and a driver who locked the phone and walked
+    /// away left best-for-navigation GPS running in the background until
+    /// they next opened the app.
+    func arrivedUpdates() {
+        arrived = true
+        #if os(iOS)
+        manager.pausesLocationUpdatesAutomatically = true
+        #endif
+    }
+
     func endNavigationUpdates() {
         navigating = false
+        arrived = false
         #if os(iOS)
         manager.allowsBackgroundLocationUpdates = false
         manager.pausesLocationUpdatesAutomatically = true
@@ -83,6 +97,8 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
 
     /// Between beginNavigationUpdates and endNavigationUpdates.
     private var navigating = false
+    /// Navigating, and arrived (arrivedUpdates).
+    private var arrived = false
 
     // MARK: CLLocationManagerDelegate (delegate calls arrive on main queue by
     // default for a manager created on the main thread)
@@ -105,7 +121,13 @@ final class LocationService: NSObject, ObservableObject, CLLocationManagerDelega
             // planning one (100 m, 100 m filter) thinned the fixes until the
             // next leg, and the crash check missed the stop after an impact.
             if self.authorized {
-                if self.navigating { self.beginNavigationUpdates() } else { self.beginPlanningUpdates() }
+                if self.navigating {
+                    let arrived = self.arrived
+                    self.beginNavigationUpdates()
+                    if arrived { self.arrivedUpdates() }
+                } else {
+                    self.beginPlanningUpdates()
+                }
             }
         }
     }
