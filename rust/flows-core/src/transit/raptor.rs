@@ -199,7 +199,11 @@ impl<'a> Raptor<'a> {
                 // store that can lower it is the alight store at the target
                 // itself, mirrored into the local below. Footpath relaxation
                 // runs after all route scans, so the values are identical.
-                let mut target_bound = r.best_arr[target as usize];
+                let mut target_bound = if (target as usize) < n {
+                    r.best_arr[target as usize]
+                } else {
+                    INF_TIME // no single target: nothing to prune against
+                };
                 while pos < len {
                     let stop_id = route_stops[pos as usize];
                     // (1) Alight: if riding a trip, try to improve this stop.
@@ -399,7 +403,44 @@ pub fn plan_vehicles(
         return Vec::new();
     }
     let r = Raptor::run(tt, source, target, depart, max_rounds, vehicles);
+    frontier(&r, target)
+}
 
+/// [`plan_vehicles`] from one `source` to each of `targets`, in one scan.
+/// A rider choosing among several stations near the destination was costing
+/// one full RAPTOR run per candidate pair — but the scans from one origin at
+/// one time are the same scan, differing only in the target they prune
+/// against. Here the scan runs once with no single target to prune against
+/// (every label RAPTOR would keep for any of them is kept), and each
+/// target's frontier is read out of it: the journeys `plan_vehicles` answers
+/// for that pair.
+pub fn plan_many_vehicles(
+    tt: &Timetable,
+    source: u32,
+    targets: &[u32],
+    depart: Time,
+    max_rounds: u32,
+    vehicles: u8,
+) -> Vec<Vec<Journey>> {
+    let n = tt.n_stops();
+    if source as usize >= n {
+        return targets.iter().map(|_| Vec::new()).collect();
+    }
+    let r = Raptor::run(tt, source, u32::MAX, depart, max_rounds, vehicles);
+    targets
+        .iter()
+        .map(|&t| {
+            if t as usize >= n || t == source {
+                Vec::new()
+            } else {
+                frontier(&r, t)
+            }
+        })
+        .collect()
+}
+
+/// The (arrival, transfers) frontier to `target` out of a finished scan.
+fn frontier(r: &Raptor<'_>, target: u32) -> Vec<Journey> {
     // Candidate journeys: one per round whose target arrival strictly improved on
     // the best with fewer trips. The round index is only an UPPER bound on the
     // trip count — because `parent[k]` carries a stop's fewer-trip provenance
@@ -865,6 +906,34 @@ mod tests {
             checks > 1000,
             "gate should exercise many OD pairs, ran {checks}"
         );
+    }
+
+    #[test]
+    fn one_scan_to_many_targets_answers_what_a_scan_per_target_does() {
+        // Not just the arrivals: the same journeys, leg for leg — the pair
+        // choice downstream reads cost, departure and the rendered legs.
+        let mut pairs = 0;
+        for seed in 1..=60u64 {
+            let (tt, n) = random_timetable(seed.wrapping_mul(0xA24BAED4963EE407));
+            let depart = (seed as u32 * 11) % 400;
+            let targets: Vec<u32> = (0..n).chain([n + 3]).collect();
+            for s in 0..n {
+                for vehicles in [ALL_VEHICLES, crate::transit::BUS_VEHICLES] {
+                    let many = plan_many_vehicles(&tt, s, &targets, depart, n + 2, vehicles);
+                    assert_eq!(many.len(), targets.len());
+                    for (t, got) in targets.iter().zip(&many) {
+                        let want = plan_vehicles(&tt, s, *t, depart, n + 2, vehicles);
+                        assert_eq!(got, &want, "seed {seed}: {s}->{t}@{depart} v{vehicles}");
+                        pairs += 1;
+                    }
+                }
+            }
+        }
+        assert!(pairs > 1000, "ran {pairs}");
+        // A source off the timetable answers nothing for every target.
+        let (tt, n) = random_timetable(7);
+        let none = plan_many_vehicles(&tt, n + 5, &[0, 1], 0, K, ALL_VEHICLES);
+        assert!(none.iter().all(Vec::is_empty) && none.len() == 2);
     }
 
     #[test]

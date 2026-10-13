@@ -198,6 +198,21 @@ pub fn open(prefix: &Path) -> io::Result<Shard> {
     Ok(Shard { timetable, labels })
 }
 
+/// What a shard on disk says about itself — its labels (service date,
+/// publication date, zone) — without reading its timetable: the `.fts`, checked
+/// against the hash in the `.ftt`'s 64-byte header. Asking a shard's date used
+/// to read and parse the whole `.ftt` (tens of megabytes for a big city) on
+/// every request. The timetable body is not verified here; [`open`] verifies it
+/// when a question is actually put to it.
+pub fn read_labels(prefix: &Path) -> io::Result<Labels> {
+    use std::io::Read;
+    let mut head = [0u8; ftt::FTT_HEADER_LEN];
+    std::fs::File::open(with_ext(prefix, "ftt"))?.read_exact(&mut head)?;
+    let hash = ftt::body_hash(&head)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "shard: not an .ftt"))?;
+    fts::read_fts(&with_ext(prefix, "fts"), hash)
+}
+
 /// A station near a point: which stop, how far, and what to call it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NearStop {
@@ -423,9 +438,34 @@ impl Shard {
         count: usize,
         vehicles: u8,
     ) -> Vec<Departure> {
-        let mut out = Vec::new();
-        let mut from_time = after;
-        for _ in 0..count {
+        self.board_more(source, target, after, count, vehicles, Vec::new())
+    }
+
+    /// [`Self::board_vehicles`] when its first answer is already in hand (from
+    /// [`Self::best_to_many`]): the rest are found from one second after it
+    /// leaves, so that first answer is not computed a second time.
+    pub fn board_vehicles_after(
+        &self,
+        source: u32,
+        target: u32,
+        first: Departure,
+        count: usize,
+        vehicles: u8,
+    ) -> Vec<Departure> {
+        let from_time = first.dep.saturating_add(1);
+        self.board_more(source, target, from_time, count, vehicles, vec![first])
+    }
+
+    fn board_more(
+        &self,
+        source: u32,
+        target: u32,
+        mut from_time: Time,
+        count: usize,
+        vehicles: u8,
+        mut out: Vec<Departure>,
+    ) -> Vec<Departure> {
+        while out.len() < count {
             // The best journey on offer; between equals, the one leaving first.
             let best = self
                 .departures_vehicles(source, target, from_time, vehicles)
@@ -436,6 +476,38 @@ impl Shard {
             out.push(d);
         }
         out
+    }
+
+    /// For each of `targets`, the departure [`Self::board_vehicles`] would put
+    /// first from `source` at or after `after` (the cheapest, then the
+    /// earliest) — all from ONE scan of the timetable instead of one per
+    /// target. `None` where no journey exists.
+    pub fn best_to_many(
+        &self,
+        source: u32,
+        targets: &[u32],
+        after: Time,
+        vehicles: u8,
+    ) -> Vec<Option<Departure>> {
+        let n = self.timetable.n_stops() as u32;
+        if source >= n {
+            return vec![None; targets.len()];
+        }
+        raptor::plan_many_vehicles(
+            &self.timetable,
+            source,
+            targets,
+            after,
+            DEFAULT_MAX_ROUNDS,
+            vehicles,
+        )
+        .into_iter()
+        .map(|js| {
+            js.iter()
+                .filter_map(|j| self.render(j))
+                .min_by_key(|d| (d.cost(), d.dep))
+        })
+        .collect()
     }
 
     fn render(&self, j: &Journey) -> Option<Departure> {
@@ -667,6 +739,65 @@ mod tests {
             .is_empty());
         assert!(s.board_vehicles(from, to, 0, 2, BUS_VEHICLES).is_empty());
         assert_eq!(s.board_vehicles(from, to, 0, 2, TRAIN_VEHICLES).len(), 1);
+        clean(&dir, &prefix);
+    }
+
+    #[test]
+    fn one_scan_answers_every_alighting_candidate_as_a_scan_each_does() {
+        use crate::transit::{ALL_VEHICLES, BUS_VEHICLES};
+        let (dir, prefix, s) = build_tmp("many");
+        let n = s.timetable.n_stops() as u32;
+        let targets: Vec<u32> = (0..n).chain([n + 7]).collect();
+        for source in 0..n {
+            for vehicles in [ALL_VEHICLES, BUS_VEHICLES] {
+                for after in [0, 6 * 3600, 8 * 3600, 23 * 3600] {
+                    let many = s.best_to_many(source, &targets, after, vehicles);
+                    assert_eq!(many.len(), targets.len());
+                    for (t, got) in targets.iter().zip(&many) {
+                        let want = s.board_vehicles(source, *t, after, 1, vehicles);
+                        assert_eq!(got.as_ref(), want.first(), "{source}->{t}@{after}");
+                        // The rest of a board, continued from that first answer,
+                        // is the board a scan each would have made.
+                        if let Some(first) = got.clone() {
+                            assert_eq!(
+                                s.board_vehicles_after(source, *t, first, 3, vehicles),
+                                s.board_vehicles(source, *t, after, 3, vehicles),
+                                "{source}->{t}@{after} board"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        assert!(s
+            .best_to_many(n + 1, &targets, 0, ALL_VEHICLES)
+            .iter()
+            .all(Option::is_none));
+        clean(&dir, &prefix);
+    }
+
+    #[test]
+    fn a_shards_date_reads_from_its_labels_without_the_timetable() {
+        let (dir, prefix, s) = build_tmp("labels_only");
+        let labels = read_labels(&prefix).unwrap();
+        assert_eq!(labels, s.labels);
+        assert_ne!(labels.service_date, 0);
+        // The timetable's body is not read: a flipped byte deep in it leaves
+        // the date answerable (the full open still refuses it).
+        let path = with_ext(&prefix, "ftt");
+        let mut raw = std::fs::read(&path).unwrap();
+        let last = raw.len() - 1;
+        raw[last] ^= 0xff;
+        std::fs::write(&path, &raw).unwrap();
+        assert_eq!(read_labels(&prefix).unwrap(), s.labels);
+        assert!(open(&prefix).is_err(), "the full open verifies the body");
+        // Labels of another build, or no timetable at all, are refused.
+        let hash = ftt::body_hash(&raw).unwrap();
+        let bytes = fts::to_bytes(&labels, hash ^ 1);
+        std::fs::write(with_ext(&prefix, "fts"), &bytes).unwrap();
+        assert!(read_labels(&prefix).is_err());
+        std::fs::remove_file(&path).unwrap();
+        assert!(read_labels(&prefix).is_err());
         clean(&dir, &prefix);
     }
 

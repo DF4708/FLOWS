@@ -116,12 +116,36 @@ enum TransitClock {
     /// `locale` is injectable only so a test can pin a clock format; the app
     /// always takes the rider's own, which decides 12- vs 24-hour.
     static func clock(_ moment: Date, zone: String, locale: Locale = .current) -> String {
-        let f = DateFormatter()
-        f.locale = locale
-        f.timeZone = TimeZone(identifier: zone) ?? .current
-        f.dateStyle = .none
-        f.timeStyle = .short
-        return f.string(from: moment)
+        clockFaces.string(moment, zone: zone, locale: locale)
+    }
+
+    /// One formatter per zone and locale, kept: building a `DateFormatter` is
+    /// among the dearest things Foundation does, and a schedule rings one up
+    /// for every time it prints.
+    private static let clockFaces = ClockFaces()
+
+    private final class ClockFaces: @unchecked Sendable {
+        private var byKey: [String: DateFormatter] = [:]
+        private let lock = NSLock()
+
+        func string(_ moment: Date, zone: String, locale: Locale) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            let key = zone + "|" + locale.identifier
+            let f: DateFormatter
+            if let kept = byKey[key] {
+                f = kept
+            } else {
+                f = DateFormatter()
+                f.locale = locale
+                f.timeZone = TimeZone(identifier: zone) ?? .current
+                f.dateStyle = .none
+                f.timeStyle = .short
+                if byKey.count > 40 { byKey.removeAll() }
+                byKey[key] = f
+            }
+            return f.string(from: moment)
+        }
     }
 
     /// A plain word for a zone — "Central", "Pacific" — for the one place it

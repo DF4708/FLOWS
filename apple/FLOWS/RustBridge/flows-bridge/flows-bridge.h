@@ -737,6 +737,7 @@ void* __swift_bridge__$flows_transit_agency_zone(struct RustStr gtfs_dir);
 void* __swift_bridge__$flows_transit_build(struct RustStr gtfs_dir, struct RustStr prefix, int64_t service_date, struct __private__FfiSlice day_starts);
 void* __swift_bridge__$flows_transit_build_many(struct RustStr gtfs_dirs, struct __private__FfiSlice shift_secs, struct RustStr prefix, int64_t service_date, struct __private__FfiSlice day_starts);
 void* __swift_bridge__$flows_transit_info(struct RustStr prefix);
+void __swift_bridge__$flows_transit_release(void);
 void* __swift_bridge__$flows_transit_city_feeds(double latitude, double longitude, int64_t limit);
 void* __swift_bridge__$flows_transit_ship_feeds(double latitude, double longitude, double reach_km, int64_t limit);
 void* __swift_bridge__$flows_transit_departures(struct RustStr prefix, double from_latitude, double from_longitude, double to_latitude, double to_longitude, double max_station_meters, int64_t depart_seconds, int64_t limit, int64_t vehicles);

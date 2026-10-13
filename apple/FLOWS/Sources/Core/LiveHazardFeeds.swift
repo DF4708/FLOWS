@@ -344,6 +344,25 @@ enum HazardFeedScores {
 actor LiveHazardFeedFetcher {
     static let shared = LiveHazardFeedFetcher()
 
+    /// The refresh of one feed that is under way, so callers that arrive
+    /// while it runs wait for it instead of each fetching the same file: the
+    /// alternates of one plan scored together asked every global feed once
+    /// apiece on a cold start.
+    private final class Flight<T: Sendable> {
+        var task: Task<T, Never>?
+    }
+
+    private func joined<T: Sendable>(
+        _ flight: Flight<T>, _ work: @escaping @Sendable () async -> T
+    ) async -> T {
+        if let running = flight.task { return await running.value }
+        let task = Task { await work() }
+        flight.task = task
+        let out = await task.value
+        flight.task = nil
+        return out
+    }
+
     /// A failed refresh waits this long before the next try, so a feed that
     /// is down costs its timeout once, not on every plan and sweep. Stale
     /// data (or nothing) is what the feed answers meanwhile, as before.
@@ -410,6 +429,11 @@ actor LiveHazardFeedFetcher {
     private var quakesFetched = Date.distantPast
 
     func recentQuakes() async -> [(lat: Double, lon: Double, magnitude: Double, ageHours: Double)] {
+        await joined(recentQuakesFlight) { await self.loadRecentQuakes() }
+    }
+    private let recentQuakesFlight = Flight<[(lat: Double, lon: Double, magnitude: Double, ageHours: Double)]>()
+
+    private func loadRecentQuakes() async -> [(lat: Double, lon: Double, magnitude: Double, ageHours: Double)] {
         if Date().timeIntervalSince(quakesFetched) < AdaptiveTuning.shared.ttl(300) { return quakes }
         let url = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson"
             + "&starttime=\(ISO8601DateFormatter().string(from: Date().addingTimeInterval(-86_400)))"
@@ -444,6 +468,11 @@ actor LiveHazardFeedFetcher {
     /// Current NOAA space-weather scales: radio blackout (R), solar radiation
     /// storm (S), geomagnetic storm (G), each 0…5. One small global JSON.
     func spaceWeather() async -> (r: Int, s: Int, g: Int) {
+        await joined(spaceWeatherFlight) { await self.loadSpaceWeather() }
+    }
+    private let spaceWeatherFlight = Flight<(r: Int, s: Int, g: Int)>()
+
+    private func loadSpaceWeather() async -> (r: Int, s: Int, g: Int) {
         if Date().timeIntervalSince(spaceWxFetched) < AdaptiveTuning.shared.ttl(1800) { return spaceWx }
         guard let u = URL(string: "https://services.swpc.noaa.gov/products/noaa-scales.json"),
               let (data, resp) = try? await ThrottledNet.fetch(u),
@@ -675,6 +704,11 @@ actor LiveHazardFeedFetcher {
     private var volcanoesFetched = Date.distantPast
 
     func elevatedVolcanoes() async -> [(lat: Double, lon: Double, level: String)] {
+        await joined(elevatedVolcanoesFlight) { await self.loadElevatedVolcanoes() }
+    }
+    private let elevatedVolcanoesFlight = Flight<[(lat: Double, lon: Double, level: String)]>()
+
+    private func loadElevatedVolcanoes() async -> [(lat: Double, lon: Double, level: String)] {
         if Date().timeIntervalSince(volcanoesFetched) < AdaptiveTuning.shared.ttl(1800) { return volcanoes }
         guard let u = URL(string:
             "https://volcanoes.usgs.gov/hans-public/api/volcano/getElevatedVolcanoes"),
@@ -707,6 +741,11 @@ actor LiveHazardFeedFetcher {
     private var avalancheFetched = Date.distantPast
 
     func avalanche() async -> [(rings: [[CLLocationCoordinate2D]], rating: Int)] {
+        await joined(avalancheFlight) { await self.loadAvalanche() }
+    }
+    private let avalancheFlight = Flight<[(rings: [[CLLocationCoordinate2D]], rating: Int)]>()
+
+    private func loadAvalanche() async -> [(rings: [[CLLocationCoordinate2D]], rating: Int)] {
         if Date().timeIntervalSince(avalancheFetched) < AdaptiveTuning.shared.ttl(10_800) {
             return avalancheZonesUS + avalancheZonesCA
         }
@@ -805,6 +844,11 @@ actor LiveHazardFeedFetcher {
     private var stormsFetched = Date.distantPast
 
     func tropicalStorms() async -> [(lat: Double, lon: Double, maxWindKt: Double)] {
+        await joined(tropicalStormsFlight) { await self.loadTropicalStorms() }
+    }
+    private let tropicalStormsFlight = Flight<[(lat: Double, lon: Double, maxWindKt: Double)]>()
+
+    private func loadTropicalStorms() async -> [(lat: Double, lon: Double, maxWindKt: Double)] {
         if Date().timeIntervalSince(stormsFetched) < AdaptiveTuning.shared.ttl(1800) { return storms }
         guard let u = URL(string: "https://www.nhc.noaa.gov/CurrentStorms.json"),
               let (data, resp) = try? await ThrottledNet.fetch(u),
@@ -835,6 +879,11 @@ actor LiveHazardFeedFetcher {
     private var tsunamisFetched = Date.distantPast
 
     func tsunamiEvents() async -> [(lat: Double, lon: Double, level: String)] {
+        await joined(tsunamiEventsFlight) { await self.loadTsunamiEvents() }
+    }
+    private let tsunamiEventsFlight = Flight<[(lat: Double, lon: Double, level: String)]>()
+
+    private func loadTsunamiEvents() async -> [(lat: Double, lon: Double, level: String)] {
         if Date().timeIntervalSince(tsunamisFetched) < AdaptiveTuning.shared.ttl(600) {
             return tsunamisByFeed.values.flatMap { $0 }
         }
@@ -900,6 +949,11 @@ actor LiveHazardFeedFetcher {
 
     /// SPC Day-1 categorical severe-weather outlook polygons (national, small).
     func convectiveOutlook() async -> [(rings: [[CLLocationCoordinate2D]], score: Double)] {
+        await joined(convectiveOutlookFlight) { await self.loadConvectiveOutlook() }
+    }
+    private let convectiveOutlookFlight = Flight<[(rings: [[CLLocationCoordinate2D]], score: Double)]>()
+
+    private func loadConvectiveOutlook() async -> [(rings: [[CLLocationCoordinate2D]], score: Double)] {
         if Date().timeIntervalSince(spcFetched) < AdaptiveTuning.shared.ttl(3600) { return spcZones }
         let url = "https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/"
             + "SPC_wx_outlks/MapServer/1/query?where=1%3D1&outFields=dn"

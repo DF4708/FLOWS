@@ -3845,6 +3845,9 @@ public func flows_transit_info<GenericToRustStr: ToRustStr>(_ prefix: GenericToR
         RustVec(ptr: __swift_bridge__$flows_transit_info(prefixAsRustStr))
     })
 }
+public func flows_transit_release() {
+    __swift_bridge__$flows_transit_release()
+}
 public func flows_transit_city_feeds(_ latitude: Double, _ longitude: Double, _ limit: Int64) -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_transit_city_feeds(latitude, longitude, limit))
 }

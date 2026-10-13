@@ -633,9 +633,14 @@ struct RouteChoicesView: View {
         let mayFetch = model.mode != .navigating && !model.breadcrumbs.isOffline
         guard let ready = try? await TransitFeeds.shared.ready(
                 TransitFeeds.amtrak, on: departing, allowNetwork: mayFetch),
-              let answer = try? TransitShard.departures(
-                prefix: ready.prefix, from: from, to: to,
-                departing: departing, stamp: ready.stamp),
+              // Off the main actor: opening the timetable and scanning it ran
+              // here, on whatever the view runs on (the city and ferry
+              // lookups already run off it).
+              let answer = try? await Task.detached(priority: .userInitiated, operation: {
+                  try TransitShard.departures(
+                      prefix: ready.prefix, from: from, to: to,
+                      departing: departing, stamp: ready.stamp)
+              }).value,
               let schedule = TransitShard.schedule(
                 from: answer, credit: ready.credit, operators: ready.operators),
               let first = answer.departures.first, let last = first.rides.last

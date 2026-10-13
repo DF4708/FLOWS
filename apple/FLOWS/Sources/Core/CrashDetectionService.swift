@@ -229,6 +229,9 @@ final class CrashDetectionService: ObservableObject {
     /// Driver (or a spoken "yes") asked for help.
     func requestAssistance() {
         stopCheckIn()
+        // "Tap Call 911" is the one thing to hear: an advisory line still
+        // playing (or waiting) would be read over it.
+        VoiceAnnouncer.shared.stop()
         state = .assisting
         let report = emergencyReport()
         // Apps cannot place a call on their own: the driver taps Call 911 on

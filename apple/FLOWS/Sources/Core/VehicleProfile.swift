@@ -286,8 +286,10 @@ final class VehicleStore: ObservableObject {
     /// the car had just reported half full.
     private var lastFollowed = Date.distantPast
     private func followRealReading(now: Date = Date()) {
-        guard let profile, let real = telemetry().fuelFraction, real.isFinite,
-              now.timeIntervalSince(lastFollowed) >= 60 else { return }
+        // The once-a-minute gate first: `telemetry()` merges and sorts the tire
+        // dictionaries, and this runs on every fix.
+        guard let profile, now.timeIntervalSince(lastFollowed) >= 60,
+              let real = telemetry().fuelFraction, real.isFinite else { return }
         lastFollowed = now
         let target = min(max(real, 0), 1)
         func modelled(_ miles: Double) -> Double {

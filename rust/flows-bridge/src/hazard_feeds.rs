@@ -453,13 +453,11 @@ pub fn flows_hazard_seismic_score(
 }
 pub fn flows_hazard_water_proximity_score(lats: &[f64], lons: &[f64], lat: f64, lon: f64) -> f64 {
     contain(f64::NAN, || {
-        hf::water_proximity_score(&points(lats, lons), (lat, lon))
+        hf::water_proximity_score_cols(lats, lons, (lat, lon))
     })
 }
 pub fn flows_hazard_closure_score(lats: &[f64], lons: &[f64], lat: f64, lon: f64) -> f64 {
-    contain(f64::NAN, || {
-        hf::closure_score(&points(lats, lons), (lat, lon))
-    })
+    contain(f64::NAN, || hf::closure_score_cols(lats, lons, (lat, lon)))
 }
 /// Whether the route (its line, as lats/lons) drives any of the reported
 /// full closures (`hazard_feeds::route_runs_along_closure`). The closures'
@@ -928,14 +926,16 @@ pub fn flows_hazard_fuel_places(xml: &str) -> Vec<String> {
 // ---- the live snapshot ----
 
 /// The live feeds behind Swift's `LiveHazardSnapshot`.
-pub struct FlowsHazardSnapshot(Snapshot);
+/// A snapshot and, once a point is scored against it, its fire perimeters'
+/// bounding boxes (found once, not per point; reset when a perimeter is added).
+pub struct FlowsHazardSnapshot(Snapshot, std::sync::OnceLock<Vec<hf::RingBox>>);
 
 pub fn flows_hazard_clip_margin_degrees() -> f64 {
     hf::CLIP_MARGIN_DEGREES
 }
 
 pub fn flows_hazard_snapshot_new() -> FlowsHazardSnapshot {
-    FlowsHazardSnapshot(Snapshot::default())
+    FlowsHazardSnapshot(Snapshot::default(), std::sync::OnceLock::new())
 }
 
 impl FlowsHazardSnapshot {
@@ -944,6 +944,7 @@ impl FlowsHazardSnapshot {
     }
     pub fn add_perimeters(&mut self, ring_lens: &[i64], lats: &[f64], lons: &[f64]) {
         self.0.perimeters.extend(rings(ring_lens, lats, lons));
+        self.1 = std::sync::OnceLock::new();
     }
     pub fn add_quakes(
         &mut self,
@@ -1007,12 +1008,18 @@ impl FlowsHazardSnapshot {
         max_lat: f64,
         max_lon: f64,
     ) -> FlowsHazardSnapshot {
-        FlowsHazardSnapshot(self.0.clipped(min_lat, min_lon, max_lat, max_lon))
+        FlowsHazardSnapshot(
+            self.0.clipped(min_lat, min_lon, max_lat, max_lon),
+            std::sync::OnceLock::new(),
+        )
     }
     /// The eight live family scores, in `LIVE_FAMILY_NAMES` order.
     pub fn live(&self, lat: f64, lon: f64) -> Vec<f64> {
         let s = &self.0;
-        contain(vec![0.0; 8], || hf::live((lat, lon), s).values().to_vec())
+        contain(vec![0.0; 8], || {
+            let boxes = self.1.get_or_init(|| hf::ring_boxes(&s.perimeters));
+            hf::live_boxed((lat, lon), s, boxes).values().to_vec()
+        })
     }
     pub fn hotspots_flat(&self) -> Vec<f64> {
         self.0

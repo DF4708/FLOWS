@@ -316,12 +316,23 @@ final class AppModel: ObservableObject {
     /// the drive instead of standing on the station that was closest when
     /// the card first opened.
     @Published private(set) var nearestStationID: String?
+    /// Where the nearest transmitter was last worked out, and whether the
+    /// radio was on the air then (retuneRadioIfNeeded).
+    private var lastRetuneCheck: (at: CLLocationCoordinate2D, onAir: Bool)?
 
     /// Auto-switch to the CLOSEST NOAA transmitter as the driver moves, with
     /// hysteresis: only retune when the new station is meaningfully (20%)
     /// closer than the one playing, so the tuner doesn't flap on the boundary
     /// between two coverage circles.
     func retuneRadioIfNeeded(at position: CLLocationCoordinate2D) {
+        // A transmitter's reach is tens of miles: which one is nearest does
+        // not change from one fix to the next, but this ran on every fix.
+        // Looked at again after 250 m of travel (a few seconds at highway
+        // pace), or at once when the radio has gone on or off the air.
+        let onAir = radio.playingChannelID != nil
+        if let last = lastRetuneCheck, last.onAir == onAir,
+           POIRanking.meters(last.at, position) < 250 { return }
+        lastRetuneCheck = (position, onAir)
         // Track the nearest station even when nothing is playing — the card
         // reads this to keep its default honest. The app still never starts
         // audio by itself.
@@ -2972,6 +2983,10 @@ final class AppModel: ObservableObject {
         VoiceAnnouncer.shared.checkInHoldsSession = { [weak self] in
             self.map { $0.crash.state != .idle || $0.crash.isSpeaking } ?? false
         }
+        VoiceAnnouncer.shared.checkInOwnsVoice = { [weak self] in
+            if case .checkingIn? = self?.crash.state { return true }
+            return false
+        }
         VoiceAnnouncer.shared.ownAudioPlaying = { [weak self] in
             guard let self else { return false }
             return (self.radio.playingChannelID != nil && !self.radio.isPaused)
@@ -3623,7 +3638,7 @@ final class AppModel: ObservableObject {
     private func updateFuelRecommendation() {
         guard mode == .navigating, vehicle.profile != nil, notifyFuel,
               let range = vehicle.expectedRangeMiles else {
-            fuelRecommendation = nil
+            if fuelRecommendation != nil { fuelRecommendation = nil }
             return
         }
         // "Next station" assumption without a live search: rural interstates
@@ -3631,10 +3646,10 @@ final class AppModel: ObservableObject {
         let recommend = VehicleProfile.shouldRecommendFuel(
             rangeRemainingMiles: range, milesToNextStation: 25)
         if recommend, range < fuelRecommendationDismissedAtRange - 20 || fuelRecommendationDismissedAtRange == 0 {
-            fuelRecommendation = String(
-                format: "≈%.0f mi of range left — plan a fuel stop", range)
+            let text = String(format: "≈%.0f mi of range left — plan a fuel stop", range)
+            if fuelRecommendation != text { fuelRecommendation = text }   // every fix
         } else if !recommend {
-            fuelRecommendation = nil
+            if fuelRecommendation != nil { fuelRecommendation = nil }
             fuelRecommendationDismissedAtRange = 0
         }
     }
@@ -4499,12 +4514,18 @@ final class AppModel: ObservableObject {
             let candidates = [i, i - 1, i + 1, i - 2, i + 2].filter { onDevice[$0] != nil }
             return candidates.first.flatMap { onDevice[$0] }
         }
+        // A sample with no forecast of its own borrows its neighbour's: the
+        // pair would work the same point out twice, so each point is done once.
+        var predictorsAt: [Int: [String: Double]] = [:]
         func onDevicePredictors(near i: Int) -> [String: Double] {
             let candidates = [i, i - 1, i + 1, i - 2, i + 2].filter { onDevice[$0] != nil }
             guard let j = candidates.first, let (c, elev) = onDevice[j] else { return [:] }
+            if let done = predictorsAt[j] { return done }
             let coord = score.samples[j].coordinate
-            return c.predictorFamilies(latitude: coord.latitude, longitude: coord.longitude,
-                                       elevationMeters: elev)
+            let made = c.predictorFamilies(latitude: coord.latitude, longitude: coord.longitude,
+                                           elevationMeters: elev)
+            predictorsAt[j] = made
+            return made
         }
 
         // Rain-gate: water-proximity evidence only matters when the corridor

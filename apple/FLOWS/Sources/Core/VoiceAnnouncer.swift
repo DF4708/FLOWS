@@ -58,6 +58,11 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// Set by AppModel: the crash check-in holds the audio session — it
     /// speaks, then listens, and hands the session back itself.
     var checkInHoldsSession: () -> Bool = { false }
+    /// Set by AppModel: the crash check-in is ASKING (its question, then its
+    /// microphone). Nothing else speaks meanwhile: a turn line or a warning
+    /// over the question buried it, and over the listen window it was heard
+    /// as the driver's reply.
+    var checkInOwnsVoice: () -> Bool = { false }
     /// Set by AppModel: FLOWS's own sound is playing (a station on the air,
     /// the dispatch feed). Handing the session back would stop it.
     var ownAudioPlaying: () -> Bool = { false }
@@ -92,7 +97,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// closing the message can take the line back; leave it nil for a line
     /// no close should cut (a turn direction, a music reply).
     func announce(_ text: String, topic: String? = nil) {
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !checkInOwnsVoice() else { return }
         // The crash check-in's session and a reply being listened for are
         // left alone: switching either to
         // playback shuts its microphone, and a turn line landing in the

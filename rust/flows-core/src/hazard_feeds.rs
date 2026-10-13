@@ -170,11 +170,55 @@ pub fn point_in_polygon(p: Point, ring: &[Point]) -> bool {
 /// fringe are skipped without trigonometry.
 #[must_use]
 pub fn fire_perimeter_score(perimeters: &[Vec<Point>], p: Point) -> f64 {
+    fire_perimeter_with(perimeters, None, p)
+}
+
+/// A ring's bounding box as (south, north, west, east), found once. `None`
+/// for a ring of fewer than two points, which is a hotspot and needs none.
+pub type RingBox = Option<(f64, f64, f64, f64)>;
+
+/// The boxes of `perimeters`, in order, for [`fire_perimeter_score_boxed`]:
+/// the perimeters do not change within a sweep, and each of its corridor
+/// samples walked every vertex of every ring to find the same boxes again.
+#[must_use]
+pub fn ring_boxes(perimeters: &[Vec<Point>]) -> Vec<RingBox> {
+    perimeters
+        .iter()
+        .map(|ring| {
+            if ring.len() < 2 {
+                return None;
+            }
+            let (mut min_lat, mut max_lat) = (ring[0].0, ring[0].0);
+            let (mut min_lon, mut max_lon) = (ring[0].1, ring[0].1);
+            for c in ring {
+                min_lat = smin(min_lat, c.0);
+                max_lat = smax(max_lat, c.0);
+                min_lon = smin(min_lon, c.1);
+                max_lon = smax(max_lon, c.1);
+            }
+            Some((min_lat, max_lat, min_lon, max_lon))
+        })
+        .collect()
+}
+
+/// [`fire_perimeter_score`] with the rings' boxes already known
+/// ([`ring_boxes`], same order and length — anything else falls back to
+/// finding them here).
+#[must_use]
+pub fn fire_perimeter_score_boxed(perimeters: &[Vec<Point>], boxes: &[RingBox], p: Point) -> f64 {
+    fire_perimeter_with(
+        perimeters,
+        (boxes.len() == perimeters.len()).then_some(boxes),
+        p,
+    )
+}
+
+fn fire_perimeter_with(perimeters: &[Vec<Point>], boxes: Option<&[RingBox]>, p: Point) -> f64 {
     let mut best = 0.0;
     let m_per_deg_lat = METERS_PER_DEGREE;
     let m_per_deg_lon = METERS_PER_DEGREE * fmath::cos(p.0 * PI / 180.0);
     let buffer = PERIMETER_BUFFER_METERS;
-    for ring in perimeters {
+    for (ring_no, ring) in perimeters.iter().enumerate() {
         if ring.len() < 2 {
             if let Some(&only) = ring.first() {
                 let d = meters(only.0, only.1, p.0, p.1);
@@ -184,14 +228,21 @@ pub fn fire_perimeter_score(perimeters: &[Vec<Point>], p: Point) -> f64 {
             }
             continue;
         }
-        let (mut min_lat, mut max_lat) = (ring[0].0, ring[0].0);
-        let (mut min_lon, mut max_lon) = (ring[0].1, ring[0].1);
-        for c in ring {
-            min_lat = smin(min_lat, c.0);
-            max_lat = smax(max_lat, c.0);
-            min_lon = smin(min_lon, c.1);
-            max_lon = smax(max_lon, c.1);
-        }
+        let (min_lat, max_lat, min_lon, max_lon) =
+            match boxes.and_then(|b| b.get(ring_no)).copied().flatten() {
+                Some(known) => known,
+                None => {
+                    let (mut min_lat, mut max_lat) = (ring[0].0, ring[0].0);
+                    let (mut min_lon, mut max_lon) = (ring[0].1, ring[0].1);
+                    for c in ring {
+                        min_lat = smin(min_lat, c.0);
+                        max_lat = smax(max_lat, c.0);
+                        min_lon = smin(min_lon, c.1);
+                        max_lon = smax(max_lon, c.1);
+                    }
+                    (min_lat, max_lat, min_lon, max_lon)
+                }
+            };
         let d_lat = smax(0.0, smax(min_lat - p.0, p.0 - max_lat)) * m_per_deg_lat;
         let d_lon = smax(0.0, smax(min_lon - p.1, p.1 - max_lon)) * m_per_deg_lon;
         if d_lat * d_lat + d_lon * d_lon > buffer * buffer {
@@ -300,8 +351,21 @@ pub fn flood_gauge_score(gauges: &[(f64, f64, String)], p: Point) -> f64 {
 /// tapering to 0 by 6 km.
 #[must_use]
 pub fn water_proximity_score(water_points: &[Point], p: Point) -> f64 {
+    water_proximity_over(water_points.iter().copied(), p)
+}
+
+/// [`water_proximity_score`] over the points as two parallel columns — what
+/// the bridge holds. Same arithmetic, in the same order; no list of points
+/// is built per call (once per corridor sample, over every mapped water
+/// point of the corridor).
+#[must_use]
+pub fn water_proximity_score_cols(lats: &[f64], lons: &[f64], p: Point) -> f64 {
+    water_proximity_over(lats.iter().copied().zip(lons.iter().copied()), p)
+}
+
+fn water_proximity_over(water_points: impl Iterator<Item = Point>, p: Point) -> f64 {
     let mut best = 0.0;
-    for &w in water_points {
+    for w in water_points {
         let d = meters(w.0, w.1, p.0, p.1);
         if d >= WATER_REACH_METERS || d.is_nan() {
             continue;
@@ -499,8 +563,19 @@ pub fn outlook_score(zones: &[(Vec<Vec<Point>>, f64)], p: Point) -> f64 {
 /// ramping to 0 at 2 km.
 #[must_use]
 pub fn closure_score(closures: &[Point], p: Point) -> f64 {
+    closure_over(closures.iter().copied(), p)
+}
+
+/// [`closure_score`] over the points as two parallel columns (see
+/// [`water_proximity_score_cols`]).
+#[must_use]
+pub fn closure_score_cols(lats: &[f64], lons: &[f64], p: Point) -> f64 {
+    closure_over(lats.iter().copied().zip(lons.iter().copied()), p)
+}
+
+fn closure_over(closures: impl Iterator<Item = Point>, p: Point) -> f64 {
     let mut best = 0.0;
-    for &c in closures {
+    for c in closures {
         let d = meters(c.0, c.1, p.0, p.1);
         if d <= CLOSURE_FULL_METERS {
             return 1.0;
@@ -795,10 +870,24 @@ impl LiveFamilies {
 /// `HazardFeedScores.live(at:snapshot:)`.
 #[must_use]
 pub fn live(p: Point, s: &Snapshot) -> LiveFamilies {
+    live_with(p, s, None)
+}
+
+/// [`live`] with the perimeters' boxes ([`ring_boxes`]) known: a sweep scores
+/// many points against one snapshot and finds them once.
+#[must_use]
+pub fn live_boxed(p: Point, s: &Snapshot, boxes: &[RingBox]) -> LiveFamilies {
+    live_with(p, s, Some(boxes))
+}
+
+fn live_with(p: Point, s: &Snapshot, boxes: Option<&[RingBox]>) -> LiveFamilies {
     LiveFamilies {
         fire: smax(
             fire_score(&s.hotspots, p),
-            fire_perimeter_score(&s.perimeters, p),
+            match boxes {
+                Some(b) => fire_perimeter_score_boxed(&s.perimeters, b, p),
+                None => fire_perimeter_score(&s.perimeters, p),
+            },
         ),
         seismic: seismic_score(&s.quakes, p),
         space_radiation: radiation_space_weather_score(s.space.1, s.space.2, p.0),
@@ -1534,6 +1623,56 @@ mod tests {
             hit += usize::from(!got.is_empty());
         }
         assert!(hit > 0, "the grid must reach the rings");
+    }
+
+    #[test]
+    fn known_boxes_and_columns_score_exactly_as_the_plain_lists_do() {
+        let perimeters = vec![
+            ring(&[(43.0, -89.5), (43.2, -89.5), (43.2, -89.3), (43.0, -89.3)]),
+            ring(&[(44.0, -90.0)]),                // a hotspot
+            ring(&[(44.5, -90.0), (44.6, -90.1)]), // two points
+            ring(&[(41.0, -88.0), (41.3, -88.0), (41.3, -87.6)]),
+            ring(&[]),
+        ];
+        let boxes = ring_boxes(&perimeters);
+        assert_eq!(boxes.len(), perimeters.len());
+        assert!(boxes[1].is_none() && boxes[4].is_none() && boxes[0].is_some());
+        let snap = Snapshot {
+            perimeters: perimeters.clone(),
+            hotspots: vec![(43.1, -89.4, 300.0)],
+            ..Snapshot::default()
+        };
+        let water: Vec<Point> = (0..30)
+            .map(|i| (43.0 + f64::from(i) * 0.01, -89.4 + f64::from(i) * 0.005))
+            .collect();
+        let (wl, wo): (Vec<f64>, Vec<f64>) = water.iter().copied().unzip();
+        let mut hit = 0;
+        for i in 0..60 {
+            for j in 0..60 {
+                let p = (40.8 + f64::from(i) * 0.07, -90.3 + f64::from(j) * 0.04);
+                let plain = fire_perimeter_score(&perimeters, p);
+                assert_eq!(fire_perimeter_score_boxed(&perimeters, &boxes, p), plain);
+                // a list of the wrong length is ignored, not trusted
+                assert_eq!(
+                    fire_perimeter_score_boxed(&perimeters, &boxes[..2], p),
+                    plain
+                );
+                assert_eq!(live_boxed(p, &snap, &boxes), live(p, &snap));
+                assert_eq!(
+                    water_proximity_score_cols(&wl, &wo, p),
+                    water_proximity_score(&water, p)
+                );
+                assert_eq!(closure_score_cols(&wl, &wo, p), closure_score(&water, p));
+                hit += usize::from(plain > 0.0);
+            }
+        }
+        assert!(hit > 20, "the grid must reach the perimeters: {hit}");
+        // NaN rides through the same way
+        let nan = (f64::NAN, -89.4);
+        assert!(
+            fire_perimeter_score_boxed(&perimeters, &boxes, nan).to_bits()
+                == fire_perimeter_score(&perimeters, nan).to_bits()
+        );
     }
 
     #[test]

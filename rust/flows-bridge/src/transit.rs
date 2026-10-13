@@ -52,6 +52,7 @@ mod ffi {
             day_starts: &[f64],
         ) -> Vec<String>;
         fn flows_transit_info(prefix: &str) -> Vec<String>;
+        fn flows_transit_release();
         fn flows_transit_city_feeds(latitude: f64, longitude: f64, limit: i64) -> Vec<String>;
         fn flows_transit_ship_feeds(
             latitude: f64,
@@ -106,6 +107,7 @@ mod ffi {
 }
 
 use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::contain;
 use flows_core::transit::gtfs::{
@@ -297,26 +299,110 @@ pub fn flows_transit_build_many(
     })
 }
 
+/// A shard that will not open says so in these words: the app takes the pair
+/// off the disk on seeing them, and the next question builds it afresh.
+pub const UNREADABLE: &str = "shard unreadable: ";
+
 fn open_or_err(prefix: &str) -> Result<Shard, Vec<String>> {
-    shard::open(Path::new(prefix)).map_err(|e| err_rows(e.to_string()))
+    shard::open(Path::new(prefix)).map_err(|e| err_rows(format!("{UNREADABLE}{e}")))
+}
+
+/// How long an opened timetable is kept for the next question: a plan asks
+/// two to four times in a few seconds, and each ask read, hashed and parsed
+/// the whole file (tens of megabytes for a big city).
+const KEEP_SECONDS: u64 = 90;
+
+/// The one shard kept: where it came from, the state of its two files when
+/// it was read, and when it was last asked.
+struct Kept {
+    prefix: String,
+    files: [Option<(u64, std::time::SystemTime)>; 2],
+    at: std::time::Instant,
+    shard: Arc<Shard>,
+}
+
+static KEPT: Mutex<Option<Kept>> = Mutex::new(None);
+
+fn file_state(prefix: &str) -> [Option<(u64, std::time::SystemTime)>; 2] {
+    let state = |ext: &str| {
+        let m = std::fs::metadata(format!("{prefix}.{ext}")).ok()?;
+        Some((m.len(), m.modified().ok()?))
+    };
+    [state("ftt"), state("fts")]
+}
+
+/// Whether a kept shard still answers for `prefix`: the same pair of files,
+/// untouched since it was read, and asked within [`KEEP_SECONDS`]. A rebuilt
+/// shard (new length or time) is never mistaken for the old one.
+fn still_good(
+    kept: (
+        &str,
+        &[Option<(u64, std::time::SystemTime)>; 2],
+        std::time::Instant,
+    ),
+    prefix: &str,
+    files: &[Option<(u64, std::time::SystemTime)>; 2],
+    now: std::time::Instant,
+) -> bool {
+    kept.0 == prefix
+        && kept.1 == files
+        && files.iter().all(Option::is_some)
+        && now.saturating_duration_since(kept.2).as_secs() < KEEP_SECONDS
+}
+
+/// [`open_or_err`], kept: the shard opened for the last question answers the
+/// next one while its files are as they were.
+fn open_kept(prefix: &str) -> Result<Arc<Shard>, Vec<String>> {
+    let files = file_state(prefix);
+    let now = std::time::Instant::now();
+    {
+        let mut keep = KEPT.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(k) = keep.as_mut() {
+            if still_good((&k.prefix, &k.files, k.at), prefix, &files, now) {
+                k.at = now;
+                return Ok(Arc::clone(&k.shard));
+            }
+        }
+    }
+    let shard = Arc::new(open_or_err(prefix)?);
+    *KEPT.lock().unwrap_or_else(PoisonError::into_inner) = Some(Kept {
+        prefix: prefix.to_string(),
+        files,
+        at: now,
+        shard: Arc::clone(&shard),
+    });
+    Ok(shard)
+}
+
+/// Let go of the kept timetable (the app calls this once the questions stop,
+/// and on a memory warning).
+pub fn flows_transit_release() {
+    *KEPT.lock().unwrap_or_else(PoisonError::into_inner) = None;
 }
 
 fn info_row(s: &Shard) -> String {
+    labels_row(&s.labels)
+}
+
+fn labels_row(l: &flows_core::transit::fts::Labels) -> String {
     format!(
         "info{UNIT}{}{UNIT}{}{UNIT}{}",
-        s.labels.service_date, s.labels.feed_published, s.labels.agency_zone
+        l.service_date, l.feed_published, l.agency_zone
     )
 }
 
 /// What a shard on disk is: its service date, publication date and zone. Used
-/// to decide whether the cached feed is still the right day before any query.
+/// to decide whether the cached feed is still the right day before any query,
+/// so it reads the labels only — not the timetable, which a question about
+/// the day does not need (and which is verified when a query opens it).
 pub fn flows_transit_info(prefix: &str) -> Vec<String> {
-    contain(err_rows("transit: info panicked"), || {
-        match open_or_err(prefix) {
-            Err(rows) => rows,
-            Ok(s) => vec![info_row(&s)],
-        }
-    })
+    contain(
+        err_rows("transit: info panicked"),
+        || match shard::read_labels(Path::new(prefix)) {
+            Err(e) => err_rows(e.to_string()),
+            Ok(labels) => vec![labels_row(&labels)],
+        },
+    )
 }
 
 fn near_fields(n: &NearStop) -> String {
@@ -390,7 +476,7 @@ pub fn flows_transit_departures(
     vehicles: i64,
 ) -> Vec<String> {
     contain(err_rows("transit: departures panicked"), || {
-        let s = match open_or_err(prefix) {
+        let s = match open_kept(prefix) {
             Err(rows) => return rows,
             Ok(s) => s,
         };
@@ -424,32 +510,34 @@ pub fn flows_transit_departures(
         // an extra one-minute bus — seen live: Chicago to UW-Milwaukee chose
         // the closest campus stop and paid for it with a third change.
         let walk = |meters: f64| -> Time { (meters.max(0.0) / LINK_WALK_MPS).ceil() as Time };
-        let mut best: Option<(&NearStop, &NearStop, Time, u64)> = None;
+        // One scan per boarding station answers every alighting candidate
+        // (the pairs used to be a scan each — up to 25 for 5 and 5): what a
+        // scan finds from one origin at one time does not depend on which
+        // destination it is read for.
+        let alight_stops: Vec<u32> = alights.iter().map(|a| a.stop).collect();
+        let mut best: Option<(&NearStop, &NearStop, u64, Departure)> = None;
         for b in &boards {
-            for a in &alights {
+            let leave = depart.saturating_add(walk(b.meters));
+            let firsts = s.best_to_many(b.stop, &alight_stops, leave, vehicles);
+            for (a, first) in alights.iter().zip(firsts) {
                 if b.stop == a.stop {
                     continue;
                 }
-                let leave = depart.saturating_add(walk(b.meters));
-                let Some(d) = s
-                    .board_vehicles(b.stop, a.stop, leave, 1, vehicles)
-                    .into_iter()
-                    .next()
-                else {
+                let Some(d) = first else {
                     continue;
                 };
                 let total = d.cost() + u64::from(walk(a.meters));
                 // Strictly better only: on a tie the nearer pair, tried
                 // first, stands — the same answer every time.
-                if best.is_none_or(|(_, _, _, c)| total < c) {
-                    best = Some((b, a, leave, total));
+                if best.as_ref().is_none_or(|(_, _, c, _)| total < *c) {
+                    best = Some((b, a, total, d));
                 }
             }
         }
-        let Some((b, a, leave, _)) = best else {
+        let Some((b, a, _, first)) = best else {
             return err_rows("transit: no ride between those stations today");
         };
-        let found = s.board_vehicles(b.stop, a.stop, leave, want, vehicles);
+        let found = s.board_vehicles_after(b.stop, a.stop, first, want, vehicles);
         let mut out = vec![
             info_row(&s),
             format!("od{UNIT}{}{UNIT}{}", near_fields(b), near_fields(a)),
@@ -600,6 +688,30 @@ mod tests {
 
     fn is_err(rows: &[String]) -> bool {
         rows.len() == 1 && rows[0].starts_with("err\u{1F}")
+    }
+
+    #[test]
+    fn a_kept_timetable_answers_only_while_it_is_the_same_files_and_recent() {
+        use std::time::{Duration, Instant, SystemTime};
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        let files = [Some((900_u64, t0)), Some((40_u64, t0))];
+        let at = Instant::now();
+        let good = |kept_files: &[Option<(u64, SystemTime)>; 2], p: &str, f, when| {
+            still_good(("/shards/a", kept_files, at), p, f, when)
+        };
+        let soon = at + Duration::from_secs(5);
+        assert!(good(&files, "/shards/a", &files, soon));
+        // another shard, a rebuilt one (new length, new time), a missing file
+        assert!(!good(&files, "/shards/b", &files, soon));
+        let longer = [Some((901_u64, t0)), Some((40_u64, t0))];
+        assert!(!good(&files, "/shards/a", &longer, soon));
+        let later = [Some((900_u64, t0 + Duration::from_secs(1))), files[1]];
+        assert!(!good(&files, "/shards/a", &later, soon));
+        let gone = [Some((900_u64, t0)), None];
+        assert!(!good(&gone, "/shards/a", &gone, soon));
+        // and not after the keeping time
+        let late = at + Duration::from_secs(KEEP_SECONDS + 1);
+        assert!(!good(&files, "/shards/a", &files, late));
     }
 
     #[test]

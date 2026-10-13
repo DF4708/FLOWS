@@ -8,6 +8,48 @@
 
 import CoreLocation
 import Foundation
+#if os(iOS)
+import UIKit
+#endif
+
+/// The bridge keeps the timetable it last opened for the next question (a
+/// plan asks two to four times in a few seconds, and each ask read and
+/// parsed the whole file). This lets go of it once the questions stop, and
+/// at once on a memory warning, so tens of megabytes do not sit resident
+/// between trips.
+private actor ShardKeeper {
+    static let shared = ShardKeeper()
+    private static let quietSeconds: TimeInterval = 60
+    private var lastAsked = Date.distantPast
+    private var watching = false
+
+    init() {
+        #if os(iOS)
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: nil
+        ) { _ in flows_transit_release() }
+        #endif
+    }
+
+    func asked() {
+        lastAsked = Date()
+        guard !watching else { return }
+        watching = true
+        Task { await self.watch() }
+    }
+
+    private func watch() async {
+        while true {
+            try? await Task.sleep(for: .seconds(Self.quietSeconds / 2))
+            if Date().timeIntervalSince(lastAsked) >= Self.quietSeconds {
+                flows_transit_release()
+                watching = false
+                return
+            }
+        }
+    }
+}
 
 /// Real published departure times, read from a timetable the device built
 /// itself out of the operator's own schedule feed.
@@ -216,9 +258,18 @@ enum TransitShard {
             prefix, from.latitude, from.longitude, to.latitude, to.longitude,
             maxStationMeters, Int64(max(0, seconds)), Int64(limit), Int64(vehicles)
         ))
+        Task { await ShardKeeper.shared.asked() }   // the bridge keeps it open meanwhile
         if let message = firstError(rows) {
             if message.contains("no station near") { throw Failure.noneNearby }
             if message.contains("no ride") { throw Failure.noRide }
+            // A shard that could not be opened (a torn write, a flipped
+            // byte). The date check reads the labels only, so it would call
+            // the pair good again and again: take it off the disk, and the
+            // next question builds it afresh.
+            if message.contains("shard unreadable") {
+                try? FileManager.default.removeItem(atPath: prefix + ".ftt")
+                try? FileManager.default.removeItem(atPath: prefix + ".fts")
+            }
             throw Failure.notBuilt(message)
         }
         guard let stamp = stamp(rows), let ends = ends(rows) else { throw Failure.noRide }
