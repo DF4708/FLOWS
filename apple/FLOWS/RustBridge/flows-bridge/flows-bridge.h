@@ -177,13 +177,16 @@ double __swift_bridge__$flows_hazard_tsunami_score(struct __private__FfiSlice la
 bool __swift_bridge__$flows_hazard_point_in_polygon(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
 bool __swift_bridge__$flows_hazard_ring_contains(struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
 double __swift_bridge__$flows_hazard_fire_perimeter_score(struct __private__FfiSlice ring_lens, struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
+double __swift_bridge__$flows_hazard_meters_to_rings(struct __private__FfiSlice ring_lens, struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
 double __swift_bridge__$flows_hazard_avalanche_score(struct __private__FfiSlice zone_ring_counts, struct __private__FfiSlice ratings, struct __private__FfiSlice ring_lens, struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
 double __swift_bridge__$flows_hazard_outlook_score(struct __private__FfiSlice zone_ring_counts, struct __private__FfiSlice scores, struct __private__FfiSlice ring_lens, struct __private__FfiSlice lats, struct __private__FfiSlice lons, double lat, double lon);
 void* __swift_bridge__$flows_hazard_cell_key(double lat, double lon);
 void* __swift_bridge__$flows_hazard_states_containing(double lat, double lon);
+void* __swift_bridge__$flows_hazard_alert_areas_containing(double lat, double lon);
 void* __swift_bridge__$flows_hazard_marine_regions_containing(double lat, double lon);
 void* __swift_bridge__$flows_hazard_provisional_samples(struct __private__FfiSlice sample_lats, struct __private__FfiSlice sample_lons, struct __private__FfiSlice alert_severities, struct RustStr alert_events_joined, struct __private__FfiSlice alert_expires, struct __private__FfiSlice alert_has_expires, struct RustStr cell_keys_joined, struct __private__FfiSlice cell_alert_counts, struct __private__FfiSlice cell_alert_indices, struct __private__FfiSlice arrival_offsets, bool has_offsets, double now);
 void* __swift_bridge__$flows_hazard_alerts_covering(double lat, double lon, struct __private__FfiSlice alert_ring_counts, struct __private__FfiSlice alert_zone_counts, struct __private__FfiSlice ring_lens, struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct RustStr alert_zones_joined, struct RustStr zone_names_joined, struct __private__FfiSlice zone_ring_counts, struct __private__FfiSlice zone_ring_lens, struct __private__FfiSlice zone_lats, struct __private__FfiSlice zone_lons);
+void* __swift_bridge__$flows_hazard_alerts_covering_many(struct __private__FfiSlice point_lats, struct __private__FfiSlice point_lons, struct __private__FfiSlice alert_ring_counts, struct __private__FfiSlice alert_zone_counts, struct __private__FfiSlice ring_lens, struct __private__FfiSlice lats, struct __private__FfiSlice lons, struct RustStr alert_zones_joined, struct RustStr zone_names_joined, struct __private__FfiSlice zone_ring_counts, struct __private__FfiSlice zone_ring_lens, struct __private__FfiSlice zone_lats, struct __private__FfiSlice zone_lons);
 void* __swift_bridge__$flows_hazard_all_rings(struct __private__FfiSlice ring_coord_counts, struct __private__FfiSlice coord_lens, struct __private__FfiSlice values, int64_t max_points);
 double __swift_bridge__$flows_hazard_corridor_noisy_or(struct __private__FfiSlice severities, struct __private__FfiSlice coverages);
 double __swift_bridge__$flows_hazard_corridor_coverage(struct __private__FfiSlice risks);
@@ -573,6 +576,7 @@ double __swift_bridge__$flows_realized_risk_dense(struct __private__FfiSlice sco
 double __swift_bridge__$flows_flood_elevation_multiplier(double sample_elevation, bool has_sample_elevation, double local_min_elevation, bool has_local_min_elevation, double qpf_inches, bool has_qpf_inches, double supporting_evidence);
 double __swift_bridge__$flows_ranking_risk(double band, double zip_exposure, double seasonal_prior, double prior_confidence);
 int32_t __swift_bridge__$flows_alert_family_index(struct RustStr event);
+int32_t __swift_bridge__$flows_alert_family_index_scored(struct RustStr event);
 int32_t __swift_bridge__$flows_peak_family_position(struct RustStr names, struct __private__FfiSlice scores, double floor);
 int32_t __swift_bridge__$flows_dominant_family_position(struct RustStr names, struct __private__FfiSlice scores, double floor);
 double __swift_bridge__$flows_displayed_band(double weighted, double peak);

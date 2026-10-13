@@ -4456,6 +4456,7 @@ final class AppModel: ObservableObject {
             arrivalOffsets: RiskTiming.arrivalOffsets(
                 sampleCount: part.samples.count, totalTravelSeconds: eta),
             perSample: everyMeters < FasterRoutePolicy.corridorCheckMeters,
+            between: part.segments,
             onProgress: onProgress)
         async let onDeviceF = Self.corridorForecasts(at: part.samples)
         // DOT closures along the corridor (WZDx): realized blocked-road proof.
@@ -5371,12 +5372,42 @@ final class AppModel: ObservableObject {
     private func updateImminentWarning(from score: WeatherAlertService.CorridorScore) {
         guard let fix = effectivePosition else { return }
         let speed = max(location.speed, 0)
-        // Nearest risky sample per alert, by distance from the vehicle.
+        // Nearest risky sample per alert, by distance from the vehicle. A
+        // risk to life or a lookout counts whatever its severity: one sent
+        // with none ("Unknown", read 0.30) sat below Green and could never
+        // raise its banner.
+        var standsOut: [String: Bool] = [:]
+        func mustShow(_ id: String) -> Bool {
+            if let known = standsOut[id] { return known }
+            let shows = score.alertsByID[id].map {
+                ImminentAlerts.isLifeSafetyEvent($0.event) || ImminentAlerts.isLookoutEvent($0.event)
+            } ?? false
+            standsOut[id] = shows
+            return shows
+        }
         var nearest: [String: Double] = [:]
-        for s in score.samples where s.risk >= FlowsCore.riskGreenMin {
-            guard let id = s.alertID else { continue }
+        var lastIndex: [String: Int] = [:]
+        var fixIndex = 0, fixDistance = Double.greatestFiniteMagnitude
+        for (i, s) in score.samples.enumerated() {
             let d = POIRanking.meters(fix, s.coordinate)
+            if d < fixDistance { fixDistance = d; fixIndex = i }
+            guard let id = s.alertID,
+                  s.risk >= FlowsCore.riskGreenMin || mustShow(id) else { continue }
             if d < nearest[id, default: .greatestFiniteMagnitude] { nearest[id] = d }
+            lastIndex[id] = i
+        }
+        // A warning area is reached at its EDGE, not at the check point
+        // inside it: with check points 40 km apart the nearest one could
+        // sit 20 km past the edge, and the banner came that much late. Only
+        // for an alert that is not wholly behind the vehicle (the check
+        // points are in route order and the nearest one marks where the
+        // vehicle is), so a storm just passed does not read as ahead.
+        for (id, d) in nearest where (lastIndex[id] ?? -1) >= fixIndex {
+            guard let alert = score.alertsByID[id] else { continue }
+            let rings = (alert.polygon.map { [$0] } ?? []) + alert.extraRings
+            if let edge = HazardFeedScores.metersToRings(rings, from: fix), edge < d {
+                nearest[id] = edge
+            }
         }
         let candidates = nearest.compactMap { id, dist -> ImminentAlerts.Candidate? in
             guard !dismissedImminentIDs.contains(id),

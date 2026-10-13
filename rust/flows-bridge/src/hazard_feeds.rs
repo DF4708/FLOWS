@@ -117,6 +117,13 @@ mod ffi {
             lat: f64,
             lon: f64,
         ) -> f64;
+        fn flows_hazard_meters_to_rings(
+            ring_lens: &[i64],
+            lats: &[f64],
+            lons: &[f64],
+            lat: f64,
+            lon: f64,
+        ) -> f64;
         fn flows_hazard_avalanche_score(
             zone_ring_counts: &[i64],
             ratings: &[i64],
@@ -139,6 +146,7 @@ mod ffi {
         // ---- the alert service ----
         fn flows_hazard_cell_key(lat: f64, lon: f64) -> String;
         fn flows_hazard_states_containing(lat: f64, lon: f64) -> Vec<String>;
+        fn flows_hazard_alert_areas_containing(lat: f64, lon: f64) -> Vec<String>;
         fn flows_hazard_marine_regions_containing(lat: f64, lon: f64) -> Vec<String>;
         fn flows_hazard_provisional_samples(
             sample_lats: &[f64],
@@ -157,6 +165,21 @@ mod ffi {
         fn flows_hazard_alerts_covering(
             lat: f64,
             lon: f64,
+            alert_ring_counts: &[i64],
+            alert_zone_counts: &[i64],
+            ring_lens: &[i64],
+            lats: &[f64],
+            lons: &[f64],
+            alert_zones_joined: &str,
+            zone_names_joined: &str,
+            zone_ring_counts: &[i64],
+            zone_ring_lens: &[i64],
+            zone_lats: &[f64],
+            zone_lons: &[f64],
+        ) -> Vec<i64>;
+        fn flows_hazard_alerts_covering_many(
+            point_lats: &[f64],
+            point_lons: &[f64],
             alert_ring_counts: &[i64],
             alert_zone_counts: &[i64],
             ring_lens: &[i64],
@@ -539,6 +562,19 @@ pub fn flows_hazard_fire_perimeter_score(
         hf::fire_perimeter_score(&rings(ring_lens, lats, lons), (lat, lon))
     })
 }
+/// Meters from the point to the nearest ring (0 inside one); NaN when no
+/// ring has three points, or on containment.
+pub fn flows_hazard_meters_to_rings(
+    ring_lens: &[i64],
+    lats: &[f64],
+    lons: &[f64],
+    lat: f64,
+    lon: f64,
+) -> f64 {
+    contain(f64::NAN, || {
+        hf::meters_to_rings((lat, lon), &rings(ring_lens, lats, lons)).unwrap_or(f64::NAN)
+    })
+}
 pub fn flows_hazard_avalanche_score(
     zone_ring_counts: &[i64],
     ratings: &[i64],
@@ -584,6 +620,15 @@ pub fn flows_hazard_cell_key(lat: f64, lon: f64) -> String {
 pub fn flows_hazard_states_containing(lat: f64, lon: f64) -> Vec<String> {
     contain(Vec::new(), || {
         hf::states_containing((lat, lon))
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    })
+}
+/// The alert areas whose lists can cover a point: the states, and "DC".
+pub fn flows_hazard_alert_areas_containing(lat: f64, lon: f64) -> Vec<String> {
+    contain(Vec::new(), || {
+        hf::alert_areas_containing((lat, lon))
             .into_iter()
             .map(str::to_string)
             .collect()
@@ -692,45 +737,123 @@ pub fn flows_hazard_alerts_covering(
     zone_lons: &[f64],
 ) -> Vec<i64> {
     contain(Vec::new(), || {
-        let alert_rings = zones(alert_ring_counts, ring_lens, lats, lons);
-        let zone_names = split_joined(alert_zones_joined);
-        let mut zone_at = 0usize;
-        let alerts: Vec<Alert> = alert_rings
-            .into_iter()
-            .enumerate()
-            .map(|(k, mut rings)| {
-                let n = count(alert_zone_counts.get(k).copied().unwrap_or(0))
-                    .min(zone_names.len().saturating_sub(zone_at));
-                let affected = zone_names[zone_at..zone_at + n].to_vec();
-                zone_at += n;
-                let polygon = if rings.is_empty() {
-                    None
-                } else {
-                    Some(rings.remove(0))
-                };
-                Alert {
-                    id: k.to_string(),
-                    polygon,
-                    extra_rings: rings,
-                    affected_zones: affected,
-                    ..Alert::default()
-                }
-            })
-            .collect();
-        let zone_rings: BTreeMap<String, Vec<Vec<Point>>> = split_joined(zone_names_joined)
-            .into_iter()
-            .zip(zones(
-                zone_ring_counts,
-                zone_ring_lens,
-                zone_lats,
-                zone_lons,
-            ))
-            .collect();
+        let (alerts, zone_rings) = covering_inputs(
+            alert_ring_counts,
+            alert_zone_counts,
+            ring_lens,
+            lats,
+            lons,
+            alert_zones_joined,
+            zone_names_joined,
+            zone_ring_counts,
+            zone_ring_lens,
+            zone_lats,
+            zone_lons,
+        );
         hf::alerts_covering((lat, lon), &alerts, &zone_rings)
             .into_iter()
             .map(as_i64)
             .collect()
     })
+}
+
+/// [`flows_hazard_alerts_covering`] for many points, the geometry read
+/// once: per point, the count of covering alerts, then their indices.
+#[allow(clippy::too_many_arguments)]
+pub fn flows_hazard_alerts_covering_many(
+    point_lats: &[f64],
+    point_lons: &[f64],
+    alert_ring_counts: &[i64],
+    alert_zone_counts: &[i64],
+    ring_lens: &[i64],
+    lats: &[f64],
+    lons: &[f64],
+    alert_zones_joined: &str,
+    zone_names_joined: &str,
+    zone_ring_counts: &[i64],
+    zone_ring_lens: &[i64],
+    zone_lats: &[f64],
+    zone_lons: &[f64],
+) -> Vec<i64> {
+    contain(Vec::new(), || {
+        let (alerts, zone_rings) = covering_inputs(
+            alert_ring_counts,
+            alert_zone_counts,
+            ring_lens,
+            lats,
+            lons,
+            alert_zones_joined,
+            zone_names_joined,
+            zone_ring_counts,
+            zone_ring_lens,
+            zone_lats,
+            zone_lons,
+        );
+        let points: Vec<Point> = point_lats
+            .iter()
+            .copied()
+            .zip(point_lons.iter().copied())
+            .collect();
+        let mut out = Vec::new();
+        for hits in hf::alerts_covering_many(&points, &alerts, &zone_rings) {
+            out.push(as_i64(hits.len()));
+            out.extend(hits.into_iter().map(as_i64));
+        }
+        out
+    })
+}
+
+/// The alerts (rings and zone names) and the zone geometry table, as the
+/// covering joins read them.
+#[allow(clippy::too_many_arguments)]
+fn covering_inputs(
+    alert_ring_counts: &[i64],
+    alert_zone_counts: &[i64],
+    ring_lens: &[i64],
+    lats: &[f64],
+    lons: &[f64],
+    alert_zones_joined: &str,
+    zone_names_joined: &str,
+    zone_ring_counts: &[i64],
+    zone_ring_lens: &[i64],
+    zone_lats: &[f64],
+    zone_lons: &[f64],
+) -> (Vec<Alert>, BTreeMap<String, Vec<Vec<Point>>>) {
+    let alert_rings = zones(alert_ring_counts, ring_lens, lats, lons);
+    let zone_names = split_joined(alert_zones_joined);
+    let mut zone_at = 0usize;
+    let alerts: Vec<Alert> = alert_rings
+        .into_iter()
+        .enumerate()
+        .map(|(k, mut rings)| {
+            let n = count(alert_zone_counts.get(k).copied().unwrap_or(0))
+                .min(zone_names.len().saturating_sub(zone_at));
+            let affected = zone_names[zone_at..zone_at + n].to_vec();
+            zone_at += n;
+            let polygon = if rings.is_empty() {
+                None
+            } else {
+                Some(rings.remove(0))
+            };
+            Alert {
+                id: k.to_string(),
+                polygon,
+                extra_rings: rings,
+                affected_zones: affected,
+                ..Alert::default()
+            }
+        })
+        .collect();
+    let zone_rings: BTreeMap<String, Vec<Vec<Point>>> = split_joined(zone_names_joined)
+        .into_iter()
+        .zip(zones(
+            zone_ring_counts,
+            zone_ring_lens,
+            zone_lats,
+            zone_lons,
+        ))
+        .collect();
+    (alerts, zone_rings)
 }
 
 /// GeoJSON outer rings decimated: each raw ring's coordinates are number

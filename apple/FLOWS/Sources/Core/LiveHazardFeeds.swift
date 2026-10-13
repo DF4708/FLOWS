@@ -94,6 +94,19 @@ enum HazardFeedScores {
         }
     }
 
+    /// Meters from a point to the nearest of some rings: 0 inside one, else
+    /// to the nearest EDGE. nil when no ring has three points. A warning
+    /// area is reached at its edge, not at the check point inside it.
+    static func metersToRings(_ rings: [[Point]], from point: Point) -> Double? {
+        let usable = rings.filter { $0.count >= 3 }
+        guard !usable.isEmpty else { return nil }
+        let flat = flatten(usable)
+        let d = flat.lens.withUnsafeBufferPointer { lens in
+            two(flat.lats, flat.lons) { flows_hazard_meters_to_rings(lens, $0, $1, point.latitude, point.longitude) }
+        }
+        return d.isFinite ? d : nil
+    }
+
     /// NWPS observed flood category → 0…1.
     static func floodCategoryScore(_ category: String) -> Double { flows_hazard_flood_category_score(category) }
 

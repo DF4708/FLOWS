@@ -77,6 +77,7 @@ mod ffi {
             prior_confidence: f64,
         ) -> f64;
         fn flows_alert_family_index(event: &str) -> i32;
+        fn flows_alert_family_index_scored(event: &str) -> i32;
         fn flows_peak_family_position(names: &str, scores: &[f64], floor: f64) -> i32;
         fn flows_dominant_family_position(names: &str, scores: &[f64], floor: f64) -> i32;
         fn flows_displayed_band(weighted: f64, peak: f64) -> f64;
@@ -240,6 +241,17 @@ pub fn flows_ranking_risk(band: f64, zip: f64, prior: f64, confidence: f64) -> f
 pub fn flows_alert_family_index(event: &str) -> i32 {
     contain(-1, || {
         fam::alert_family(event)
+            .and_then(fam::dense_family_index)
+            .and_then(|i| i32::try_from(i).ok())
+            .unwrap_or(-1)
+    })
+}
+
+/// [`flows_alert_family_index`] with the events `alert_family` leaves
+/// unscored mapped too (`alert_family_scored`).
+pub fn flows_alert_family_index_scored(event: &str) -> i32 {
+    contain(-1, || {
+        fam::alert_family_scored(event)
             .and_then(fam::dense_family_index)
             .and_then(|i| i32::try_from(i).ok())
             .unwrap_or(-1)

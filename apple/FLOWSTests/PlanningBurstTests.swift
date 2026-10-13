@@ -252,6 +252,59 @@ final class PlanningBurstTests: XCTestCase {
         XCTAssertEqual(out[0]?.worstEvent, "Severe Thunderstorm Warning")
     }
 
+    // MARK: the road between check points
+
+    /// ~42.6 km of road along 40°N between two check points, with a vertex
+    /// in the middle: points every 5 km, each tagged with the nearer end.
+    func testBetweenPointsWalkTheRoadAndNameTheNearerCheckPoint() {
+        let a = CLLocationCoordinate2D(latitude: 40, longitude: -100)
+        let mid = CLLocationCoordinate2D(latitude: 40, longitude: -99.75)
+        let b = CLLocationCoordinate2D(latitude: 40, longitude: -99.5)
+        let out = WeatherAlertService.betweenPoints(samples: [a, b], between: [[a, mid, b]])
+        XCTAssertEqual(out.count, 8)                       // 5…40 km of 42.6
+        XCTAssertEqual(out.filter { $0.sample == 0 }.count, 4)   // the first half
+        XCTAssertEqual(out.filter { $0.sample == 1 }.count, 4)
+        XCTAssertEqual(POIRanking.meters(a, out[0].point), 5_000, accuracy: 60)
+        // along the road, in order
+        XCTAssertTrue(zip(out, out.dropFirst()).allSatisfy { $0.point.longitude < $1.point.longitude })
+    }
+
+    func testBetweenPointsLeaveShortRunsAndMissingRoadAlone() {
+        let a = CLLocationCoordinate2D(latitude: 40, longitude: -100)
+        let near = CLLocationCoordinate2D(latitude: 40, longitude: -99.97)   // ~2.6 km
+        XCTAssertTrue(WeatherAlertService.betweenPoints(samples: [a, near], between: [[a, near]]).isEmpty)
+        XCTAssertTrue(WeatherAlertService.betweenPoints(samples: [a, near], between: nil).isEmpty)
+        XCTAssertTrue(WeatherAlertService.betweenPoints(samples: [a], between: [[a]]).isEmpty)
+        // a garbled run (one point, or not a number) yields nothing, never a trap
+        let junk = CLLocationCoordinate2D(latitude: .nan, longitude: .nan)
+        XCTAssertTrue(WeatherAlertService.betweenPoints(samples: [a, near], between: [[a], [junk, junk]]).isEmpty)
+    }
+
+    /// The work is bounded: past the cap the far end is left to its check
+    /// points, and what is kept is still in route order.
+    func testBetweenPointsStopAtTheCap() {
+        let samples = (0...30).map { CLLocationCoordinate2D(latitude: 40, longitude: -100 + 0.5 * Double($0)) }
+        let runs = (0..<30).map { [samples[$0], samples[$0 + 1]] }
+        let all = WeatherAlertService.betweenPoints(samples: samples, between: runs)
+        XCTAssertEqual(all.count, 30 * 8)   // 8 per 42.6 km gap
+        let capped = WeatherAlertService.betweenPoints(samples: samples, between: runs, cap: 20)
+        XCTAssertEqual(capped.count, 20)
+        XCTAssertEqual(capped.map { $0.point.longitude }, all.prefix(20).map { $0.point.longitude })
+    }
+
+    func testRunsBetweenRejoinsTheTwoPaintedHalves() {
+        let p = (0..<5).map { CLLocationCoordinate2D(latitude: 40, longitude: -100 + 0.1 * Double($0)) }
+        // one gap drawn as two halves sharing p[2]
+        let halves = [
+            RiskSegment(coordinates: [p[0], p[1], p[2]], risk: 0, lengthMeters: 1, sampleIndex: 0),
+            RiskSegment(coordinates: [p[2], p[3], p[4]], risk: 0, lengthMeters: 1, sampleIndex: 1),
+        ]
+        let runs = WeatherAlertService.runsBetween(halves, gaps: 1)
+        XCTAssertEqual(runs?.first?.count, 5)
+        XCTAssertNil(WeatherAlertService.runsBetween(halves, gaps: 2))   // not that route's segments
+        XCTAssertNil(WeatherAlertService.runsBetween([], gaps: 0))
+    }
+
     // MARK: state-level alert resolution (client-side spatial join)
 
     func testParseAlertFeaturesPolygonAndZoneShapes() {

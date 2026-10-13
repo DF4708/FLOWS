@@ -496,6 +496,33 @@ pub fn alert_family(event: &str) -> Option<&'static str> {
     None
 }
 
+/// [`alert_family`] (kept as it was ported), plus the events it leaves
+/// unscored that still carry a hazard on the way — their severity was
+/// discarded from the band and the escalation, though they had banners:
+/// an Earthquake Warning is realized ground motion (`seismic`), an
+/// Avalanche Warning the danger rating's own family, a Gale or Special
+/// Marine Warning wind on a crossing, and a Special Weather Statement
+/// (NWS's strong-storm notice short of a warning) a storm predictor. A
+/// tsunami advisory and the marine bulletins stay unscored.
+#[must_use]
+pub fn alert_family_scored(event: &str) -> Option<&'static str> {
+    alert_family(event).or_else(|| {
+        let e = event.to_lowercase();
+        let has = |needle: &str| e.contains(needle);
+        if has("earthquake warning") {
+            Some("seismic")
+        } else if has("avalanche") {
+            Some("avalanche")
+        } else if has("gale") || has("special marine warning") {
+            Some("wind")
+        } else if has("special weather statement") {
+            Some("convective")
+        } else {
+            None
+        }
+    })
+}
+
 /// How a whole route's risk band is decided from its pieces.
 ///
 /// Normally the distance-weighted average: what fraction of the miles
@@ -1009,6 +1036,26 @@ mod tests {
         assert_eq!(alert_family("Tsunami Advisory"), None);
         assert_eq!(alert_family("Special Marine Bulletin"), None);
         assert_eq!(alert_family(""), None);
+    }
+
+    #[test]
+    fn the_scored_families_cover_the_hazards_alert_family_left_out() {
+        for (event, family) in [
+            ("Earthquake Warning", "seismic"),
+            ("Avalanche Warning", "avalanche"),
+            ("Gale Warning", "wind"),
+            ("Special Marine Warning", "wind"),
+            ("Special Weather Statement", "convective"),
+        ] {
+            assert_eq!(alert_family(event), None, "{event}");
+            assert_eq!(alert_family_scored(event), Some(family), "{event}");
+        }
+        assert!(is_primary("seismic"));
+        assert!(is_secondary("avalanche") && is_secondary("wind"));
+        // What alert_family already maps is unchanged.
+        assert_eq!(alert_family_scored("Tornado Warning"), Some("storm"));
+        assert_eq!(alert_family_scored("Tsunami Advisory"), None);
+        assert_eq!(alert_family_scored("Special Marine Bulletin"), None);
     }
 
     #[test]

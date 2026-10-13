@@ -24,7 +24,7 @@ enum ImminentAlerts {
     /// How far ahead "imminent" reaches: 10 minutes at current speed.
     static let lookaheadSeconds: Double = 600
     /// Floor so a vehicle stopped at a light still sees hazards just ahead
-    /// (≈ 18 km at the floor speed over the 10-minute window).
+    /// (3 km at the floor speed over the 10-minute window; 18 km at 30 m/s).
     static let minimumSpeedMps: Double = 5.0
     /// "Transient" = the alert expires within this horizon (the 1–2 h rule).
     static let transientHorizonSeconds: Double = 2 * 3600

@@ -232,6 +232,35 @@ pub fn fire_perimeter_score(perimeters: &[Vec<Point>], p: Point) -> f64 {
     best
 }
 
+/// Meters from `p` to the nearest of `rings`: 0 inside one, else the distance
+/// to the nearest edge (each ring closed back to its first point). `None`
+/// when no ring has three points or `p` is not a number, so the caller has
+/// only its own distance to go on. A warning area is reached at its edge,
+/// not at the check point inside it.
+#[must_use]
+pub fn meters_to_rings(p: Point, rings: &[Vec<Point>]) -> Option<f64> {
+    if !(p.0.is_finite() && p.1.is_finite()) {
+        return None;
+    }
+    let m_per_deg_lon = METERS_PER_DEGREE * fmath::cos(p.0 * PI / 180.0);
+    let mut best: Option<f64> = None;
+    for ring in rings.iter().filter(|r| r.len() >= 3) {
+        if ring_contains(p, ring) {
+            return Some(0.0);
+        }
+        let mut prev = ring.len() - 1;
+        for (i, b) in ring.iter().enumerate() {
+            let a = ring[prev];
+            let d = distance_to_segment_meters_scaled(p.0, p.1, a.0, a.1, b.0, b.1, m_per_deg_lon);
+            if d.is_finite() {
+                best = Some(best.map_or(d, |m| smin(m, d)));
+            }
+            prev = i;
+        }
+    }
+    best
+}
+
 /// `floodCategoryScore`: the NWPS observed category.
 #[must_use]
 pub fn flood_category_score(category: &str) -> f64 {
@@ -1003,6 +1032,28 @@ pub fn states_containing(p: Point) -> Vec<&'static str> {
         .collect()
 }
 
+/// The District of Columbia's box (`south, west, north, east`): not in
+/// [`STATE_BOXES`] — the states' boxes are also how places shards are found,
+/// and DC has no shard — yet the National Weather Service lists its alerts
+/// under their own area, "DC", so a point in the District must read that list
+/// as well as Maryland's and Virginia's.
+const DC_BOX: (f64, f64, f64, f64) = (38.79, -77.12, 38.996, -76.909);
+
+/// The alert areas whose lists can cover the point: [`states_containing`]
+/// plus "DC" inside the District, in code order.
+#[must_use]
+pub fn alert_areas_containing(p: Point) -> Vec<&'static str> {
+    let mut out = states_containing(p);
+    let (s, w, n, e) = DC_BOX;
+    if p.0 >= s && p.0 <= n && p.1 >= w && p.1 <= e {
+        out.insert(
+            out.iter().position(|c| *c > "DC").unwrap_or(out.len()),
+            "DC",
+        );
+    }
+    out
+}
+
 /// `marineRegionsContaining`: the marine regions a cell near the water must
 /// also union, with their `marine:` prefix.
 #[must_use]
@@ -1071,6 +1122,93 @@ pub fn alerts_covering(
             })
         })
         .map(|(i, _)| i)
+        .collect()
+}
+
+/// A ring with its bounding box, found once: [`ring_contains`] scanned the
+/// whole ring for its box on every point it tested.
+struct BoxedRing<'a> {
+    ring: &'a [Point],
+    min_lat: f64,
+    max_lat: f64,
+    min_lon: f64,
+    max_lon: f64,
+}
+
+impl<'a> BoxedRing<'a> {
+    fn new(ring: &'a [Point]) -> Option<Self> {
+        let first = *ring.first()?;
+        if ring.len() < 3 {
+            return None;
+        }
+        let (mut min_lat, mut max_lat) = (first.0, first.0);
+        let (mut min_lon, mut max_lon) = (first.1, first.1);
+        for c in ring {
+            min_lat = smin(min_lat, c.0);
+            max_lat = smax(max_lat, c.0);
+            min_lon = smin(min_lon, c.1);
+            max_lon = smax(max_lon, c.1);
+        }
+        Some(Self {
+            ring,
+            min_lat,
+            max_lat,
+            min_lon,
+            max_lon,
+        })
+    }
+
+    /// [`ring_contains`], exactly.
+    fn contains(&self, p: Point) -> bool {
+        p.0 >= self.min_lat
+            && p.0 <= self.max_lat
+            && p.1 >= self.min_lon
+            && p.1 <= self.max_lon
+            && point_in_polygon(p, self.ring)
+    }
+}
+
+/// [`alerts_covering`] for many points at once: each alert's rings (its own,
+/// else its zones') are laid out and boxed once, then every point is tested.
+/// The corridor join called the one-point form per cell, and each call
+/// rebuilt every alert and zone ring — up to 160 zones of 1,500 points — so
+/// a long plan copied about 10⁸ points. Answers, per point, the same
+/// indices into `alerts`, in order.
+#[must_use]
+pub fn alerts_covering_many(
+    points: &[Point],
+    alerts: &[Alert],
+    zone_rings: &BTreeMap<String, Vec<Vec<Point>>>,
+) -> Vec<Vec<usize>> {
+    let boxed: Vec<Vec<BoxedRing>> = alerts
+        .iter()
+        .map(|a| {
+            let own: Vec<BoxedRing> = a
+                .polygon
+                .iter()
+                .chain(a.extra_rings.iter())
+                .filter_map(|r| BoxedRing::new(r))
+                .collect();
+            if !own.is_empty() {
+                return own;
+            }
+            a.affected_zones
+                .iter()
+                .filter_map(|z| zone_rings.get(z))
+                .flat_map(|rings| rings.iter().filter_map(|r| BoxedRing::new(r)))
+                .collect()
+        })
+        .collect();
+    points
+        .iter()
+        .map(|&p| {
+            boxed
+                .iter()
+                .enumerate()
+                .filter(|(_, rings)| rings.iter().any(|r| r.contains(p)))
+                .map(|(i, _)| i)
+                .collect()
+        })
         .collect()
 }
 
@@ -1346,6 +1484,89 @@ mod tests {
     }
 
     #[test]
+    fn the_many_point_join_answers_as_the_one_point_join() {
+        let square = |lat: f64, lon: f64, d: f64| {
+            ring(&[
+                (lat, lon),
+                (lat + d, lon),
+                (lat + d, lon + d),
+                (lat, lon + d),
+            ])
+        };
+        let alerts = vec![
+            // its own polygon
+            Alert {
+                polygon: Some(square(43.0, -89.5, 0.2)),
+                ..Alert::default()
+            },
+            // zones only, one of them unknown
+            Alert {
+                affected_zones: vec!["WIZ063".into(), "WIZ999".into()],
+                ..Alert::default()
+            },
+            // a garbled polygon beside a good extra ring: the ring decides
+            Alert {
+                polygon: Some(ring(&[(43.0, -89.5), (43.1, -89.5)])),
+                extra_rings: vec![square(44.0, -90.0, 0.1)],
+                affected_zones: vec!["WIZ063".into()],
+                ..Alert::default()
+            },
+            // nothing to place it by
+            Alert::default(),
+        ];
+        let mut zones = BTreeMap::new();
+        zones.insert(
+            "WIZ063".to_string(),
+            vec![square(43.1, -89.45, 0.3), ring(&[(0.0, 0.0)])],
+        );
+        let mut points = Vec::new();
+        for i in 0..40 {
+            for j in 0..40 {
+                points.push((42.9 + f64::from(i) * 0.04, -90.1 + f64::from(j) * 0.025));
+            }
+        }
+        points.push((f64::NAN, -89.4));
+        let many = alerts_covering_many(&points, &alerts, &zones);
+        assert_eq!(many.len(), points.len());
+        let mut hit = 0;
+        for (p, got) in points.iter().zip(&many) {
+            assert_eq!(got, &alerts_covering(*p, &alerts, &zones), "{p:?}");
+            hit += usize::from(!got.is_empty());
+        }
+        assert!(hit > 0, "the grid must reach the rings");
+    }
+
+    #[test]
+    fn a_warning_area_is_reached_at_its_edge_not_its_middle() {
+        // A box 0.2° square (~22 km) at 43.0..43.2 N, 89.5..89.3 W.
+        let boxed = ring(&[(43.0, -89.5), (43.2, -89.5), (43.2, -89.3), (43.0, -89.3)]);
+        // inside: zero
+        assert_eq!(
+            meters_to_rings((43.1, -89.4), std::slice::from_ref(&boxed)),
+            Some(0.0)
+        );
+        // 0.1° due south of the south edge: ~11.1 km, whatever the middle is
+        let south = meters_to_rings((42.9, -89.4), std::slice::from_ref(&boxed)).unwrap();
+        assert!((south - 11_132.0).abs() < 100.0, "{south}");
+        // beyond a corner: the corner, not the far edge
+        let corner = meters_to_rings((42.9, -89.6), std::slice::from_ref(&boxed)).unwrap();
+        assert!(corner > south, "{corner} vs {south}");
+        // the nearest ring decides
+        let far = ring(&[(45.0, -89.5), (45.2, -89.5), (45.2, -89.3)]);
+        assert_eq!(meters_to_rings((42.9, -89.4), &[far, boxed]), Some(south));
+        // nothing usable: no answer, never a made-up zero
+        assert_eq!(meters_to_rings((43.0, -89.0), &[]), None);
+        assert_eq!(
+            meters_to_rings((43.0, -89.0), &[ring(&[(43.0, -89.0)])]),
+            None
+        );
+        assert_eq!(
+            meters_to_rings((f64::NAN, -89.0), &[ring(&[(0.0, 0.0)])]),
+            None
+        );
+    }
+
+    #[test]
     fn scores_follow_the_swift_bands() {
         assert_eq!(air_score(25.0), 0.1);
         assert!(air_score(f64::NAN).is_nan());
@@ -1410,6 +1631,23 @@ mod tests {
             .map(|(n, _)| *n)
             .collect();
         assert_eq!(names, vec!["fire", "radiation"]);
+    }
+
+    #[test]
+    fn the_district_reads_its_own_alert_list_as_well_as_its_neighbours() {
+        // The Mall: Maryland's and Virginia's boxes hold it, and DC's own list too.
+        assert_eq!(
+            alert_areas_containing((38.8895, -77.0353)),
+            vec!["DC", "MD", "VA"]
+        );
+        // Alexandria and Madison are not in the District: unchanged.
+        assert_eq!(alert_areas_containing((38.7, -77.05)), vec!["MD", "VA"]);
+        assert_eq!(
+            alert_areas_containing((43.07, -89.4)),
+            states_containing((43.07, -89.4))
+        );
+        // the shard lookup is untouched: DC is no state box
+        assert!(!states_containing((38.8895, -77.0353)).contains(&"DC"));
     }
 
     #[test]

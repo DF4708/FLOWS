@@ -122,10 +122,20 @@ final class WeatherAlertService: ObservableObject {
     /// one lookup point sits on whichever road reached the cell first, so a
     /// detour 3 km off the highway got the highway's alerts. The state lists
     /// and zone shapes the lookups join against are cached as usual.
+    ///
+    /// `between[i]`: the road's own points from check point i to i+1, when
+    /// the caller has them. A warning area can lie across the road between
+    /// two check points without holding either, and 40 km is wider than a
+    /// tornado warning. These runs are walked every few km and joined against
+    /// the same state lists; what they find joins the NEARER check point's
+    /// alerts (the half of the road that check point stands for, as the map
+    /// paints it). A run the state lists cannot answer is left to its check
+    /// points — it never costs a per-point query.
     func corridorRisk(
         at samples: [CLLocationCoordinate2D],
         arrivalOffsets: [TimeInterval]? = nil,
         perSample: Bool = false,
+        between: [[CLLocationCoordinate2D]]? = nil,
         onProgress: (@MainActor (Double, [RiskSample?]) -> Void)? = nil
     ) async -> CorridorScore {
         let now = Date()
@@ -174,11 +184,29 @@ final class WeatherAlertService: ObservableObject {
         // a failed state fetch, an unplaceable zone alert) lands in
         // `pointCells` and rides the original per-point oracle unchanged.
         var pointCells = fresh
-        if !fresh.isEmpty {
-            let (resolved, remaining) = await resolveViaStates(fresh, caching: !perSample)
-            for (key, hits) in resolved { cellAlerts[key] = hits }
-            pointCells = remaining
-            if let onProgress, !resolved.isEmpty {
+        // The road between check points, joined in the same pass: the state
+        // lists are fetched once for both, and a cell served from the cache
+        // still needs its between-points looked at.
+        let along = Self.betweenPoints(samples: samples, between: between)
+        let betweenCells = along.enumerated().map {
+            (Self.betweenKeyPrefix + String($0.offset), $0.element.point)
+        }
+        var betweenHits: [String: [NWSAlert]] = [:]
+        if !fresh.isEmpty || !betweenCells.isEmpty {
+            let (resolved, remaining) = await resolveViaStates(fresh + betweenCells, caching: !perSample)
+            var landed = 0
+            for (key, hits) in resolved {
+                if key.hasPrefix(Self.betweenKeyPrefix) {
+                    betweenHits[key] = hits
+                } else {
+                    cellAlerts[key] = hits
+                    landed += 1
+                }
+            }
+            // A between-point the lists could not answer is dropped, never
+            // sent to the per-point oracle (hundreds of requests).
+            pointCells = remaining.filter { !$0.0.hasPrefix(Self.betweenKeyPrefix) }
+            if let onProgress, landed > 0 {
                 let attempted = Double(cellAlerts.count + fetchFailures)
                 onProgress(min(attempted / Double(max(cells.count, 1)), 1), view(cellAlerts))
             }
@@ -226,14 +254,37 @@ final class WeatherAlertService: ObservableObject {
         // will STILL BE ACTIVE when the driver arrives there. Same mapping as
         // the provisional view; a cell with no data (failed fetch) scores 0
         // here and is reported through `complete: false` instead.
-        let riskSamples = zip(
-            samples, view(cellAlerts)
-        ).map { pt, s in s ?? RiskSample(coordinate: pt, risk: 0) }
+        //
+        // Alerts that reach the road only BETWEEN two check points join the
+        // nearer check point's own (see `between`).
+        var extra: [Int: [NWSAlert]] = [:]
+        for (k, spot) in along.enumerated() {
+            guard let hits = betweenHits[Self.betweenKeyPrefix + String(k)], !hits.isEmpty else { continue }
+            extra[spot.sample, default: []] += hits
+        }
+        /// Sample i's alerts: its lookup's, plus what its half of the road found.
+        func alertsAt(_ i: Int) -> [NWSAlert] {
+            let base = cellAlerts[unitKey(i, samples[i])] ?? []
+            guard let more = extra[i] else { return base }
+            var ids = Set(base.map(\.id))
+            return base + more.filter { ids.insert($0.id).inserted }
+        }
+        var scored = view(cellAlerts)
+        for i in extra.keys where samples.indices.contains(i) {
+            let pt = samples[i]
+            if let one = Self.provisionalSamples(
+                samples: [pt], cellAlerts: [Self.cellKey(pt): alertsAt(i)],
+                arrivalOffsets: arrivalOffsets.map { _ in [offset(i)] }, now: now).first ?? nil {
+                scored[i] = one
+            }
+        }
+        let riskSamples = zip(samples, scored)
+            .map { pt, s in s ?? RiskSample(coordinate: pt, risk: 0) }
         // Per-alert corridor coverage: fraction of samples whose cell
         // contains that alert AND where it survives until arrival.
         var alertSampleCount: [String: Int] = [:]
-        for (i, pt) in samples.enumerated() {
-            for h in cellAlerts[unitKey(i, pt)] ?? []
+        for i in samples.indices {
+            for h in alertsAt(i)
             where RiskTiming.isActive(expires: h.expires, arrivalOffset: offset(i), now: now) {
                 alertSampleCount[h.id, default: 0] += 1
             }
@@ -242,7 +293,7 @@ final class WeatherAlertService: ObservableObject {
         // entirely (zero active coverage → no risk, no headline).
         var seen = Set<String>()
         var unique: [NWSAlert] = []
-        for hits in cellAlerts.values {
+        for hits in Array(cellAlerts.values) + Array(extra.values) {
             for h in hits where seen.insert(h.id).inserted
                 && alertSampleCount[h.id, default: 0] > 0 { unique.append(h) }
         }
@@ -291,6 +342,62 @@ final class WeatherAlertService: ObservableObject {
     /// can key `provisionalSamples` fixtures the way the scorer does.
     nonisolated static func cellKey(_ pt: CLLocationCoordinate2D) -> String {
         flows_hazard_cell_key(pt.latitude, pt.longitude).text
+    }
+
+    /// A scored route's painted segments back into the road between its check
+    /// points: each gap is drawn as two halves that share their middle point.
+    /// nil unless the segments are exactly that (a route scored at another
+    /// spacing, or never scored).
+    nonisolated static func runsBetween(
+        _ segments: [RiskSegment], gaps: Int
+    ) -> [[CLLocationCoordinate2D]]? {
+        guard gaps > 0, segments.count == gaps * 2 else { return nil }
+        return (0..<gaps).map { g in
+            segments[g * 2].coordinates + segments[g * 2 + 1].coordinates.dropFirst()
+        }
+    }
+
+    /// Key prefix of a point looked at between two check points: never a
+    /// cell key, never written to the cell cache.
+    nonisolated static let betweenKeyPrefix = "between:"
+
+    /// Points along the road between check points, for the alert join only:
+    /// every `stepMeters` of road, each tagged with the check point that is
+    /// NEARER (the half of the road it stands for). A run no longer than a
+    /// step has no points. `cap` bounds the work: 2,000 points reach 10,000 km
+    /// of road (a coast-to-coast drive is ~4,500 km); past it the far end of
+    /// the route is left to its check points. Pure.
+    nonisolated static func betweenPoints(
+        samples: [CLLocationCoordinate2D],
+        between: [[CLLocationCoordinate2D]]?,
+        stepMeters: CLLocationDistance = 5_000,
+        cap: Int = 2_000
+    ) -> [(sample: Int, point: CLLocationCoordinate2D)] {
+        guard let between, samples.count > 1 else { return [] }
+        let gaps = min(between.count, samples.count - 1)
+        let lengths = (0..<gaps).map { g in
+            zip(between[g], between[g].dropFirst()).reduce(0.0) { $0 + POIRanking.meters($1.0, $1.1) }
+        }
+        let step = stepMeters
+        var out: [(sample: Int, point: CLLocationCoordinate2D)] = []
+        for g in 0..<gaps where lengths[g] > step {
+            var walked = 0.0, nextAt = step
+            for (a, b) in zip(between[g], between[g].dropFirst()) {
+                let hop = POIRanking.meters(a, b)
+                guard hop > 0 else { continue }
+                while nextAt < walked + hop, nextAt < lengths[g] {
+                    let t = (nextAt - walked) / hop
+                    out.append((sample: nextAt < lengths[g] / 2 ? g : g + 1,
+                                point: CLLocationCoordinate2D(
+                                    latitude: a.latitude + (b.latitude - a.latitude) * t,
+                                    longitude: a.longitude + (b.longitude - a.longitude) * t)))
+                    if out.count >= cap { return out }
+                    nextAt += step
+                }
+                walked += hop
+            }
+        }
+        return out
     }
 
     /// Per-sample view of a PARTIALLY fetched corridor: samples whose cell
@@ -351,9 +458,11 @@ final class WeatherAlertService: ObservableObject {
     /// borders, so border cells list several states (good: that is exactly
     /// where a neighboring state's polygon can reach across). Empty for
     /// points off the table (Canada/Mexico/offshore) — those cells ride the
-    /// per-point path with its foreign-feed chain.
+    /// per-point path with its foreign-feed chain. The District of Columbia
+    /// is listed too: the Weather Service files its alerts under "DC", which
+    /// no state's box holds.
     nonisolated static func statesContaining(_ pt: CLLocationCoordinate2D) -> [String] {
-        flows_hazard_states_containing(pt.latitude, pt.longitude).map { $0.text }
+        flows_hazard_alert_areas_containing(pt.latitude, pt.longitude).map { $0.text }
     }
 
     /// Marine REGION lists a cell near the water must also union — state
@@ -447,6 +556,46 @@ final class WeatherAlertService: ObservableObject {
         return indices.compactMap { Int($0) < alerts.count && $0 >= 0 ? alerts[Int($0)] : nil }
     }
 
+    /// `alertsCovering` for many points in one call: Rust lays the rings out
+    /// and boxes them once. Called per cell, each call rebuilt every alert
+    /// and zone ring — up to 160 zones of 1,500 points — about 10⁸ points
+    /// copied on a long plan. Answers each point's covering alerts, in order.
+    nonisolated static func alertsCoveringMany(
+        _ points: [CLLocationCoordinate2D],
+        alerts: [NWSAlert],
+        prepared p: PreparedAlertRings
+    ) -> [[NWSAlert]] {
+        guard !alerts.isEmpty, !points.isEmpty else { return points.map { _ in [] } }
+        let flat = HazardFeedScores.two(points.map(\.latitude), points.map(\.longitude)) { pla, plo in
+            p.ringCounts.withUnsafeBufferPointer { rc in p.zoneCounts.withUnsafeBufferPointer { zc in
+                p.ringLens.withUnsafeBufferPointer { lens in HazardFeedScores.two(p.lats, p.lons) { la, lo in
+                    p.zoneRingCounts.withUnsafeBufferPointer { zrc in p.zoneRingLens.withUnsafeBufferPointer { zlens in
+                        HazardFeedScores.two(p.zoneLats, p.zoneLons) { zla, zlo in
+                            flows_hazard_alerts_covering_many(pla, plo, rc, zc, lens, la, lo,
+                                                              p.zoneNames, p.zoneKeys, zrc, zlens, zla, zlo)
+                        } } } } } } }
+        }
+        // Per point: a count, then that many indices.
+        var out: [[NWSAlert]] = []
+        out.reserveCapacity(points.count)
+        var at = 0
+        while out.count < points.count, at < flat.len() {
+            let n = Int(flat[at])
+            at += 1
+            guard n >= 0, at + n <= flat.len() else { break }
+            out.append((at..<(at + n)).compactMap { k in
+                let i = Int(flat[k])
+                return i >= 0 && i < alerts.count ? alerts[i] : nil
+            })
+            at += n
+        }
+        // A short answer (Rust contained a panic): the rest one at a time.
+        while out.count < points.count {
+            out.append(alertsCovering(points[out.count], alerts: alerts, prepared: p))
+        }
+        return out
+    }
+
     /// Join every cell against the union of state alerts — nonisolated so
     /// the ring tests run off the main actor.
     nonisolated private static func joinCells(
@@ -460,9 +609,8 @@ final class WeatherAlertService: ObservableObject {
             return out
         }
         let prepared = PreparedAlertRings(alerts: alerts, zoneRings: zoneRings)
-        for (key, pt) in cells {
-            out[key] = alertsCovering(pt, alerts: alerts, prepared: prepared)
-        }
+        let hits = alertsCoveringMany(cells.map(\.1), alerts: alerts, prepared: prepared)
+        for ((key, _), found) in zip(cells, hits) { out[key] = found }
         return out
     }
 
@@ -569,7 +717,13 @@ final class WeatherAlertService: ObservableObject {
         }
 
         let resolved = await Self.joinCells(joinable, alerts: union, zoneRings: zoneRings)
-        if caching { for (key, hits) in resolved { await cache.put(key, hits) } }
+        // Points looked at between check points are not cells: a later plan's
+        // cell must never read one's answer.
+        if caching {
+            for (key, hits) in resolved where !key.hasPrefix(Self.betweenKeyPrefix) {
+                await cache.put(key, hits)
+            }
+        }
         return (resolved, fallback)
     }
 
@@ -666,10 +820,18 @@ final class WeatherAlertService: ObservableObject {
         let polyline = route.route.polyline
         let spacing = 40_000.0
         // A hydrated route's riskSamples sit on the same 40 km boundaries —
-        // reuse them rather than re-walking the whole polyline.
-        let allSamples = route.riskSamples.isEmpty
-            ? RouteService.samplePoints(of: polyline, everyMeters: spacing)
-            : route.riskSamples.map(\.coordinate)
+        // reuse them rather than re-walking the whole polyline. The road
+        // between them rides along: its two painted halves are one run.
+        let allSamples: [CLLocationCoordinate2D]
+        let allBetween: [[CLLocationCoordinate2D]]?
+        if route.riskSamples.isEmpty {
+            let part = RouteService.corridorPartition(of: polyline, everyMeters: spacing)
+            allSamples = part.samples
+            allBetween = part.segments
+        } else {
+            allSamples = route.riskSamples.map(\.coordinate)
+            allBetween = Self.runsBetween(route.riskSegments, gaps: allSamples.count - 1)
+        }
         // Route pace for time-aware scoring while driving: window sample i
         // is ~i*spacing ahead of the vehicle.
         let secondsPerMeter = route.eta / max(route.distanceMeters, 1)
@@ -685,6 +847,10 @@ final class WeatherAlertService: ObservableObject {
                 let lo = Int(min(max(w.along / spacing, 0), maxIdx))
                 let hi = Int(min(max((w.along + w.lookahead) / spacing + 1, 0), maxIdx))
                 let windowed = lo <= hi ? Array(allSamples[lo...hi]) : allSamples
+                // Gap g runs from sample g to g+1, so the window keeps lo..<hi.
+                let windowedBetween: [[CLLocationCoordinate2D]]? = allBetween.map {
+                    lo <= hi && hi <= $0.count ? Array($0[lo..<hi]) : $0
+                }
                 // Offsets are time-to-reach from the VEHICLE, not the window
                 // start: windowed[i] is at (lo+i)*spacing along the route while
                 // the vehicle is at w.along. Measuring from windowed[0]
@@ -695,7 +861,8 @@ final class WeatherAlertService: ObservableObject {
                 let offsets = (0..<windowed.count).map {
                     max(0, (base + Double($0) * spacing - w.along) * secondsPerMeter)
                 }
-                let score = await self.corridorRisk(at: windowed, arrivalOffsets: offsets)
+                let score = await self.corridorRisk(
+                    at: windowed, arrivalOffsets: offsets, between: windowedBetween)
                 // A leg swap cancels this task, but the awaited cell fetches
                 // run in the cache actor's own coalescing tasks and complete
                 // anyway — without this guard the OLD corridor's score lands

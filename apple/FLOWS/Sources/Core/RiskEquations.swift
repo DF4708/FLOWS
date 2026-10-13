@@ -263,7 +263,7 @@ enum RiskEquations {
     /// family words they contain. Shared by the route scorer and live corridor
     /// monitor so they band alerts exactly as the map does.
     static func alertFamily(_ event: String) -> String? {
-        let i = Int(flows_alert_family_index(event))
+        let i = Int(flows_alert_family_index_scored(event))
         return RustTables.dense.indices.contains(i) ? RustTables.dense[i] : nil
     }
 }

@@ -887,6 +887,9 @@ public func flows_hazard_ring_contains(_ lats: UnsafeBufferPointer<Double>, _ lo
 public func flows_hazard_fire_perimeter_score(_ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
     __swift_bridge__$flows_hazard_fire_perimeter_score(ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
 }
+public func flows_hazard_meters_to_rings(_ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
+    __swift_bridge__$flows_hazard_meters_to_rings(ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
+}
 public func flows_hazard_avalanche_score(_ zone_ring_counts: UnsafeBufferPointer<Int64>, _ ratings: UnsafeBufferPointer<Int64>, _ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ lat: Double, _ lon: Double) -> Double {
     __swift_bridge__$flows_hazard_avalanche_score(zone_ring_counts.toFfiSlice(), ratings.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), lat, lon)
 }
@@ -898,6 +901,9 @@ public func flows_hazard_cell_key(_ lat: Double, _ lon: Double) -> RustString {
 }
 public func flows_hazard_states_containing(_ lat: Double, _ lon: Double) -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_hazard_states_containing(lat, lon))
+}
+public func flows_hazard_alert_areas_containing(_ lat: Double, _ lon: Double) -> RustVec<RustString> {
+    RustVec(ptr: __swift_bridge__$flows_hazard_alert_areas_containing(lat, lon))
 }
 public func flows_hazard_marine_regions_containing(_ lat: Double, _ lon: Double) -> RustVec<RustString> {
     RustVec(ptr: __swift_bridge__$flows_hazard_marine_regions_containing(lat, lon))
@@ -913,6 +919,13 @@ public func flows_hazard_alerts_covering<GenericToRustStr: ToRustStr>(_ lat: Dou
     return zone_names_joined.toRustStr({ zone_names_joinedAsRustStr in
         return alert_zones_joined.toRustStr({ alert_zones_joinedAsRustStr in
         RustVec(ptr: __swift_bridge__$flows_hazard_alerts_covering(lat, lon, alert_ring_counts.toFfiSlice(), alert_zone_counts.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), alert_zones_joinedAsRustStr, zone_names_joinedAsRustStr, zone_ring_counts.toFfiSlice(), zone_ring_lens.toFfiSlice(), zone_lats.toFfiSlice(), zone_lons.toFfiSlice()))
+    })
+    })
+}
+public func flows_hazard_alerts_covering_many<GenericToRustStr: ToRustStr>(_ point_lats: UnsafeBufferPointer<Double>, _ point_lons: UnsafeBufferPointer<Double>, _ alert_ring_counts: UnsafeBufferPointer<Int64>, _ alert_zone_counts: UnsafeBufferPointer<Int64>, _ ring_lens: UnsafeBufferPointer<Int64>, _ lats: UnsafeBufferPointer<Double>, _ lons: UnsafeBufferPointer<Double>, _ alert_zones_joined: GenericToRustStr, _ zone_names_joined: GenericToRustStr, _ zone_ring_counts: UnsafeBufferPointer<Int64>, _ zone_ring_lens: UnsafeBufferPointer<Int64>, _ zone_lats: UnsafeBufferPointer<Double>, _ zone_lons: UnsafeBufferPointer<Double>) -> RustVec<Int64> {
+    return zone_names_joined.toRustStr({ zone_names_joinedAsRustStr in
+        return alert_zones_joined.toRustStr({ alert_zones_joinedAsRustStr in
+        RustVec(ptr: __swift_bridge__$flows_hazard_alerts_covering_many(point_lats.toFfiSlice(), point_lons.toFfiSlice(), alert_ring_counts.toFfiSlice(), alert_zone_counts.toFfiSlice(), ring_lens.toFfiSlice(), lats.toFfiSlice(), lons.toFfiSlice(), alert_zones_joinedAsRustStr, zone_names_joinedAsRustStr, zone_ring_counts.toFfiSlice(), zone_ring_lens.toFfiSlice(), zone_lats.toFfiSlice(), zone_lons.toFfiSlice()))
     })
     })
 }
@@ -2969,6 +2982,11 @@ public func flows_ranking_risk(_ band: Double, _ zip_exposure: Double, _ seasona
 public func flows_alert_family_index<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> Int32 {
     return event.toRustStr({ eventAsRustStr in
         __swift_bridge__$flows_alert_family_index(eventAsRustStr)
+    })
+}
+public func flows_alert_family_index_scored<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> Int32 {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alert_family_index_scored(eventAsRustStr)
     })
 }
 public func flows_peak_family_position<GenericToRustStr: ToRustStr>(_ names: GenericToRustStr, _ scores: UnsafeBufferPointer<Double>, _ floor: Double) -> Int32 {
