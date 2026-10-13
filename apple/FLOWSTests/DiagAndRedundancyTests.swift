@@ -115,6 +115,51 @@ final class DiagAndRedundancyTests: XCTestCase {
         XCTAssertNil(NWSForecastFetcher.parseOpenMeteoConditions([:], hourUTC: 0))
     }
 
+    /// Where NWS answered, only the rain is asked of Open-Meteo (the rest was
+    /// pulled again and thrown away): the same six-hour sum the full parse
+    /// makes, from a response that has nothing else in it.
+    func testOpenMeteoRainAloneMatchesTheFullParse() {
+        let json: [String: Any] = ["hourly": [
+            "temperature_2m": [60.0, 62.0, 64.5, 66.0],
+            "precipitation": [0.0, 0.05, 0.10, 0.25],
+        ]]
+        let full = NWSForecastFetcher.parseOpenMeteoConditions(json, hourUTC: 2)?.qpfInches
+        XCTAssertEqual(NWSForecastFetcher.parseOpenMeteoRain(json, hourUTC: 2) ?? -1,
+                       full ?? -2, accuracy: 1e-12)
+        let rainOnly: [String: Any] = ["hourly": ["precipitation": [0.0, NSNull(), 0.10, 0.25]]]
+        XCTAssertEqual(NWSForecastFetcher.parseOpenMeteoRain(rainOnly, hourUTC: 1) ?? -1,
+                       0.35, accuracy: 1e-12)          // a gap is skipped, not a crash
+        XCTAssertNil(NWSForecastFetcher.parseOpenMeteoRain([:], hourUTC: 0))
+        XCTAssertNil(NWSForecastFetcher.parseOpenMeteoRain(
+            ["hourly": ["precipitation": [NSNull(), NSNull()]]], hourUTC: 0))
+    }
+
+    /// One air-quality response answers both the AQI and the UV index.
+    func testOneOpenMeteoResponseFeedsBothAirAndUV() {
+        let json: [String: Any] = ["hourly": [
+            "time": ["2026-10-13T00:00", "2026-10-13T01:00", "2026-10-13T02:00"],
+            "us_aqi": [44.0, 45.0, 46.0],
+            "uv_index": [0.0, 1.5, NSNull()],
+        ] as [String: Any]]
+        let both = LiveHazardFeedFetcher.currentHourValues(
+            in: json, fields: ["us_aqi", "uv_index"], hourUTC: 1)
+        XCTAssertEqual(both["us_aqi"] ?? -1, 45, accuracy: 1e-9)
+        XCTAssertEqual(both["uv_index"] ?? -1, 1.5, accuracy: 1e-9)
+        // A hole in one field leaves THAT field absent (the caller then asks
+        // the second source), and the other still answers.
+        let hole = LiveHazardFeedFetcher.currentHourValues(
+            in: json, fields: ["us_aqi", "uv_index"], hourUTC: 2)
+        XCTAssertEqual(hole["us_aqi"] ?? -1, 46, accuracy: 1e-9)
+        XCTAssertNil(hole["uv_index"])
+        // A late hour clamps to the series; a missing field or body is empty.
+        XCTAssertEqual(LiveHazardFeedFetcher.currentHourValues(
+            in: json, fields: ["us_aqi"], hourUTC: 40)["us_aqi"] ?? -1, 46, accuracy: 1e-9)
+        XCTAssertTrue(LiveHazardFeedFetcher.currentHourValues(
+            in: json, fields: ["pm2_5"], hourUTC: 1).isEmpty)
+        XCTAssertTrue(LiveHazardFeedFetcher.currentHourValues(
+            in: [:], fields: ["us_aqi"], hourUTC: 1).isEmpty)
+    }
+
     // MARK: IEM storm-based-warning parsing (NWS alert redundancy)
 
     func testBackupWarningParsing() {

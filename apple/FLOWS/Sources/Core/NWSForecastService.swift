@@ -116,8 +116,11 @@ actor NWSForecastFetcher {
                 // the rain total was missing and the low-ground flood booster
                 // and the water check never woke across the US. Open-Meteo's
                 // hourly amounts (keyless) fill it in.
-                if nws.qpfInches == nil, let om = await self.openMeteoConditions(at: c) {
-                    nws.qpfInches = om.qpfInches
+                // Only the rain is asked of it: the temperature, wind and rain
+                // chance were already in hand from NWS, and used to be pulled
+                // again here and thrown away.
+                if nws.qpfInches == nil, let rain = await self.openMeteoRain(at: c) {
+                    nws.qpfInches = rain
                 }
                 return nws
             }
@@ -236,6 +239,33 @@ actor NWSForecastFetcher {
         cal.timeZone = TimeZone(identifier: "UTC")!
         return cal
     }()
+
+    /// The coming six hours of rain alone, for the places NWS answered (its
+    /// hourly periods carry no amounts).
+    private func openMeteoRain(at c: CLLocationCoordinate2D) async -> Double? {
+        let url = String(
+            format: "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+                + "&hourly=precipitation&forecast_days=2&precipitation_unit=inch&timezone=GMT",
+            c.latitude, c.longitude)
+        guard let u = URL(string: url),
+              let (data, resp) = try? await ThrottledNet.fetch(u),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return Self.parseOpenMeteoRain(
+            json, hourUTC: Self.utcCalendar.component(.hour, from: Date()))
+    }
+
+    /// Pure: the coming six hourly rain amounts summed (inches), from a
+    /// series that starts at 00:00 UTC; nil with no usable amount.
+    nonisolated static func parseOpenMeteoRain(_ json: [String: Any], hourUTC: Int) -> Double? {
+        guard let hourly = json["hourly"] as? [String: Any],
+              let series = (hourly["precipitation"] as? [Any])?.map({ ($0 as? Double) ?? .nan }),
+              !series.isEmpty else { return nil }
+        let idx = min(max(hourUTC, 0), series.count - 1)
+        let coming = series[idx..<min(idx + 6, series.count)].filter(\.isFinite)
+        return coming.isEmpty ? nil : coming.reduce(0, +)
+    }
 
     private func openMeteoConditions(at c: CLLocationCoordinate2D) async -> ForecastConditions? {
         let url = String(

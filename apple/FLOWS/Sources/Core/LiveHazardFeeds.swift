@@ -1281,19 +1281,29 @@ actor LiveHazardFeedFetcher {
         }
         // Coalesce: a viewport sweep calls this for ~25 grid points that often
         // land in the same ~50 km cell — without this each would spawn its own
-        // pair of Open-Meteo requests. Concurrent callers share one fetch.
+        // Open-Meteo request. Concurrent callers share one fetch.
         if let inFlight = airInFlight[key] { return await inFlight.value }
         let lat = point.latitude, lon = point.longitude
-        // fetchFirstHourly is static (no instance state) so the child task
+        // fetchHourlyNow is static (no instance state) so the child task
         // captures nothing — no self, no Sendable warning.
         let task = Task<(aqi: Double?, uv: Double?), Never> {
-            async let aqiResp = Self.fetchFirstHourly(
+            // ONE pull: the air-quality API serves the UV index in the same
+            // response as the US AQI. The UV used to be asked of the forecast
+            // API in a second request, for the same place and the same hour.
+            let both = await Self.fetchHourlyNow(
                 "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=\(lat)"
-                + "&longitude=\(lon)&hourly=us_aqi&forecast_days=1", field: "us_aqi")
-            async let uvResp = Self.fetchFirstHourly(
-                "https://api.open-meteo.com/v1/forecast?latitude=\(lat)"
-                + "&longitude=\(lon)&hourly=uv_index&forecast_days=1", field: "uv_index")
-            return (await aqiResp, await uvResp)
+                + "&longitude=\(lon)&hourly=us_aqi,uv_index&forecast_days=1",
+                fields: ["us_aqi", "uv_index"])
+            var uv = both["uv_index"]
+            if uv == nil {
+                // The second source only when the first gave no UV (a refused
+                // request, or a gap in its model run).
+                uv = await Self.fetchHourlyNow(
+                    "https://api.open-meteo.com/v1/forecast?latitude=\(lat)"
+                    + "&longitude=\(lon)&hourly=uv_index&forecast_days=1",
+                    fields: ["uv_index"])["uv_index"]
+            }
+            return (both["us_aqi"], uv)
         }
         airInFlight[key] = task
         let (aqi, uv) = await task.value
@@ -1318,18 +1328,34 @@ actor LiveHazardFeedFetcher {
         return cal
     }()
 
-    private static func fetchFirstHourly(_ url: String, field: String) async -> Double? {
+    /// The current-hour value of each named field from ONE Open-Meteo hourly
+    /// response. A field the answer lacks, or has no number for this hour, is
+    /// absent from the result.
+    private static func fetchHourlyNow(_ url: String, fields: [String]) async -> [String: Double] {
         guard let u = URL(string: url),
               let (data, resp) = try? await ThrottledNet.fetch(u),
               (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hourly = json["hourly"] as? [String: Any],
-              let values = hourly[field] as? [Any],
-              let times = hourly["time"] as? [String] else { return nil }
-        // Pick the entry for the current UTC hour (series starts at 00:00).
-        let hour = Self.utcGregorian.component(.hour, from: Date())
-        let idx = min(hour, values.count - 1, times.count - 1)
-        return idx >= 0 ? values[idx] as? Double : nil
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return currentHourValues(
+            in: json, fields: fields,
+            hourUTC: Self.utcGregorian.component(.hour, from: Date()))
+    }
+
+    /// Pure: each field's value at `hourUTC` from an hourly series that starts
+    /// at 00:00 UTC (the index is the hour, held inside the series).
+    nonisolated static func currentHourValues(
+        in json: [String: Any], fields: [String], hourUTC: Int
+    ) -> [String: Double] {
+        guard let hourly = json["hourly"] as? [String: Any],
+              let times = hourly["time"] as? [String] else { return [:] }
+        var out: [String: Double] = [:]
+        for field in fields {
+            guard let values = hourly[field] as? [Any] else { continue }
+            let idx = min(max(hourUTC, 0), values.count - 1, times.count - 1)
+            if idx >= 0, let v = values[idx] as? Double, v.isFinite { out[field] = v }
+        }
+        return out
     }
 
     // MARK: road closures — FHWA Work Zone Data Exchange (open state feeds)
