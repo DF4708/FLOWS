@@ -24,19 +24,40 @@ import Security
 enum SecureStore {
     static let service = "com.flows.app.secure"
 
-    /// Store a value (nil/empty deletes the item).
-    static func set(_ value: String?, for key: String) {
+    /// Store a value (nil/empty deletes the item). Answers whether the
+    /// Keychain holds what was asked: a refused write is said in the journal
+    /// and answered false, never taken for success.
+    @discardableResult
+    static func set(_ value: String?, for key: String) -> Bool {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(base as CFDictionary)   // idempotent replace
-        guard let value, !value.isEmpty, let data = value.data(using: .utf8) else { return }
+        guard let value, !value.isEmpty, let data = value.data(using: .utf8) else {
+            let gone = SecItemDelete(base as CFDictionary)
+            return gone == errSecSuccess || gone == errSecItemNotFound
+        }
+        // Updated in place, added only when there is none: this used to
+        // delete the old item first and add after, so an add the Keychain
+        // refused (a device locked before its first unlock) had already
+        // cost the secret it was replacing.
+        let updated = SecItemUpdate(base as CFDictionary,
+                                    [kSecValueData as String: data] as CFDictionary)
+        if updated == errSecSuccess { return true }
         var add = base
-        add[kSecValueData as String] = data
-        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(add as CFDictionary, nil)
+        if updated == errSecItemNotFound {
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            let added = SecItemAdd(add as CFDictionary, nil)
+            if added == errSecSuccess { return true }
+            FlowsDiag.logThrottled(key: "keychain.set", .warn, "privacy",
+                                   "the Keychain refused a write (\(added))")
+            return false
+        }
+        FlowsDiag.logThrottled(key: "keychain.set", .warn, "privacy",
+                               "the Keychain refused an update (\(updated))")
+        return false
     }
 
     /// Read a value, or nil if absent.

@@ -135,9 +135,8 @@ final class FavoritesStore: ObservableObject {
 
     private func persist() {
         if let url = sealedURL {
-            if !SecureBehaviorStore.save(favorites, to: url, keyspace: .favorites) {
-                print("[Favorites] sealed persist failed")
-            }
+            // (SecureBehaviorStore.save journals a refused write itself.)
+            _ = SecureBehaviorStore.save(favorites, to: url, keyspace: .favorites)
             return
         }
         do {

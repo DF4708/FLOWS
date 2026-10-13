@@ -225,18 +225,22 @@ final class ShareHistoryStore: ObservableObject {
         }
         guard plan.count >= 4 else { return }
         let matched = Int(plan[0])
-        if matched >= 0 {
+        if matched >= 0, matched < recipients.count {
             if plan[1] != 0 { recipients[matched].name = name }
             recipients[matched].shareDates.append(date)
-            recipients[matched].shareDates.removeFirst(Int(plan[2]))
-        } else {
+            // The count to drop comes across the bridge: kept inside the list.
+            let drop = min(max(Int(clamping: plan[2]), 0), recipients[matched].shareDates.count)
+            recipients[matched].shareDates.removeFirst(drop)
+        } else if matched < 0 {
             recipients.append(ShareRecipient(name: name, phone: phone, shareDates: [date]))
         }
         if plan[3] >= 0 {
             // Evict the WEAKEST suggestion, not the oldest entry — the list
             // exists to rank, so the ranking decides who stays.
             let current = recipients
-            recipients = plan[4...].map { current[Int($0)] }
+            recipients = plan[4...].compactMap { index in
+                Int(exactly: index).flatMap { current.indices.contains($0) ? current[$0] : nil }
+            }
         }
         persist()
     }

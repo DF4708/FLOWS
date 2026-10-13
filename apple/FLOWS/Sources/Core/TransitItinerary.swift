@@ -37,15 +37,19 @@ struct TransitFare: Equatable {
 
     var amount: Double { Double(cents) / 100 }
 
+    private static let moneyFaces = FormatterShelf<NumberFormatter>()
+
     /// "$10.25", "from $10.00", "free" — in the rider's own way of writing
     /// money, for the operator's currency.
     func text(locale: Locale = .current) -> String {
         if cents == 0 && !from { return "free" }
-        let f = NumberFormatter()
-        f.numberStyle = .currency
-        f.locale = locale
-        f.currencyCode = currency
-        let money = f.string(from: NSNumber(value: amount)) ?? String(format: "%.2f", amount)
+        let money = Self.moneyFaces.with(locale.identifier + "|" + currency, make: {
+            let f = NumberFormatter()
+            f.numberStyle = .currency
+            f.locale = locale
+            f.currencyCode = currency
+            return f
+        }) { $0.string(from: NSNumber(value: amount)) } ?? String(format: "%.2f", amount)
         return from ? "from \(money)" : money
     }
 

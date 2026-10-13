@@ -832,7 +832,8 @@ struct RouteChoicesView: View {
         if sailing == nil {
             // None left today from there: tomorrow's first, said plainly.
             sailing = await ferrySailing(from: boardC, to: alightC,
-                                         day: leaving.addingTimeInterval(86_400),
+                                         day: Calendar.current.date(byAdding: .day, value: 1, to: leaving)
+                                             ?? leaving.addingTimeInterval(86_400),
                                          after: leaving, reachMeters: pinned, mayFetch: mayFetch)
             if sailing != nil {
                 note = "No more ferries today from \(boardName) — these are tomorrow's first."

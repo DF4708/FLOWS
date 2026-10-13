@@ -165,7 +165,16 @@ enum SecureBehaviorStore {
     static func save<T: Encodable>(_ value: T, to url: URL,
                                    keyspace: Keyspace = .behavior) -> Bool {
         guard let data = try? JSONEncoder().encode(value) else { return false }
-        return write(data, to: url, keyspace: keyspace)
+        let saved = write(data, to: url, keyspace: keyspace)
+        // Said once in a while, never the contents: most callers (the learned
+        // stores, the trail) drop this answer, and a full disk or a refused
+        // Keychain read then lost the file in silence.
+        if !saved {
+            FlowsDiag.logThrottled(
+                key: "behavior.save.\(url.lastPathComponent)", .warn, "privacy",
+                "could not save \(url.lastPathComponent) — the copy in memory is ahead of the disk")
+        }
+        return saved
     }
 
     /// Read a behavior file, transparently upgrading a PLAINTEXT store left

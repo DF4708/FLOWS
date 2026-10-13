@@ -143,7 +143,11 @@ struct TouristStopCard: View {
     /// Today's line from the provider's Monday-first weekly hours.
     private var hoursToday: String? {
         guard let hours = info?.hours, hours.count == 7 else { return nil }
-        let weekday = Calendar.current.component(.weekday, from: Date())
+        // Today where the PLACE is, not where the phone is: a stop two zones
+        // away reads another weekday for hours of the evening.
+        var calendar = Calendar.current
+        if let zone = stop.item.timeZone { calendar.timeZone = zone }
+        let weekday = calendar.component(.weekday, from: Date())
         return hours[TouristInfo.mondayFirstIndex(weekday: weekday)]
     }
 }

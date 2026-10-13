@@ -268,10 +268,10 @@ final class NavigationEngine: ObservableObject {
         // Not after arrival: circling the lot or GPS drift indoors would
         // start a fresh leg and fire arrival a second time.
         guard !isRerouting, !arrivalFired, let current = route,
+              let destination = points.last,
               Date() >= nextRerouteAt else { return }
         isRerouting = true
         offRouteFixes = 0
-        let destination = points.last!
         // Replan the way the leg was planned. This always asked for a
         // driving route, so a walker who strayed was sent down roads for
         // cars — freeways included on a long walk.

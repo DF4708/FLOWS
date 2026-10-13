@@ -4484,7 +4484,7 @@ struct SettingsSheet: View {
                     learnedRow("Recent plans that used vehicle limits",
                                "\(model.limitsHabit.filter { $0 != 0 }.count) of "
                                    + "\(model.limitsHabit.count)")
-                    if let cal = summary.calibration {
+                    if let cal = summary.calibration, cal.isFinite {
                         // An error on the 0–1 risk scale, as a percentage.
                         learnedRow("How far off risk guesses were",
                                    "about \(Int((cal * 100).rounded()))%")

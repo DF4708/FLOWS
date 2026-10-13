@@ -116,37 +116,18 @@ enum TransitClock {
     /// `locale` is injectable only so a test can pin a clock format; the app
     /// always takes the rider's own, which decides 12- vs 24-hour.
     static func clock(_ moment: Date, zone: String, locale: Locale = .current) -> String {
-        clockFaces.string(moment, zone: zone, locale: locale)
+        clockFaces.with(zone + "|" + locale.identifier, make: {
+            let f = DateFormatter()
+            f.locale = locale
+            f.timeZone = TimeZone(identifier: zone) ?? .current
+            f.dateStyle = .none
+            f.timeStyle = .short
+            return f
+        }) { $0.string(from: moment) }
     }
 
-    /// One formatter per zone and locale, kept: building a `DateFormatter` is
-    /// among the dearest things Foundation does, and a schedule rings one up
-    /// for every time it prints.
-    private static let clockFaces = ClockFaces()
-
-    private final class ClockFaces: @unchecked Sendable {
-        private var byKey: [String: DateFormatter] = [:]
-        private let lock = NSLock()
-
-        func string(_ moment: Date, zone: String, locale: Locale) -> String {
-            lock.lock()
-            defer { lock.unlock() }
-            let key = zone + "|" + locale.identifier
-            let f: DateFormatter
-            if let kept = byKey[key] {
-                f = kept
-            } else {
-                f = DateFormatter()
-                f.locale = locale
-                f.timeZone = TimeZone(identifier: zone) ?? .current
-                f.dateStyle = .none
-                f.timeStyle = .short
-                if byKey.count > 40 { byKey.removeAll() }
-                byKey[key] = f
-            }
-            return f.string(from: moment)
-        }
-    }
+    /// One formatter per zone and locale, kept (FormatterShelf).
+    private static let clockFaces = FormatterShelf<DateFormatter>()
 
     /// A plain word for a zone — "Central", "Pacific" — for the one place it
     /// is needed: a trip that crosses zones, where "arrive 2:50 PM" alone
@@ -204,15 +185,42 @@ enum TransitClock {
         return max(0, Int((off.timeIntervalSince(on) / 86_400).rounded()))
     }
 
+    private static let publishedFaces = FormatterShelf<DateFormatter>()
+
     /// "Times as of Sep 22" — how old the schedule is, for the rider deciding
     /// whether to trust it. Empty when the feed did not say.
     static func publishedNote(_ yyyymmdd: Int) -> String {
         guard yyyymmdd > 0,
               let day = dayStart(serviceDate: yyyymmdd, agencyZone: TimeZone.current.identifier)
         else { return "" }
-        let f = DateFormatter()
-        f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("MMMd")
-        return "Times as of \(f.string(from: day))"
+        let text = publishedFaces.with(Locale.current.identifier, make: {
+            let f = DateFormatter()
+            f.locale = Locale.current
+            f.setLocalizedDateFormatFromTemplate("MMMd")
+            return f
+        }) { $0.string(from: day) }
+        return "Times as of \(text)"
+    }
+}
+
+/// Formatters kept by key. Building a `DateFormatter` or `NumberFormatter` is
+/// among the dearest things Foundation does, and view code asked for one per
+/// label per redraw (a schedule's clock faces, a fare, a ferry's season).
+/// Reads are guarded by a lock, so a shelf can be shared by any thread.
+final class FormatterShelf<F: Formatter>: @unchecked Sendable {
+    private var byKey: [String: F] = [:]
+    private let lock = NSLock()
+
+    /// Run `use` on the formatter kept under `key`, building it with `make`
+    /// the first time. A shelf that has grown past 40 is emptied (zones and
+    /// locales are few; this only bounds a pathological caller).
+    func with<T>(_ key: String, make: () -> F, _ use: (F) -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        if let kept = byKey[key] { return use(kept) }
+        let made = make()
+        if byKey.count > 40 { byKey.removeAll() }
+        byKey[key] = made
+        return use(made)
     }
 }

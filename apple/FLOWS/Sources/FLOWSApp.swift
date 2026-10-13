@@ -318,7 +318,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var nearestStationID: String?
     /// Where the nearest transmitter was last worked out, and whether the
     /// radio was on the air then (retuneRadioIfNeeded).
-    private var lastRetuneCheck: (at: CLLocationCoordinate2D, onAir: Bool)?
+    private var lastRetuneCheck: (at: CLLocationCoordinate2D, onAir: Bool, stations: Int)?
 
     /// Auto-switch to the CLOSEST NOAA transmitter as the driver moves, with
     /// hysteresis: only retune when the new station is meaningfully (20%)
@@ -330,9 +330,10 @@ final class AppModel: ObservableObject {
         // Looked at again after 250 m of travel (a few seconds at highway
         // pace), or at once when the radio has gone on or off the air.
         let onAir = radio.playingChannelID != nil
-        if let last = lastRetuneCheck, last.onAir == onAir,
+        let stations = radio.channels.count   // a refreshed list is worked again at once
+        if let last = lastRetuneCheck, last.onAir == onAir, last.stations == stations,
            POIRanking.meters(last.at, position) < 250 { return }
-        lastRetuneCheck = (position, onAir)
+        lastRetuneCheck = (position, onAir, stations)
         // Track the nearest station even when nothing is playing — the card
         // reads this to keep its default honest. The app still never starts
         // audio by itself.

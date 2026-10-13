@@ -262,7 +262,7 @@ final class SpotifyRemote: ObservableObject {
         guard linked else { return }
         Task { [weak self] in
             if delay > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: UInt64(min(delay, 60) * 1_000_000_000))
             }
             await self?.fetchState()
         }

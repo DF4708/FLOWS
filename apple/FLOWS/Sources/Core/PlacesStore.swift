@@ -84,11 +84,13 @@ struct PlacesShard: @unchecked Sendable {
     private func decode(recordAt i: Int64, in bytes: UnsafeBufferPointer<UInt8>) -> Place? {
         let numbers = index.place_numbers(bytes, i)
         let texts = index.place_texts(bytes, i).map { $0.text }
-        guard numbers.count == 4, texts.count == 5 else { return nil }
+        guard numbers.count == 4, texts.count == 5,
+              let group = UInt8(exactly: numbers[2]),
+              let postcode = UInt32(exactly: numbers[3]) else { return nil }
         return Place(
             coordinate: CLLocationCoordinate2D(latitude: numbers[0], longitude: numbers[1]),
-            group: UInt8(numbers[2]), name: texts[0], street: texts[1], city: texts[2],
-            website: texts[3], tel: texts[4], postcode: UInt32(numbers[3]))
+            group: group, name: texts[0], street: texts[1], city: texts[2],
+            website: texts[3], tel: texts[4], postcode: postcode)
     }
 }
 
