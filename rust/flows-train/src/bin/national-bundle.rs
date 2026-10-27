@@ -230,24 +230,22 @@ fn split_bundle(text: &str) -> Result<(&str, Vec<&str>, &str), String> {
             }
             b'{' | b'[' => depth += 1,
             b'}' | b']' => depth -= 1,
-            b':' => {
-                if depth == 1 {
-                    if let Some((ks, ke)) = last_key {
-                        if &text[ks + 1..ke] == "zips" {
-                            zips_key_pos = Some(ks);
-                            // find the '[' that opens the array
-                            let mut j = i + 1;
-                            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-                                j += 1;
-                            }
-                            if bytes.get(j) == Some(&b'[') {
-                                array_open = Some(j);
-                            }
-                            break;
+            b':' if depth == 1 => {
+                if let Some((ks, ke)) = last_key {
+                    if &text[ks + 1..ke] == "zips" {
+                        zips_key_pos = Some(ks);
+                        // find the '[' that opens the array
+                        let mut j = i + 1;
+                        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                            j += 1;
                         }
+                        if bytes.get(j) == Some(&b'[') {
+                            array_open = Some(j);
+                        }
+                        break;
                     }
-                    last_key = None;
                 }
+                last_key = None;
             }
             _ => {}
         }
@@ -359,11 +357,9 @@ fn raw_zip_code(obj: &str) -> Option<String> {
                     want_value = true;
                 }
             }
-            b',' => {
-                if depth == 1 {
-                    pending_key = None;
-                    want_value = false;
-                }
+            b',' if depth == 1 => {
+                pending_key = None;
+                want_value = false;
             }
             _ => {}
         }

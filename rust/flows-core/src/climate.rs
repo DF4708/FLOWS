@@ -730,7 +730,7 @@ pub fn parse_flhh(data: &[u8]) -> Option<HarmonicTable> {
     }
     let zip_bytes = read(5usize.checked_mul(n_zips)?)?;
     let mut zips = Vec::with_capacity(n_zips);
-    for chunk in zip_bytes.chunks_exact(5) {
+    for chunk in zip_bytes.as_chunks::<5>().0 {
         zips.push(foundation_utf8(chunk)?);
     }
     let count = n_zips.checked_mul(n_fams)?.checked_mul(FLHH_COEFFICIENTS)?;
@@ -740,8 +740,10 @@ pub fn parse_flhh(data: &[u8]) -> Option<HarmonicTable> {
     }
     let body = data.get(off..off + want)?;
     let coeffs: Vec<f32> = body
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
         .collect();
     Some(HarmonicTable {
         families,

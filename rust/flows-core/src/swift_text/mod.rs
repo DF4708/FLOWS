@@ -278,13 +278,7 @@ impl BreakState {
         self.pict = match cur {
             Gcb::ExtPict => 1,
             c if c.is_extend() => u8::from(self.pict == 1),
-            Gcb::Zwj => {
-                if self.pict == 1 {
-                    2
-                } else {
-                    0
-                }
-            }
+            Gcb::Zwj if self.pict == 1 => 2,
             _ => 0,
         };
         match cur {

@@ -254,8 +254,12 @@ fn rust_reproduces_the_original_swift_vehicle_policy_bit_for_bit() {
                     other => panic!("unknown utab {other}"),
                 };
                 let want = ranges(f[2]);
-                let embedded: Vec<(u32, u32)> =
-                    table.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+                let embedded: Vec<(u32, u32)> = table
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|c| (c[0], c[1]))
+                    .collect();
                 if embedded != want {
                     fail(
                         line,

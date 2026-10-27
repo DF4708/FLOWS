@@ -151,11 +151,7 @@ fn run() -> Result<(), String> {
         "wrote {} ({:.2} MB, {} B/stop-event incl. header) | {:.3}s",
         report.ftt_path.display(),
         report.ftt_bytes as f64 / 1e6,
-        if load.n_events > 0 {
-            report.ftt_bytes / load.n_events
-        } else {
-            0
-        },
+        report.ftt_bytes.checked_div(load.n_events).unwrap_or(0),
         t_write.as_secs_f64()
     );
     println!(

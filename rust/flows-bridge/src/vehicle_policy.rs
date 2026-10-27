@@ -270,14 +270,13 @@ fn ratings(
 /// Flat triples to segments; `None` unless the length is a multiple of 3.
 fn segments_from(flat: &[f64]) -> Option<Vec<vp::GradeSegment>> {
     flat.len().is_multiple_of(3).then(|| {
-        flat.chunks_exact(3)
-            .filter_map(|c| match c {
-                [start_mile, end_mile, grade_percent] => Some(vp::GradeSegment {
-                    start_mile: *start_mile,
-                    end_mile: *end_mile,
-                    grade_percent: *grade_percent,
-                }),
-                _ => None,
+        flat.as_chunks::<3>()
+            .0
+            .iter()
+            .map(|&[start_mile, end_mile, grade_percent]| vp::GradeSegment {
+                start_mile,
+                end_mile,
+                grade_percent,
             })
             .collect()
     })

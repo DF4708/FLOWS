@@ -244,7 +244,11 @@ fn points(lats: &[f64], lons: &[f64]) -> Vec<Point> {
 /// Pairs from a flat `[a, b, a, b, …]` buffer (a trailing odd value is
 /// dropped).
 fn points_flat(flat: &[f64]) -> Vec<Point> {
-    flat.chunks_exact(2).map(|p| (p[0], p[1])).collect()
+    flat.as_chunks::<2>()
+        .0
+        .iter()
+        .map(|p| (p[0], p[1]))
+        .collect()
 }
 
 fn flat(points: &[Point]) -> Vec<f64> {

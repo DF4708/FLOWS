@@ -97,7 +97,7 @@ pub fn decode_lonlat(bytes: &[u8]) -> Vec<f64> {
     decode_deltas(bytes, &mut deltas);
     let mut out = Vec::with_capacity(deltas.len() / 2 * 2);
     let (mut lat, mut lon) = (0i64, 0i64);
-    for pair in deltas.chunks_exact(2) {
+    for pair in deltas.as_chunks::<2>().0 {
         let (Some(next_lat), Some(next_lon)) = (lat.checked_add(pair[0]), lon.checked_add(pair[1]))
         else {
             break;
@@ -120,7 +120,7 @@ pub(crate) fn decode_polyline(encoded: &str) -> Vec<[f64; 2]> {
     let mut out = Vec::with_capacity(n_pairs);
     let mut lat: i64 = 0;
     let mut lon: i64 = 0;
-    for pair in deltas.chunks_exact(2) {
+    for pair in deltas.as_chunks::<2>().0 {
         lat += pair[0];
         lon += pair[1];
         out.push([lon as f64 / 1e5, lat as f64 / 1e5]);

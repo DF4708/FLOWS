@@ -254,7 +254,9 @@ fn stats_in(flat: &[f64]) -> Option<Vec<WeekStat>> {
         return None;
     }
     Some(
-        flat.chunks_exact(5)
+        flat.as_chunks::<5>()
+            .0
+            .iter()
             .map(|c| WeekStat {
                 w_sum: c[0],
                 w_observed: c[1],
@@ -329,7 +331,9 @@ fn decode_rows(flat: &[f64]) -> Option<Vec<RowInput>> {
     }
     let col = |c: &[f64], i: usize| (c[2 * i + 1] != 0.0).then_some(c[2 * i]);
     Some(
-        flat.chunks_exact(16)
+        flat.as_chunks::<16>()
+            .0
+            .iter()
             .map(|c| RowInput {
                 o_lat: col(c, 0),
                 o_lon: col(c, 1),
@@ -496,7 +500,9 @@ pub fn flows_seasonal_training_rows(cells: &[f64], now: f64) -> Vec<f64> {
             return Vec::new();
         }
         let parsed: Vec<TrainingCell> = cells
-            .chunks_exact(11)
+            .as_chunks::<11>()
+            .0
+            .iter()
             .map(|c| TrainingCell {
                 o_lat: c[0] as i64,
                 o_lon: c[1] as i64,
@@ -539,7 +545,12 @@ pub fn flows_seasonal_path_edge_keys(hubs: &[f64]) -> Vec<String> {
         if !hubs.len().is_multiple_of(2) {
             return Vec::new();
         }
-        let pairs: Vec<(f64, f64)> = hubs.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let pairs: Vec<(f64, f64)> = hubs
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| (c[0], c[1]))
+            .collect();
         sea::path_edge_keys(&pairs).unwrap_or_default()
     })
 }
@@ -593,7 +604,12 @@ pub fn flows_seasonal_origin_evictions(stats: &[f64], now: f64) -> Vec<f64> {
         if !stats.len().is_multiple_of(2) {
             return Vec::new();
         }
-        let pairs: Vec<(f64, f64)> = stats.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+        let pairs: Vec<(f64, f64)> = stats
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| (c[0], c[1]))
+            .collect();
         positions(sea::origin_evictions(&pairs, now))
     })
 }
@@ -622,7 +638,9 @@ pub fn flows_seasonal_learned_home(
             return NO_HOME;
         }
         let parsed: Vec<OriginEntry> = entries
-            .chunks_exact(7)
+            .as_chunks::<7>()
+            .0
+            .iter()
             .map(|c| OriginEntry {
                 cell: (c[0] != 0.0).then_some((c[1] as i64, c[2] as i64)),
                 stat: OriginStat {
@@ -647,7 +665,9 @@ pub fn flows_seasonal_legacy_home(routes: &[f64]) -> FlowsSeasonalHome {
             return NO_HOME;
         }
         let parsed: Vec<(i64, i64, i64)> = routes
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|c| (c[0] as i64, c[1] as i64, c[2] as i64))
             .collect();
         home_out(sea::legacy_home(&parsed))

@@ -794,23 +794,21 @@ fn split_bundle(text: &str) -> Result<(&str, Vec<&str>, &str), String> {
             }
             b'{' | b'[' => depth += 1,
             b'}' | b']' => depth -= 1,
-            b':' => {
-                if depth == 1 {
-                    if let Some((ks, ke)) = last_key {
-                        if &text[ks + 1..ke] == "zips" {
-                            zips_key_pos = Some(ks);
-                            let mut j = i + 1;
-                            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-                                j += 1;
-                            }
-                            if bytes.get(j) == Some(&b'[') {
-                                array_open = Some(j);
-                            }
-                            break;
+            b':' if depth == 1 => {
+                if let Some((ks, ke)) = last_key {
+                    if &text[ks + 1..ke] == "zips" {
+                        zips_key_pos = Some(ks);
+                        let mut j = i + 1;
+                        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                            j += 1;
                         }
+                        if bytes.get(j) == Some(&b'[') {
+                            array_open = Some(j);
+                        }
+                        break;
                     }
-                    last_key = None;
                 }
+                last_key = None;
             }
             _ => {}
         }
@@ -946,10 +944,8 @@ fn top_level_pairs(obj: &str) -> Vec<(&str, &str)> {
                         break;
                     }
                 }
-                b',' => {
-                    if depth == 0 {
-                        break;
-                    }
+                b',' if depth == 0 => {
+                    break;
                 }
                 _ => {}
             }

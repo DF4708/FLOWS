@@ -105,7 +105,7 @@ impl ContractionHierarchy {
             }
             // Push live neighbours one level deeper (spread the hierarchy).
             let vl = level[v];
-            for (&x, _) in adj[v].iter() {
+            for &x in adj[v].keys() {
                 let xi = x as usize;
                 if !contracted[xi] && level[xi] < vl + 1 {
                     level[xi] = vl + 1;
