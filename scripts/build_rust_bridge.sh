@@ -38,8 +38,17 @@ fi
 MACOS_FLOOR="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 IOS_FLOOR="${IPHONEOS_DEPLOYMENT_TARGET:-17.0}"
 
+# Which Rust: FLOWS_RUST_TOOLCHAIN names one (as a variable, or as a build
+# setting on the xcodebuild line: `xcodebuild ... FLOWS_RUST_TOOLCHAIN=1.93.0`);
+# unset, rustup's default builds. Every target below must be installed for
+# it (`rustup target add --toolchain <name> <target>`): a default toolchain
+# that only has this Mac's own target stops here with "can't find crate for
+# `std`".
+TOOLCHAIN="${FLOWS_RUST_TOOLCHAIN:-}"
+
 for T in aarch64-apple-darwin x86_64-apple-darwin aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-ios; do
   env -i HOME="$HOME" PATH="$(dirname "$CARGO"):/usr/bin:/bin:/usr/sbin:/sbin" \
+    ${TOOLCHAIN:+RUSTUP_TOOLCHAIN="$TOOLCHAIN"} \
     MACOSX_DEPLOYMENT_TARGET="$MACOS_FLOOR" IPHONEOS_DEPLOYMENT_TARGET="$IOS_FLOOR" \
     "$CARGO" build --release --locked -p flows-bridge --target "$T" \
     --manifest-path "$REPO/rust/Cargo.toml"

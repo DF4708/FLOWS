@@ -149,10 +149,17 @@ pub fn write(load: &gtfs::GtfsLoad, prefix: &Path) -> Result<BuildReport, String
             std::fs::create_dir_all(dir).map_err(|e| format!("shard: {}: {e}", dir.display()))?;
         }
     }
-    std::fs::write(&ftt_path, &ftt_bytes)
-        .map_err(|e| format!("shard: {}: {e}", ftt_path.display()))?;
-    std::fs::write(&fts_path, &fts_bytes)
-        .map_err(|e| format!("shard: {}: {e}", fts_path.display()))?;
+    // Both files are written beside their names, then moved into place one
+    // after the other. Written in place, a question put during a rebuild
+    // read the new .ftt against the old .fts, and the pair was called
+    // corrupt and taken off the disk.
+    let ftt_new = with_ext(prefix, "ftt.new");
+    let fts_new = with_ext(prefix, "fts.new");
+    let said = |path: &Path, e: std::io::Error| format!("shard: {}: {e}", path.display());
+    std::fs::write(&ftt_new, &ftt_bytes).map_err(|e| said(&ftt_new, e))?;
+    std::fs::write(&fts_new, &fts_bytes).map_err(|e| said(&fts_new, e))?;
+    std::fs::rename(&ftt_new, &ftt_path).map_err(|e| said(&ftt_path, e))?;
+    std::fs::rename(&fts_new, &fts_path).map_err(|e| said(&fts_path, e))?;
 
     Ok(BuildReport {
         ftt_path,
@@ -181,6 +188,16 @@ fn with_ext(prefix: &Path, ext: &str) -> PathBuf {
 /// Read `<prefix>.ftt` + `<prefix>.fts`. Refuses a mismatched pair, a corrupt
 /// body, and labels whose counts disagree with the timetable.
 pub fn open(prefix: &Path) -> io::Result<Shard> {
+    // A rebuild moves the two files into place one after the other, and this
+    // reads them one after the other: a read that straddles the move sees a
+    // pair that does not match. The second read finds the new pair whole.
+    match open_once(prefix) {
+        Err(e) if e.kind() == io::ErrorKind::InvalidData => open_once(prefix),
+        other => other,
+    }
+}
+
+fn open_once(prefix: &Path) -> io::Result<Shard> {
     let raw = std::fs::read(with_ext(prefix, "ftt"))?;
     let hash = ftt::body_hash(&raw)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "shard: not an .ftt"))?;

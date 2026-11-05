@@ -176,7 +176,8 @@ struct WatchNavView: View {
                 })
             }
         }
-        .onChange(of: link.vehicle?.latitude) { _, _ in
+        // Latitude and longitude both: due east or west only the longitude moves.
+        .onChange(of: link.vehicle.map { [$0.latitude, $0.longitude] }) { _, _ in
             guard let v = link.vehicle else { return }
             withAnimation(.easeInOut(duration: 0.6)) {
                 camera = .camera(MapCamera(

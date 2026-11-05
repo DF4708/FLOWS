@@ -832,7 +832,9 @@ actor TransitFeeds {
     /// service day earlier than `date`. Anything not named like a shard —
     /// the feed folders, stray files — is never touched.
     static func isShard(_ fileName: String, before date: Int) -> Bool {
-        let url = URL(fileURLWithPath: fileName)
+        var url = URL(fileURLWithPath: fileName)
+        // A build cut short leaves its half-written pair ("….ftt.new").
+        if url.pathExtension == "new" { url.deletePathExtension() }
         guard url.pathExtension == "ftt" || url.pathExtension == "fts" else { return false }
         let base = url.deletingPathExtension().lastPathComponent
         guard let dash = base.lastIndex(of: "-"),

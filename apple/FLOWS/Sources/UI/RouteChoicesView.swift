@@ -2835,12 +2835,17 @@ private struct RouteCard: View {
                 let steepest = GradeProfile.steepest(route.gradeProfile, top: 3)
                     .filter { abs($0.gradePercent) >= 3 }
                 if !steepest.isEmpty {
-                    HStack(spacing: 8) {
-                        ForEach(Array(steepest.enumerated()), id: \.offset) { _, seg in
-                            Text(String(format: "%.1f%% @ mi %.0f",
-                                        seg.gradePercent, seg.startMile))
-                        }
-                    }
+                    // Said in words: "-4.8% @ mi 46" alone read as a stray
+                    // row of numbers under the card.
+                    // One text that wraps: three hills on one line were
+                    // cut short with "…" on a phone.
+                    Text("Steepest hills: " + steepest.map { seg in
+                        String(format: "%.1f%% %@ at mile %.0f",
+                               abs(seg.gradePercent),
+                               seg.gradePercent < 0 ? "down" : "up",
+                               seg.startMile)
+                    }.joined(separator: " · "))
+                    .fixedSize(horizontal: false, vertical: true)
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
                 }

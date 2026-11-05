@@ -4097,10 +4097,23 @@ struct SettingsSheet: View {
             Text("Emergency")
                 .scaledFont(size: 14, weight: .semibold)
             HStack(spacing: 8) {
+                // A name and a number are kept as typed: autocorrect offered
+                // "Smithsonian" for Smithson, and one tap on the space bar
+                // would have sent the crash text to the wrong name.
                 TextField("Contact name", text: $model.emergencyContactName)
                     .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textContentType(.name)
+                    .textInputAutocapitalization(.words)
+                    #endif
                 TextField("Contact phone", text: $model.emergencyContactPhone)
                     .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textContentType(.telephoneNumber)
+                    .keyboardType(.phonePad)
+                    #endif
                 #if os(iOS)
                 // iOS never exposes Medical ID contacts to apps — the
                 // Contacts picker is the sanctioned import path.
@@ -4111,7 +4124,9 @@ struct SettingsSheet: View {
                 .foregroundStyle(.blue)
                 #endif
             }
-            TextField("Medical notes for the ambulance crew (allergies, health problems)",
+            // Short enough to show whole on a phone; the words under it say
+            // who reads the notes.
+            TextField("Medical notes (allergies, health problems)",
                       text: $model.medicalNotes)
                 .textFieldStyle(.roundedBorder)
             Text("After a crash FLOWS asks out loud if you need help, and "
@@ -4146,7 +4161,11 @@ struct SettingsSheet: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(v.displayName.isEmpty ? "My vehicle" : v.displayName)
                             .scaledFont(.caption, weight: .semibold)
-                        Text(String(format: "%.0f %@ tank · %.0f mi/%@ · range ~%.0f mi",
+                        // "left now", not "range": the editor's rated range
+                        // is tank times mileage, and this one follows how
+                        // the car is driven — two "range" numbers for one
+                        // truck read as a mistake.
+                        Text(String(format: "%.0f %@ tank · %.0f mi/%@ · about %.0f mi left now",
                                     v.tankCapacityUnits,
                                     v.fuelType == .electric ? "kWh" : "gal",
                                     v.ratedMilesPerUnit,

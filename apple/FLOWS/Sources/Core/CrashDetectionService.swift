@@ -259,8 +259,10 @@ final class CrashDetectionService: ObservableObject {
 
     /// The check-in's own voice is still talking ("Okay. Glad you're safe."
     /// plays after the state is back to idle): FLOWS's other voices must not
-    /// hand the audio session back from under it.
-    var isSpeaking: Bool { synthesizer.isSpeaking }
+    /// hand the audio session back from under it. A voice the system paused
+    /// (the 911 call cutting in on the report) is not talking: counted as
+    /// speaking, it held every turn line back for the rest of the drive.
+    var isSpeaking: Bool { synthesizer.isSpeaking && !synthesizer.isPaused }
 
     /// After the last utterance, hand the audio session back — the check-in
     /// activates it with .duckOthers, and without an explicit deactivation

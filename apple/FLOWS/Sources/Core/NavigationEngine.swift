@@ -271,7 +271,10 @@ final class NavigationEngine: ObservableObject {
               let destination = points.last,
               Date() >= nextRerouteAt else { return }
         isRerouting = true
-        offRouteFixes = 0
+        // The off-route count stays up until a new road is in hand (it is
+        // cleared with the new route below, or by start()). Cleared here, a
+        // search that found nothing put the old turn back on screen for
+        // three fixes before each next try.
         // Replan the way the leg was planned. This always asked for a
         // driving route, so a walker who strayed was sent down roads for
         // cars — freeways included on a long walk.

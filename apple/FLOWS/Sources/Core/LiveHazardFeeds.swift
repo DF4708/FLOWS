@@ -369,9 +369,12 @@ actor LiveHazardFeedFetcher {
     private static let retryAfterFailure: TimeInterval = 90
 
     /// The fetched-at stamp that puts the next try `retryAfterFailure` from
-    /// now, whatever the feed's own TTL.
+    /// now, whatever the feed's own TTL. `ttl` is the base the freshness
+    /// check stretches (AdaptiveTuning), so the same stretch is taken here:
+    /// on the base alone, Low Power or a warm phone made a feed that failed
+    /// once wait half an hour, not 90 seconds.
     private static func failedStamp(ttl: TimeInterval) -> Date {
-        Date().addingTimeInterval(-max(ttl - retryAfterFailure, 0))
+        Date().addingTimeInterval(-max(AdaptiveTuning.shared.ttl(ttl) - retryAfterFailure, 0))
     }
 
     // MARK: fire — NOAA HMS hotspots (one NA-wide file, 30-min TTL)

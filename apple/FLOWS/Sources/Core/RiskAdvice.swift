@@ -268,11 +268,27 @@ enum RiskAdvice {
     /// Maine's land (north of 44.8°N), drawn along the Quebec and New
     /// Brunswick border as (latitude, longitude): the 45th parallel's end at
     /// -71.5, Coburn Gore, Armstrong, the highlands to Estcourt Station, the
-    /// St. John River to Hamlin, the -67.78 monument line, then the St. Croix.
+    /// St. John River to Hamlin (through Grand Isle and Van Buren, where the
+    /// river bows north of a straight line), the -67.78 monument line, then
+    /// the St. Croix.
     private static let maine: [CLLocationCoordinate2D] = [
         (44.6, -71.5), (45.01, -71.5), (45.30, -71.08), (45.40, -70.80), (45.77, -70.39),
-        (46.40, -70.05), (47.10, -70.0), (47.46, -69.23), (47.36, -68.33), (47.07, -67.78),
+        (46.40, -70.05), (47.10, -70.0), (47.46, -69.23), (47.36, -68.33),
+        (47.35, -68.14), (47.20, -67.92), (47.07, -67.78),
         (45.93, -67.78), (45.57, -67.43), (45.18, -67.28), (44.6, -66.9),
+    ].map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }
+
+    /// Southeast Alaska as (latitude, longitude): Dixon Entrance, up the
+    /// Portland Canal between Hyder and Stewart, the Coast Mountains behind
+    /// Wrangell and Juneau to the White Pass above Skagway, the Haines
+    /// road's border, Mount Fairweather, Mount St. Elias, and the sea back
+    /// along 141°W. One box for all of Alaska ("north of 51°, west of
+    /// -130.5") took Haida Gwaii, Atlin and Whitehorse with it.
+    private static let alaskaPanhandle: [CLLocationCoordinate2D] = [
+        (54.66, -141.0), (54.66, -130.6), (55.0, -130.2), (55.85, -130.0), (55.95, -130.0),
+        (56.1, -130.1), (56.7, -131.9), (58.0, -133.1), (58.9, -133.8), (59.7, -135.0),
+        (59.8, -135.5), (59.45, -136.4), (58.9, -137.5), (59.7, -138.6), (60.3, -139.1),
+        (60.3, -141.0),
     ].map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }
 
     /// Is the point on the Canadian side of the border? West to east, the
@@ -283,8 +299,15 @@ enum RiskAdvice {
     /// first, ahead of its high latitude. Border towns within ~0.05° are
     /// inherently ambiguous at this resolution.
     static func isNorthOfTheBorder(latitude lat: Double, longitude lon: Double) -> Bool {
-        if lat > 51 && lon < -130.5 { return false }               // Alaska
+        if lat > 51 && lon < -141 { return false }                 // Alaska, and the Aleutians
+        if lat > 54.66 && lat < 60.3 && lon > -141 && lon < -129.9,
+           HazardFeedScores.pointInPolygon(
+               CLLocationCoordinate2D(latitude: lat, longitude: lon), alaskaPanhandle) {
+            return false                                           // Southeast Alaska
+        }
         if lon <= -95.15 { return lat > 49.0 }                     // the 49th parallel
+        // Minnesota's Northwest Angle, the one piece of the lower 48 above it
+        if lat < 49.39 && lon < -95.0 { return false }
         if lon <= -89.6 {                                          // Rainy River → Pigeon River
             let knots: [(lon: Double, lat: Double)] = [
                 (-95.15, 49.0), (-94.6, 48.8), (-93.4, 48.6), (-92.0, 48.3), (-89.6, 48.0)]
@@ -310,17 +333,44 @@ enum RiskAdvice {
         return lon < -52 && lat > 43.0                             // the Maritimes
     }
 
+    /// The Rio Grande from El Paso to the Gulf as (longitude, latitude),
+    /// each point set a little south of the river so its US bank reads as US:
+    /// El Paso, Fort Hancock, Candelaria, Presidio, Lajitas, the Big Bend's
+    /// tip, Boquillas, La Linda, Langtry, Del Rio, Eagle Pass, Laredo, the
+    /// river's run due south past El Cenizo to San Ygnacio (two points: a
+    /// straight Laredo–Zapata line put El Cenizo in Mexico), Zapata, Roma,
+    /// Rio Grande City, Hidalgo, Progreso, Brownsville.
+    private static let rioGrande: [(lon: Double, lat: Double)] = [
+        (-106.5, 31.74), (-105.85, 31.20), (-104.68, 30.09), (-104.37, 29.50),
+        (-103.77, 29.21), (-103.15, 28.92), (-102.95, 29.13), (-102.82, 29.40),
+        (-101.56, 29.75), (-100.93, 29.28), (-100.51, 28.65), (-99.51, 27.45),
+        (-99.505, 27.28), (-99.44, 27.00),
+        (-99.30, 26.82), (-99.02, 26.35), (-98.82, 26.335), (-98.26, 26.08),
+        (-97.95, 26.01), (-97.4, 25.84),
+    ]
+
     /// The latitude of the US–Mexico border for the WESTERN segment
     /// (longitude in [-117.2, -97.4]): the Californias line, the Sonora/AZ and
-    /// NM lines, then the Rio Grande's diagonal from El Paso to Brownsville. A
-    /// point south of this (within the longitude band) is Mexico. Border towns
-    /// within ~0.1° are inherently ambiguous at this resolution.
+    /// NM lines, then the Rio Grande from El Paso to Brownsville. A point
+    /// south of this (within the longitude band) is Mexico. The river bows
+    /// north of a straight El Paso–Brownsville line, which sent McAllen,
+    /// Brownsville, Zapata and Presidio to the Mexican weather service; it is
+    /// followed point to point instead. Towns on the Mexican bank within
+    /// ~0.05° read as US, the default.
     static func usSouthernBorderLat(longitude lon: Double) -> Double {
-        if lon <= -114.7 { return 32.5 }    // CA / Baja
-        if lon <= -108.2 { return 31.33 }   // AZ / Sonora
-        // NM + El Paso corner down to Brownsville, kept just south of El Paso
-        // city (31.76) so the US side of the Rio Grande routes to NWS.
-        let t = (lon + 106.5) / (-97.4 + 106.5)   // 0 at El Paso, 1 at Brownsville
-        return 31.74 + max(0, t) * (25.9 - 31.74)
+        // CA / Baja: the line climbs from 32.53 at the Pacific to 32.71 at
+        // the Colorado River. Flat at 32.5, it read Tijuana and Mexicali as
+        // US. (San Luis AZ, east of the river, is on the Arizona line.)
+        if lon <= -114.82 { return 32.528 + (lon + 117.2) / 2.38 * 0.183 }
+        // AZ / Sonora: down from the river to Nogales, then flat. Flat all
+        // the way, it read San Luis Río Colorado and Sonoyta as US.
+        if lon <= -111.075 { return 32.484 + (lon + 114.82) / 3.745 * (31.33 - 32.484) }
+        if lon <= -108.2 { return 31.33 }
+        // NM, kept just south of El Paso city (31.76).
+        if lon <= rioGrande[0].lon { return rioGrande[0].lat }
+        guard let i = rioGrande.indices.dropLast().first(where: { lon <= rioGrande[$0 + 1].lon })
+        else { return rioGrande[rioGrande.count - 1].lat }
+        let a = rioGrande[i], b = rioGrande[i + 1]
+        return a.lat + (lon - a.lon) / (b.lon - a.lon) * (b.lat - a.lat)
     }
 }

@@ -88,8 +88,8 @@ targets:
           Continuous location access keeps navigation and hazard warnings
           current while FLOWS is guiding a route.
         NSAppleMusicUsageDescription: >-
-          FLOWS shows Apple Music playback controls while navigating in
-          CarPlay.
+          FLOWS plays and controls your Apple Music while you drive, on the
+          phone and in CarPlay.
         NSMicrophoneUsageDescription: >-
           When FLOWS asks a question out loud — a crash check-in, or a
           faster-route offer — it listens briefly for your spoken yes-or-no
@@ -394,6 +394,7 @@ targets:
       - path: FLOWS/Sources/Core/DestinationPrediction.swift
       - path: FLOWS/Sources/Core/WeatherAlertService.swift
       - path: FLOWS/Sources/Core/RouteService.swift
+      - path: FLOWS/Sources/Core/SiriSchemaRules.swift
       - path: FLOWSTests
       - path: FLOWS/RustBridge
     dependencies:

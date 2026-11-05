@@ -303,8 +303,23 @@ pub fn flows_transit_build_many(
 /// off the disk on seeing them, and the next question builds it afresh.
 pub const UNREADABLE: &str = "shard unreadable: ";
 
+/// A shard that could not be read THIS time (a file the system would not
+/// hand over): the pair may be good, so it is left where it is.
+pub const NOT_READ: &str = "shard not read: ";
+
+/// Which of the two an open error is: a file that is missing, cut short or
+/// fails its checks is the shard's own fault; anything else is the read's.
+fn open_error_words(kind: std::io::ErrorKind) -> &'static str {
+    use std::io::ErrorKind::{InvalidData, NotFound, UnexpectedEof};
+    match kind {
+        InvalidData | NotFound | UnexpectedEof => UNREADABLE,
+        _ => NOT_READ,
+    }
+}
+
 fn open_or_err(prefix: &str) -> Result<Shard, Vec<String>> {
-    shard::open(Path::new(prefix)).map_err(|e| err_rows(format!("{UNREADABLE}{e}")))
+    shard::open(Path::new(prefix))
+        .map_err(|e| err_rows(format!("{}{e}", open_error_words(e.kind()))))
 }
 
 /// How long an opened timetable is kept for the next question: a plan asks
@@ -712,6 +727,34 @@ mod tests {
         // and not after the keeping time
         let late = at + Duration::from_secs(KEEP_SECONDS + 1);
         assert!(!good(&files, "/shards/a", &files, late));
+    }
+
+    #[test]
+    fn only_a_broken_shard_is_called_unreadable() {
+        use std::io::ErrorKind;
+        for broken in [
+            ErrorKind::InvalidData,
+            ErrorKind::NotFound,
+            ErrorKind::UnexpectedEof,
+        ] {
+            assert_eq!(open_error_words(broken), UNREADABLE, "{broken:?}");
+        }
+        // the app deletes the pair on UNREADABLE: a read the system refused
+        // or cut off must not cost a good shard
+        for passing in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::Interrupted,
+            ErrorKind::TimedOut,
+            ErrorKind::Other,
+        ] {
+            assert_eq!(open_error_words(passing), NOT_READ, "{passing:?}");
+            assert!(!NOT_READ.contains(UNREADABLE.trim_end_matches(": ")));
+        }
+        // a pair with one file gone is broken, and says so
+        let rows = open_or_err("/nowhere/flows-no-such-shard")
+            .err()
+            .expect("no shard there");
+        assert!(rows.iter().any(|r| r.contains(UNREADABLE)), "{rows:?}");
     }
 
     #[test]

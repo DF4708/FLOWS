@@ -117,6 +117,11 @@ final class TransitMergeTests: XCTestCase {
         XCTAssertFalse(TransitFeeds.isShard("amtrak", before: 20260929), "the feed folder")
         XCTAssertFalse(TransitFeeds.isShard("stops.txt", before: 20260929))
         XCTAssertFalse(TransitFeeds.isShard("notes-12.ftt", before: 20260929), "not a date")
+        XCTAssertTrue(TransitFeeds.isShard("amtrak-20260928.ftt.new", before: 20260929),
+                      "a build cut short must not leave its half-written file forever")
+        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260929.fts.new", before: 20260929),
+                       "today's build may still be writing it")
+        XCTAssertFalse(TransitFeeds.isShard("amtrak-20260928.new", before: 20260929))
     }
 
     // MARK: the whole path — two feeds on disk become one trip

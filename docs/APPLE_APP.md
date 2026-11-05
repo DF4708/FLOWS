@@ -159,6 +159,20 @@ window renders the templates only — it is not a substitute for a real head
 unit for touch ergonomics, driver-distraction review, or the entitlement
 itself.
 
+## Siri in iOS 27 (App Schemas)
+
+iOS 27 and macOS 27 add four Siri App Schemas (start navigation, add a stop,
+stop navigation, play a radio station) in
+`apple/FLOWS/Sources/FLOWSSchemaIntents.swift`, gated to those versions. Their
+pure rules are in `apple/FLOWS/Sources/Core/SiriSchemaRules.swift`, tested by
+`apple/FLOWSTests/SiriSchemaRulesTests.swift`. The older App Shortcuts in
+`FLOWSIntents.swift` are unchanged and still serve iOS 17 to 26.
+
+The schema intents reach the same AppModel paths as the older commands, so a
+trip still waits for the spoken "go ahead". The schema table, the rules, and
+what is verified are in the "Siri in iOS 27" subsection of `docs/DATA_FEEDS.md`.
+Siri routing on a real iOS 27 device is not yet checked.
+
 ## Risk equations — what is ported vs exported vs approximated
 
 The transfer ledger (each Swift port cites its R source; FLOWSTests locks

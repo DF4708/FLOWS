@@ -1701,10 +1701,22 @@ struct NavigationHUD: View {
     @ViewBuilder
     private var instructionBanner: some View {
         if let g = model.navigation.guidance {
-            banner(distance: distanceText(g.distanceToManeuver),
-                   instruction: g.instruction,
-                   rerouting: model.navigation.isRerouting,
-                   live: true)
+            // Off the planned road, the next turn on the old line is no
+            // longer true. It stayed up, countdown and all, for as long as a
+            // new road could not be found (no signal: up to two minutes
+            // between tries) with nothing to say it was stale. The voice
+            // already goes quiet here (speakTurn); the banner says why.
+            if g.isOffRoute || model.navigation.isRerouting {
+                banner(distance: "Off the route",
+                       instruction: "Finding a new way",
+                       rerouting: model.navigation.isRerouting,
+                       live: false, lost: true)
+            } else {
+                banner(distance: distanceText(g.distanceToManeuver),
+                       instruction: g.instruction,
+                       rerouting: model.navigation.isRerouting,
+                       live: true)
+            }
         } else if let route = model.navigation.route {
             // No GPS fix yet: route preview instead of an empty HUD — first
             // real instruction plus a "waiting" chip so the state is obvious.
@@ -1799,14 +1811,26 @@ struct NavigationHUD: View {
     }
 
     private func banner(distance: String, instruction: String,
-                        rerouting: Bool, live: Bool) -> some View {
+                        rerouting: Bool, live: Bool, lost: Bool = false) -> some View {
         HStack(spacing: 14) {
             // The lane box IS the arrow beside the directions (owner,
             // 2026-10-01): one arrow per lane, each the movement its lane
             // serves, the lanes to be in green — one green arrow when the
             // lanes aren't known. It MATCHES the words (ManeuverSymbol): a
             // right turn drawn beside "turn left" is worse than no icon.
-            laneBox(instruction: instruction, live: live)
+            // Off the route there is no turn to draw, and the old turn's
+            // lanes would be as wrong as its words.
+            if lost {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.system(size: 22, weight: .bold))
+                    .frame(minWidth: 40, minHeight: 40)
+                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.white.opacity(0.25), lineWidth: 1))
+                    .accessibilityHidden(true)
+            } else {
+                laneBox(instruction: instruction, live: live)
+            }
             VStack(alignment: .leading, spacing: 1) {
                 Text(distance)
                     .font(live
@@ -1821,7 +1845,7 @@ struct NavigationHUD: View {
                     .minimumScaleFactor(0.7)
                     .lineLimit(2)
                 // The lanes in words, under the directions.
-                if let lanesSaid = laneWords(instruction: instruction) {
+                if !lost, let lanesSaid = laneWords(instruction: instruction) {
                     Text(lanesSaid)
                         .scaledFont(size: 11, weight: .semibold)
                         .foregroundStyle(Theme.riskGreen)
@@ -3131,7 +3155,12 @@ struct NavigationHUD: View {
             .accessibilityLabel(model.musicProvider == .radio
                                 ? "Previous station" : "Previous track")
             // Shows PAUSE while playing (press to stop), PLAY while paused.
-            Button { model.playMusic() } label: {
+            Button {
+                // Refused Apple Music: open the music card, which says so
+                // and has the button to Settings.
+                if music.appleMusicRefused { showMusicMenu = true }
+                model.playMusic()
+            } label: {
                 Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
                     .frame(width: 30, height: Theme.tapMinimum)
             }
@@ -3211,6 +3240,27 @@ struct NavigationHUD: View {
                 }
                 .buttonStyle(.plain)
             }
+            #if os(iOS)
+            // Apple Music was refused for FLOWS: play does nothing until it
+            // is turned on, so say that and give the one tap that fixes it.
+            if music.appleMusicRefused,
+               let settings = URL(string: UIApplication.openSettingsURLString) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Apple Music is turned off for FLOWS, so play can't start it.")
+                        .scaledFont(size: 13, weight: .semibold)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Link(destination: settings) {
+                        Text("Open Settings")
+                            .scaledFont(size: 14, weight: .heavy)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: Theme.tapMinimum)
+                            .background(Theme.cta)
+                            .foregroundStyle(Theme.onCTA)
+                            .clipShape(Capsule())
+                    }
+                }
+            }
+            #endif
             // FLOWS's own mic — no "Hey Siri" needed: say a genre, artist,
             // or mood and it routes through the picked service (catalog
             // play, Spotify remote, or the service's own search).

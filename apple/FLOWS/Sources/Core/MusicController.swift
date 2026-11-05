@@ -135,6 +135,15 @@ final class MusicController: ObservableObject {
                               spotifyLinked: SpotifyRemote.shared.linked)
     }
 
+    /// True when Apple Music is the picked service and the driver (or the
+    /// phone's restrictions) said no to FLOWS reaching it. The system player
+    /// then ignores play without a word, so the button looked broken.
+    var appleMusicRefused: Bool {
+        guard provider == .appleMusic else { return false }
+        let status = MPMediaLibrary.authorizationStatus()
+        return status == .denied || status == .restricted
+    }
+
     /// Now-playing artwork thumbnail. Stored + published: a computed read of
     /// nowPlayingItem never invalidates SwiftUI, so the mini-player would
     /// keep the placeholder forever.
@@ -585,6 +594,9 @@ final class MusicController: ObservableObject {
         provider.controllable(onMac: true, spotifyLinked: false)
     }
 
+    /// The Mac scripts the Music app; there is no library permission to refuse.
+    var appleMusicRefused: Bool { false }
+
     func playPause() {
         if radioTransport({ $0.pauseOrResume() }) { return }
         if !isPlaying { stopRadioForMusic() }
@@ -738,6 +750,7 @@ final class MusicController: ObservableObject {
     static let isAvailable = false
     var provider: MusicProvider = .appleMusic
     var controlsInPlace: Bool { false }
+    var appleMusicRefused: Bool { false }
     init() {}
     func playPause() {}
     func pauseForRadio() {}

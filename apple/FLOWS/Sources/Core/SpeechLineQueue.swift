@@ -144,3 +144,34 @@ enum SpeechTopic {
         return topic.hasPrefix("imminent.") || topic == escalation
     }
 }
+
+/// Warnings that came while the crash check-in had the voice. A warning is
+/// spoken once, so a line dropped there was never heard: it waits here and
+/// is said when the check-in falls quiet. Everything else is let go — a turn
+/// direction is stale by then, and a music reply answers nothing.
+struct HeldWarnings {
+    /// A handful at most: a check-in can run for minutes.
+    static let cap = 4
+    private(set) var lines: [(text: String, topic: String)] = []
+
+    /// Whether the line was kept (a warning, not already waiting, room left).
+    @discardableResult
+    mutating func hold(_ text: String, topic: String?) -> Bool {
+        guard let topic, SpeechTopic.isUrgent(topic), !text.isEmpty,
+              !lines.contains(where: { $0.topic == topic && $0.text == text }) else { return false }
+        if lines.count >= Self.cap { lines.removeFirst() }
+        lines.append((text, topic))
+        return true
+    }
+
+    /// The message closed while its line waited: it is never said.
+    mutating func cancel(topic: String) {
+        lines.removeAll { $0.topic == topic }
+    }
+
+    /// Everything waiting, oldest first; nothing waits after.
+    mutating func drain() -> [(text: String, topic: String)] {
+        defer { lines = [] }
+        return lines
+    }
+}

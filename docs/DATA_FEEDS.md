@@ -661,6 +661,72 @@ can hold (phone-width caps before the giant accessibility tiers), so
 enormous type can never wrap cards into a smear or push words off an
 edge. −1 = follow the system; pure range math pinned by tests.
 
+### Siri in iOS 27 — App Schemas (2026-11)
+
+iOS 27 and macOS 27 let Siri map a request onto Apple's App Schemas. FLOWS
+adopts four of them in `apple/FLOWS/Sources/FLOWSSchemaIntents.swift`. Each one
+lands on the same `AppModel` calls as the older intents, so the same rules hold:
+a trip is offered and nothing drives until the spoken "go ahead", a stop goes
+through `addStop`, ending is the End button, and radio plays only stations from
+FLOWS's own lists. The pure rules are in `Core/SiriSchemaRules.swift`.
+
+| Schema | Intent type | What it does in FLOWS | What it shares with the older command |
+| --- | --- | --- | --- |
+| `.maps.startNavigation`, `Take me to <place>` | `MapsStartNavigationIntent` | Opens FLOWS. May switch Drive/Walk and turn ON "No tolls" or "No highways" (never turns a filter off). Plans, shows the route choices, and offers the first route out loud. No trip goes back to Siri. | `StartTripIntent` ("Start a trip in FLOWS"): the same plan and offer, through `present(routes:)` and `stageTripOffer`. |
+| `.maps.updateNavigationWaypoints`, `Add <place> to my route` | `MapsUpdateNavigationWaypointsIntent` | Adds the first asked place not already on the trip as the next stop. A place within 150 m of a stop already on the trip counts as that stop. One stop at a time. A place given only by name is searched for ahead on the road first while driving. | `AddPlaceStopIntent` ("Add a stop in FLOWS"): the same `addStop`. |
+| `.maps.stopNavigation`, "Stop navigation" | `StopNavigationIntent` | Ends the trip. | The drive screen's End button (`endNavigation()`). There is no older shortcut for it. |
+| `.audio.playAudio`, `Play <station>` or `play the weather radio` | `PlayAudioIntent` | Plays a station from FLOWS's own lists only: an AM/FM directory search, or the nearest NOAA Weather Radio relay. | `RadioControlIntent` ("Play the weather radio in FLOWS"): the same `radio.play`. |
+
+Rules the table does not show:
+
+- With several destinations, the trip ends at the last one. The others are
+  stops to add once the driver is driving.
+- A request that would change the mode or the road filters during a trip is
+  refused: "You're on a trip now. End it first, then ask again." So is a
+  request for a route that starts somewhere other than where the driver is.
+- When none of the asked stops can be found, the answer is "Couldn't find that
+  place." When every one is already on the trip (or Siri sends the list with a
+  stop left out), it is "That's already on your trip. I can add a stop, but I
+  can't take one off."
+- With no trip under way, adding a stop answers "Start a route first — then I
+  can add a stop to it." Stop navigation answers "No trip is under way."
+- Live radio cannot wait in a queue. "Play it next" is answered "Live radio
+  plays right away. Ask me to play it now."
+- Music (songs, artists, playlists) is not in the schema. Music requests stay
+  with the older "Play something in FLOWS" shortcut (`PlayMusicSearchIntent`).
+
+Supporting types:
+
+- `MapsPlaceEntity` with `MapsPlaceEntityIntentValueQuery` turns Siri's place
+  description into a place. It takes the coordinate when Siri gives one, else
+  Apple's lookup, else one search. At most five places come back.
+- `MapsCurrentLocationEntity` ("Where you are") and the `MapsLocation` union
+  let "here" be a start or a stop.
+- `MapsNavigationSessionEntity` is the one live trip. It errors with "No trip
+  is under way. Start a route first." when nothing is being driven.
+- `LiveRadioStationEntity` with `AudioItemIntentValueQuery` answers with
+  FLOWS's own stations.
+- The place schema lists fields FLOWS has no data for (open or closed, hours,
+  price range, ratings). They are declared and left empty, not guessed. The
+  phone number is Apple's own, when its lookup gives one.
+
+Not adopted:
+
+- Reporting incidents. FLOWS takes no crowd-sourced reports.
+- Sharing an ETA. FLOWS can only prefill a text message.
+- Music entities. FLOWS has no song, artist or playlist results to give.
+
+**Verified.** Both apps build with zero warnings on Xcode 27.2. The built apps'
+App Intents metadata lists all four schema intents. Twelve unit tests cover
+the rules (`apple/FLOWSTests/SiriSchemaRulesTests.swift`).
+
+**Not verified.** That Siri routes requests to these intents on a real iOS 27
+device with the new Siri, and how the spoken lines sound. That needs a device
+test.
+
+On iOS 17 to 26 nothing changes. The 10 App Shortcuts in `FLOWSIntents.swift`
+stay as they are, and so do the shortcuts people already made.
+
 ### Spotify remote — optional user token (the Yelp/TomTom pattern)
 
 True in-app Spotify control on iOS needs Spotify's own iOS SDK + a client

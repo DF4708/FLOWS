@@ -127,6 +127,27 @@ final class SpeechLineQueueTests: XCTestCase {
                        "turn left")
     }
 
+    func testAWarningDuringTheCrashQuestionWaitsAndOtherLinesDoNot() {
+        var held = HeldWarnings()
+        XCTAssertTrue(held.hold("Tornado warning ahead", topic: SpeechTopic.imminent("A")))
+        // The same line again is one line; a turn and a music reply are let go.
+        XCTAssertFalse(held.hold("Tornado warning ahead", topic: SpeechTopic.imminent("A")))
+        XCTAssertFalse(held.hold("turn left", topic: SpeechTopic.turn))
+        XCTAssertFalse(held.hold("playing jazz", topic: nil))
+        XCTAssertTrue(held.hold("Flood ahead", topic: SpeechTopic.imminent("B")))
+        // A message closed while it waited is never said.
+        held.cancel(topic: SpeechTopic.imminent("A"))
+        XCTAssertEqual(held.drain().map(\.text), ["Flood ahead"])
+        XCTAssertTrue(held.drain().isEmpty)
+        // Never more than the cap: the oldest gives way.
+        for n in 0..<(HeldWarnings.cap + 2) {
+            held.hold("warning \(n)", topic: SpeechTopic.imminent("\(n)"))
+        }
+        let said = held.drain().map(\.text)
+        XCTAssertEqual(said.count, HeldWarnings.cap)
+        XCTAssertEqual(said.last, "warning \(HeldWarnings.cap + 1)")
+    }
+
     func testTopicsNameTheirMessage() {
         XCTAssertEqual(SpeechTopic.imminent("abc"), "imminent.abc")
         XCTAssertNotEqual(SpeechTopic.trafficOffer, SpeechTopic.escalation)

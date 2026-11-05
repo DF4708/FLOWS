@@ -80,10 +80,13 @@ struct GoldenScale: Equatable {
     /// the filter grid and a whole route card, and no more — the map below
     /// still has to show the route being chosen. Cards snap to their own
     /// edges inside it, so the panel never slices one in half.
-    var choicesPanelHeight: CGFloat { min(max(size.height * 0.46, 300), 520) }
+    /// Half, not 46%: the filter grid has grown to three rows since, and at
+    /// 46% an iPhone showed the first card with its GO button cut off at the
+    /// panel's bottom edge — the one button the screen is for.
+    var choicesPanelHeight: CGFloat { min(max(size.height * 0.5, 300), 520) }
     /// The same share as a FRACTION, for framing the route clear of it.
     var choicesPanelFraction: Double {
-        size.height > 0 ? Double(choicesPanelHeight / size.height) : 0.46
+        size.height > 0 ? Double(choicesPanelHeight / size.height) : 0.5
     }
     /// List scroll cap inside HUD cards (height/φ³).
     var listMaxHeight: CGFloat { size.height / pow(goldenRatio, 3) }

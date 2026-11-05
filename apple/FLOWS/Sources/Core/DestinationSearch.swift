@@ -311,9 +311,12 @@ final class DestinationSearch: NSObject, ObservableObject {
     }
 
     /// The user tapped a suggestion — clear the list and swallow the field
-    /// update the programmatic fill is about to trigger.
-    func accept() {
-        suppressNextUpdate = true
+    /// update the programmatic fill is about to trigger. `changesText` is
+    /// whether the fill differs from what the field already holds: an equal
+    /// fill sends no update, and the flag left up swallowed the driver's
+    /// next keystroke instead.
+    func accept(changesText: Bool = true) {
+        suppressNextUpdate = changesText
         suggestions = []
         pinnedRows = []
         // The completer's answer to the last keystroke, still on its way,

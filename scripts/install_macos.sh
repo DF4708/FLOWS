@@ -23,7 +23,10 @@ if pgrep -f "FLOWS.app/Contents/MacOS/FLOWS" >/dev/null 2>&1; then
 fi
 
 echo "==> Rust core (release)"
-cargo build --release --manifest-path "$REPO/rust/Cargo.toml"
+# FLOWS_RUST_TOOLCHAIN names the Rust that builds the app (unset: rustup's
+# default); scripts/build_rust_bridge.sh reads the same name.
+TOOLCHAIN="${FLOWS_RUST_TOOLCHAIN:-}"
+cargo ${TOOLCHAIN:+"+$TOOLCHAIN"} build --release --manifest-path "$REPO/rust/Cargo.toml"
 
 echo "==> Xcode project"
 (cd "$REPO/apple" && xcodegen generate)
@@ -31,7 +34,8 @@ echo "==> Xcode project"
 echo "==> App (Release)"
 xcodebuild -project "$REPO/apple/FLOWS.xcodeproj" -scheme FLOWS-macOS \
   -configuration Release -destination 'platform=macOS' \
-  -derivedDataPath "$REPO/apple/DerivedData" build | tail -1
+  -derivedDataPath "$REPO/apple/DerivedData" \
+  ${TOOLCHAIN:+FLOWS_RUST_TOOLCHAIN="$TOOLCHAIN"} build | tail -1
 
 BUILT="$REPO/apple/DerivedData/Build/Products/Release/FLOWS.app"
 DEST="/Applications/FLOWS.app"

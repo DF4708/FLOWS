@@ -306,6 +306,51 @@ final class RiskRealizationTests: XCTestCase {
         XCTAssertEqual(host(25.67, -100.31), "smn.conagua.gob.mx")    // Monterrey
     }
 
+    /// The Rio Grande bows north of a straight El Paso–Brownsville line: the
+    /// towns on its US bank read the Weather Service, and Mexico's cities
+    /// behind it still read their own.
+    func testOfficialURLAlongTheSouthernBorder() {
+        func host(_ lat: Double, _ lon: Double) -> String {
+            RiskAdvice.officialURL(latitude: lat, longitude: lon)?.host ?? "?"
+        }
+        let us: [(String, Double, Double)] = [
+            ("McAllen TX", 26.20, -98.23), ("Brownsville TX", 25.90, -97.50),
+            ("Harlingen TX", 26.19, -97.70), ("Rio Grande City TX", 26.38, -98.82),
+            ("Zapata TX", 26.91, -99.27), ("Laredo TX", 27.51, -99.51),
+            ("Eagle Pass TX", 28.71, -100.50), ("Del Rio TX", 29.36, -100.90),
+            ("Presidio TX", 29.56, -104.37), ("Terlingua TX", 29.32, -103.62),
+            ("Fabens TX", 31.50, -106.16), ("El Paso TX", 31.76, -106.49),
+            ("San Luis AZ", 32.487, -114.78), ("Yuma AZ", 32.69, -114.63),
+            ("Nogales AZ", 31.34, -110.93), ("San Diego CA", 32.72, -117.16),
+            // The river runs due south below Laredo; the line climbs east
+            // to west along both Californias and Arizona.
+            ("El Cenizo TX", 27.331, -99.502), ("Rio Bravo TX", 27.364, -99.479),
+            ("San Ygnacio TX", 27.045, -99.443), ("Roma TX", 26.405, -99.016),
+            ("La Grulla TX", 26.270, -98.648), ("Hidalgo TX", 26.100, -98.263),
+            ("San Ysidro CA", 32.555, -117.043), ("Calexico CA", 32.679, -115.499),
+            ("Sasabe AZ", 31.488, -111.544), ("Douglas AZ", 31.345, -109.545),
+            ("Columbus NM", 31.828, -107.640),
+        ]
+        for (name, lat, lon) in us {
+            XCTAssertEqual(host(lat, lon), "forecast.weather.gov", name)
+        }
+        let mexico: [(String, Double, Double)] = [
+            ("Monterrey", 25.67, -100.31), ("Chihuahua", 28.63, -106.08),
+            ("Hermosillo", 29.07, -110.96), ("Ensenada", 31.87, -116.60),
+            ("Saltillo", 25.42, -101.00), ("Ciudad Victoria", 23.74, -99.15),
+            ("Torreón", 25.54, -103.41), ("Mexico City", 19.43, -99.13),
+            // Cities on the line itself. A city whose centre sits on the
+            // fence is pinned a little inside it.
+            ("Tijuana", 32.515, -117.038), ("Mexicali, south of the centre", 32.62, -115.45),
+            ("San Luis Río Colorado, south of the centre", 32.45, -114.77),
+            ("Sonoyta", 31.861, -112.854), ("Ojinaga", 29.564, -104.416),
+            ("Camargo", 26.314, -98.834), ("Reynosa, south of the centre", 26.05, -98.30),
+        ]
+        for (name, lat, lon) in mexico {
+            XCTAssertEqual(host(lat, lon), "smn.conagua.gob.mx", name)
+        }
+    }
+
     /// The northern border, town by town: Maine, northern New York and
     /// Vermont, Lake Ontario's south shore and Michigan's Huron coast are
     /// US (a flat "north of 44.8°" box sent them to Environment Canada), and
@@ -326,6 +371,13 @@ final class RiskRealizationTests: XCTestCase {
             ("Detroit MI", 42.33, -83.05), ("Sault Ste. Marie MI", 46.50, -84.35),
             ("Duluth MN", 46.79, -92.10), ("Minneapolis MN", 44.98, -93.27),
             ("Fargo ND", 46.88, -96.79), ("Seattle WA", 47.61, -122.33),
+            ("Van Buren ME", 47.161, -67.939), ("Grand Isle ME", 47.315, -68.139),
+            ("Hyder AK", 55.92, -130.02), ("Angle Inlet MN", 49.34, -95.07),
+            ("Ketchikan AK", 55.34, -131.65), ("Juneau AK", 58.30, -134.42),
+            ("Sitka AK", 57.05, -135.33), ("Skagway AK", 59.46, -135.31),
+            ("Haines AK", 59.24, -135.44), ("Yakutat AK", 59.55, -139.73),
+            ("Anchorage AK", 61.22, -149.90), ("Tok AK", 63.34, -142.99),
+            ("Unalaska AK", 53.87, -166.54),
         ]
         for (name, lat, lon) in us {
             XCTAssertFalse(canada(lat, lon), "\(name) is in the US")
@@ -339,6 +391,11 @@ final class RiskRealizationTests: XCTestCase {
             ("Moncton NB", 46.09, -64.80), ("Woodstock NB", 46.15, -67.60),
             ("Halifax NS", 44.65, -63.57), ("Yarmouth NS", 43.83, -66.12),
             ("St. John's NL", 47.56, -52.71),
+            ("Prince Rupert BC", 54.31, -130.32), ("Kenora ON", 49.77, -94.49),
+            ("Edmundston NB", 47.374, -68.325), ("Grand Falls NB", 47.05, -67.74),
+            ("Stewart BC", 55.936, -129.988), ("Masset BC", 54.01, -132.15),
+            ("Atlin BC", 59.57, -133.70), ("Whitehorse YT", 60.72, -135.05),
+            ("Haines Junction YT", 60.75, -137.51), ("Dawson City YT", 64.06, -139.43),
         ]
         for (name, lat, lon) in ca {
             XCTAssertTrue(canada(lat, lon), "\(name) is in Canada")

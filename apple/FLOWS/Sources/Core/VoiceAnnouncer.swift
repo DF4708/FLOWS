@@ -59,10 +59,30 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// speaks, then listens, and hands the session back itself.
     var checkInHoldsSession: () -> Bool = { false }
     /// Set by AppModel: the crash check-in is ASKING (its question, then its
-    /// microphone). Nothing else speaks meanwhile: a turn line or a warning
-    /// over the question buried it, and over the listen window it was heard
-    /// as the driver's reply.
+    /// microphone) or reading its report. Nothing else speaks meanwhile: a
+    /// turn line or a warning over the question buried it, and over the
+    /// listen window it was heard as the driver's reply. Warnings wait in
+    /// `held`; other lines are let go.
     var checkInOwnsVoice: () -> Bool = { false }
+    private var held = HeldWarnings()
+    private var heldWatch: Task<Void, Never>?
+
+    /// Say the held warnings once the check-in has been quiet for a moment
+    /// (its own "Okay. Glad you're safe." included).
+    private func sayHeldWhenQuiet() {
+        guard heldWatch == nil else { return }
+        heldWatch = Task { [weak self] in
+            var quiet = 0
+            while !Task.isCancelled, quiet < 2 {
+                try? await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                quiet = self.checkInOwnsVoice() ? 0 : quiet + 1
+            }
+            guard let self, !Task.isCancelled else { return }
+            self.heldWatch = nil
+            for line in self.held.drain() { self.announce(line.text, topic: line.topic) }
+        }
+    }
     /// Set by AppModel: FLOWS's own sound is playing (a station on the air,
     /// the dispatch feed). Handing the session back would stop it.
     var ownAudioPlaying: () -> Bool = { false }
@@ -97,7 +117,13 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// closing the message can take the line back; leave it nil for a line
     /// no close should cut (a turn direction, a music reply).
     func announce(_ text: String, topic: String? = nil) {
-        guard !text.isEmpty, !checkInOwnsVoice() else { return }
+        guard !text.isEmpty else { return }
+        if checkInOwnsVoice() {
+            // A warning waits for the check-in to fall quiet; it used to be
+            // dropped, and a warning is only said once.
+            if held.hold(text, topic: topic) { sayHeldWhenQuiet() }
+            return
+        }
         // The crash check-in's session and a reply being listened for are
         // left alone: switching either to
         // playback shuts its microphone, and a turn line landing in the
@@ -141,6 +167,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
     /// Take back a message's lines: the one being read stops mid-sentence,
     /// queued ones never start. Other lines carry on.
     func cancel(topic: String) {
+        held.cancel(topic: topic)
         let result = queue.cancel(topic: topic)
         if result.stopCurrent {
             // The synthesizer holds only this line; its cancel report starts

@@ -194,6 +194,11 @@ struct PlannerPanel: View {
                     }
                 } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        #if os(iOS)
+                        // A finger needs 44 pt; the icon alone is about 20. The
+                        // row keeps its height.
+                        .padding(12).contentShape(Rectangle()).padding(-12)
+                        #endif
                 }
                 .buttonStyle(.plain)
                 .help("Tuck the planner away")
@@ -233,7 +238,7 @@ struct PlannerPanel: View {
                     // Mac window.
                     ScrollWhenTight(maxHeight: min(280, golden.size.height / 3), growsOnly: true) {
                         suggestionList(sourceSearch.suggestions) { sug in
-                            sourceSearch.accept()
+                            sourceSearch.accept(changesText: sug.searchText != model.plannerSource)
                             model.plannerSource = sug.searchText
                             model.plannerSourcePick = sug.pick
                             // A filled start + a filled destination = ready; jump
@@ -356,7 +361,7 @@ struct PlannerPanel: View {
                 // grew again moved the field above it under the pointer.
                 ScrollWhenTight(maxHeight: min(280, golden.size.height / 3), growsOnly: true) {
                     suggestionList(destSearch.suggestions) { sug in
-                        destSearch.accept()
+                        destSearch.accept(changesText: sug.searchText != model.plannerDestination)
                         model.plannerDestination = sug.searchText
                         model.plannerDestinationPick = sug.pick
                         listUp = nil
@@ -554,6 +559,8 @@ struct PlannerPanel: View {
     private func favoriteChip(_ fav: FavoriteAddress) -> some View {
         Button {
             Task {
+                // A second tap while the first plan runs is not a second plan.
+                guard !isWorking else { return }
                 isWorking = true
                 defer { isWorking = false }
                 // The highlighted route, which the filters may have moved

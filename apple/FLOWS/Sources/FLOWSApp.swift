@@ -1428,6 +1428,13 @@ final class AppModel: ObservableObject {
             return
         }
         if musicControllable {
+            // Refused Apple Music: the system player ignores play, so say
+            // why instead of doing nothing (the music card shows the way in).
+            if MusicController.shared.appleMusicRefused {
+                VoiceAnnouncer.shared.announce(
+                    "FLOWS is not allowed to play Apple Music. You can turn it on in Settings.")
+                return
+            }
             MusicController.shared.playPause()
         } else {
             musicProvider.openApp()
@@ -2985,8 +2992,11 @@ final class AppModel: ObservableObject {
             self.map { $0.crash.state != .idle || $0.crash.isSpeaking } ?? false
         }
         VoiceAnnouncer.shared.checkInOwnsVoice = { [weak self] in
-            if case .checkingIn? = self?.crash.state { return true }
-            return false
+            guard let self else { return false }
+            if case .checkingIn = self.crash.state { return true }
+            // Its own voice past the question too: the report read out for
+            // the 911 call was talked over by the next alert or turn line.
+            return self.crash.isSpeaking
         }
         VoiceAnnouncer.shared.ownAudioPlaying = { [weak self] in
             guard let self else { return false }
