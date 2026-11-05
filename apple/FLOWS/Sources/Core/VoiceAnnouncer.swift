@@ -31,15 +31,73 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 
     private let synthesizer = AVSpeechSynthesizer()
     private var queue = SpeechLineQueue<String>()
-    /// The line the synthesizer holds, its place in the queue, and when it
-    /// was handed over.
-    private var playing: (serial: Int, utterance: AVSpeechUtterance, since: ContinuousClock.Instant)?
+    /// The line the synthesizer holds, its place in the queue, when it was
+    /// handed over, and whether its first word has been reported.
+    private var playing: (serial: Int, utterance: AVSpeechUtterance,
+                          since: ContinuousClock.Instant, began: Bool)?
 
     /// `isSpeaking` turns true only some milliseconds after `speak()` (12 to
     /// over 100 measured), so a line just handed over is not a lost one:
     /// only a line this old that the synthesizer isn't saying lost its
     /// report.
     static let lostLineGrace: Duration = .seconds(2)
+    /// A picked voice is loaded before its first word, so its line gets this
+    /// long to begin (SpeechVoiceRules.lineIsLost). The default voice keeps
+    /// `lostLineGrace`.
+    static let voiceLoadGrace: Duration = .seconds(6)
+
+    /// The voice lines are spoken with — the driver's pick in Settings, or
+    /// the most natural one installed (SpeechVoiceRules.voice). nil = the
+    /// system's default voice.
+    private(set) var spokenVoice: AVSpeechSynthesisVoice?
+    private var spokenRate = SpeechVoiceRules.rate(step: SpeechVoiceRules.normalSpeedStep)
+
+    /// Set by AppModel, at launch and when the pick or the installed voices
+    /// change. An identifier the system no longer knows leaves the default.
+    func setVoice(id: String?) {
+        spokenVoice = id.flatMap { AVSpeechSynthesisVoice(identifier: $0) }
+    }
+
+    func setSpeed(step: Int) {
+        spokenRate = SpeechVoiceRules.rate(step: step)
+    }
+
+    /// Every voice on the device FLOWS could speak with. Joke voices are
+    /// left out, and the Personal Voice has its own switch. The system's
+    /// list is slow to read the first time, so this is called off the main
+    /// thread.
+    nonisolated static func installedVoices() -> [VoiceChoice] {
+        AVSpeechSynthesisVoice.speechVoices().compactMap { voice in
+            guard !voice.voiceTraits.contains(.isNoveltyVoice),
+                  !voice.voiceTraits.contains(.isPersonalVoice) else { return nil }
+            let quality: VoiceChoice.Quality
+            switch voice.quality {
+            case .premium: quality = .premium
+            case .enhanced: quality = .enhanced
+            default: quality = .basic
+            }
+            return VoiceChoice(id: voice.identifier, name: voice.name,
+                               language: voice.language, quality: quality)
+        }
+    }
+
+    /// The language FLOWS's voices are picked in (its lines are English).
+    nonisolated static var spokenLanguage: String {
+        SpeechVoiceRules.spokenLanguage(device: AVSpeechSynthesisVoice.currentLanguageCode())
+    }
+
+    /// Posted by the system when a voice is downloaded or removed.
+    nonisolated static var voicesChanged: Notification.Name {
+        AVSpeechSynthesizer.availableVoicesDidChangeNotification
+    }
+
+    private func isLost(_ line: (serial: Int, utterance: AVSpeechUtterance,
+                                 since: ContinuousClock.Instant, began: Bool)) -> Bool {
+        SpeechVoiceRules.lineIsLost(
+            speaking: synthesizer.isSpeaking, age: ContinuousClock.now - line.since,
+            pickedVoice: line.utterance.voice != nil, began: line.began,
+            grace: Self.lostLineGrace, loadGrace: Self.voiceLoadGrace)
+    }
 
     private override init() {
         super.init()
@@ -137,8 +195,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         if !listening { activateSpokenSession() }
         // A line whose finish report never came must not hold up every
         // later one, turn directions included.
-        if queue.isBusy, !synthesizer.isSpeaking,
-           playing.map({ ContinuousClock.now - $0.since > Self.lostLineGrace }) ?? true {
+        if queue.isBusy, !synthesizer.isSpeaking, playing.map(isLost) ?? true {
             playing = nil
             if let next = queue.abandonCurrent() { start(next) }
         }
@@ -221,11 +278,12 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
 
     private func start(_ entry: SpeechLineQueue<String>.Entry) {
         let utterance = AVSpeechUtterance(string: entry.line)
-        utterance.rate = 0.5
+        utterance.rate = spokenRate
+        utterance.voice = spokenVoice
         #if os(iOS)
         if let personalVoice { utterance.voice = personalVoice }
         #endif
-        playing = (entry.serial, utterance, .now)
+        playing = (entry.serial, utterance, .now, false)
         duckOwnAudio(true)
         synthesizer.speak(utterance)
         watchForLostReport(serial: entry.serial)
@@ -243,8 +301,7 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
                 try? await Task.sleep(for: Self.lostLineGrace)
                 guard let self, !Task.isCancelled,
                       let current = self.playing, current.serial == serial else { return }
-                if !self.synthesizer.isSpeaking,
-                   ContinuousClock.now - current.since > Self.lostLineGrace {
+                if self.isLost(current) {
                     self.lineEnded(ObjectIdentifier(current.utterance))
                     return
                 }
@@ -262,6 +319,16 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
         } else {
             duckOwnAudio(false)
             releaseSessionWhenQuiet()
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                       didStart utterance: AVSpeechUtterance) {
+        let id = ObjectIdentifier(utterance)
+        Task { @MainActor in
+            if let current = self.playing, ObjectIdentifier(current.utterance) == id {
+                self.playing?.began = true
+            }
         }
     }
 

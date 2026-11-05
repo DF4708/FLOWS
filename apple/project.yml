@@ -395,6 +395,7 @@ targets:
       - path: FLOWS/Sources/Core/WeatherAlertService.swift
       - path: FLOWS/Sources/Core/RouteService.swift
       - path: FLOWS/Sources/Core/SiriSchemaRules.swift
+      - path: FLOWS/Sources/Core/SpeechVoiceRules.swift
       - path: FLOWSTests
       - path: FLOWS/RustBridge
     dependencies:

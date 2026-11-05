@@ -3599,6 +3599,92 @@ struct SettingsSheet: View {
         }
     }
 
+    /// Settings → Voice: which of the device's voices speaks, how fast, and a
+    /// line to hear it. The natural-sounding voices are free downloads in
+    /// the device's own Settings — an app cannot fetch them — so the help
+    /// text says where.
+    @ViewBuilder
+    private var voiceSection: some View {
+        Text("Voice")
+            .scaledFont(size: 14, weight: .semibold)
+        HStack(spacing: 8) {
+            Picker("Voice", selection: Binding(
+                // A pick that is no longer on the device shows as the
+                // automatic one, which is what speaks then.
+                get: {
+                    model.voiceChoices.contains { $0.id == model.voiceID }
+                        ? model.voiceID : SpeechVoiceRules.automaticID
+                },
+                set: { model.voiceID = $0 })) {
+                Text("Best one here").tag(SpeechVoiceRules.automaticID)
+                ForEach(model.voiceChoices) { choice in
+                    Text(SpeechVoiceRules.label(
+                        choice, region: SpeechVoiceRules.region(of: choice.language)))
+                        .tag(choice.id)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(Theme.riskGreen)
+            Spacer(minLength: 4)
+            Button("Hear it") { model.sayVoiceSample() }
+                .buttonStyle(.plain)
+                .scaledFont(.caption, weight: .bold)
+                .foregroundStyle(.blue)
+        }
+        HStack(spacing: 10) {
+            Text("Slower").scaledFont(.caption)
+            Slider(
+                value: Binding(
+                    get: {
+                        Double(min(max(model.voiceSpeedStep, 0),
+                                   SpeechVoiceRules.speeds.count - 1))
+                    },
+                    set: { model.voiceSpeedStep = Int($0.rounded()) }),
+                in: 0...Double(SpeechVoiceRules.speeds.count - 1),
+                step: 1)
+                .accessibilityLabel("Speaking speed")
+            Text("Faster").scaledFont(.caption)
+        }
+        Text(voiceHelp)
+            .scaledFont(.caption2)
+            .foregroundStyle(.secondary)
+        #if os(iOS)
+        if model.personalVoiceAnnouncements {
+            Text("Personal Voice is on (under Accessibility, below). When the "
+                 + "phone has yours ready, FLOWS speaks with it, not this pick.")
+                .scaledFont(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        #endif
+    }
+
+    private var voiceHelp: String {
+        #if os(macOS)
+        let device = "Mac"
+        let path = "System Settings → Accessibility → Spoken Content → "
+            + "System voice → Manage Voices"
+        #else
+        let device = "phone"
+        let path = "phone Settings → Accessibility → Spoken Content → Voices → English"
+        #endif
+        var lines: [String] = []
+        if let voice = model.voiceInUse {
+            let name = SpeechVoiceRules.label(
+                voice, region: SpeechVoiceRules.region(of: voice.language))
+            lines.append("FLOWS is speaking with \(name). More free voices: \(path). "
+                         + "The ones marked Enhanced or Premium sound the most like "
+                         + "a person.")
+        } else {
+            lines.append("The voices that came with this \(device) sound like a "
+                         + "machine. Better ones are free: \(path). Get one marked "
+                         + "Enhanced or Premium, and FLOWS starts using it on its own.")
+        }
+        lines.append("The \"Are you OK?\" question after a crash keeps the plain "
+                     + "voice, so it always starts right away.")
+        return lines.joined(separator: " ")
+    }
+
     @EnvironmentObject private var model: AppModel
     @State private var showDemoGallery = false
     @State private var showContactPicker = false
@@ -3980,6 +4066,9 @@ struct SettingsSheet: View {
                  + "as safe.")
                 .scaledFont(.caption2)
                 .foregroundStyle(.secondary)
+
+            Divider()
+            voiceSection
 
             Divider()
             Text("Text size")

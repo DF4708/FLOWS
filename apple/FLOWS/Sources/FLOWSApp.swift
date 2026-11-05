@@ -635,6 +635,61 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The voice FLOWS speaks with (Settings → Voice): a system voice's
+    /// identifier, or SpeechVoiceRules.automaticID for the most natural one
+    /// installed. The crash check-in keeps the system's default voice: its
+    /// microphone opens on the question's timing, and a voice that loads
+    /// slowly would let it hear its own "say yes".
+    @Published var voiceID =
+        UserDefaults.standard.string(forKey: "flows.voiceID") ?? SpeechVoiceRules.automaticID {
+        didSet {
+            UserDefaults.standard.set(voiceID, forKey: "flows.voiceID")
+            applyVoice()
+        }
+    }
+
+    /// How fast it speaks: a step on SpeechVoiceRules.speeds.
+    @Published var voiceSpeedStep =
+        UserDefaults.standard.object(forKey: "flows.voiceSpeed") as? Int
+            ?? SpeechVoiceRules.normalSpeedStep {
+        didSet {
+            UserDefaults.standard.set(voiceSpeedStep, forKey: "flows.voiceSpeed")
+            VoiceAnnouncer.shared.setSpeed(step: voiceSpeedStep)
+        }
+    }
+
+    /// The voices Settings offers, most natural first.
+    @Published private(set) var voiceChoices: [VoiceChoice] = []
+    /// The voice lines are spoken with now; nil = the system's default one.
+    @Published private(set) var voiceInUse: VoiceChoice?
+    private var installedVoices: [VoiceChoice] = []
+
+    /// Read the device's voices again — at launch, and whenever one is
+    /// downloaded or removed, so a voice just fetched is used at once.
+    func refreshVoices() {
+        Task {
+            let all = await Task.detached { VoiceAnnouncer.installedVoices() }.value
+            installedVoices = all
+            voiceChoices = SpeechVoiceRules.choices(
+                among: all, language: VoiceAnnouncer.spokenLanguage)
+            applyVoice()
+        }
+    }
+
+    private func applyVoice() {
+        voiceInUse = SpeechVoiceRules.voice(
+            picked: voiceID, among: installedVoices, language: VoiceAnnouncer.spokenLanguage)
+        VoiceAnnouncer.shared.setVoice(id: voiceInUse?.id)
+    }
+
+    /// Settings → Voice → "Hear it": one line in the picked voice and speed.
+    func sayVoiceSample() {
+        VoiceAnnouncer.shared.cancel(topic: SpeechTopic.voiceSample)
+        VoiceAnnouncer.shared.announce(
+            "This is how FLOWS sounds. In a quarter mile, turn right onto Main Street.",
+            topic: SpeechTopic.voiceSample)
+    }
+
     /// Felt tap with every spoken alert/offer — the hearing-parity channel.
     /// Default ON; a deaf driver relies on it, everyone else barely
     /// notices it under road vibration.
@@ -2761,6 +2816,16 @@ final class AppModel: ObservableObject {
         if personalVoiceAnnouncements {                   // same didSet gap
             VoiceAnnouncer.shared.setPersonalVoiceEnabled(true)
         }
+        VoiceAnnouncer.shared.setSpeed(step: voiceSpeedStep)
+        // A picked voice speaks from the first line; the best-one-here pick
+        // needs the list, which is read off the main thread.
+        if voiceID != SpeechVoiceRules.automaticID { VoiceAnnouncer.shared.setVoice(id: voiceID) }
+        refreshVoices()
+        NotificationCenter.default
+            .publisher(for: VoiceAnnouncer.voicesChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.refreshVoices() }
+            .store(in: &serviceSubscriptions)
         vehicle.towingActive = towingActive
         // …and the FILTERS towing implies. didSet does not fire for the value
         // restored from UserDefaults, so a driver who quit while towing came

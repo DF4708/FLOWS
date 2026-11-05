@@ -136,6 +136,8 @@ enum SpeechTopic {
     /// after a long warning, "in a quarter mile, turn left" came after the
     /// turn.
     static let turn = "turn"
+    /// Settings → Voice → "Hear it": a second press replaces the first.
+    static let voiceSample = "voice-sample"
 
     /// A warning: spoken before anything waiting, and over a music reply or
     /// a turn line already playing.

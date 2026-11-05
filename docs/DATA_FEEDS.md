@@ -645,6 +645,23 @@ vocabulary, `RadioBrowser.commonGenres`, pinned). Free-text generation
 is deliberately never requested — the model only ever picks from lists
 FLOWS built.
 
+**Voice** (Settings → Voice; `SpeechVoiceRules`, `VoiceAnnouncer`): FLOWS
+speaks with the device's own voices, never a bundled or cloud one. Until
+the driver picks one, it takes the most natural English voice installed
+(Premium, then Enhanced; the device's own accent first) and falls back
+to the system default when only the built-in voices are there — those
+sound mechanical, and the natural ones are free downloads in the
+device's Settings (Accessibility → Spoken Content), which the section
+says in plain words. A voice downloaded while FLOWS runs is picked up at
+once (`availableVoicesDidChangeNotification`). The speed slider has five
+steps with the long-standing rate in the middle; "Hear it" says one
+sample line. A Personal Voice, when on and ready, still wins. A natural
+voice is loaded before its first word, so a line spoken with a picked
+voice gets 6 s to begin before the lost-report watch gives up on it (the
+default voice keeps 2 s). The crash check-in keeps the system default
+voice and rate on purpose: its microphone opens on the question's
+timing, and a late-starting voice would let it hear its own "say yes".
+
 **Apple accessibility tools surfaced** (Settings → Accessibility
 section): Personal Voice — FLOWS's announcements can speak with the
 user's OWN stored voice (AVSpeechSynthesizer personal-voice
