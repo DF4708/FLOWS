@@ -25,6 +25,9 @@ struct VoiceChoice: Equatable, Identifiable, Sendable {
     /// "en-US", "en-GB".
     let language: String
     let quality: Quality
+    /// As the system files the voice; many voices are filed as neither.
+    enum Gender: Sendable { case feminine, masculine, unspecified }
+    var gender: Gender = .unspecified
 }
 
 /// Which voice FLOWS speaks with, and how fast. Until the driver picks one,
@@ -58,16 +61,19 @@ enum SpeechVoiceRules {
     }
 
     /// The voice to speak with: the driver's pick while it is still
-    /// installed, else the most natural one. nil = the system's default
-    /// voice — nothing better than a basic voice is on the device, and the
-    /// default is the basic voice the system itself would choose.
+    /// installed, else the most natural one — a woman's voice first (owner,
+    /// 2026-11-05), so the most natural woman's voice speaks ahead of a
+    /// man's of a higher grade. nil = the system's default voice — nothing
+    /// better than a basic voice is on the device, and the default is the
+    /// basic voice the system itself would choose (a woman's for American
+    /// English).
     static func voice(picked: String, among all: [VoiceChoice], language: String) -> VoiceChoice? {
         let offered = choices(among: all, language: language)
         if picked != automaticID, let mine = offered.first(where: { $0.id == picked }) {
             return mine
         }
-        guard let best = offered.first, best.quality > .basic else { return nil }
-        return best
+        let natural = offered.filter { $0.quality > .basic }
+        return natural.first { $0.gender == .feminine } ?? natural.first
     }
 
     /// The Settings row for a voice: "Ava · US · Premium". The system adds

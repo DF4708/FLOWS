@@ -3674,11 +3674,13 @@ struct SettingsSheet: View {
                 voice, region: SpeechVoiceRules.region(of: voice.language))
             lines.append("FLOWS is speaking with \(name). More free voices: \(path). "
                          + "The ones marked Enhanced or Premium sound the most like "
-                         + "a person.")
+                         + "a person, and \"Best one here\" takes a woman's voice "
+                         + "first.")
         } else {
             lines.append("The voices that came with this \(device) sound like a "
                          + "machine. Better ones are free: \(path). Get one marked "
-                         + "Enhanced or Premium, and FLOWS starts using it on its own.")
+                         + "Enhanced or Premium, and FLOWS starts using it on its "
+                         + "own — a woman's voice first.")
         }
         lines.append("The \"Are you OK?\" question after a crash keeps the plain "
                      + "voice, so it always starts right away.")

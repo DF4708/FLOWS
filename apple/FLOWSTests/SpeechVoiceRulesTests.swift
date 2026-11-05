@@ -12,8 +12,31 @@ import XCTest
 /// sound mechanical, with the choice in Settings.
 final class SpeechVoiceRulesTests: XCTestCase {
     private func voice(_ id: String, _ name: String, _ language: String,
-                       _ quality: VoiceChoice.Quality) -> VoiceChoice {
-        VoiceChoice(id: id, name: name, language: language, quality: quality)
+                       _ quality: VoiceChoice.Quality,
+                       _ gender: VoiceChoice.Gender = .unspecified) -> VoiceChoice {
+        VoiceChoice(id: id, name: name, language: language, quality: quality, gender: gender)
+    }
+
+    /// The owner asked for a woman's voice by default.
+    func testAutomaticTakesAWomansVoiceFirst() {
+        let voices = [voice("evan", "Evan (Premium)", "en-US", .premium, .masculine),
+                      voice("nora", "Voice 4", "en-US", .enhanced, .feminine),
+                      voice("zoe", "Zoe (Premium)", "en-GB", .premium, .feminine),
+                      voice("sam", "Samantha", "en-US", .basic, .feminine)]
+        // The most natural woman's voice, ahead of a man's in the home accent.
+        XCTAssertEqual(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
+                                              among: voices, language: "en-US")?.id, "zoe")
+        // A woman's Enhanced voice ahead of a man's Premium one.
+        XCTAssertEqual(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
+                                              among: Array(voices.prefix(2)),
+                                              language: "en-US")?.id, "nora")
+        // Only a man's natural voice: it still beats the machine-like ones.
+        XCTAssertEqual(SpeechVoiceRules.voice(picked: SpeechVoiceRules.automaticID,
+                                              among: [voices[0], voices[3]],
+                                              language: "en-US")?.id, "evan")
+        // The driver's own pick is never second-guessed.
+        XCTAssertEqual(SpeechVoiceRules.voice(picked: "evan", among: voices,
+                                              language: "en-US")?.id, "evan")
     }
 
     private var installed: [VoiceChoice] {

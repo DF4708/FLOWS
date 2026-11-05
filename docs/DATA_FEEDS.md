@@ -648,7 +648,9 @@ FLOWS built.
 **Voice** (Settings → Voice; `SpeechVoiceRules`, `VoiceAnnouncer`): FLOWS
 speaks with the device's own voices, never a bundled or cloud one. Until
 the driver picks one, it takes the most natural English voice installed
-(Premium, then Enhanced; the device's own accent first) and falls back
+(a woman's voice first — owner, 2026-11-05 — then Premium before
+Enhanced and the device's own accent first; a man's natural voice still
+beats the built-in ones when it is the only natural one) and falls back
 to the system default when only the built-in voices are there — those
 sound mechanical, and the natural ones are free downloads in the
 device's Settings (Accessibility → Spoken Content), which the section

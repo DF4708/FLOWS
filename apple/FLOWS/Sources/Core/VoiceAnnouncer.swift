@@ -76,8 +76,14 @@ final class VoiceAnnouncer: NSObject, AVSpeechSynthesizerDelegate {
             case .enhanced: quality = .enhanced
             default: quality = .basic
             }
+            let gender: VoiceChoice.Gender
+            switch voice.gender {
+            case .female: gender = .feminine
+            case .male: gender = .masculine
+            default: gender = .unspecified
+            }
             return VoiceChoice(id: voice.identifier, name: voice.name,
-                               language: voice.language, quality: quality)
+                               language: voice.language, quality: quality, gender: gender)
         }
     }
 
