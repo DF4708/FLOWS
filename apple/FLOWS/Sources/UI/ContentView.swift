@@ -3708,6 +3708,11 @@ struct SettingsSheet: View {
     /// The connected car's one-time setup unfolded; nil until the driver
     /// folds or unfolds it (open while the car isn't set up yet).
     @State private var smartcarSetupOpen: Bool?
+    /// "What FLOWS has learned about you" and "App health log" unfolded.
+    /// Held here because the page is a lazy stack: a fold that kept its own
+    /// state would snap shut when its row scrolled away and came back.
+    @State private var learnedOpen = false
+    @State private var healthLogOpen = false
 
     /// The name above one key field under "Keys for extra info".
     private func keyLabel(_ text: String) -> some View {
@@ -3895,7 +3900,13 @@ struct SettingsSheet: View {
         .padding(.vertical, 4)
         Divider()
         ScrollView {
-        VStack(alignment: .leading, spacing: 14) {
+        // Lazy on purpose: the page is some 170 rows, and a plain VStack
+        // built every one of them before the sheet could come up — most of
+        // a second of nothing after the first tap on the gear. A lazy stack
+        // builds the rows on screen and the rest as they scroll in. Rows
+        // that scroll away may be rebuilt, so anything a row must remember
+        // (a fold left open) lives in this view's own state, not the row's.
+        LazyVStack(alignment: .leading, spacing: 14) {
             Text("Fuel type")
                 .scaledFont(size: 14, weight: .semibold)
             Picker("Fuel type", selection: Binding(
@@ -4556,84 +4567,89 @@ struct SettingsSheet: View {
             // has inferred about them, and erase it in one press. Learning
             // about someone without showing them what you learned, or
             // letting them take it back, isn't a feature.
-            DisclosureGroup("What FLOWS has learned about you") {
-                let summary = SeasonalRiskModel.shared.learningSummary
-                VStack(alignment: .leading, spacing: 4) {
-                    // "A key that never leaves it" was not true on a Mac,
-                    // whose login keychain rides Time Machine.
-                    Text("All of this is stored on this device only, encrypted "
-                         + "with a key made on it. None of it is sent anywhere.")
-                        .scaledFont(.caption)
-                        .foregroundStyle(.secondary)
-                    learnedRow("Trips remembered", "\(summary.trips)")
-                    learnedRow("Routes recognized", "\(summary.routes)")
-                    // Until enough trips are in, the radius is the starting
-                    // default — shown as learned, it made a fresh install
-                    // (or a just-erased list) look like it knew something.
-                    learnedRow("Everyday area",
-                               EverydayPlaces.shared.radiusLearned
-                                   ? String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles)
-                                   : "Not learned yet")
-                    learnedRow("Home area learned",
-                               EverydayPlaces.shared.homeAnchor == nil ? "No" : "Yes")
-                    learnedRow("Places remembered", "\(EverydayPlaces.shared.allPlaces.count)")
-                    learnedRow("Destinations kept", "\(model.recents.entries.count)")
-                    learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
-                    learnedRow("Your pace", DrivingProfileStore.shared.profile.etaDescription)
-                    // Where the driver has actually been. The erase button
-                    // reached these four, but this list — "exactly what is
-                    // stored", in the privacy policy's words — left them out.
-                    learnedRow("Trail points saved", "\(model.breadcrumbs.points.count)")
-                    learnedRow("Roads saved for no signal", "\(model.corridors.corridors.count)")
-                    learnedRow("Traffic times learned", "\(model.trafficModel.store.cells.count)")
-                    learnedRow("Fuel use learned", "\(model.roadEfficiency.store.cells.count)")
-                    learnedRow("People you shared trips with",
-                               "\(model.shareHistory.recipients.count)")
-                    // What decides whether the vehicle-limits card opens
-                    // on its own (LimitsCardHabit).
-                    learnedRow("Recent plans that used vehicle limits",
-                               "\(model.limitsHabit.filter { $0 != 0 }.count) of "
-                                   + "\(model.limitsHabit.count)")
-                    if let cal = summary.calibration, cal.isFinite {
-                        // An error on the 0–1 risk scale, as a percentage.
-                        learnedRow("How far off risk guesses were",
-                                   "about \(Int((cal * 100).rounded()))%")
-                    }
-                    if summary.tuned {
-                        Text("The risk model has been fine-tuned on your own trips.")
-                            .scaledFont(.caption).foregroundStyle(.secondary)
-                    }
-                    // One press, but not one stray tap: nothing brings it back.
-                    Button(role: .destructive) {
-                        confirmingErase = true
-                    } label: {
-                        Label("Erase everything FLOWS has learned",
-                              systemImage: "trash")
-                    }
-                    .scaledFont(.caption, weight: .semibold)
-                    .padding(.top, 4)
-                    .alert("Erase everything FLOWS has learned?",
-                           isPresented: $confirmingErase) {
-                        Button("Erase", role: .destructive) {
-                            Task {
-                                // The list itself lives in AppModel, beside
-                                // the stores, so a new one is added there.
-                                await model.eraseEverythingLearned()
-                                erasedConfirmation = true
-                                healthLines = await FlowsDiag.shared.recent(120)
-                            }
-                        }
-                        Button("Cancel", role: .cancel) {}
-                    } message: {
-                        Text("This can't be undone.")
-                    }
-                    if erasedConfirmation {
-                        Text("Erased. The app is back to knowing nothing about your travel.")
+            DisclosureGroup("What FLOWS has learned about you", isExpanded: $learnedOpen) {
+                // Counted only while the fold is open: the counts read nine
+                // stores (one loads its file the first time), and building
+                // them for a fold nobody has opened slowed Settings' opening.
+                if learnedOpen {
+                    let summary = SeasonalRiskModel.shared.learningSummary
+                    VStack(alignment: .leading, spacing: 4) {
+                        // "A key that never leaves it" was not true on a Mac,
+                        // whose login keychain rides Time Machine.
+                        Text("All of this is stored on this device only, encrypted "
+                             + "with a key made on it. None of it is sent anywhere.")
                             .scaledFont(.caption)
-                            .foregroundStyle(Theme.riskGreen)
+                            .foregroundStyle(.secondary)
+                        learnedRow("Trips remembered", "\(summary.trips)")
+                        learnedRow("Routes recognized", "\(summary.routes)")
+                        // Until enough trips are in, the radius is the starting
+                        // default — shown as learned, it made a fresh install
+                        // (or a just-erased list) look like it knew something.
+                        learnedRow("Everyday area",
+                                   EverydayPlaces.shared.radiusLearned
+                                       ? String(format: "%.0f mi", EverydayPlaces.shared.radiusMiles)
+                                       : "Not learned yet")
+                        learnedRow("Home area learned",
+                                   EverydayPlaces.shared.homeAnchor == nil ? "No" : "Yes")
+                        learnedRow("Places remembered", "\(EverydayPlaces.shared.allPlaces.count)")
+                        learnedRow("Destinations kept", "\(model.recents.entries.count)")
+                        learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
+                        learnedRow("Your pace", DrivingProfileStore.shared.profile.etaDescription)
+                        // Where the driver has actually been. The erase button
+                        // reached these four, but this list — "exactly what is
+                        // stored", in the privacy policy's words — left them out.
+                        learnedRow("Trail points saved", "\(model.breadcrumbs.points.count)")
+                        learnedRow("Roads saved for no signal", "\(model.corridors.corridors.count)")
+                        learnedRow("Traffic times learned", "\(model.trafficModel.store.cells.count)")
+                        learnedRow("Fuel use learned", "\(model.roadEfficiency.store.cells.count)")
+                        learnedRow("People you shared trips with",
+                                   "\(model.shareHistory.recipients.count)")
+                        // What decides whether the vehicle-limits card opens
+                        // on its own (LimitsCardHabit).
+                        learnedRow("Recent plans that used vehicle limits",
+                                   "\(model.limitsHabit.filter { $0 != 0 }.count) of "
+                                       + "\(model.limitsHabit.count)")
+                        if let cal = summary.calibration, cal.isFinite {
+                            // An error on the 0–1 risk scale, as a percentage.
+                            learnedRow("How far off risk guesses were",
+                                       "about \(Int((cal * 100).rounded()))%")
+                        }
+                        if summary.tuned {
+                            Text("The risk model has been fine-tuned on your own trips.")
+                                .scaledFont(.caption).foregroundStyle(.secondary)
+                        }
+                        // One press, but not one stray tap: nothing brings it back.
+                        Button(role: .destructive) {
+                            confirmingErase = true
+                        } label: {
+                            Label("Erase everything FLOWS has learned",
+                                  systemImage: "trash")
+                        }
+                        .scaledFont(.caption, weight: .semibold)
+                        .padding(.top, 4)
+                        .alert("Erase everything FLOWS has learned?",
+                               isPresented: $confirmingErase) {
+                            Button("Erase", role: .destructive) {
+                                Task {
+                                    // The list itself lives in AppModel, beside
+                                    // the stores, so a new one is added there.
+                                    await model.eraseEverythingLearned()
+                                    erasedConfirmation = true
+                                    healthLines = await FlowsDiag.shared.recent(120)
+                                }
+                            }
+                            Button("Cancel", role: .cancel) {}
+                        } message: {
+                            Text("This can't be undone.")
+                        }
+                        if erasedConfirmation {
+                            Text("Erased. The app is back to knowing nothing about your travel.")
+                                .scaledFont(.caption)
+                                .foregroundStyle(Theme.riskGreen)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scaledFont(size: 13, weight: .semibold)
 
@@ -4642,7 +4658,7 @@ struct SettingsSheet: View {
             // App health log: the rotating diagnostic journal's recent
             // lines — which backup source kicked in, which feed was down —
             // so a field report can carry the app's own account.
-            DisclosureGroup("App health log") {
+            DisclosureGroup("App health log", isExpanded: $healthLogOpen) {
                 ScrollView {
                     Text(healthLines.isEmpty
                          ? "No problems recorded — every weather and road source is answering."

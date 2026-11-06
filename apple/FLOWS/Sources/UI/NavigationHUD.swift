@@ -966,10 +966,11 @@ struct NavigationHUD: View {
                 .buttonStyle(.plain)
             }
             // Even rows, never one button alone on the last (BalancedRows);
-            // a cuisine with a country wears its flag.
+            // a cuisine with a country wears its flag, the others a small
+            // drawn picture of the food. The word sits on a dark pill so it
+            // reads over either.
             BalancedRowsLayout(minItemWidth: 96, spacing: 6) {
                 ForEach(FoodCategory.allCases) { category in
-                    let flag = CuisineFlag.has(category)
                     Button {
                         Task {
                             await model.poi.chooseFood(category, aheadOf: model.effectivePosition)
@@ -978,18 +979,14 @@ struct NavigationHUD: View {
                         Text(category.rawValue)
                             .scaledFont(size: 13, weight: .semibold)
                             .lineLimit(1)
-                            .padding(.horizontal, flag ? 8 : 0)
-                            .padding(.vertical, flag ? 2 : 0)
-                            .background {
-                                if flag { Capsule().fill(Color.black.opacity(0.6)) }
-                            }
-                            .foregroundStyle(flag ? Color.white : Color.primary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.black.opacity(0.6)))
+                            .foregroundStyle(Color.white)
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background {
-                                if flag { CuisineFlag(category: category) } else { Theme.fill(0.05) }
-                            }
+                            .background(CuisineFlag(category: category))
                             .clipShape(Capsule())
-                            .overlay(Capsule().stroke(Theme.fill(0.12), lineWidth: flag ? 1 : 0))
+                            .overlay(Capsule().stroke(Theme.fill(0.12), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
                 }
