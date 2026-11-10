@@ -99,6 +99,13 @@ final class TruckerRadio: ObservableObject {
     private(set) var lastPlayed: Channel?
     private static let lastPlayedKey = "flows.radio.lastPlayed"
 
+    /// "Erase everything FLOWS has learned": the tuner follows the nearest
+    /// transmitter, so the last station says where the driver last was.
+    func eraseLastPlayed() {
+        lastPlayed = nil
+        UserDefaults.standard.removeObject(forKey: Self.lastPlayedKey)
+    }
+
     // MARK: station queue (radio as a music service)
 
     /// A genre/search result set the driver moves through like a
@@ -461,8 +468,11 @@ final class TruckerRadio: ObservableObject {
         p.volume = ducked ? 0.25 : 1
         statusObservation = item.observe(\.status) { [weak self] item, _ in
             Task { @MainActor in
+                // A station tuned since owns the status line and the
+                // playing mark; this report is about the one it replaced.
+                guard let self, self.player?.currentItem === item else { return }
                 switch item.status {
-                case .readyToPlay: self?.status = "Playing \(channel.name)"
+                case .readyToPlay: self.status = "Playing \(channel.name)"
                 case .failed:
                     // Raw AVFoundation error text is jargon — the driver
                     // only needs to know the station can't be reached. The
@@ -472,8 +482,8 @@ final class TruckerRadio: ObservableObject {
                     FlowsDiag.log(.fail, "radio",
                                   "stream failed (current station) — "
                                   + "\(item.error?.localizedDescription ?? "no detail")")
-                    self?.status = "Station is offline right now."
-                    self?.playingChannelID = nil
+                    self.status = "Station is offline right now."
+                    self.playingChannelID = nil
                 default: break
                 }
             }
@@ -495,8 +505,9 @@ final class TruckerRadio: ObservableObject {
             forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.status = "Station cut out. Press play to try again."
-                self?.playingChannelID = nil
+                guard let self, self.player?.currentItem === item else { return }
+                self.status = "Station cut out. Press play to try again."
+                self.playingChannelID = nil
             }
         }
     }

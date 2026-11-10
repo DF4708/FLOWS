@@ -477,7 +477,9 @@ struct MapsStartNavigationIntent {
             return .result(value: nil, dialog: IntentDialog(
                 "The trip changed on screen while I planned. Ask me again."))
         } catch {
-            routes = []
+            // The router did not answer: that is not "no road goes there".
+            return .result(value: nil, dialog: IntentDialog(
+                "I couldn't plan that right now. Check the connection and ask again."))
         }
         guard !routes.isEmpty else {
             return .result(value: nil, dialog: IntentDialog("No route found to \(name)."))

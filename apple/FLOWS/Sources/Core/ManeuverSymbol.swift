@@ -130,10 +130,13 @@ enum LaneGuidance {
     static func advice(for instruction: String) -> Advice? {
         let s = instruction.lowercased()
         // "Use the 2 right lanes to turn right" / "use the left 3 lanes"
-        if s.contains("lane") {
-            let side: Side = s.contains("left") ? .left
-                           : s.contains("right") ? .right : .center
-            let count = laneCount(in: s) ?? 1
+        // Only a lane PHRASE counts — a side word beside "lane(s)", with the
+        // count beside them. Any "lane" in the text used to do: "Turn left
+        // onto Shady Lane" drew a made-up lane box, "toward Stone Rd" read
+        // "one" out of "Stone", and "exit 2" was taken for two lanes.
+        if let phrase = lanePhrase(in: s) {
+            let side = phrase.side
+            let count = phrase.count
             let plural = count == 1 ? "lane" : "lanes"
             let sideWord = side == .left ? "left" : side == .right ? "right" : "center"
             return Advice(laneCount: count, side: side,
@@ -149,18 +152,32 @@ enum LaneGuidance {
         return nil
     }
 
-    /// The first small integer in the text — "use the 2 right lanes" → 2.
-    /// Words are handled too, since Apple writes both.
-    static func laneCount(in s: String) -> Int? {
-        let words = ["one": 1, "two": 2, "three": 3, "four": 4, "five": 5]
-        for (word, n) in words where s.contains(word + " ") { return n }
-        var digits = ""
-        for ch in s {
-            if ch.isNumber { digits.append(ch) }
-            else if !digits.isEmpty { break }
+    private static let laneNumbers =
+        ["1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6,
+         "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6]
+
+    /// "the 2 right lanes", "the left 3 lanes", "the three left lanes", "the
+    /// middle lane" in lowercased text: the side and the count (1 when none
+    /// is stated). Apple writes the count as a digit or a word, on either
+    /// side of the side word. nil when the text has no such phrase.
+    static func lanePhrase(in s: String) -> (side: Side, count: Int)? {
+        let n = #"(\d|one|two|three|four|five|six)"#
+        let pattern = #"\b(?:"# + n + #"\s+)?(left|right|center|middle)\s+(?:"# + n
+            + #"\s+)?lanes?\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: s, range: NSRange(s.startIndex..., in: s))
+        else { return nil }
+        func group(_ i: Int) -> String? {
+            Range(match.range(at: i), in: s).map { String(s[$0]) }
         }
-        guard let n = Int(digits), (1...6).contains(n) else { return nil }
-        return n
+        let side: Side
+        switch group(2) {
+        case "left": side = .left
+        case "right": side = .right
+        default: side = .center
+        }
+        let count = (group(1) ?? group(3)).flatMap { laneNumbers[$0] } ?? 1
+        return (side, count)
     }
 
     /// Which of `total` lanes to fill green, left to right (0-indexed).

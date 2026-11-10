@@ -415,9 +415,15 @@ final class MusicController: ObservableObject {
             player.prepareToPlay()
             player.play()
             refresh()
-        } else if let url = URL(string: "music://music.apple.com/search?term="
-            + (genre.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? genre)) {
-            UIApplication.shared.open(url)
+        } else {
+            // Strict encoding: the "&" in "R&B" split the query, and Music
+            // searched for "R" (MusicProvider.searchURL does the same).
+            var allowed = CharacterSet.urlQueryAllowed
+            allowed.remove(charactersIn: "&=+?#")
+            if let url = URL(string: "music://music.apple.com/search?term="
+                + (genre.addingPercentEncoding(withAllowedCharacters: allowed) ?? genre)) {
+                UIApplication.shared.open(url)
+            }
         }
     }
 
@@ -522,6 +528,11 @@ final class MusicController: ObservableObject {
 
     /// The app the transport scripts: Spotify when it is the pick, else Music.
     private var scriptedApp: String { provider == .spotify ? "Spotify" : "Music" }
+
+    /// Siri's "play" and "pause" decide from the play state, and here it is
+    /// only as fresh as FLOWS's own last press: music started in the app
+    /// itself read as stopped, so "play" paused it. Never launches the app.
+    func refreshStateForAsk() { refresh() }
 
     private func refresh() {
         // The radio's state is mirrored (syncFromRadio); reading Music for it

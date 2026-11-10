@@ -344,7 +344,10 @@ final class WeatherAlertService: ObservableObject {
             rings += h.extraRings.filter { $0.count >= 3 }
             return rings.map { AlertPolygon(coordinates: $0, severity: h.severityScore, event: h.event,
                                             expires: h.expires) }
-        }.prefix(40).map { $0 }   // was 12 — clipped visible weather on long routes
+        }
+        // Worst first, so the cap cuts the mildest shapes, not whichever came last.
+        .sorted { $0.severity > $1.severity }
+        .prefix(40).map { $0 }   // was 12 — clipped visible weather on long routes
 
         if fetchFailures > 0 {
             FlowsDiag.logThrottled(
@@ -1152,6 +1155,9 @@ final class WeatherAlertService: ObservableObject {
                   let id = props["id"] as? String ?? feature["id"] as? String,
                   let headline = (props["headline"] as? String) ?? (props["event"] as? String)
             else { return nil }
+            // A Cancel message says the hazard is over. It stays in the active
+            // list until it lapses, and was drawn and scored as a live warning.
+            if (props["messageType"] as? String)?.lowercased() == "cancel" { return nil }
             let score = Self.severityScore((props["severity"] as? String) ?? "Unknown")
             // When the HAZARD ends, which is what every reader of `expires`
             // means (is it in force when the car gets there, how long to

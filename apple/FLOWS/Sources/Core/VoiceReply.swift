@@ -194,6 +194,15 @@ final class VoiceReply {
 
     private func begin(seconds: Double, onAnswer: ((Bool?) -> Void)?,
                        onTranscript: ((String?) -> Void)? = nil) {
+        // The crash check-in has its own microphone and its own "yes". A
+        // second listen opened over it (a faster-road offer landing during
+        // the check-in) took the session from under it, and heard the
+        // driver's "yes" for help as a yes to the faster road.
+        guard !VoiceAnnouncer.shared.checkInHoldsSession() else {
+            onAnswer?(nil)
+            onTranscript?(nil)
+            return
+        }
         guard let recognizer, recognizer.isAvailable else {
             onAnswer?(nil)
             onTranscript?(nil)
@@ -292,6 +301,19 @@ final class VoiceReply {
         VoiceAnnouncer.shared.releaseSessionWhenQuiet()
     }
 
+    /// A crash check-in is starting: a listen still open closes with no
+    /// answer, so the microphone and the next "yes" are the check-in's.
+    func closeForCheckIn() {
+        guard audioEngine != nil, !answered else { return }
+        answered = true
+        let yesNo = onAnswer, dictation = onTranscript
+        onAnswer = nil
+        onTranscript = nil
+        teardown()
+        yesNo?(nil)
+        dictation?(nil)
+    }
+
     private func teardown() {
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
@@ -315,5 +337,6 @@ final class VoiceReply {
                             onTranscript: @escaping (String?) -> Void) {
         onTranscript(nil)
     }
+    func closeForCheckIn() {}
 }
 #endif

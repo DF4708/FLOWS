@@ -336,6 +336,19 @@ final class PlanningBurstTests: XCTestCase {
 
     /// An alert is in force until the EVENT ends, not until its message
     /// lapses; with no end given, it runs on 12 h past the message.
+func testACancelledAlertIsNotALiveWarning() {
+        func alert(_ type: String) -> [String: Any] {
+            ["id": "urn:x",
+             "properties": ["id": "urn:x", "event": "Tornado Warning", "headline": "TOR",
+                            "severity": "Extreme", "messageType": type,
+                            "expires": "2026-12-01T04:00:00-06:00"],
+             "geometry": NSNull()]
+        }
+        XCTAssertEqual(WeatherAlertService.parseAlertFeatures([alert("Alert")]).count, 1)
+        XCTAssertEqual(WeatherAlertService.parseAlertFeatures([alert("Update")]).count, 1)
+        XCTAssertTrue(WeatherAlertService.parseAlertFeatures([alert("Cancel")]).isEmpty)
+    }
+
     func testAnAlertLastsUntilItsEventEnds() throws {
         func alert(_ extra: [String: Any]) -> [String: Any] {
             ["id": "urn:x",

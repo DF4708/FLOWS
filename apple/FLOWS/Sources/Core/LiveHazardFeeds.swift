@@ -387,14 +387,23 @@ actor LiveHazardFeedFetcher {
         if Date().timeIntervalSince(fireFetched) < AdaptiveTuning.shared.ttl(1800) { return fireHotspots }
         if let inFlight = fireInFlight { return await inFlight.value }
         let task = Task<[(lat: Double, lon: Double, frp: Double)], Never> {
-            // Today's file, falling back to yesterday around UTC midnight.
+            // Today's file plus the part of yesterday's inside the last 24
+            // hours. Today's file alone used to win as soon as it held one
+            // row: just after UTC midnight (evening in the US) that dropped
+            // every fire seen that afternoon.
+            var utc = Calendar(identifier: .gregorian)
+            utc.timeZone = TimeZone(identifier: "UTC") ?? .current
+            let nowParts = utc.dateComponents([.hour, .minute], from: Date())
+            let nowHHMM = (nowParts.hour ?? 0) * 100 + (nowParts.minute ?? 0)
+            var merged: [(Double, Double, Double)] = []
+            var gotToday = false
             let fmt = DateFormatter()
             fmt.dateFormat = "yyyyMMdd"
             fmt.timeZone = TimeZone(identifier: "UTC")
             let ymFmt = DateFormatter()
             ymFmt.dateFormat = "yyyy/MM"
             ymFmt.timeZone = TimeZone(identifier: "UTC")
-            for dayOffset in [0.0, -86_400] {
+            for (index, dayOffset) in [0.0, -86_400].enumerated() {
                 let day = Date().addingTimeInterval(dayOffset)
                 let url = "https://satepsanone.nesdis.noaa.gov/pub/FIRE/web/HMS/"
                     + "Fire_Points/Text/\(ymFmt.string(from: day))/hms_fire\(fmt.string(from: day)).txt"
@@ -409,11 +418,15 @@ actor LiveHazardFeedFetcher {
                     }
                     guard cols.count >= 8, let lon = Double(cols[0]),
                           let lat = Double(cols[1]), let frp = Double(cols[7]) else { continue }
+                    // Column 3 is the UTC time seen, HHMM. With today's file in
+                    // hand, yesterday's rows older than 24 hours are left out.
+                    if index == 1, gotToday, let seen = Int(cols[3]), seen < nowHHMM { continue }
                     out.append((lat, lon, frp))
                 }
-                if !out.isEmpty { return out }
+                if index == 0 { gotToday = true }
+                merged += out
             }
-            return []
+            return merged
         }
         fireInFlight = task
         let result = await task.value
@@ -497,6 +510,14 @@ actor LiveHazardFeedFetcher {
 
     // MARK: fire perimeters — WFIGS interagency active polygons, viewport TTL
 
+    /// A box widened outward to the quarter-degree grid, with its cache key.
+    static func gridBox(_ minLat: Double, _ minLon: Double, _ maxLat: Double, _ maxLon: Double)
+        -> (key: String, minLat: Double, minLon: Double, maxLat: Double, maxLon: Double) {
+        let a = (minLat * 4).rounded(.down), b = (minLon * 4).rounded(.down)
+        let c = (maxLat * 4).rounded(.up), d = (maxLon * 4).rounded(.up)
+        return ("\(Int(a))|\(Int(b))|\(Int(c))|\(Int(d))", a / 4, b / 4, c / 4, d / 4)
+    }
+
     private var firePerimCache: [String: (Date, [[CLLocationCoordinate2D]])] = [:]
 
     /// Active-fire perimeter outlines intersecting a bbox (30-min TTL). Outer
@@ -504,14 +525,18 @@ actor LiveHazardFeedFetcher {
     func firePerimeters(
         minLat: Double, minLon: Double, maxLat: Double, maxLon: Double
     ) async -> [[CLLocationCoordinate2D]] {
-        let key = "\(Int(minLat * 4))|\(Int(minLon * 4))|\(Int(maxLat * 4))|\(Int(maxLon * 4))"
+        // The box is widened to the quarter-degree grid, and that same box is
+        // both the cache key and the query. The key used to be rounded while
+        // the query used the exact box, so a nearby view could be answered
+        // from a box that did not cover it.
+        let (key, minLat, minLon, maxLat, maxLon) = Self.gridBox(minLat, minLon, maxLat, maxLon)
         if let c = firePerimCache[key], Date().timeIntervalSince(c.0) < AdaptiveTuning.shared.ttl(1800) { return c.1 }
         // Stale perimeters to fall back on if this refresh fails — a fire
         // does not vanish because one ArcGIS request timed out. Captured
         // before any eviction below.
         let stale = firePerimCache[key]?.1
         let base = "https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/"
-            + "WFIGS_Interagency_Perimeters/FeatureServer/0/query"
+            + "WFIGS_Interagency_Perimeters_Current/FeatureServer/0/query"
         var comps = URLComponents(string: base)
         comps?.queryItems = [
             .init(name: "where", value: "1=1"),
@@ -567,7 +592,7 @@ actor LiveHazardFeedFetcher {
     func floodGauges(
         minLat: Double, minLon: Double, maxLat: Double, maxLon: Double
     ) async -> [(lat: Double, lon: Double, category: String)] {
-        let key = "\(Int(minLat * 4))|\(Int(minLon * 4))|\(Int(maxLat * 4))|\(Int(maxLon * 4))"
+        let (key, minLat, minLon, maxLat, maxLon) = Self.gridBox(minLat, minLon, maxLat, maxLon)
         if let c = floodCache[key], Date().timeIntervalSince(c.0) < AdaptiveTuning.shared.ttl(900) { return c.1 }
         // A gauge at major flood stage is a Red-capable realized primary;
         // keep the last-known readings if this refresh fails.
@@ -1509,7 +1534,12 @@ actor LiveHazardFeedFetcher {
                 out.append(contentsOf: cached.1)
                 continue
             }
-            guard fetched < 3 else { continue }   // request budget per sweep
+            guard fetched < 3 else {
+                // Over this sweep's request budget: what the feed last said
+                // still stands. Skipping it used to read as "no closures".
+                if let cached = closureCache[cacheKey] { out.append(contentsOf: cached.1) }
+                continue
+            }
             fetched += 1
             var roads: [ClosedRoad] = []
             var answered = false

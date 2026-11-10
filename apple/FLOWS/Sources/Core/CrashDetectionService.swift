@@ -209,6 +209,7 @@ final class CrashDetectionService: ObservableObject {
         // ones waiting) is cut, so the question is not talked over and the
         // microphone does not open on another voice.
         VoiceAnnouncer.shared.stop()
+        VoiceReply.shared.closeForCheckIn()
         state = .checkingIn(attempt: 1)
         // Re-ask FOREVER until answered or physically dismissed — a
         // concussed driver may surface minutes later.

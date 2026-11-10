@@ -211,8 +211,10 @@ final class RadioBrowser: ObservableObject {
     }
 
     /// Pick one healthy mirror per launch: all-servers list → shuffle →
-    /// first mirror whose stats endpoint answers OK. The all-servers name
-    /// (DNS round-robin over the same mirrors) is the fallback.
+    /// first mirror whose stats endpoint answers OK. No mirror answering =
+    /// nil, and the next search looks again: the all-servers name used to be
+    /// the fallback, but DNS hands that to ANY registered mirror — past the
+    /// allow-list below — and it was kept for the rest of the launch.
     private func ensureHost() async -> String? {
         if let host { return host }
         if let listURL = URL(string: Self.allServersURL),
@@ -228,8 +230,7 @@ final class RadioBrowser: ObservableObject {
                 return candidate
             }
         }
-        host = "all.api.radio-browser.info"
-        return host
+        return nil
     }
 
     // MARK: - Pure logic (pinned by FLOWSTests)

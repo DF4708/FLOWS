@@ -81,6 +81,15 @@ final class ManeuverSymbolTests: XCTestCase {
         XCTAssertNil(LaneGuidance.advice(for: "Continue on I-94 E"))
     }
 
+    func testAStreetCalledLaneIsNotALane() {
+        XCTAssertNil(LaneGuidance.advice(for: "Turn left onto Shady Lane"))
+        XCTAssertNil(LaneGuidance.advice(for: "Take exit 2 toward Lane County"))
+        let a = LaneGuidance.advice(for: "Use the 2 right lanes toward Stone Rd")
+        XCTAssertEqual(a?.laneCount, 2)
+        XCTAssertEqual(LaneGuidance.advice(for: "Use the left 3 lanes")?.laneCount, 3)
+        XCTAssertEqual(LaneGuidance.advice(for: "Use the middle lane")?.side, .center)
+    }
+
     func testHighlightedLanesSitOnTheStatedSide() {
         let right = LaneGuidance.Advice(laneCount: 2, side: .right, text: "")
         XCTAssertEqual(LaneGuidance.highlighted(advice: right, total: 5), Set([3, 4]))

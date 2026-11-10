@@ -284,7 +284,10 @@ final class ScannerListener: ObservableObject {
                 // The count, never the words: dispatch audio is not the
                 // driver's, but the journal is exportable all the same.
                 let before = self.incidents.count
-                self.consider(transcript: text, feed: feed)
+// The transcript grows for as long as the feed plays. Read whole,
+                // its first call matched every time: that pin never aged out
+                // and later calls were never seen. Only the newest words count.
+                self.consider(transcript: String(text.suffix(200)), feed: feed)
                 FlowsDiag.log(.info, "scanner",
                               "heard \(text.count) chars (final: \(result.isFinal)); "
                               + "incidents \(before) → \(self.incidents.count)")

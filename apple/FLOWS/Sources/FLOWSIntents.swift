@@ -77,6 +77,9 @@ struct MusicControlIntent: AppIntent {
         if spotify, action == .play || action == .pause {
             await SpotifyRemote.shared.refreshStateIfStale()
         }
+        #if os(macOS)
+        if action == .play || action == .pause { music.refreshStateForAsk() }
+        #endif
         let playing = spotify ? SpotifyRemote.shared.isPlaying : music.isPlaying
         switch action {
         case .play:

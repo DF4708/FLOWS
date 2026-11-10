@@ -135,6 +135,18 @@ final class DiagAndRedundancyTests: XCTestCase {
     }
 
     /// One air-quality response answers both the AQI and the UV index.
+/// The fire and flood boxes are widened to the quarter-degree grid, so the
+    /// box asked for always covers every view that shares its cache key.
+    func testHazardBoxesWidenToTheGrid() {
+        let b = LiveHazardFeedFetcher.gridBox(44.81, -93.37, 45.02, -93.01)
+        XCTAssertEqual(b.minLat, 44.75); XCTAssertEqual(b.minLon, -93.5)
+        XCTAssertEqual(b.maxLat, 45.25); XCTAssertEqual(b.maxLon, -93.0)
+        let near = LiveHazardFeedFetcher.gridBox(44.99, -93.49, 45.24, -93.20)
+        XCTAssertEqual(near.key, b.key)
+        XCTAssertLessThanOrEqual(b.minLat, 44.81); XCTAssertLessThanOrEqual(b.minLon, -93.49)
+        XCTAssertGreaterThanOrEqual(b.maxLat, 45.24); XCTAssertGreaterThanOrEqual(b.maxLon, -93.01)
+    }
+
     func testOneOpenMeteoResponseFeedsBothAirAndUV() {
         let json: [String: Any] = ["hourly": [
             "time": ["2026-10-13T00:00", "2026-10-13T01:00", "2026-10-13T02:00"],

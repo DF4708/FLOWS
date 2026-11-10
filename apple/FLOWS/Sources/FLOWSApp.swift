@@ -2507,6 +2507,7 @@ final class AppModel: ObservableObject {
         if let last = lastRouterAsk, last.key == key, Date().timeIntervalSince(last.at) < 300 { return }
         routeSearchesInFlight += 1
         defer { routeSearchesInFlight -= 1 }
+        let walking = walkingMode
         guard let raw = try? await router.planRoutes(
             from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
             includeTollFree: routeFilters.contains(.noTolls)) else { return }
@@ -2525,7 +2526,7 @@ final class AppModel: ObservableObject {
                     && abs($0.distanceMeters - candidate.distanceMeters) < 400
             }
         }
-        guard !fresh.isEmpty, mode == .choosing else { return }
+        guard !fresh.isEmpty, mode == .choosing, stillThePlan(ep, walking: walking) else { return }
         routeChoices.append(contentsOf: fresh)
         // Through the tracked task, cancelling the previous loop: an
         // untracked Task here stacked a second retry ladder that present()
@@ -2540,6 +2541,7 @@ final class AppModel: ObservableObject {
     ) async {
         routeSearchesInFlight += 1
         defer { routeSearchesInFlight -= 1 }
+        let walking = walkingMode
         guard let raw = try? await router.planRoutes(
             from: ep.from, fromName: ep.fromName, to: ep.to, toName: ep.toName,
             includeTollFree: true) else { return }
@@ -2556,13 +2558,26 @@ final class AppModel: ObservableObject {
                 abs($0.eta - candidate.eta) < 45 && abs($0.distanceMeters - candidate.distanceMeters) < 400
             }
         }
-        guard !fresh.isEmpty, mode == .choosing else { return }
+        guard !fresh.isEmpty, mode == .choosing, stillThePlan(ep, walking: walking) else { return }
         routeChoices.append(contentsOf: fresh)
         // Through the tracked task, cancelling the previous loop: an
         // untracked Task here stacked a second retry ladder that present()
         // could not cancel, re-scoring every route against NWS again.
         restartRiskHydration()
         if routeFilters.contains(.tourist) { refreshTouristCounts() }   // new cards need theirs
+    }
+
+    /// Whether car routes asked for `ep` still belong on the list: the plan
+    /// on screen is still that trip, and still a drive. A Walk tap or a new
+    /// destination while the router answered used to get the old trip's car
+    /// routes added to its list.
+    private func stillThePlan(
+        _ ep: (from: CLLocationCoordinate2D, fromName: String,
+               to: CLLocationCoordinate2D, toName: String), walking: Bool
+    ) -> Bool {
+        guard walkingMode == walking, let now = lastPlanEndpoints else { return false }
+        return now.from.latitude == ep.from.latitude && now.from.longitude == ep.from.longitude
+            && now.to.latitude == ep.to.latitude && now.to.longitude == ep.to.longitude
     }
 
     /// Endpoints of the last plan — lets filter toggles replan variants.
@@ -3312,6 +3327,7 @@ final class AppModel: ObservableObject {
         roadEfficiency.erase()
         shareHistory.erase()
         ShowerAvailability.eraseReports()
+        radio.eraseLastPlayed()
         // Missed until now: the refuel answers, the signal-buffer learning,
         // the hours-of-service clock, and the network cache — its request
         // URLs carry the positions and route points weather.gov, Open-Meteo
@@ -5702,9 +5718,23 @@ final class AppModel: ObservableObject {
             return out
         }
         let checked = await withAttributesIfFiltered(scored.map(\.route))
-        guard var best = FasterRoutePolicy.swapPick(checked, leg: leg, filters: routeFilters,
+        // Only a road whose weather check finished can be the calmest: a
+        // check that failed scores near zero, so the road nobody could
+        // check used to win — a reroute out of a storm onto an unknown.
+        let known = checked.filter(\.weatherScored)
+        guard var best = FasterRoutePolicy.swapPick(known, leg: leg, filters: routeFilters,
                                                     limits: filterLimits, calmest: true)
-        else { return }
+        else {
+            if mode == .navigating, gen == tripGeneration, arrivedAt == nil {
+                if escalation == nil { escalation = previous }
+                if voiceAlerts {
+                    VoiceAnnouncer.shared.announce(
+                        "Couldn't check the weather on another route yet. Still on this one.",
+                        topic: SpeechTopic.escalation)
+                }
+            }
+            return
+        }
         // The driver may have ended navigation or arrived during the awaits
         // above — don't resurrect a dead trip by restarting nav + corridor/
         // traffic watches over a route they no longer want.
@@ -6049,8 +6079,12 @@ final class AppModel: ObservableObject {
         let avgMph = actual > 0 ? miles / (actual / 3600) : 0
         trafficModel.record(predictedSeconds: predicted, actualSeconds: actual,
                             area: tripStartArea ?? .pooled,
+                            // Filed under when the trip LEFT: that is the
+                            // hour its time was predicted for. Filed under
+                            // the arrival, a 7:30 start taught the 8-to-noon
+                            // block and never the one it was read from.
                             roadClass: RoadClass.from(averageMph: avgMph),
-                            weather: currentTrafficWeather)
+                            weather: currentTrafficWeather, at: started)
     }
 
     /// Whether FLOWS may weigh taking a faster road on its own right now: a
@@ -6767,8 +6801,11 @@ final class AppModel: ObservableObject {
                                                         limits: self.filterLimits, calmest: false) {
                     guard self.mode == .navigating, gen == self.tripGeneration else { return }
                     leg.planKind = arrivedLeg.planKind
+                    // A stop added while this scored is the newer leg: the
+                    // way on must not replace the way to it.
                     let scored = await self.scoredBurst(leg)
-                    guard self.mode == .navigating, gen == self.tripGeneration else { return }
+                    guard self.mode == .navigating, gen == self.tripGeneration,
+                          self.pendingStopName == nil else { return }
                     self.startLeg(scored, resetsNeeds: true)
                 } else if self.mode == .navigating {
                     // Honest state: at the stop, continuation unavailable.
@@ -6885,11 +6922,15 @@ final class AppModel: ObservableObject {
         guard let home = roundTripHome, let leg = navigation.route, !headingBack else { return }
         headingBack = true
         defer { headingBack = false }
+        // The trip this tap belongs to: a trip ended and a new one started
+        // while the way back was planned used to be replaced by it — a
+        // drive home the driver never pressed GO on.
+        let gen = tripGeneration
         let from = effectivePosition ?? Self.lastCoordinate(of: leg) ?? home.coordinate
         let back = await withAttributesIfFiltered(await routes(
             like: leg, from: from, fromName: leg.destinationName,
             to: home.coordinate, toName: home.name))
-        guard mode == .navigating else { return }
+        guard mode == .navigating, gen == tripGeneration else { return }
         guard var way = FasterRoutePolicy.swapPick(back, leg: leg, filters: routeFilters,
                                                    limits: filterLimits, calmest: false)
         else {
@@ -6899,7 +6940,7 @@ final class AppModel: ObservableObject {
         }
         way.planKind = leg.planKind
         let scored = await scoredBurst(way)
-        guard mode == .navigating else { return }
+        guard mode == .navigating, gen == tripGeneration else { return }
         // The way there is a finished trip: its arrival teaches the delay
         // model before the way back replaces it.
         learnTripDuration()

@@ -185,8 +185,14 @@ actor NWSForecastFetcher {
             let hjson = try? JSONSerialization.jsonObject(with: hd) as? [String: Any],
             let hprops = hjson["properties"] as? [String: Any],
             let periods = hprops["periods"] as? [[String: Any]],
-            let now = periods.first
+            let first = periods.first
         else { return nil }
+        // The hour that is running now. The list is made ahead of time and can
+        // be hours old, so its first hour may already be over.
+        let stamp = ISO8601DateFormatter()
+        let now = periods.first { p in
+            (p["endTime"] as? String).flatMap { stamp.date(from: $0) }.map { $0 > Date() } ?? false
+        } ?? first
 
         var out = ForecastConditions()
         if let t = now["temperature"] as? Double {
