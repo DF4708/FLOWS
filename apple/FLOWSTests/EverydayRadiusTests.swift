@@ -347,4 +347,14 @@ final class EverydayRadiusTests: XCTestCase {
         XCTAssertEqual(decoded.radiusMiles, s.radiusMiles, accuracy: 0.0001)
         XCTAssertEqual(decoded.ranked(in: .food), s.ranked(in: .food))
     }
+
+    // A position that is not a number, or is far too large, must not trap.
+    func testAContextFromABrokenPositionDoesNotTrap() {
+        let id = EverydayStore.contextID(hourBucket: 2, weekend: true,
+                                         startLat: .nan, startLon: .infinity)
+        XCTAssertEqual(id, "h2|we|c0,0")
+        XCTAssertEqual(EverydayStore.contextID(hourBucket: 1, weekend: false,
+                                               startLat: 1e300, startLon: -89.4),
+                       "h1|wd|c0,-894")
+    }
 }

@@ -45,8 +45,21 @@ struct RouteChoicesView: View {
         // below clears the option cards and walk+ride offer too.
         model.transitTasks.values.forEach { $0.cancel() }
         model.transitTasks = [:]
-        if let planned = try? await model.plan(from: ep.from, fromName: ep.fromName,
-                                               to: ep.to, toName: ep.toName) {
+        let planned: [PlannedRoute]?
+        do {
+            planned = try await model.plan(from: ep.from, fromName: ep.fromName,
+                                           to: ep.to, toName: ep.toName)
+        } catch {
+            planned = nil
+            // The new way of travel could not be planned (no signal). The
+            // routes on screen are the old way's: put the switch back, or GO
+            // started a car route as a walk with the driving checks off.
+            if !(error is CancellationError), !Task.isCancelled, model.mode == .choosing {
+                model.walkingMode.toggle()
+                model.plannerNotice = "Couldn't plan that right now. Check the connection and try again."
+            }
+        }
+        if let planned {
             // The same trip on foot or by car, so the train, bus, plane and
             // rental toggles stay on: "walk, bus and plane" is one choice
             // whichever order it was made in, and present() — built for a
@@ -840,6 +853,12 @@ struct RouteChoicesView: View {
             }
         }
         let boat = sailing ?? found
+        if sailing == nil, let arrive = found.arrive,
+           arrive.addingTimeInterval(-found.schedule.rideSeconds) < leaving {
+            // Only the whole-day ask answered, and its boat has left.
+            note = "The next ferry time could not be read. These times are an "
+                + "earlier boat's. Ask the operator."
+        }
         if Task.isCancelled { return false }
         // The operator's own site, from the federal ferry census, for tickets:
         // a public link, owed nothing.
@@ -1221,7 +1240,12 @@ struct RouteChoicesView: View {
         else { return }
         let walkAlone = walkRoute.eta
         let (drivePolyOpt, driveMiOpt, driveSecOpt) = await transitDrive(ep.from, ep.to)
-        guard let drivePoly = drivePolyOpt, let driveSec = driveSecOpt else { return }
+        guard let drivePoly = drivePolyOpt, let driveSec = driveSecOpt else {
+            // Not an answer (cancelled by a rotation, or the lookup failed):
+            // let the next run try again instead of counting this plan done.
+            if model.hybridOptionKey == key { model.hybridOptionKey = "" }
+            return
+        }
         let tripMiles = driveMiOpt ?? walkRoute.distanceMeters / 1609.344
         guard var offer = HybridWalk.evaluate(walkAloneSeconds: walkAlone,
                                               driveSeconds: driveSec,
@@ -2117,9 +2141,11 @@ struct RouteChoicesView: View {
         }
     }
 
-    /// Plan identity for the walk+ride offer: the walking toggle + lead route.
+    /// Plan identity for the walk+ride offer: the walking toggle + the plan's
+    /// routes. Not the FIRST route: the list re-sorts when weather scores
+    /// land, and that brought a dismissed offer back.
     private var hybridKey: String {
-        "\(model.walkingMode)|\(model.routeChoices.first?.id.uuidString ?? "-")"
+        "\(model.walkingMode)|\(model.routeChoices.map(\.id.uuidString).min() ?? "-")"
     }
 
     /// The walk + paid-ride card (walking mode only). Plain words, the saving

@@ -386,6 +386,7 @@ fn rust_reproduces_the_original_swift_recents_and_rides_bit_for_bit() {
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut failures: Vec<String> = Vec::new();
     let mut failed_kinds: BTreeMap<String, usize> = BTreeMap::new();
+    let mut moved_centres = 0_usize;
     for line in fixture
         .lines()
         .filter(|l| !l.starts_with('#') && !l.is_empty())
@@ -393,6 +394,13 @@ fn rust_reproduces_the_original_swift_recents_and_rides_bit_for_bit() {
         let f: Vec<&str> = line.split('\t').collect();
         *counts.entry(f[0].to_string()).or_default() += 1;
         if let Some(got) = record(&f, &mut stores) {
+            // One deliberate change (2026-11-10): the New York and Texas
+            // boxes grew a little to hold Montauk and El Paso, which moves
+            // the box centre a radio falls back to by a tenth of a degree.
+            if f[0] == "tr-state" && (f[4] == "t:NY" || f[4] == "t:TX") {
+                moved_centres += 1;
+                continue;
+            }
             *failed_kinds.entry(f[0].to_string()).or_default() += 1;
             let shown: String = line.chars().take(200).collect();
             failures.push(format!(
@@ -404,6 +412,10 @@ fn rust_reproduces_the_original_swift_recents_and_rides_bit_for_bit() {
     let expected: BTreeMap<String, usize> =
         KINDS.iter().map(|&(k, n)| (k.to_string(), n)).collect();
     assert_eq!(counts, expected, "record kinds and counts");
+    assert_eq!(
+        moved_centres, 12,
+        "the box centres that moved must be exactly those known"
+    );
     let total: usize = counts.values().sum();
     println!(
         "recents-and-rides oracle: {total} records, {} mismatches {failed_kinds:?}",

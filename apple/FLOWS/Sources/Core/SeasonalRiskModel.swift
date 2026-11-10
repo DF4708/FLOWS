@@ -123,6 +123,19 @@ struct EdgeKey: Hashable, Codable {
 }
 struct EdgeRecord: Codable { var weeks: [Int: WeekStat] = [:] }
 
+/// Reading a stored model forgives a missing field. The synthesized reader
+/// threw on any absent key (a file from before `origins` existed), the whole
+/// history counted as empty, and the next arrival wrote one trip over it.
+extension SeasonalStore {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        routes = try c.decodeIfPresent([RouteKey: RouteRecord].self, forKey: .routes) ?? [:]
+        edges = try c.decodeIfPresent([String: EdgeRecord].self, forKey: .edges) ?? [:]
+        origins = try c.decodeIfPresent([String: OriginStat].self, forKey: .origins) ?? [:]
+    }
+}
+
 struct SeasonalStore: Codable {
     var routes: [RouteKey: RouteRecord] = [:]
     // Edge graph keyed by a string (RouteKey/EdgeKey aren't JSON dictionary keys
@@ -690,9 +703,13 @@ final class SeasonalRiskModel: ObservableObject {
                     hubPath: [CLLocationCoordinate2D] = []) {
         let now = Date().timeIntervalSince1970
         let wk = Self.week()
+        let generation = eraseGeneration
         Task { [weak self] in
             guard let self else { return }
             await self.diskLoad?.value
+            // An erase that came after the arrival wins: the trip is part of
+            // what the driver erased.
+            guard self.eraseGeneration == generation else { return }
             self.store.record(TripObservation(
                 key: RouteKey(origin: origin, dest: dest), week: wk,
                 predicted: predicted, observed: observed, distanceKm: distanceKm, t: now))

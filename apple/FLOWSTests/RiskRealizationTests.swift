@@ -401,4 +401,14 @@ final class RiskRealizationTests: XCTestCase {
             XCTAssertTrue(canada(lat, lon), "\(name) is in Canada")
         }
     }
+
+    // A severe thunderstorm is not a tornado: only the tornado advice may
+    // tell a driver to leave the car for a ditch.
+    func testOnlyATornadoSendsTheDriverToADitch() {
+        let storm = RiskAdvice.actions(kindName: "storm", band: .red).joined(separator: " ")
+        let tornado = RiskAdvice.actions(kindName: "tornado", band: .red).joined(separator: " ")
+        XCTAssertFalse(storm.lowercased().contains("ditch"))
+        XCTAssertFalse(storm.contains("NOT safe"))
+        XCTAssertTrue(tornado.lowercased().contains("ditch"))
+    }
 }

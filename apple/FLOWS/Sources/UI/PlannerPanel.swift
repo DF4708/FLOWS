@@ -494,7 +494,9 @@ struct PlannerPanel: View {
     /// click-swallow fallback gesture must always agree.
     private var planEnabled: Bool {
         !isWorking && !model.plannerDestination.isEmpty
-            && (hasGPS || usingFallbackStart
+            // GPS switched off with no start typed is no start: Plan fired and
+            // failed on an empty place name.
+            && (usingGPSSource || usingFallbackStart
                 || !source.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 

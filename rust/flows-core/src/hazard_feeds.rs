@@ -751,14 +751,32 @@ fn rings_touch(rings: &[Vec<Point>], s: f64, n: f64, w: f64, e: f64) -> bool {
     })
 }
 
+/// The east and west margin (degrees) of a snapshot clip: [`CLIP_MARGIN_DEGREES`]
+/// where that is already 500 km wide, more where a degree of longitude is
+/// shorter. Measured at the highest latitude the clip keeps, so no point
+/// within the widest scorer's reach is dropped; never more than half the globe.
+#[must_use]
+pub fn clip_longitude_margin(min_lat: f64, max_lat: f64) -> f64 {
+    const METERS_PER_DEGREE: f64 = 111_195.0;
+    let top = min_lat.abs().max(max_lat.abs()) + CLIP_MARGIN_DEGREES;
+    if !(min_lat.is_finite() && max_lat.is_finite()) || top >= 90.0 {
+        return 180.0;
+    }
+    let need = TSUNAMI_REACH_METERS / METERS_PER_DEGREE / top.to_radians().cos();
+    CLIP_MARGIN_DEGREES.max(need).min(180.0)
+}
+
 impl Snapshot {
     /// `clipped(minLat:minLon:maxLat:maxLon:)`: the snapshot with every
     /// point or ring that cannot influence a score inside the box removed
-    /// (a 6° margin; the widest scorer reaches 500 km).
+    /// (a 6° margin; the widest scorer reaches 500 km). A degree of longitude
+    /// shrinks toward the poles, so past about 41° the east and west margin
+    /// grows to stay 500 km wide at the highest latitude the clip keeps.
     #[must_use]
     pub fn clipped(&self, min_lat: f64, min_lon: f64, max_lat: f64, max_lon: f64) -> Snapshot {
         let m = CLIP_MARGIN_DEGREES;
-        let (s, n, w, e) = (min_lat - m, max_lat + m, min_lon - m, max_lon + m);
+        let lon_m = clip_longitude_margin(min_lat, max_lat);
+        let (s, n, w, e) = (min_lat - m, max_lat + m, min_lon - lon_m, max_lon + lon_m);
         let inside = |lat: f64, lon: f64| lat >= s && lat <= n && lon >= w && lon <= e;
         Snapshot {
             hotspots: self
@@ -1090,7 +1108,7 @@ pub const STATE_BOXES: &[(&str, f64, f64, f64, f64)] = &[
     ("NJ", 38.9, -75.6, 41.4, -73.9),
     ("NM", 31.3, -109.1, 37.0, -103.0),
     ("NV", 35.0, -120.0, 42.0, -114.0),
-    ("NY", 40.5, -79.8, 45.0, -71.9),
+    ("NY", 40.5, -79.8, 45.0, -71.7),
     ("OH", 38.4, -84.8, 42.0, -80.5),
     ("OK", 33.6, -103.0, 37.0, -94.4),
     ("OR", 42.0, -124.6, 46.3, -116.5),
@@ -1099,7 +1117,7 @@ pub const STATE_BOXES: &[(&str, f64, f64, f64, f64)] = &[
     ("SC", 32.0, -83.4, 35.2, -78.5),
     ("SD", 42.5, -104.1, 45.9, -96.4),
     ("TN", 35.0, -90.3, 36.7, -81.6),
-    ("TX", 25.8, -106.6, 36.5, -93.5),
+    ("TX", 25.8, -106.7, 36.5, -93.5),
     ("UT", 37.0, -114.1, 42.0, -109.0),
     ("VA", 36.5, -83.7, 39.5, -75.2),
     ("VT", 42.7, -73.4, 45.0, -71.5),
@@ -1458,6 +1476,35 @@ mod tests {
         assert!(!route_through_closure(&route, &[]));
         assert!(!route_through_closure(&[], &[(43.0, -89.45)]));
         assert!(route_through_closure(&[(43.0, -89.45)], &[(43.0, -89.45)]));
+    }
+
+    #[test]
+    fn the_clip_keeps_a_tsunami_within_reach_at_any_latitude() {
+        // Six degrees where that is already 500 km wide.
+        assert_eq!(clip_longitude_margin(30.0, 31.0), CLIP_MARGIN_DEGREES);
+        // Wider in the north: the margin is still 500 km at the top kept row.
+        for lat in [47.0_f64, 60.0, 71.0] {
+            let m = clip_longitude_margin(lat, lat);
+            let top = (lat + CLIP_MARGIN_DEGREES).to_radians().cos();
+            assert!(m * 111_195.0 * top >= TSUNAMI_REACH_METERS - 1.0, "{lat}");
+        }
+        assert_eq!(
+            clip_longitude_margin(-47.0, -46.0),
+            clip_longitude_margin(46.0, 47.0)
+        );
+        assert_eq!(clip_longitude_margin(85.0, 86.0), 180.0);
+        assert_eq!(clip_longitude_margin(f64::NAN, 10.0), 180.0);
+        // A source 450 km west of Anchorage stays in a clip around the city.
+        let mut snap = Snapshot::default();
+        snap.quakes.push((61.2, -158.3, 7.0, 1.0));
+        let kept = snap.clipped(61.1, -150.1, 61.3, -149.7);
+        assert_eq!(kept.quakes.len(), 1);
+    }
+
+    #[test]
+    fn montauk_and_el_paso_sit_in_their_own_states() {
+        assert!(states_containing((41.07, -71.86)).contains(&"NY"));
+        assert!(states_containing((31.76, -106.63)).contains(&"TX"));
     }
 
     #[test]

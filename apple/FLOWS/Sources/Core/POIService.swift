@@ -423,7 +423,9 @@ final class POIService: ObservableObject {
         let samples = RouteService.corridorPartition(
             of: route.route.polyline, everyMeters: 30_000).samples
         let centerCap = Int(flows_places_search_center_cap(Int64(Self.touristQueries.count)))
-        let centers = POIRanking.centerPicks(count: samples.count, cap: centerCap)
+        // Start, middle and END, like the button: the even spread stopped at
+        // the midpoint, so a route with its parks in the last third counted 0.
+        let centers = POIRanking.endToEndPicks(count: samples.count, cap: centerCap)
             .map { samples[$0] }
         let policy = Kind.tourist.policy
         var found: [MKMapItem] = []
@@ -624,6 +626,7 @@ final class POIService: ObservableObject {
         // box size; the same policy names the fallbacks and decorations below.
         let policy = kind.policy
         let regionMeters = policy.region_meters
+        var asked = 0, unanswered = 0
         searchLoop: for center in centers.prefix(centerCap) {
             for query in queries {
                 let request = MKLocalSearch.Request()
@@ -633,7 +636,13 @@ final class POIService: ObservableObject {
                 request.region = MKCoordinateRegion(
                     center: center,
                     latitudinalMeters: regionMeters, longitudinalMeters: regionMeters)
-                found.append(contentsOf: await Self.pacedLocalSearch(request))
+                // nil is a search that could not be done, not an empty one.
+                asked += 1
+                if let hits = await Self.pacedLocalSearchResult(request) {
+                    found.append(contentsOf: hits)
+                } else {
+                    unanswered += 1
+                }
                 // Multi-center x multi-query can reach 15 requests; enough
                 // raw hits means later centers only add far-away duplicates
                 // (not for tourist stops, where later centers are the point).
@@ -888,8 +897,16 @@ final class POIService: ObservableObject {
         // Medical rule: the ABSOLUTE nearest hospital/ER leads, regardless
         // of route direction — straight-line from the vehicle.
         if policy.nearest_leads, let position {
-            if let i = POIRanking.firstNearest(unique.map(\.placemark.coordinate), to: position) {
-                let nearest = unique[i]
+            // A hospital or ER, not the pharmacy that happens to be closer:
+            // any hit leads only when the search found no hospital at all.
+            let hospitals = unique.filter {
+                let name = ($0.name ?? "").lowercased()
+                return $0.pointOfInterestCategory == .hospital || name.contains("hospital")
+                    || name.contains("emergency") || name.contains("medical center")
+            }
+            let pool = hospitals.isEmpty ? unique : hospitals
+            if let i = POIRanking.firstNearest(pool.map(\.placemark.coordinate), to: position) {
+                let nearest = pool[i]
                 let d = POIRanking.meters(nearest.placemark.coordinate, position)
                 let top = RankedPOI(item: nearest, aheadMeters: d, detourMeters: 0,
                                     pricePerUnit: nil, placement: .straightLine)
@@ -925,12 +942,19 @@ final class POIService: ObservableObject {
         // 16: don't yank the camera a second time — keep the driver's current
         // selection when it survived the merge; only reseat when it vanished.
         if let cur = selected, results.contains(where: { $0.id == cur.id }) == false {
-            selected = results.first
+            // The fresh row for the same place has a new id: keep the place
+            // the driver tapped while the search ran, not the first row.
+            let key = Self.rowKey(cur)
+            selected = results.first { Self.rowKey($0) == key } ?? results.first
         } else if selected == nil {
             selected = results.first
         }
         if results.isEmpty {
-            emptyResultMessage = kind == .tourist
+            // Fail closed: when no search got an answer (offline, throttled),
+            // "none found" would say there is no shelter or ER ahead.
+            emptyResultMessage = asked > 0 && unanswered == asked
+                ? "Couldn't search right now. Check the connection and try again."
+                : kind == .tourist
                 ? "No tourist stops found within a short detour of this route."
                 : "No \(kind.rawValue.lowercased()) found ahead on this route."
             activeKind = nil

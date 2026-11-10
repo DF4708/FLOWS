@@ -281,6 +281,8 @@ final class DestinationSearch: NSObject, ObservableObject {
             // field still offers the driver's recent places.
             suggestions = pinned
             completer.queryFragment = ""
+            completer.cancel()
+            awaitingAnswers = false
             return
         }
         suggestions = pinned
@@ -332,6 +334,10 @@ final class DestinationSearch: NSObject, ObservableObject {
     func clear() {
         suggestions = []
         pinnedRows = []
+        // As in accept(): an answer still on its way brought the list back
+        // over a plan that had already started.
+        completer.cancel()
+        awaitingAnswers = false
     }
 }
 

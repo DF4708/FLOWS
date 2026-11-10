@@ -151,9 +151,9 @@ struct LiveHazardSnapshot: @unchecked Sendable {
 
     /// The widest influence any scorer has: `tsunamiScore` reaches 500 km.
     /// Six degrees of latitude is 667 km, and six degrees of longitude is at
-    /// least 500 km anywhere south of 41° N — the clip keeps every point that
-    /// could score, and at higher latitudes keeps more than it needs, which
-    /// is the safe direction.
+    /// least 500 km anywhere south of 41° N. North of that a degree of
+    /// longitude is shorter, so the clip widens its east and west margin to
+    /// stay 500 km wide: it keeps every point that could score.
     static let clipMarginDegrees = flows_hazard_clip_margin_degrees()
 
     /// The same snapshot with every point or ring that cannot influence a

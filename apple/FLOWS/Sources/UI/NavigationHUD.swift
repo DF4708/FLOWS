@@ -1467,7 +1467,7 @@ struct NavigationHUD: View {
             } else {
                 HStack(spacing: 8) {
                     Spacer()
-                    Button("Not now") { model.tripSharePrompt = false }
+                    Button("Not now") { model.tripSharePrompt = false; shareErrorText = nil }
                         .scaledFont(size: 15, weight: .bold)
                         .buttonStyle(.plain)
                         .padding(.horizontal, 16)
@@ -1561,6 +1561,9 @@ struct NavigationHUD: View {
             // banner up and say why, or the one-per-trip offer would vanish
             // with no message sent and never come back.
             shareErrorText = "That contact has no phone number. Pick someone else."
+            // "Someone else" sits in the chooser, which a single contact never
+            // opened: without this the banner could only repeat the error.
+            showShareChooser = true
             return
         }
         openURL(url)
@@ -2987,6 +2990,8 @@ struct NavigationHUD: View {
         stationSearch = ""
         Task {
             await model.radioBrowser.searchGenre(kind, near: model.effectivePosition)
+            // A later tap on another kind wins, whichever search ends last.
+            guard radioGenre == kind else { return }
             let channels = model.radioBrowser.stations.map(\.channel)
             guard !channels.isEmpty else { return }
             model.radio.playQueue(channels, label: kind.title)

@@ -94,7 +94,24 @@ enum RiskAdvice {
                         "If you must drive: full tank, blankets, charged phone; "
                         + "if stranded stay with the vehicle."]
             }
-        case "storm", "tornado":
+        case "storm":
+            // A severe thunderstorm is not a tornado: for lightning and hail
+            // the car is the safer place, and the tornado line below told the
+            // driver to leave it for a ditch.
+            switch band {
+            case .green:
+                return ["Thunderstorms possible — expect brief heavy rain."]
+            case .yellow:
+                return ["When thunder roars, go indoors — a vehicle beats open "
+                        + "ground (NWS lightning).",
+                        "Hail-prone: covered parking if available."]
+            default:
+                return ["Severe storm: get inside a sturdy building if you can. A "
+                        + "hard-top vehicle beats open ground (NWS).",
+                        "In hail or blinding rain, pull off the road, away from "
+                        + "trees and power lines."]
+            }
+        case "tornado":
             switch band {
             case .green:
                 return ["Thunderstorms possible — expect brief heavy rain."]

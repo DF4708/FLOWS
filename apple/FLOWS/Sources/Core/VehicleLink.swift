@@ -308,6 +308,10 @@ extension VehicleLink: CBCentralManagerDelegate, CBPeripheralDelegate {
                 // No disconnect callback comes for this: let the reader go,
                 // or it stayed "connected" and was never reconnected.
                 if let id = self.obdPeripheral?.identifier { self.dropOBDAdapter(id) }
+                // Tire readings are only refreshed when a sensor is heard, and
+                // none will be now: a kept "33 psi" read as checked and fine.
+                self.sensors = [:]
+                if !self.tirePressuresPsi.isEmpty { self.tirePressuresPsi = [:] }
                 self.status = "Bluetooth is off"
             default:
                 break

@@ -200,4 +200,15 @@ final class SeasonalModelTests: XCTestCase {
         }
         XCTAssertNil(s.learnedHome())
     }
+
+    // A file saved before a field existed must still read: the synthesized
+    // reader threw, the history counted as empty and was written over.
+    func testAStoreWithAMissingFieldStillReads() throws {
+        let old = Data(#"{"routes":[],"edges":{}}"#.utf8)
+        let store = try JSONDecoder().decode(SeasonalStore.self, from: old)
+        XCTAssertTrue(store.origins.isEmpty)
+        XCTAssertTrue(store.edges.isEmpty)
+        let bare = try JSONDecoder().decode(SeasonalStore.self, from: Data("{}".utf8))
+        XCTAssertTrue(bare.routes.isEmpty)
+    }
 }

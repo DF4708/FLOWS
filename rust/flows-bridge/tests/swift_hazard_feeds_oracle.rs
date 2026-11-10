@@ -308,6 +308,7 @@ fn rust_reproduces_the_original_swift_hazard_feeds_and_alert_rules() {
     );
     let mut failures: Vec<String> = Vec::new();
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    let mut clip_widened = 0_usize;
     let mut wsnl: Vec<(u32, u32)> = Vec::new();
     let mut check = |kind: &str, line: &str, got: String, want: &str| {
         if got != want {
@@ -479,7 +480,18 @@ fn rust_reproduces_the_original_swift_hazard_feeds_and_alert_rules() {
             "hf-clip" => {
                 let s = snapshot(&f[1..10]);
                 let got = snapshot_out(&s.clipped(d(f[10]), d(f[11]), d(f[12]), d(f[13])));
-                check("hf-clip", line, got, &f[14..23].join("\t"));
+                let want = f[14..23].join("\t");
+                // One deliberate change (2026-11-10): the Swift kept six
+                // degrees of longitude at every latitude, which is under the
+                // 500 km a tsunami reaches north of about 41°. The clip now
+                // widens there, so those boxes keep more than the Swift did.
+                let widened =
+                    hf::clip_longitude_margin(d(f[10]), d(f[12])) > hf::CLIP_MARGIN_DEGREES;
+                if widened && got != want {
+                    clip_widened += 1;
+                } else {
+                    check("hf-clip", line, got, &want);
+                }
             }
             // ---- the alert service ----
             "wa-cell" => check(
@@ -625,6 +637,10 @@ fn rust_reproduces_the_original_swift_hazard_feeds_and_alert_rules() {
         "whitespace-and-newline set disagrees with the runtime on {bad} scalars"
     );
 
+    assert_eq!(
+        clip_widened, 18,
+        "clips that keep more than the Swift did must be exactly those known"
+    );
     let total: usize = counts.values().sum();
     assert!(total >= 6_500, "fixture truncated: {total}");
     assert_eq!(counts.len(), 35, "record kinds: {counts:?}");

@@ -295,8 +295,10 @@ struct EverydayStore: Codable, Equatable {
     /// RouteKey). "h2|we|c433,-894" = weekend morning leaving the home cell.
     static func contextID(hourBucket: Int, weekend: Bool,
                           startLat: Double, startLon: Double) -> String {
-        "h\(hourBucket)|\(weekend ? "we" : "wd")"
-            + "|c\(Int((startLat * 10).rounded())),\(Int((startLon * 10).rounded()))"
+        // A place that is not a number must not trap the Int conversion.
+        func cell(_ v: Double) -> Int { Int(exactly: (v * 10).rounded()) ?? 0 }
+        return "h\(hourBucket)|\(weekend ? "we" : "wd")"
+            + "|c\(cell(startLat)),\(cell(startLon))"
     }
 
     /// Decode a context id back to its parts — the training-row export reads
@@ -362,7 +364,13 @@ enum EverydayFeatures {
 final class EverydayPlaces: ObservableObject {
     /// Shared calendar — Calendar(identifier:) re-resolves locale/timezone
     /// per construction, and lookups record context on every tap.
-    nonisolated private static let gregorian = Calendar(identifier: .gregorian)
+    nonisolated private static let gregorian: Calendar = {
+        // Follows the device across a time-zone line; a fixed zone filed taps
+        // under the old zone's hours until the app was restarted.
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .autoupdatingCurrent
+        return cal
+    }()
 
     static let shared = EverydayPlaces()
 

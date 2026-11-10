@@ -420,10 +420,19 @@ pub fn flows_transit_info(prefix: &str) -> Vec<String> {
     )
 }
 
+/// A feed's own text with the field separator taken out, so a name that
+/// carries one cannot shift every field after it.
+fn clean(s: &str) -> String {
+    s.replace(UNIT, " ")
+}
+
 fn near_fields(n: &NearStop) -> String {
     format!(
         "{}{UNIT}{}{UNIT}{}{UNIT}{:.0}",
-        n.name, n.code, n.zone, n.meters
+        clean(&n.name),
+        clean(&n.code),
+        clean(&n.zone),
+        n.meters
     )
 }
 
@@ -450,13 +459,13 @@ fn dep_rows(d: &Departure, out: &mut Vec<String>) {
         out.push(format!(
             "leg{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}\
              {UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{:.6}{UNIT}{}{UNIT}{}{UNIT}{}",
-            l.board_name,
-            l.board_code,
-            l.board_zone,
-            l.alight_name,
-            l.alight_code,
-            l.alight_zone,
-            l.route_name,
+            clean(&l.board_name),
+            clean(&l.board_code),
+            clean(&l.board_zone),
+            clean(&l.alight_name),
+            clean(&l.alight_code),
+            clean(&l.alight_zone),
+            clean(&l.route_name),
             l.mode,
             l.dep,
             l.arr,
@@ -465,7 +474,7 @@ fn dep_rows(d: &Departure, out: &mut Vec<String>) {
             l.alight_lat,
             l.alight_lon,
             cents,
-            currency,
+            clean(currency),
             from
         ));
     }
@@ -650,7 +659,6 @@ pub fn flows_transit_ferry_crossings(
         )
         .iter()
         .map(|c| {
-            let clean = |s: &str| s.replace(UNIT, " ");
             let [m1, d1, m2, d2] = c.route.season;
             format!(
                 "ferry{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{}{UNIT}{:.6}{UNIT}{:.6}\
