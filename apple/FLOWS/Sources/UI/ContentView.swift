@@ -889,14 +889,32 @@ struct ContentView: View {
         }
     }
 
+    /// Readings no sweep could renew (continent zoom, every fetch failed)
+    /// must not stand as current: past two sweep periods they leave the map.
+    private func ageOutViewportHazards() {
+        let now = Date()
+        let fresh = viewportHazards.filter {
+            now.timeIntervalSince($0.sampledAt) < 2 * Self.viewportResweepSeconds
+        }
+        guard fresh.count != viewportHazards.count else { return }
+        viewportHazards = fresh
+        let ids = Set(fresh.map(\.id))
+        zipOfPoint = zipOfPoint.filter { ids.contains($0.key) }
+        let codes = Set(zipOfPoint.values)
+        zctaRings = zctaRings.filter { codes.contains($0.key) }
+        rebuildRiskOverlays(ringsResolved: true)
+    }
+
     /// Live NWS conditions on a 4×4 grid over the visible region, scored by
     /// the banded equations — hazard shapes anywhere in North America the
     /// NWS covers. Skipped while navigating (corridor buffer rule), at
     /// continent zoom (too coarse to mean anything), and when the camera
     /// hasn't really moved (debounce key).
     private func refreshViewportHazards(_ region: MKCoordinateRegion) {
-        guard model.mode != .navigating, model.showWeatherLayer,
-              region.span.latitudeDelta < 12 else { return }   // a state or two, not a continent
+        guard model.mode != .navigating, model.showWeatherLayer else { return }
+        // A state or two, not a continent. Nothing is read out here, so what
+        // is on the map must still grow old.
+        guard region.span.latitudeDelta < 12 else { ageOutViewportHazards(); return }
         let key = "\(Int(region.center.latitude * 8))|\(Int(region.center.longitude * 8))|\(Int(region.span.latitudeDelta * 4))"
         guard key != viewportHazardKey else { return }
         // Commit the key now so the same viewport won't re-trigger, then run the
@@ -1151,11 +1169,29 @@ struct ContentView: View {
                 }
             }
             if Task.isCancelled { return }   // superseded sweep: stop before committing
+            // The alert lookup failed: its zeros are "not known", not "no
+            // warning". A point shown under a warning keeps that reading
+            // (until it ages out) instead of dropping to the forecast alone.
+            if !alertSweep.complete {
+                func spot(_ c: CLLocationCoordinate2D) -> String {
+                    "\(Int(c.latitude * 50))|\(Int(c.longitude * 50))"
+                }
+                let warned = Set(viewportHazards.filter { $0.alertEvent != nil }
+                    .map { spot($0.coordinate) })
+                if !warned.isEmpty {
+                    sampled.removeAll { warned.contains(spot($0)) }
+                    found.removeAll { warned.contains(spot($0.coordinate)) }
+                }
+            }
             // No conditions at all means the fetches failed (offline, NWS
             // outage) — un-pin the debounce key so the next camera settle
             // retries instead of showing stale/empty hazards forever. A sweep
             // that came back all quiet goes on, and clears the map.
-            if sampled.isEmpty { viewportHazardKey = ""; return }
+            if sampled.isEmpty {
+                viewportHazardKey = ""
+                ageOutViewportHazards()
+                return
+            }
             // Ring fetching below walks this — found PLUS the kept carryover
             // points, so a rain point surviving from the last sweep keeps its
             // ZIP ring (and its centered badge) instead of aging out.
@@ -1745,7 +1781,7 @@ struct ContentView: View {
                     }
                 } else {
                     MapPolyline(next.route.polyline)
-                        .stroke(next.riskBand.color.opacity(0.6),
+                        .stroke((next.weatherScored ? next.riskBand.color : Color.gray).opacity(0.6),
                                 style: StrokeStyle(lineWidth: 5, dash: [8, 6]))
                 }
             }
@@ -2526,8 +2562,11 @@ struct ContentView: View {
                             style: StrokeStyle(lineWidth: 7, lineCap: .round))
             }
         } else {
+            // Not checked yet (or the check failed) is gray, never the pale
+            // green of a route that was checked and found clear.
             MapPolyline(route.route.polyline)
-                .stroke(route.riskBand.color, lineWidth: 7)
+                .stroke(route.weatherScored ? route.riskBand.color : Color.gray,
+                        lineWidth: 7)
         }
     }
 
@@ -3289,6 +3328,10 @@ extension FilterSlidersCard {
                           systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
                         .scaledFont(size: 9, weight: .bold)
                         .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
+                } else if r.clearanceDataUnavailable {
+                    // The lookup failed: say so, not "still checking".
+                    Text("no bridge data").scaledFont(size: 9, weight: .bold)
+                        .foregroundStyle(Theme.riskYellow)
                 } else {
                     Text("bridges…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
@@ -3312,6 +3355,9 @@ extension FilterSlidersCard {
                           systemImage: passes ? "checkmark.circle.fill" : "xmark.octagon.fill")
                         .scaledFont(size: 9, weight: .bold)
                         .foregroundStyle(passes ? Theme.riskGreen : Theme.riskRed)
+                } else if r.clearanceDataUnavailable {
+                    Text("no weight data").scaledFont(size: 9, weight: .bold)
+                        .foregroundStyle(Theme.riskYellow)
                 } else {
                     Text("weight…").scaledFont(size: 9).foregroundStyle(.secondary)
                 }
@@ -5272,7 +5318,12 @@ struct VehicleEditorSheet: View {
                     }
                     // Big rigs get the trucker UI automatically: RVs, box
                     // trucks, semis, buses, cutaways — anything ≥ 9 ft tall.
-                    if heightFeet >= 9 || VehicleSpecs.soundsLikeBigRig(profile.model) {
+                    // Only for a new vehicle or a changed height or model: an
+                    // edit of the colour must not turn back on what the
+                    // driver turned off in Settings.
+                    let changed = original == nil || heightFeet != openedHeightFeet
+                        || profile.model != original?.model
+                    if changed, heightFeet >= 9 || VehicleSpecs.soundsLikeBigRig(profile.model) {
                         model.truckerUI = true
                     }
                     model.poi.fuelType = fuelType   // gas searches follow the vehicle

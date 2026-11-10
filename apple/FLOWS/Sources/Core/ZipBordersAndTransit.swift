@@ -32,8 +32,18 @@ actor ZCTAFetcher {
 
     /// The ZIP polygon containing `point` (nil while loading / outside US).
     func zcta(containing point: CLLocationCoordinate2D) async -> ZCTA? {
-        let key = cellKey(point)
+        // A 5 km cell holds many ZIPs in a city: the first one fetched was
+        // handed to every point in the cell, and a risk area was drawn over
+        // the neighbouring ZIP. A cached outline answers only for a point
+        // inside it; a point it misses is asked about and kept by its own
+        // spot, so it is asked once.
+        let cell = cellKey(point)
+        let key = "\(Int((point.latitude * 1000).rounded()))/\(Int((point.longitude * 1000).rounded()))"
         if let hit = cache[key] { return hit }
+        if let hit = cache[cell], HazardFeedScores.pointInPolygon(point, hit.ring) { return hit }
+        if let known = byCode.values.first(where: {
+            HazardFeedScores.pointInPolygon(point, $0.ring)
+        }) { return known }
         guard !inFlight.contains(key) else { return nil }
         // US envelope only — TIGERweb has no Canada/Mexico coverage. The
         // map's blob gate reads the same box, so the two never disagree.
@@ -68,6 +78,7 @@ actor ZCTAFetcher {
         let z = byCode[code] ?? ZCTA(code: code, ring: ring)
         byCode[code] = z
         cache[key] = z
+        if cache[cell] == nil { cache[cell] = z }
         if cache.count > 400 { CacheEviction.dropHalf(&cache) }
         // byCode must be capped ALONGSIDE cache: the two dictionaries share
         // ring buffers (COW), so evicting cache alone freed nothing — byCode

@@ -585,7 +585,10 @@ pub(crate) fn mode_for_route_type(rt: i64) -> Mode {
         4 | 1000..=1099 | 1200..=1299 => Mode::Ship, // ferry / water transport
         200..=299 => Mode::Coach,               // coach services
         400..=499 | 900..=999 => Mode::Subway,  // urban railway / tram services
-        700..=899 => Mode::Bus,                 // bus / trolleybus services
+        // metro and underground services, aerial lifts, funiculars: these
+        // fell through to `Bus`, as the ferries once did.
+        500..=699 | 1300..=1499 => Mode::Subway,
+        700..=899 => Mode::Bus, // bus / trolleybus services
         _ => Mode::Bus,
     }
 }
@@ -703,6 +706,8 @@ struct FeedParts {
     raw: Vec<RawTrip>,
     /// transfers.txt, as (from, to, seconds) in local stop indices.
     transfers: Vec<(u32, u32, Time)>,
+    /// transfers.txt pairs marked "not possible", in local stop indices.
+    no_walks: Vec<(u32, u32)>,
     service_date: u32,
     agency_timezone: String,
     feed_published: u32,
@@ -1127,6 +1132,9 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
     // A station's platforms, by the station's id: a transfers.txt row may
     // name the station and mean all of them (below).
     let mut children: HashMap<String, Vec<u32>> = HashMap::new();
+    // Platforms that gave no zone, with their station; and the zones stops gave.
+    let mut zone_from_parent: Vec<(usize, String)> = Vec::new();
+    let mut zone_given: HashMap<String, String> = HashMap::new();
     let mut stop_ids: Vec<String> = Vec::new();
     let mut stop_names: Vec<String> = Vec::new();
     let mut stop_zones: Vec<String> = Vec::new();
@@ -1154,6 +1162,11 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
             }
             _ => continue, // skip the stop; the feed keeps its other rows
         };
+        // A written-out (0, 0) is the same placeholder as a blank one: two
+        // such stops sat at one point and were joined by a two-minute walk.
+        if lat == 0.0 && lon == 0.0 {
+            continue;
+        }
         // Platforms only (location_type blank or 0): an entrance, a node or
         // a boarding area is no place to board, and a boarding area's parent
         // is a platform, which must keep standing for itself.
@@ -1169,12 +1182,26 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
         stop_ids.push(id.to_string());
         stop_names.push(f(&row, c_name).to_string());
         let zone = f(&row, c_tz).trim();
+        if zone.is_empty() && !parent.is_empty() && parent != id {
+            zone_from_parent.push((stop_ids.len() - 1, parent.to_string()));
+        }
+        if !zone.is_empty() {
+            zone_given.insert(id.to_string(), zone.to_string());
+        }
         stop_zones.push(if zone.is_empty() {
             agency_timezone.clone()
         } else {
             zone.to_string()
         });
         stop_latlon.push(((lat * 1e6).round() as i32, (lon * 1e6).round() as i32));
+    }
+    // A platform with no zone of its own keeps its station's clock (GTFS),
+    // not the agency's: a station an hour west of the agency printed every
+    // time at its platforms an hour off.
+    for (stop, parent) in zone_from_parent {
+        if let Some(zone) = zone_given.get(&parent) {
+            stop_zones[stop].clone_from(zone);
+        }
     }
     if stop_ids.is_empty() {
         return Err(err("stops.txt has no stops"));
@@ -1340,6 +1367,7 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
     let c_stop = h.req("stop_id", "stop_times.txt")?;
     let c_seq = h.req("stop_sequence", "stop_times.txt")?;
     let (c_arr, c_dep) = (h.get("arrival_time"), h.get("departure_time"));
+    let (c_pickup, c_drop) = (h.get("pickup_type"), h.get("drop_off_type"));
     // trip_id -> rows of (seq, stop, arr?, dep?)
     type StopTimeRow = (u32, u32, Option<Time>, Option<Time>);
     let mut trip_rows: HashMap<String, Vec<StopTimeRow>> = HashMap::new();
@@ -1359,6 +1387,11 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
         let Some(&(_, days)) = active_trips.get(trip) else {
             continue;
         };
+        // A row that neither picks up nor sets down is a pass, not a stop:
+        // the rider was told to board where the vehicle takes nobody.
+        if f(&row, c_pickup).trim() == "1" && f(&row, c_drop).trim() == "1" {
+            continue;
+        }
         let earlier_only = days & (1 | ALL_ROWS) == 0;
         let (arr, dep) = (
             parse_gtfs_time(f(&row, c_arr)),
@@ -1532,8 +1565,13 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
             let first_dep = events[0].dep;
             for &(start, end, headway) in windows {
                 let mut t = start;
-                while t < end && n_frequency_trips < MAX_FREQUENCY_TRIPS {
-                    n_frequency_trips += 1;
+                while t < end {
+                    if n_frequency_trips >= MAX_FREQUENCY_TRIPS {
+                        // The cap cut this window short: say so, as any
+                        // other dropped trip is said.
+                        n_dropped += 1;
+                        break;
+                    }
                     let shift = t as i64 - first_dep as i64;
                     let shifted: Option<TripEvents> = events
                         .iter()
@@ -1551,6 +1589,8 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
                         })
                         .collect();
                     if let Some(evs) = shifted {
+                        // Only a departure that is kept spends the budget.
+                        n_frequency_trips += 1;
                         emit(pattern.clone(), evs);
                     }
                     t = t.saturating_add(headway);
@@ -1567,6 +1607,7 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
     // own stop indices; they are resolved here because only this feed knows
     // what its stop_ids mean. ---
     let mut transfers: Vec<(u32, u32, Time)> = Vec::new();
+    let mut no_walks: Vec<(u32, u32)> = Vec::new();
     if let Some((h, mut r)) = open_csv(dir, "transfers.txt")? {
         let (c_from, c_to, c_type, c_min) = (
             h.get("from_stop_id"),
@@ -1594,17 +1635,34 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
             // Types 0/1/2 are walkable; 3 = not possible; 4/5 are in-seat
             // (trip-level, not a footpath).
             let ty = f(&row, c_type).trim();
-            if matches!(ty, "3" | "4" | "5") {
+            if matches!(ty, "4" | "5") {
                 continue;
             }
             let (from, to) = (ends(f(&row, c_from)), ends(f(&row, c_to)));
             if from.len().saturating_mul(to.len()) > MAX_STATION_PAIRS {
                 continue;
             }
-            let secs = f(&row, c_min)
-                .trim()
-                .parse::<Time>()
-                .unwrap_or(DEFAULT_TRANSFER_SECS);
+            if ty == "3" {
+                // Not possible: no footpath, and remembered so the walking
+                // links between nearby stops do not put one back.
+                for &a in &from {
+                    for &b in &to {
+                        if a != b && no_walks.len() < MAX_TRANSFERS {
+                            no_walks.push((a, b));
+                        }
+                    }
+                }
+                continue;
+            }
+            // Whole seconds, though some feeds write "180.0".
+            let text = f(&row, c_min).trim();
+            let secs = text.parse::<Time>().ok().or_else(|| {
+                text.parse::<f64>()
+                    .ok()
+                    .filter(|v| (0.0..=86_400.0).contains(v))
+                    .map(|v| v.round() as Time)
+            });
+            let secs = secs.unwrap_or(DEFAULT_TRANSFER_SECS);
             for &a in &from {
                 for &b in &to {
                     if a != b && transfers.len() < MAX_TRANSFERS {
@@ -1626,6 +1684,7 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
         route_fares,
         raw,
         transfers,
+        no_walks,
         service_date,
         agency_timezone,
         feed_published,
@@ -1667,6 +1726,9 @@ fn assemble(
     let mut gtfs_route_fares: Vec<Option<Fare>> = Vec::new();
     let mut raw: Vec<RawTrip> = Vec::new();
     let mut transfers: Vec<(u32, u32, Time)> = Vec::new();
+    // Every pair a publisher spoke for, walkable or "not possible": the
+    // walking links below leave these alone.
+    let mut published: HashSet<(u32, u32)> = HashSet::new();
     let mut n_gtfs_trips = 0usize;
     let mut n_dropped = 0usize;
 
@@ -1686,6 +1748,10 @@ fn assemble(
         gtfs_route_fares.extend(p.route_fares);
         for (from, to, secs) in p.transfers {
             transfers.push((stop_base + from, stop_base + to, secs));
+            published.insert((stop_base + from, stop_base + to));
+        }
+        for (from, to) in p.no_walks {
+            published.insert((stop_base + from, stop_base + to));
         }
         for mut t in p.raw {
             // Into the reference clock. A trip the shift would push before
@@ -1806,6 +1872,7 @@ fn assemble(
         &stop_visits,
         &stop_feed,
         &by_ship,
+        &published,
         link_first,
     );
 
@@ -1865,6 +1932,7 @@ fn link_feeds(
     visits: &[u32],
     feed: &[u16],
     by_ship: &[bool],
+    published: &HashSet<(u32, u32)>,
     link_first: bool,
 ) -> usize {
     if !link_first
@@ -1917,9 +1985,19 @@ fn link_feeds(
                 continue;
             }
             let secs = LINK_BUFFER_SECS + (meters / LINK_WALK_MPS).ceil() as Time;
-            builder.add_footpath(a, b, secs);
-            builder.add_footpath(b, a, secs);
-            pairs += 1;
+            // A pair the publisher's transfers.txt already speaks for keeps
+            // the publisher's answer: a ten-minute change, or none at all,
+            // was undercut by a three-minute walk drawn here.
+            let (there, back) = (!published.contains(&(a, b)), !published.contains(&(b, a)));
+            if there {
+                builder.add_footpath(a, b, secs);
+            }
+            if back {
+                builder.add_footpath(b, a, secs);
+            }
+            if there || back {
+                pairs += 1;
+            }
         }
     }
     pairs
@@ -3484,5 +3562,143 @@ mod tests {
     #[test]
     fn no_feeds_is_an_error_not_a_panic() {
         assert!(load_gtfs_many(&[], 20260709).is_err());
+    }
+
+    #[test]
+    fn metro_lift_and_funicular_types_are_not_buses() {
+        assert_eq!(mode_for_route_type(500), Mode::Subway); // metro service
+        assert_eq!(mode_for_route_type(600), Mode::Subway); // underground service
+        assert_eq!(mode_for_route_type(1300), Mode::Subway); // aerial lift
+        assert_eq!(mode_for_route_type(1400), Mode::Subway); // funicular
+        assert_eq!(mode_for_route_type(700), Mode::Bus);
+        assert_eq!(mode_for_route_type(1500), Mode::Bus, "taxi service");
+    }
+
+    #[test]
+    fn a_zero_zero_stop_is_skipped_and_a_platform_keeps_its_stations_clock() {
+        let dir = write_feed(
+            "zero_and_zone",
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Bus,America/New_York\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon,stop_timezone,parent_station,location_type\n\
+                     A,Alpha,43.07,-89.40,,,0\n\
+                     S,Station,43.08,-89.39,America/Chicago,,1\n\
+                     P,Platform,43.08,-89.39,,S,0\n\
+                     Z,Nowhere,0.0,0.0,,,0\n\
+                     Y,Nowhere too,0,0,,,0\n",
+                ),
+                ("routes.txt", ROUTES),
+                ("calendar.txt", CALENDAR),
+                ("trips.txt", "route_id,service_id,trip_id\nR1,WK,t1\n"),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     t1,08:00:00,08:00:00,A,1\n\
+                     t1,08:10:00,08:10:00,P,2\n",
+                ),
+            ],
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        assert!(!load.stop_ids.iter().any(|s| s == "Z" || s == "Y"));
+        let zone = |id: &str| load.stop_zones[stop(&load, id) as usize].as_str();
+        assert_eq!(zone("P"), "America/Chicago", "its station's clock");
+        assert_eq!(zone("A"), "America/New_York", "the agency's clock");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stop_that_neither_picks_up_nor_sets_down_is_a_pass() {
+        let dir = write_feed(
+            "pass_through",
+            &[
+                ("stops.txt", STOPS),
+                ("routes.txt", ROUTES),
+                ("calendar.txt", CALENDAR),
+                ("trips.txt", "route_id,service_id,trip_id\nR1,WK,t1\n"),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\n\
+                     t1,08:00:00,08:00:00,A,1,0,0\n\
+                     t1,08:10:00,08:10:00,B,2,1,1\n\
+                     t1,08:20:00,08:20:00,C,3,,\n",
+                ),
+            ],
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        let tt = &load.timetable;
+        assert!(plan(tt, 0, 1, 0, 8).is_empty(), "nobody gets off at Beta");
+        assert!(plan(tt, 1, 2, 0, 8).is_empty(), "nobody gets on at Beta");
+        assert!(!plan(tt, 0, 2, 0, 8).is_empty(), "the ride itself stands");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_published_transfer_is_not_undercut_by_a_drawn_walk() {
+        // Two stops 100 m apart: the publisher says ten minutes one way
+        // ("600.0", as some feeds write it) and not possible the other.
+        let dir = write_feed(
+            "published_transfer",
+            &[
+                (
+                    "agency.txt",
+                    "agency_id,agency_name,agency_timezone\n1,Bus,America/New_York\n",
+                ),
+                (
+                    "stops.txt",
+                    "stop_id,stop_name,stop_lat,stop_lon\n\
+                     B1,North Side,30.00000,-90.00000\n\
+                     B2,South Side,30.00090,-90.00000\n\
+                     B3,Away,31.00000,-90.00000\n",
+                ),
+                (
+                    "routes.txt",
+                    "route_id,route_short_name,route_long_name,route_type\nB,1,One,3\n",
+                ),
+                ("calendar.txt", CALENDAR),
+                (
+                    "trips.txt",
+                    "route_id,service_id,trip_id\nB,WK,b1\nB,WK,b2\n",
+                ),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+                     b1,09:00:00,09:00:00,B1,1\nb1,09:30:00,09:30:00,B3,2\n\
+                     b2,09:00:00,09:00:00,B2,1\nb2,09:30:00,09:30:00,B3,2\n",
+                ),
+                (
+                    "transfers.txt",
+                    "from_stop_id,to_stop_id,transfer_type,min_transfer_time\n\
+                     B1,B2,2,600.0\n\
+                     B2,B1,3,\n",
+                ),
+            ],
+        );
+        let load = load_gtfs_city(
+            &[FeedInput {
+                dir: &dir,
+                shift_secs: 0,
+            }],
+            20260709,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(load.n_feed_links, 0, "the publisher spoke for both ways");
+        let tt = &load.timetable;
+        let (b1, b2) = (stop(&load, "B1"), stop(&load, "B2"));
+        let walks = |from: u32, to: u32| -> Vec<Time> {
+            plan(tt, from, to, 0, 1)
+                .iter()
+                .filter(|j| j.legs.iter().all(|l| l.kind == LegKind::Walk))
+                .flat_map(|j| j.legs.iter().map(|l| l.arr - l.dep))
+                .collect()
+        };
+        assert_eq!(walks(b1, b2), vec![600], "ten minutes, as published");
+        assert!(walks(b2, b1).is_empty(), "not possible, as published");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

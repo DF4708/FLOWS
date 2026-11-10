@@ -316,6 +316,9 @@ actor TransitFeeds {
         // not answered by today's timetable, so the day is part of the key.
         let key = sources.map(\.name).joined(separator: "+")
             + "@\(Self.serviceDate(day, zone: TimeZone.current.identifier))"
+            // An ask that may not use the network fails where one that may
+            // would fetch: the two are not the same piece of work.
+            + (allowNetwork ? "" : "@offline")
         if let running = building[key] {
             return try await running.value
         }
@@ -327,19 +330,30 @@ actor TransitFeeds {
         return try await task.value
     }
 
+    /// When a feed's refresh last failed, and how long before it is tried again.
+    private var refreshFailed: [String: Date] = [:]
+    private static let refreshRetrySeconds: TimeInterval = 900
+
     /// Have `source`'s files on disk, fetching or refreshing only if allowed.
     /// Returns the folder, or throws when there is nothing usable.
     private func feedOnDisk(_ source: Source, allowNetwork: Bool) async throws -> URL {
         let feed = feedDirectory(source)
         var haveFeed = GTFSZip.hasMember("stops.txt", in: feed)
-        if !haveFeed || (allowNetwork && isStale(feed)) {
+        // A refresh that just failed is not tried again on every ask: each
+        // plan over a week-old feed hit a dead host again before answering.
+        let triedLately = refreshFailed[source.name].map {
+            Date().timeIntervalSince($0) < Self.refreshRetrySeconds
+        } ?? false
+        if !haveFeed || (allowNetwork && isStale(feed) && !triedLately) {
             guard allowNetwork else { throw Failure.notCachedAndOffline }
             do {
                 try await fetchOnce(source, into: feed)
                 haveFeed = true
+                refreshFailed[source.name] = nil
             } catch {
                 // A refresh that fails is survivable; a first fetch is not.
                 guard haveFeed else { throw Failure.feedUnavailable(String(describing: error)) }
+                refreshFailed[source.name] = Date()
             }
         }
         guard haveFeed else { throw Failure.notCachedAndOffline }
@@ -560,6 +574,13 @@ actor TransitFeeds {
         } catch {
             for piece in staged { try? FileManager.default.removeItem(at: piece.part) }
             throw error
+        }
+        // A good copy never gives way to half a feed: an archive short of
+        // its trips or its calendar was moved in, stamped fresh, and the
+        // city had no transit for a week.
+        guard GTFSZip.isWholeFeed(staged.map(\.name)) else {
+            for piece in staged { try? FileManager.default.removeItem(at: piece.part) }
+            throw Failure.feedUnusable("the archive is missing a required file")
         }
         // The old copy goes whole — a file this archive no longer has, or
         // kept in the other form, would otherwise linger and be parsed as

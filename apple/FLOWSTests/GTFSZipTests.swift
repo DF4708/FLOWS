@@ -358,4 +358,14 @@ final class GTFSZipTests: XCTestCase {
             "the operator is already on the 23rd"
         )
     }
+
+    /// A refresh is kept only when it can build a timetable.
+    func testAPartialArchiveIsNotAWholeFeed() {
+        let core = ["stops.txt", "routes.txt.fz", "trips.txt", "stop_times.txt.fz"]
+        XCTAssertTrue(GTFSZip.isWholeFeed(core + ["calendar.txt"]))
+        XCTAssertTrue(GTFSZip.isWholeFeed(core + ["calendar_dates.txt.fz", "agency.txt"]))
+        XCTAssertFalse(GTFSZip.isWholeFeed(core), "no calendar of either kind")
+        XCTAssertFalse(GTFSZip.isWholeFeed(["stops.txt", "routes.txt", "calendar.txt"]))
+        XCTAssertFalse(GTFSZip.isWholeFeed([]))
+    }
 }

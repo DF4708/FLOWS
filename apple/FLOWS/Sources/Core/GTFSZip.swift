@@ -215,6 +215,18 @@ enum GTFSZip {
     }
 
     /// Whether a feed folder holds a file, in either form.
+    /// Whether these kept file names (plain or packed) make a feed a
+    /// timetable can be built from: stops, routes, trips, stop times, and a
+    /// calendar of either kind.
+    static func isWholeFeed(_ names: [String]) -> Bool {
+        let have = Set(names.map {
+            $0.hasSuffix(packedSuffix) ? String($0.dropLast(packedSuffix.count)) : $0
+        })
+        return ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"]
+            .allSatisfy(have.contains)
+            && (have.contains("calendar.txt") || have.contains("calendar_dates.txt"))
+    }
+
     static func hasMember(_ name: String, in folder: URL) -> Bool {
         let fm = FileManager.default
         return fm.fileExists(atPath: folder.appendingPathComponent(name).path)

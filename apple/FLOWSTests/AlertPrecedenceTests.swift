@@ -93,4 +93,20 @@ final class AlertPrecedenceTests: XCTestCase {
         ]
         XCTAssertEqual(ImminentAlerts.firstImminent(c, speedMps: 29)?.alertID, "nearest-severe")
     }
+
+    /// A held banner lets go when its alert has ended, never on "no data".
+    func testAHeldBannerLetsGoOnlyWhenItsAlertIsOver() {
+        let now = Date()
+        func over(demo: Bool = false, expires: Date? = nil, complete: Bool, listed: Bool) -> Bool {
+            ImminentAlerts.heldWarningIsOver(isDemo: demo, expires: expires, now: now,
+                                             scoreComplete: complete, stillListed: listed)
+        }
+        XCTAssertFalse(over(complete: true, listed: true), "still in force")
+        XCTAssertTrue(over(complete: true, listed: false), "gone from a complete check")
+        XCTAssertFalse(over(complete: false, listed: false), "no data is not all clear")
+        XCTAssertTrue(over(expires: now.addingTimeInterval(-1), complete: false, listed: true),
+                      "run out")
+        XCTAssertFalse(over(expires: now.addingTimeInterval(60), complete: true, listed: true))
+        XCTAssertFalse(over(demo: true, complete: true, listed: false), "the demo is in no feed")
+    }
 }

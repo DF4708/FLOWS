@@ -254,6 +254,36 @@ enum RiskAdvice {
         }
     }
 
+    /// Could the point be in Canada or Mexico? Wide on purpose, the other
+    /// way round from `officialURL` (which reads a doubtful point as US). A
+    /// US state's box takes in the far bank too (Toronto and Windsor sit in
+    /// New York's and Michigan's, Tijuana and Juárez in California's and
+    /// Texas's), and a state's alert list answers "none" for them; asked by
+    /// the point, the Weather Service itself says "not ours" and the
+    /// country's own service is asked. A US town caught here loses nothing:
+    /// it is asked by its point too. So: across the line, or within a
+    /// quarter degree of it, or in the two places the line's bands leave
+    /// out, Ontario between Detroit and Niagara and Vancouver Island.
+    static func mayBeAcrossTheBorder(latitude: Double, longitude: Double) -> Bool {
+        let margin = 0.25
+        if isAcrossTheBorder(latitude: latitude, longitude: longitude)
+            || isNorthOfTheBorder(latitude: latitude + margin, longitude: longitude)
+            || isAcrossTheBorder(latitude: latitude - margin, longitude: longitude) { return true }
+        if longitude >= -83.2, longitude <= -78.9, latitude >= 41.9, latitude <= 45.5 {
+            return true
+        }
+        return longitude >= -125.5 && longitude <= -123.1 && latitude >= 48.25 && latitude <= 49.0
+    }
+
+    /// Is the point plainly in Canada or Mexico, by the lines `officialURL`
+    /// splits the agencies by?
+    static func isAcrossTheBorder(latitude: Double, longitude: Double) -> Bool {
+        if isNorthOfTheBorder(latitude: latitude, longitude: longitude) { return true }
+        if longitude >= -117.2, longitude <= -97.4, latitude > 14,
+           latitude < usSouthernBorderLat(longitude: longitude) { return true }
+        return longitude >= -98.0 && longitude <= -86.5 && latitude > 14 && latitude < 25.5
+    }
+
     /// The official page for a location's active hazards: the NWS point
     /// page (US), ECCC (Canada), SMN (Mexico) — always resolvable, always
     /// the issuing agency. US is the default; a location routes to a foreign

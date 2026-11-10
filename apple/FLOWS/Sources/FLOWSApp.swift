@@ -522,7 +522,7 @@ final class AppModel: ObservableObject {
         let demoEvent = "Child Abduction Emergency (DEMO)"
         let describesEntity = AlertEntityParser.describesAnEntity(event: demoEvent)
         imminentWarning = ImminentWarning(
-            alertID: "demo-amber",
+            alertID: Self.demoAlertID,
             event: demoEvent,
             headline: headline,
             detail: detail,
@@ -5492,6 +5492,17 @@ final class AppModel: ObservableObject {
     }
 
     private func updateImminentWarning(from score: WeatherAlertService.CorridorScore) {
+        // A held banner whose alert has ended lets go. The X only tucks it
+        // and a lookout has no button, so a red card whose alert had run
+        // out stayed in the tray for the rest of the trip and kept every
+        // lower warning, and the faster-route offer, off the screen.
+        if let held = imminentWarning,
+           ImminentAlerts.heldWarningIsOver(
+               isDemo: held.alertID == Self.demoAlertID, expires: held.expires, now: Date(),
+               scoreComplete: score.complete,
+               stillListed: score.alertsByID[held.alertID] != nil) {
+            imminentWarning = nil
+        }
         guard let fix = effectivePosition else { return }
         let speed = max(location.speed, 0)
         // Nearest risky sample per alert, by distance from the vehicle. A
@@ -5645,9 +5656,14 @@ final class AppModel: ObservableObject {
     /// there and comes back on a tap. Closing it used to throw it away, and
     /// a driver who wanted the map back lost the warning with it.
     func tuckImminentWarning() {
-        guard imminentWarning != nil else { return }
+        guard let warning = imminentWarning else { return }
+        // The demo is no alert in force: its X closes it.
+        if warning.alertID == Self.demoAlertID { dismissImminentWarning(); return }
         _ = collapsedPanels.insert(Self.warningPanelID)
     }
+
+    /// The id the Settings demo alert carries.
+    static let demoAlertID = "demo-amber"
 
     /// The tray id a tucked warning takes.
     static let warningPanelID = "warning"

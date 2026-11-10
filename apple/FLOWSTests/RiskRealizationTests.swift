@@ -411,4 +411,28 @@ final class RiskRealizationTests: XCTestCase {
         XCTAssertFalse(storm.contains("NOT safe"))
         XCTAssertTrue(tornado.lowercased().contains("ditch"))
     }
+
+    /// A US state's box takes in the far bank; these towns were joined
+    /// against US alert lists only and their own service was never asked.
+    func testTownsAcrossTheBorderAreNotAskedOfUSStateLists() {
+        let abroad: [(String, Double, Double)] = [
+            ("Toronto", 43.65, -79.38), ("Hamilton ON", 43.26, -79.87),
+            ("Windsor ON", 42.30, -82.98), ("Victoria BC", 48.43, -123.37),
+            ("Tijuana", 32.50, -117.02), ("Ciudad Juárez", 31.69, -106.42),
+            ("Chihuahua", 28.63, -106.08), ("Cancún", 21.16, -86.85),
+        ]
+        for (name, lat, lon) in abroad {
+            XCTAssertTrue(RiskAdvice.mayBeAcrossTheBorder(latitude: lat, longitude: lon), name)
+        }
+        let home: [(String, Double, Double)] = [
+            ("Madison", 43.07, -89.40), ("Rochester NY", 43.16, -77.61),
+            ("Seattle", 47.61, -122.33), ("Cleveland", 41.50, -81.69),
+            ("Phoenix", 33.45, -112.07), ("San Antonio", 29.42, -98.49),
+            ("Miami", 25.76, -80.19), ("Houston", 29.76, -95.37),
+            ("Key West", 24.56, -81.78), ("Anchorage", 61.22, -149.90),
+        ]
+        for (name, lat, lon) in home {
+            XCTAssertFalse(RiskAdvice.mayBeAcrossTheBorder(latitude: lat, longitude: lon), name)
+        }
+    }
 }

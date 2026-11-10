@@ -675,7 +675,12 @@ final class WeatherAlertService: ObservableObject {
         var stateSet = Set<String>()
         for (key, pt) in fresh {
             let states = Self.statesContaining(pt)
-            if states.isEmpty {
+            // A state's box takes in the far bank: Toronto, Windsor,
+            // Tijuana and Juárez were joined against US lists only, read
+            // "no alerts", and their own country's service was never asked.
+            // The per-point path asks it.
+            if states.isEmpty || RiskAdvice.mayBeAcrossTheBorder(
+                latitude: pt.latitude, longitude: pt.longitude) {
                 fallback.append((key, pt))
             } else {
                 // Cells near water require their marine region lists too —
@@ -1020,7 +1025,8 @@ final class WeatherAlertService: ObservableObject {
         // can't unlock on a false "no alerts" during a WMO-region blip.
         guard let all = await WMOAlertCache.shared.alerts(code: code) else { return nil }
         return all.filter { alert in
-            alert.polygon.map { HazardFeedScores.pointInPolygon(point, $0) } ?? false
+            ((alert.polygon.map { [$0] } ?? []) + alert.extraRings)
+                .contains { HazardFeedScores.pointInPolygon(point, $0) }
         }
     }
 
@@ -1468,7 +1474,9 @@ actor WMOAlertCache {
     /// all-clear. Failures are NOT cached — the next call retries — so a
     /// blip can't pin "no alerts" for the TTL and defeat the GO gate.
     func alerts(code: String) async -> [WeatherAlertService.NWSAlert]? {
-        if let e = byCode[code], Date().timeIntervalSince(e.fetched) < AdaptiveTuning.shared.ttl(600) { return e.alerts }
+        // Ten minutes flat. Alert caches are not stretched by the battery
+        // and heat setting (see alertSeconds): x3 made this half an hour.
+        if let e = byCode[code], Date().timeIntervalSince(e.fetched) < 600 { return e.alerts }
         if let t = inFlight[code] { return await t.value }
         let task = Task<[WeatherAlertService.NWSAlert]?, Never> {
             await Self.fetch(code: code)
@@ -1516,21 +1524,21 @@ actor WMOAlertCache {
                           let capXML = String(data: d, encoding: .utf8),
                           let cap = WMOAlertParsing.parseCAP(capXML) else { return nil }
                     guard !cap.polygons.isEmpty else { return [] }
-                    // One NWSAlert per ring, SAME id: a multi-area alert warns
-                    // every ring it covers, while corridor coverage still
-                    // groups the rings as one alert (dedupe is by id).
-                    return cap.polygons.map { ring in
-                        WeatherAlertService.NWSAlert(
-                            id: item.link,
-                            event: cap.event,
-                            headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
-                            severityScore: WeatherAlertService.severityScore(cap.severity),
-                            polygon: ring,
-                            expires: cap.expires.flatMap { capDate.date(from: $0) },
-                            onset: cap.effective.flatMap { capDate.date(from: $0) },
-                            sourceURL: cap.web.flatMap(URL.init(string:)) ?? URL(string: item.link),
-                            detail: cap.description)
-                    }
+                    // One alert carrying every ring it covers. One alert per
+                    // ring under the same id lost all but the first ring
+                    // wherever alerts are kept by id: the area drawn and the
+                    // distance to its edge were the first ring's alone.
+                    return [WeatherAlertService.NWSAlert(
+                        id: item.link,
+                        event: cap.event,
+                        headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
+                        severityScore: WeatherAlertService.severityScore(cap.severity),
+                        polygon: cap.polygons.first,
+                        extraRings: Array(cap.polygons.dropFirst()),
+                        expires: cap.expires.flatMap { capDate.date(from: $0) },
+                        onset: cap.effective.flatMap { capDate.date(from: $0) },
+                        sourceURL: cap.web.flatMap(URL.init(string:)) ?? URL(string: item.link),
+                        detail: cap.description)]
                 }
             }
             for await hits in group {

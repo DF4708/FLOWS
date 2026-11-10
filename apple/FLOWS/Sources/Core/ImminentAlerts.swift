@@ -81,6 +81,17 @@ enum ImminentAlerts {
         Int(flows_alerts_threat_rank(event, severityScore))
     }
 
+    /// Whether a banner still on screen should let go by itself: its alert
+    /// has run out, or a complete check of the route no longer lists it. An
+    /// incomplete check proves nothing ("no data" is never "all clear"), and
+    /// the Settings demo is in no feed, so it stays until closed.
+    static func heldWarningIsOver(isDemo: Bool, expires: Date?, now: Date,
+                                  scoreComplete: Bool, stillListed: Bool) -> Bool {
+        if isDemo { return false }
+        if let expires, expires <= now { return true }
+        return scoreComplete && !stillListed
+    }
+
     /// Seconds until the vehicle reaches a point `distanceMeters` ahead at
     /// `speedMps` (floored so "stopped" still evaluates the road just ahead).
     static func secondsToReach(distanceMeters: Double, speedMps: Double) -> Double {
