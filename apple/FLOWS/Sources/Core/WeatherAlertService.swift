@@ -1448,12 +1448,11 @@ actor ZoneGeometryCache {
     }
 }
 
-/// Country-level cache of WMO Alert Hub active alerts (Mexico + Central America
-/// + Caribbean). The RSS index + per-alert CAP-file fetches happen ONCE per
-/// country per TTL (not per corridor point); callers then filter by polygon.
-/// 10-min TTL with in-flight coalescing, and the CAP fetches are bounded to the
-/// 24 most-recent unexpired items so a corridor scoring can't fan out to
-/// hundreds of requests.
+/// Country-level cache of the national services' alerts in force (Mexico,
+/// Central America, Caribbean), each read from the service's own list. The
+/// list and its alert files are read ONCE per country per ten minutes (not
+/// per corridor point), with in-flight coalescing; callers then filter by
+/// polygon.
 actor WMOAlertCache {
     static let shared = WMOAlertCache()
     private struct Entry { let fetched: Date; let alerts: [WeatherAlertService.NWSAlert] }
@@ -1491,61 +1490,96 @@ actor WMOAlertCache {
     private static func fetch(
         code: String
     ) async -> [WeatherAlertService.NWSAlert]? {
-        guard let rss = WMOAlertParsing.rssURL(code: code),
-              let (data, resp) = try? await ThrottledNet.fetch(rss),
+        guard let index = WMOAlertParsing.indexURL(code: code),
+              let (data, resp) = try? await ThrottledNet.fetch(index),
               (resp as? HTTPURLResponse)?.statusCode == 200,
               let xml = String(data: data, encoding: .utf8) else { return nil }
         let now = Date()
+        func stamp(_ s: String) -> Date? { capDate.date(from: s) ?? rfc822.date(from: s) }
+        var strayLink = false
         let items = WMOAlertParsing.parseRSSItems(xml).filter { item in
-            // CAP `cap:expires` is ISO8601 (2026-07-06T18:00:00-06:00), so try the
-            // ISO8601 parser FIRST — the old code used only the RFC822 formatter,
-            // which returned nil for every ISO8601 stamp and made this whole
-            // filter a no-op that let expired alerts through. Fall back to RFC822
-            // for any feed that uses a pubDate-style stamp; keep only when neither
-            // parses (fail-open, so a real alert isn't dropped on a format quirk).
-            guard let exp = capDate.date(from: item.expires)
-                    ?? rfc822.date(from: item.expires) else { return true }
-            return exp > now
+            // The list pointing at itself is no alert (Jamaica's "no
+            // alerts" entry).
+            guard let u = URL(string: item.link), u != index else { return false }
+            // A list may give the end time; one that parses and has passed
+            // is over. No stamp, or one that cannot be read, keeps the item:
+            // its own file says when it ends.
+            if let exp = stamp(item.expires), exp <= now { return false }
+            // The services' lists are histories (Mexico's holds a year).
+            // Two weeks back is every alert that can still be in force.
+            if let at = stamp(item.published), now.timeIntervalSince(at) > 14 * 86_400 {
+                return false
+            }
+            // Only the service's own files are followed. A recent item that
+            // points somewhere else cannot be read here: unknown, not skipped.
+            if u.host != index.host { strayLink = true; return false }
+            return true
         }
-        // Every alert in force is read, or the answer is "unknown": the list
-        // was cut at 24, and an alert whose details failed to load was
-        // dropped while the feed still counted as complete — a route could
-        // pass its check missing the one alert on it. Past 100 (no real
-        // feed's day) the answer is unknown too, rather than a guess.
+        if strayLink { return nil }
+        // Every alert in force is read, or the answer is "unknown": an alert
+        // whose details failed to load must not be dropped while the list
+        // still counts as complete. Past 100 the answer is unknown too.
         guard items.count <= 100 else { return nil }
-        var out: [WeatherAlertService.NWSAlert] = []
+        var files: [(link: String, cap: WMOAlertParsing.ParsedCAP)] = []
         var unreadable = false
-        await withTaskGroup(of: [WeatherAlertService.NWSAlert]?.self) { group in
+        await withTaskGroup(of: (String, WMOAlertParsing.ParsedCAP)?.self) { group in
             for item in items {
                 group.addTask {
+                    // An alert file never changes once published: read once.
+                    if let held = await CAPFileCache.shared.file(item.link) {
+                        return (item.link, held)
+                    }
                     guard let u = URL(string: item.link),
                           let (d, r) = try? await ThrottledNet.fetch(u),
                           (r as? HTTPURLResponse)?.statusCode == 200,
                           let capXML = String(data: d, encoding: .utf8),
                           let cap = WMOAlertParsing.parseCAP(capXML) else { return nil }
-                    guard cap.isLive else { return [] }
-                    guard !cap.polygons.isEmpty else { return [] }
-                    // One alert carrying every ring it covers. One alert per
-                    // ring under the same id lost all but the first ring
-                    // wherever alerts are kept by id: the area drawn and the
-                    // distance to its edge were the first ring's alone.
-                    return [WeatherAlertService.NWSAlert(
-                        id: item.link,
-                        event: cap.event,
-                        headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
-                        severityScore: WeatherAlertService.severityScore(cap.severity),
-                        polygon: cap.polygons.first,
-                        extraRings: Array(cap.polygons.dropFirst()),
-                        expires: cap.expires.flatMap { capDate.date(from: $0) },
-                        onset: cap.effective.flatMap { capDate.date(from: $0) },
-                        sourceURL: cap.web.flatMap(URL.init(string:)) ?? URL(string: item.link),
-                        detail: cap.description)]
+                    await CAPFileCache.shared.keep(cap, for: item.link)
+                    return (item.link, cap)
                 }
             }
-            for await hits in group {
-                if let hits { out.append(contentsOf: hits) } else { unreadable = true }
+            for await file in group {
+                if let file { files.append(file) } else { unreadable = true }
             }
         }
-        return unreadable ? nil : out
+        if unreadable { return nil }
+        // An update or a cancellation names the messages it replaces; those
+        // stay in the list with their old end time and are over all the same.
+        let replaced = Set(files.flatMap { $0.cap.references })
+        return files.compactMap { link, cap in
+            guard cap.isLive, !cap.polygons.isEmpty else { return nil }
+            if let id = cap.identifier, replaced.contains(id) { return nil }
+            let expires = cap.expires.flatMap { capDate.date(from: $0) }
+            if let expires, expires <= now { return nil }
+            // One alert carrying every ring it covers. One alert per ring
+            // under the same id lost all but the first ring wherever alerts
+            // are kept by id.
+            return WeatherAlertService.NWSAlert(
+                id: link,
+                // The risk rules read US names; the headline keeps the
+                // service's own.
+                event: WMOAlertParsing.eventInRiskWords(cap.event, severity: cap.severity),
+                headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
+                severityScore: WeatherAlertService.severityScore(cap.severity),
+                polygon: cap.polygons.first,
+                extraRings: Array(cap.polygons.dropFirst()),
+                expires: expires,
+                onset: cap.effective.flatMap { capDate.date(from: $0) },
+                sourceURL: cap.web.flatMap(URL.init(string:)) ?? URL(string: link),
+                detail: cap.description)
+        }
+    }
+}
+
+/// Alert files already read, by address. A published alert file does not
+/// change, and the services' lists keep two weeks of them: without this each
+/// ten-minute look read every one again.
+private actor CAPFileCache {
+    static let shared = CAPFileCache()
+    private var files: [String: WMOAlertParsing.ParsedCAP] = [:]
+    func file(_ link: String) -> WMOAlertParsing.ParsedCAP? { files[link] }
+    func keep(_ cap: WMOAlertParsing.ParsedCAP, for link: String) {
+        if files.count >= 400 { files.removeAll() }
+        files[link] = cap
     }
 }

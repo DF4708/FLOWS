@@ -3174,6 +3174,10 @@ final class AppModel: ObservableObject {
     @Published var refuelPrompt = false
     private var lastClockFix: Date?
     private var stoppedSince: Date?
+    /// Where that stop began. A stop is a place: a clock that only ended
+    /// above 3 m/s ran on through half an hour of crawling in a jam (and
+    /// through fixes with no speed at all), and that read as a rest break.
+    private var stoppedAt: CLLocation?
     private var refuelPromptShownAt: Date?
 
     /// Driving since the last 10 hours off duty — the 11-hour limit's clock.
@@ -3212,6 +3216,15 @@ final class AppModel: ObservableObject {
         if gap >= HOSRules.breakResetSeconds { drivingSeconds = 0 }
         if gap >= Self.offDutyResetSeconds { drivingInWindowSeconds = 0 }
         let dt = lastClockFix.map { min(now.timeIntervalSince($0), 30) } ?? 0
+        if let at = stoppedAt, let stopStart = stoppedSince, fix.distance(from: at) > 150 {
+            // Left the place, however slowly: the stop ends here, with the
+            // rest it earned.
+            let stopped = now.timeIntervalSince(stopStart)
+            if stopped >= HOSRules.breakResetSeconds { drivingSeconds = 0 }
+            if stopped >= Self.offDutyResetSeconds { drivingInWindowSeconds = 0 }
+            stoppedSince = nil
+            stoppedAt = nil
+        }
         if fix.speed > 3 {
             drivingSeconds += max(dt, 0)
             drivingInWindowSeconds += max(dt, 0)
@@ -3227,6 +3240,7 @@ final class AppModel: ObservableObject {
                 }
             }
             stoppedSince = nil
+            stoppedAt = nil
             lastDrivingFix = now
             if now.timeIntervalSince(windowSavedAt) >= 60 {
                 windowSavedAt = now
@@ -3234,7 +3248,7 @@ final class AppModel: ObservableObject {
                 UserDefaults.standard.set(now, forKey: "flows.hos.windowAt")
             }
         } else if fix.speed <= 1 {   // includes -1 = invalid/stationary fixes
-            if stoppedSince == nil { stoppedSince = now }
+            if stoppedSince == nil { stoppedSince = now; stoppedAt = fix }
             // GPS-based refuel detection: a 4+ minute dwell mid-trip looks
             // like a fuel stop → ask ONCE per dwell. (CarPlay does not
             // expose the vehicle's real fuel level to third-party nav apps —
@@ -4609,7 +4623,10 @@ final class AppModel: ObservableObject {
         // Whole lines: a route drives a closure only along it (closedRoads);
         // scoring and the live watch read its points (closurePoints).
         async let closuresF = LiveHazardFeedFetcher.shared.closedRoads(
-            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon)
+            minLat: bbox.minLat, minLon: bbox.minLon, maxLat: bbox.maxLat, maxLon: bbox.maxLon,
+            // Every state on the route, not the first three feeds: the rest
+            // read as "no closures" and a closed road past them passed.
+            budget: 16)
         // FLOOD SUPPORTING EVIDENCE — the topographic analysis the waterline
         // model gates on (a road between local min and max floods only WITH
         // evidence): live river GAUGES at/above flood stage (was map-only; now
@@ -5272,6 +5289,7 @@ final class AppModel: ObservableObject {
         // not lost; if they are still rolling, leave it nil.
         if stoppedSince == nil, (location.latest?.speed ?? -1) <= 1 {
             stoppedSince = Date()
+            stoppedAt = location.latest
         }
         lastClockFix = nil
         tripSharePrompt = false

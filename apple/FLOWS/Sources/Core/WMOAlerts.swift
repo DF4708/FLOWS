@@ -43,6 +43,18 @@ enum WMOAlertParsing {
             // "no alerts", complete, when it is a place no covered feed
             // answers for.
             if f.code == "mx-smn-es", southOfMexico(c) { continue }
+            // The small boxes take in the neighbours too, and a neighbour
+            // read from the wrong country's list is "no alerts", complete.
+            if f.code == "bz-nms-en" {
+                switch besideBelize(c) {
+                case .mexico: continue          // on to Mexico's own list
+                case .unsure: return nil
+                case .belize: break
+                }
+            }
+            // Venezuela's Paria tip sits in Trinidad's box.
+            if f.code == "tt-ttms-en", c.latitude > 10.45, c.longitude < -61.8 { return nil }
+            if f.code == "cr-imn-es", besideCostaRica(c) { return nil }
             return f.code
         }
         return nil
@@ -63,19 +75,73 @@ enum WMOAlertParsing {
         return false
     }
 
-    static func rssURL(code: String) -> URL? {
-        URL(string: "https://severeweather.wmo.int/v2/cap-alerts/\(code)/rss.xml")
+    enum BelizeSide { case belize, mexico, unsure }
+
+    /// Which side of Belize's borders a point in its box is on. Guatemala
+    /// lies south of the Sarstoon and west of the 89.15°W line; Mexico north
+    /// of the Hondo (drawn here as one straight line from La Unión to
+    /// Chetumal Bay) and on the Xcalak coast. Within a tenth of a degree of
+    /// the river the answer is "unsure": unknown fails safe, the wrong
+    /// country's "no alerts" does not.
+    static func besideBelize(_ c: CLLocationCoordinate2D) -> BelizeSide {
+        let (lat, lon) = (c.latitude, c.longitude)
+        if lat < 15.9 || lon < -89.15 { return .unsure }          // Guatemala, Honduras
+        if lon < -88.88 { return lat > 17.8 ? .unsure : .belize } // Petén corner, Mexico above
+        if lon > -88.1 { return lat > 18.2 ? .mexico : .belize }  // Xcalak coast
+        if lon > -88.3 { return lat > 18.45 ? .unsure : .belize } // Chetumal Bay
+        let river = 17.90 + 1.07 * (lon + 88.88)
+        if lat > river + 0.1 { return .mexico }
+        return lat > river - 0.1 ? .unsure : .belize
     }
 
-    struct RSSItem { let link: String; let event: String; let severity: String; let expires: String }
+    /// A point in Costa Rica's box that may be Nicaragua (north of the San
+    /// Juan and the line to Salinas Bay) or Panama (east of the Sixaola and
+    /// the ridge down to Punta Burica). Wide on purpose.
+    static func besideCostaRica(_ c: CLLocationCoordinate2D) -> Bool {
+        let (lat, lon) = (c.latitude, c.longitude)
+        if lat > (lon < -85.0 ? 11.0 : 10.7) { return true }
+        return lon > -83.1 && lat < 9.7
+    }
+
+    /// Each service's own list of alerts. The WMO hub's per-country lists
+    /// (`severeweather.wmo.int/v2/cap-alerts/<code>/rss.xml`) answer "not
+    /// found" (seen 2026-11-10), which left all seven countries unchecked;
+    /// these are the addresses the hub's own source table gives. Panama and
+    /// the Dominican Republic publish none there: nil, so unknown.
+    static func indexURL(code: String) -> URL? {
+        let address: String
+        switch code {
+        case "mx-smn-es": address = "https://smn.conagua.gob.mx/tools/PHP/feedsmn/cap.php"
+        case "bz-nms-en": address = "https://cap-sources.s3.amazonaws.com/bz-nms-en/rss.xml"
+        case "cr-imn-es": address = "https://cap-sources.s3.amazonaws.com/cr-imn-es/rss.xml"
+        case "jm-jms-en": address = "https://alert.metservice.gov.jm/capfeed.php"
+        case "tt-ttms-en": address = "https://metproducts.gov.tt/ttms/public/api/feed?type=rss"
+        default: return nil
+        }
+        return URL(string: address)
+    }
+
+    struct RSSItem {
+        let link: String; let event: String; let severity: String; let expires: String
+        /// When the list says the item was published (RSS `pubDate`, Atom
+        /// `updated`), as written.
+        var published = ""
+    }
 
     /// Flat scan of the RSS `<item>` blocks (event/severity/expires inline;
     /// the `<link>` points at the full CAP file with the geometry).
     static func parseRSSItems(_ xml: String) -> [RSSItem] {
+        parseItems(xml, open: "<item>", close: "</item>")
+            + parseItems(xml, open: "<entry>", close: "</entry>")
+    }
+
+    /// RSS `<item>` blocks, or Atom `<entry>` blocks (Mexico, Jamaica), whose
+    /// link is an attribute: `<link ... href="...">`.
+    private static func parseItems(_ xml: String, open: String, close: String) -> [RSSItem] {
         var out: [RSSItem] = []
         var search = xml[xml.startIndex...]
-        while let open = search.range(of: "<item>"),
-              let close = search.range(of: "</item>", range: open.upperBound..<search.endIndex) {
+        while let open = search.range(of: open),
+              let close = search.range(of: close, range: open.upperBound..<search.endIndex) {
             let body = String(search[open.upperBound..<close.lowerBound])
             func tag(_ name: String) -> String? {
                 guard let s = body.range(of: "<\(name)>"),
@@ -84,15 +150,58 @@ enum WMOAlertParsing {
                 return String(body[s.upperBound..<e.lowerBound])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            if let link = tag("link"), link.hasSuffix(".xml") {
+            var link = tag("link")
+            if link == nil, let l = body.range(of: "<link "),
+               let h = body.range(of: "href=\"", range: l.upperBound..<body.endIndex),
+               let q = body.range(of: "\"", range: h.upperBound..<body.endIndex) {
+                link = String(body[h.upperBound..<q.lowerBound])
+            }
+            // Any link: a list that names its alert files some other way
+            // than ".xml" lost every alert, and read "no alerts". A link
+            // that is not an alert file fails to parse as one: unknown.
+            if let link, !link.isEmpty {
                 out.append(RSSItem(link: link,
                                    event: tag("cap:event") ?? tag("title") ?? "Weather alert",
                                    severity: tag("cap:severity") ?? "Moderate",
-                                   expires: tag("cap:expires") ?? ""))
+                                   expires: tag("cap:expires") ?? "",
+                                   published: tag("pubDate") ?? tag("updated") ?? ""))
             }
             search = search[close.upperBound...]
         }
         return out
+    }
+
+    /// A service's own name for an alert, in the words the risk rules read.
+    /// Those rules know the US names only: "Aviso de Ciclón Tropical",
+    /// severe, added nothing to a route's risk, and neither did "Hot Spell".
+    /// A name the rules already place is kept as written. Severe and extreme
+    /// alerts take the warning name (it can reach Red); the rest take the
+    /// advisory or watch name (a predictor, capped). Sea-state notices and
+    /// names nothing here knows stay as written, unscored.
+    static func eventInRiskWords(_ event: String, severity: String) -> String {
+        guard !event.isEmpty, RiskEquations.alertFamily(event) == nil else { return event }
+        let e = event.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .lowercased()
+        func has(_ words: [String]) -> Bool { words.contains { e.contains($0) } }
+        let strong = ["severe", "extreme"].contains(severity.lowercased())
+        if has(["ciclon", "huracan", "tormenta tropical", "depresion tropical", "tropical"]) {
+            return strong ? "Tropical Storm Warning" : "Tropical Storm Watch"
+        }
+        if has(["small craft", "seas", "marine", "oleaje", "mar de fondo", "marejada", "surf"]) {
+            return event
+        }
+        if has(["inunda", "lluvia", "rain", "riverine", "crecida", "desbordamiento"]) {
+            return strong ? "Flood Warning" : "Flood Advisory"
+        }
+        if has(["nevada", "nieve", "aguanieve"]) { return "Winter Weather Advisory" }
+        if has(["frente frio", "frio", "helada"]) { return "Cold Weather Advisory" }
+        if has(["calor", "hot spell", "hot weather"]) { return "Heat Advisory" }
+        if has(["viento", "gust"]) { return "Wind Advisory" }
+        if has(["tormenta", "electrica", "granizo", "adverse weather"]) {
+            return strong ? "Severe Thunderstorm Warning" : "Severe Thunderstorm Watch"
+        }
+        if has(["niebla", "neblina"]) { return "Dense Fog Advisory" }
+        return event
     }
 
     struct ParsedCAP {
@@ -113,6 +222,10 @@ enum WMOAlertParsing {
         /// cancellation, not an "all clear". Those came through as live
         /// alerts at their stated severity until they expired.
         var isLive = true
+        /// The message's own name, and the names of the earlier messages it
+        /// replaces (an update or a cancellation lists them).
+        var identifier: String?
+        var references: [String] = []
     }
 
     /// CAP `<polygon>` is space-separated `lat,lon` pairs (note: lat FIRST,
@@ -132,7 +245,13 @@ enum WMOAlertParsing {
         return ring
     }
 
-    static func parseCAP(_ xml: String) -> ParsedCAP? {
+    static func parseCAP(_ raw: String) -> ParsedCAP? {
+        // Some services write every tag with a prefix (`<cap:polygon>`,
+        // Belize): read plain, their alerts had no shape and were dropped.
+        let xml = raw.replacingOccurrences(of: "<cap:", with: "<")
+            .replacingOccurrences(of: "</cap:", with: "</")
+        // Not an alert file at all (an error page, a web page): unreadable.
+        guard xml.contains("<alert") else { return nil }
         func tag(_ name: String) -> String? {
             guard let s = xml.range(of: "<\(name)>"),
                   let e = xml.range(of: "</\(name)>", range: s.upperBound..<xml.endIndex)
@@ -168,6 +287,13 @@ enum WMOAlertParsing {
             effective: tag("effective") ?? tag("onset"),
             web: tag("web"),
             description: tag("description").map { String($0.prefix(280)) },
-            isLive: live)
+            isLive: live,
+            identifier: tag("identifier"),
+            // "sender,identifier,sent" triples, parted by white space.
+            references: (tag("references") ?? "").split(whereSeparator: \.isWhitespace)
+                .compactMap { ref in
+                    let parts = ref.split(separator: ",")
+                    return parts.count >= 2 ? String(parts[1]) : nil
+                })
     }
 }

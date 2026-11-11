@@ -753,6 +753,119 @@ final class WMOAlertTests: XCTestCase {
             cap("", polygon: "22.0,-98.0 x,-98.0 22.5,-97.5 22.0,-98.0"))?.polygons.count, 0)
     }
 
+    func testEachServiceIsReadFromItsOwnList() {
+        for code in ["mx-smn-es", "bz-nms-en", "cr-imn-es", "jm-jms-en", "tt-ttms-en"] {
+            XCTAssertEqual(WMOAlertParsing.indexURL(code: code)?.scheme, "https", code)
+        }
+        // No list of their own: unknown, never "no alerts".
+        XCTAssertNil(WMOAlertParsing.indexURL(code: "pa-imhpa-es"))
+        XCTAssertNil(WMOAlertParsing.indexURL(code: "do-indomet-es"))
+
+        // Mexico and Jamaica write Atom: the link is an attribute.
+        let atom = """
+        <feed><link rel="self" href="https://smn.example/cap.php"/><updated>2026-11-10T20:47:58-06:00</updated>
+        <entry><id>x</id><title type="text">Canal de baja presión</title>
+        <updated>2026-11-10T11:00:00-06:00</updated>
+        <link rel="alternate" type="application/cap+xml" href="https://smn.example/FILES/a_cap.xml" />
+        </entry></feed>
+        """
+        let entries = WMOAlertParsing.parseRSSItems(atom)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries.first?.link, "https://smn.example/FILES/a_cap.xml")
+        XCTAssertEqual(entries.first?.published, "2026-11-10T11:00:00-06:00")
+
+        // Trinidad writes RSS with a publishing date and no end time.
+        let rss = "<rss><channel><link>https://tt.example/feed</link><item><title>Hot Spell</title>"
+            + "<link>https://tt.example/feed/872.xml</link>"
+            + "<pubDate>Sat, 31 Oct 2026 12:34:13 +0000</pubDate></item></channel></rss>"
+        let items = WMOAlertParsing.parseRSSItems(rss)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.published, "Sat, 31 Oct 2026 12:34:13 +0000")
+        XCTAssertEqual(items.first?.expires, "")
+    }
+
+    func testAPrefixedCAPFileAndTheMessagesItReplaces() {
+        // Belize writes every tag with a prefix.
+        let cap = """
+        <cap:alert xmlns:cap="urn:oasis:names:tc:emergency:cap:1.2">
+        <cap:identifier>bz-2</cap:identifier><cap:status>Actual</cap:status>
+        <cap:msgType>Update</cap:msgType>
+        <cap:references>nms@bz,bz-1,2026-11-10T00:00:00-06:00 nms@bz,bz-0,2026-11-09T00:00:00-06:00</cap:references>
+        <cap:info><cap:event>Flood Warning</cap:event><cap:severity>Severe</cap:severity>
+        <cap:expires>2026-11-12T00:00:00-06:00</cap:expires>
+        <cap:area><cap:polygon>17.0,-88.6 17.4,-88.6 17.4,-88.2 17.0,-88.6</cap:polygon></cap:area>
+        </cap:info></cap:alert>
+        """
+        let parsed = WMOAlertParsing.parseCAP(cap)
+        XCTAssertEqual(parsed?.event, "Flood Warning")
+        XCTAssertEqual(parsed?.severity, "Severe")
+        XCTAssertEqual(parsed?.polygons.count, 1)
+        XCTAssertEqual(parsed?.expires, "2026-11-12T00:00:00-06:00")
+        XCTAssertEqual(parsed?.identifier, "bz-2")
+        XCTAssertEqual(parsed?.references ?? [], ["bz-1", "bz-0"])
+        XCTAssertEqual(parsed?.isLive, true)
+        // A page that is not an alert file is unreadable, not "an alert with
+        // no shape" (which is dropped while the list still counts as whole).
+        XCTAssertNil(WMOAlertParsing.parseCAP("<html><body>There are no active watches</body></html>"))
+    }
+
+    func testNeighboursInASmallCountrysBoxAreNotReadFromItsList() {
+        func code(_ lat: Double, _ lon: Double) -> String? {
+            WMOAlertParsing.feedCode(for: .init(latitude: lat, longitude: lon))
+        }
+        // Belize: its towns stay; Guatemala beside it is unknown; Quintana
+        // Roo north of the Hondo is Mexico's; by the river, unknown.
+        XCTAssertEqual(code(17.50, -88.20), "bz-nms-en")   // Belize City
+        XCTAssertEqual(code(18.08, -88.56), "bz-nms-en")   // Orange Walk
+        XCTAssertEqual(code(16.10, -88.80), "bz-nms-en")   // Punta Gorda
+        XCTAssertEqual(code(17.25, -88.77), "bz-nms-en")   // Belmopan
+        XCTAssertNil(code(15.83, -88.75))                  // Livingston, Guatemala
+        XCTAssertNil(code(17.00, -89.25))                  // Petén, Guatemala
+        XCTAssertEqual(code(18.45, -88.80), "mx-smn-es")   // Quintana Roo, north of the river
+        XCTAssertEqual(code(18.30, -87.85), "mx-smn-es")   // Xcalak coast
+        XCTAssertNil(code(18.39, -88.39))                  // Corozal, by the river
+        // Trinidad: Venezuela's Paria tip is unknown.
+        XCTAssertEqual(code(10.65, -61.52), "tt-ttms-en")  // Port of Spain
+        XCTAssertNil(code(10.70, -61.95))
+        // Costa Rica: Nicaragua north of it and Panama east of it are unknown.
+        XCTAssertEqual(code(10.63, -85.44), "cr-imn-es")   // Liberia
+        XCTAssertEqual(code(9.99, -83.03), "cr-imn-es")    // Limón
+        XCTAssertNil(code(11.25, -85.87))                  // San Juan del Sur, Nicaragua
+        XCTAssertNil(code(11.12, -84.78))                  // San Carlos, Nicaragua
+        XCTAssertNil(code(9.43, -82.52))                   // Changuinola, Panama
+    }
+
+    func testAServicesOwnAlertNameCountsTowardRisk() {
+        func words(_ event: String, _ severity: String) -> String {
+            WMOAlertParsing.eventInRiskWords(event, severity: severity)
+        }
+        // Mexico's three kinds, as its files name them.
+        XCTAssertEqual(words("Aviso de Ciclón Tropical en el Pacífico", "Severe"), "Tropical Storm Warning")
+        XCTAssertEqual(words("Aviso de Ciclón Tropical en el Pacífico", "Moderate"), "Tropical Storm Watch")
+        XCTAssertEqual(words("Aviso de lluvias", "Moderate"), "Flood Advisory")
+        XCTAssertEqual(words("Aviso de lluvias", "Extreme"), "Flood Warning")
+        XCTAssertEqual(words("Aviso de Frente Frío ", "Moderate"), "Cold Weather Advisory")
+        // Trinidad's heat notice had no family at all.
+        XCTAssertEqual(words("Hot Spell", "Moderate"), "Heat Advisory")
+        // Every name given lands in a family the risk rules score, and a
+        // strong one in a family that can reach Red.
+        for (event, severity) in [("Aviso de Ciclón Tropical", "Severe"), ("Aviso de lluvias", "Moderate"),
+                                  ("Aviso de Frente Frío", "Minor"), ("Hot Spell", "Moderate"),
+                                  ("Tormentas eléctricas", "Severe"), ("Vientos fuertes", "Moderate"),
+                                  ("Nevadas", "Moderate"), ("Banco de niebla", "Minor")] {
+            XCTAssertNotNil(RiskEquations.alertFamily(words(event, severity)), event)
+        }
+        XCTAssertEqual(RiskEquations.alertFamily(words("Aviso de Ciclón Tropical", "Severe")), "tropical")
+        XCTAssertEqual(RiskEquations.alertFamily(words("Aviso de lluvias", "Severe")), "qpf_flood")
+        XCTAssertEqual(RiskEquations.alertFamily(words("Aviso de lluvias", "Moderate")), "precip")
+        // A name the rules already place is left alone; a sea notice and an
+        // unknown name stay as written.
+        XCTAssertEqual(words("Flood Warning", "Moderate"), "Flood Warning")
+        XCTAssertEqual(words("wind", "Moderate"), "wind")
+        XCTAssertEqual(words("SMALL CRAFT CAUTION", "Severe"), "SMALL CRAFT CAUTION")
+        XCTAssertEqual(words("Aviso", "Severe"), "Aviso")
+    }
+
     func testRSSAndCAPParsing() {
         let rss = """
         <rss><channel><item><title>Zona de inestabilidad</title>\

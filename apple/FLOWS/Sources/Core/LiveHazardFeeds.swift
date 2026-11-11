@@ -1516,7 +1516,12 @@ actor LiveHazardFeedFetcher {
 
     /// DOT-reported full closures touching a bbox, whole lines — what
     /// `HazardFeedScores.routeThroughClosure` judges a route by.
-    func closedRoads(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double)
+    ///
+    /// `budget` is how many feeds one call may read fresh. A map sweep keeps
+    /// it small; a route check passes enough for every state it crosses,
+    /// since a feed past the budget with nothing held reads as "no closures".
+    func closedRoads(minLat: Double, minLon: Double, maxLat: Double, maxLon: Double,
+                     budget: Int = 3)
         async -> [ClosedRoad] {
         await ensureWZDxRegistry()
         guard !wzdxRegistry.isEmpty else { return [] }
@@ -1534,7 +1539,7 @@ actor LiveHazardFeedFetcher {
                 out.append(contentsOf: cached.1)
                 continue
             }
-            guard fetched < 3 else {
+            guard fetched < budget else {
                 // Over this sweep's request budget: what the feed last said
                 // still stands. Skipping it used to read as "no closures".
                 if let cached = closureCache[cacheKey] { out.append(contentsOf: cached.1) }
