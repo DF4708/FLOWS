@@ -515,7 +515,8 @@ struct NavigationHUD: View {
                                 .scaledFont(.footnote, weight: .bold)
                             // Nothing to take: red, no faster road, or past the turn.
                             if !model.trafficOfferBlocked {
-                                Button(model.trafficOfferRiskier ? "Faster, more risk" : "Faster route") {
+                                Button(model.trafficOfferUnchecked ? "Not checked. Take it?"
+                                       : model.trafficOfferRiskier ? "Faster, more risk" : "Faster route") {
                                     Task { await model.rerouteForTraffic() }
                                 }
                                 .scaledFont(.footnote, weight: .heavy)

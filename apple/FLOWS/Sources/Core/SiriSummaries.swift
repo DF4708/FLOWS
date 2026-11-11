@@ -90,6 +90,11 @@ enum SiriSummaries {
     static let fasterRouteNowRed =
         "The faster road now runs through a red weather zone, so I'm staying on this one."
 
+    /// Said on a yes to a faster road whose safety check did not finish
+    /// (a feed did not answer). Asked once; a second yes takes it.
+    static let fasterRouteUnchecked =
+        "I could not check that road. Say yes if you still want to take it."
+
     /// Said on a yes to a faster road whose turn-off the car has passed.
     static let fasterRoutePassed =
         "The turn for the faster road is behind us, so I'm staying on this one."

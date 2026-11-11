@@ -842,8 +842,29 @@ final class WMOAlertTests: XCTestCase {
         // Mexico's three kinds, as its files name them.
         XCTAssertEqual(words("Aviso de Ciclón Tropical en el Pacífico", "Severe"), "Tropical Storm Warning")
         XCTAssertEqual(words("Aviso de Ciclón Tropical en el Pacífico", "Moderate"), "Tropical Storm Watch")
-        XCTAssertEqual(words("Aviso de lluvias", "Moderate"), "Flood Advisory")
+        // A rain notice is a flood only past a threshold (owner,
+        // 2026-11-11): rated severe or extreme, or 50 mm or more named.
+        XCTAssertEqual(words("Aviso de lluvias", "Moderate"), "Rain Advisory")
+        XCTAssertEqual(words("Aviso de lluvias", "Minor"), "Rain Advisory")
+        XCTAssertEqual(words("Aviso de lluvias", "Severe"), "Flood Warning")
         XCTAssertEqual(words("Aviso de lluvias", "Extreme"), "Flood Warning")
+        func rain(_ detail: String) -> String {
+            WMOAlertParsing.eventInRiskWords("Aviso de lluvias", severity: "Moderate", detail: detail)
+        }
+        XCTAssertEqual(rain("Lluvias fuertes (25 a 50 mm) en Oaxaca."), "Rain Advisory")
+        XCTAssertEqual(rain("Lluvias de 49.9 mm."), "Rain Advisory")
+        XCTAssertEqual(rain("Lluvias muy fuertes (50 a 75 mm) en Veracruz."), "Flood Advisory")
+        XCTAssertEqual(rain("Lluvias puntuales intensas en Chiapas."), "Flood Advisory")
+        XCTAssertEqual(rain("Acumulados de 75 a 150 milímetros."), "Flood Advisory")
+        XCTAssertEqual(rain("Rainfall of 60-80 mm expected."), "Flood Advisory")
+        XCTAssertEqual(rain("Vientos de 60 km/h y lluvias de 10 mm."), "Rain Advisory")
+        // A notice that names the flood is one at any level.
+        XCTAssertEqual(words("Lluvias e inundaciones", "Minor"), "Flood Advisory")
+        XCTAssertEqual(words("Riverine Flood", "Moderate"), "Riverine Flood")
+        // Either way a moderate one is the capped rain predictor, with the
+        // rain icon until it is a flood.
+        XCTAssertEqual(RiskEquations.alertFamily("Rain Advisory"), "precip")
+        XCTAssertEqual(RiskEquations.alertFamily("Freezing Rain Advisory"), "winter")
         XCTAssertEqual(words("Aviso de Frente Frío ", "Moderate"), "Cold Weather Advisory")
         // Trinidad's heat notice had no family at all.
         XCTAssertEqual(words("Hot Spell", "Moderate"), "Heat Advisory")

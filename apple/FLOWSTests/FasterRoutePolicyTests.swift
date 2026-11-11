@@ -205,6 +205,8 @@ final class FasterRoutePolicyTests: XCTestCase {
         XCTAssertEqual(SiriSummaries.fasterRouteNowRed,
                        "The faster road now runs through a red weather zone, so I'm staying "
                        + "on this one.")
+        XCTAssertEqual(SiriSummaries.fasterRouteUnchecked,
+                       "I could not check that road. Say yes if you still want to take it.")
         XCTAssertEqual(SiriSummaries.fasterRoutePassed,
                        "The turn for the faster road is behind us, so I'm staying on this one.")
     }

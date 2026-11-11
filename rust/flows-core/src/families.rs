@@ -517,6 +517,10 @@ pub fn alert_family_scored(event: &str) -> Option<&'static str> {
             Some("wind")
         } else if has("special weather statement") {
             Some("convective")
+        } else if has("rain advisory") {
+            // Another country's rain notice below the flood threshold
+            // (the app names it so): the rain predictor, never a flood.
+            Some("precip")
         } else {
             None
         }

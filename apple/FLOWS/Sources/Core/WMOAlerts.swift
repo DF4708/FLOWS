@@ -178,7 +178,16 @@ enum WMOAlertParsing {
     /// alerts take the warning name (it can reach Red); the rest take the
     /// advisory or watch name (a predictor, capped). Sea-state notices and
     /// names nothing here knows stay as written, unscored.
-    static func eventInRiskWords(_ event: String, severity: String) -> String {
+    ///
+    /// A rain notice is not a flood until it passes a threshold (owner,
+    /// 2026-11-11): the service rates it severe or extreme, or its text
+    /// names heavy rain (`namesHeavyRain`: 50 mm or more, Mexico's "muy
+    /// fuertes" class and up). Below that it is a "Rain Advisory": the same
+    /// capped rain predictor as before, under its own name and icon. A
+    /// notice that names the flood itself ("inundaciones", "crecida") is a
+    /// flood at any level.
+    static func eventInRiskWords(_ event: String, severity: String,
+                                 detail: String? = nil) -> String {
         guard !event.isEmpty, RiskEquations.alertFamily(event) == nil else { return event }
         let e = event.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
             .lowercased()
@@ -190,8 +199,12 @@ enum WMOAlertParsing {
         if has(["small craft", "seas", "marine", "oleaje", "mar de fondo", "marejada", "surf"]) {
             return event
         }
-        if has(["inunda", "lluvia", "rain", "riverine", "crecida", "desbordamiento"]) {
+        if has(["inunda", "riverine", "crecida", "desbordamiento"]) {
             return strong ? "Flood Warning" : "Flood Advisory"
+        }
+        if has(["lluvia", "rain"]) {
+            if strong { return "Flood Warning" }
+            return namesHeavyRain(event + " " + (detail ?? "")) ? "Flood Advisory" : "Rain Advisory"
         }
         if has(["nevada", "nieve", "aguanieve"]) { return "Winter Weather Advisory" }
         if has(["frente frio", "frio", "helada"]) { return "Cold Weather Advisory" }
@@ -202,6 +215,36 @@ enum WMOAlertParsing {
         }
         if has(["niebla", "neblina"]) { return "Dense Fog Advisory" }
         return event
+    }
+
+    /// The least rain, in millimetres, that makes a rain notice a flood
+    /// notice. Mexico's weather service sorts a day's rain into "fuertes"
+    /// (25 to 50 mm), "muy fuertes" (50 to 75), "intensas" (75 to 150),
+    /// "torrenciales" (150 to 250) and "extraordinarias" (over 250); 50 mm in
+    /// a day is also where most services begin to call rain heavy.
+    static let floodRainMillimetres = 50.0
+
+    /// Whether a notice's own words put its rain at the flood threshold: an
+    /// amount of `floodRainMillimetres` or more (the low end of a range such
+    /// as "75 a 150 mm" is the one read), or one of the class names that
+    /// start there. "Fuertes" alone (25 to 50 mm) is below it.
+    static func namesHeavyRain(_ text: String) -> Bool {
+        let t = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .lowercased()
+        if ["muy fuerte", "intensa", "torrencial", "extraordinaria",
+            "very heavy rain", "torrential", "extreme rain"].contains(where: t.contains) {
+            return true
+        }
+        // "75 a 150 mm", "50-75 mm", "de 150 mm": the first figure of each.
+        let pattern = #"(\d+(?:[.,]\d+)?)(?:\s*(?:a|to|-|–)\s*\d+(?:[.,]\d+)?)?\s*(?:mm|milimetros|millimeters|millimetres)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+        let whole = NSRange(t.startIndex..., in: t)
+        return regex.matches(in: t, range: whole).contains { match in
+            guard let r = Range(match.range(at: 1), in: t),
+                  let amount = Double(t[r].replacingOccurrences(of: ",", with: "."))
+            else { return false }
+            return amount >= floodRainMillimetres
+        }
     }
 
     struct ParsedCAP {

@@ -631,6 +631,12 @@ private func rerouteDialog(_ outcome: AppModel.TrafficRerouteOutcome) -> IntentD
             return "That road has more risk now. Say yes if you still want it."
         }
         return "That road has more risk now. Ask me again to take the faster route if you still want it."
+    case .askedUnchecked:
+        if case .fasterRoute? = AppModel.shared?.pendingVoiceOffer,
+           AppModel.shared?.voiceAlerts == true {
+            return "I could not check that road. Say yes if you still want it."
+        }
+        return "I could not check that road. Ask me again to take the faster route if you still want it."
     case .nothing: return "Staying on this road for now."
     }
 }

@@ -191,6 +191,11 @@ pub fn display_kind(event: &str) -> DisplayKind {
     if e.contains("tsunami") {
         return DisplayKind::Tsunami;
     }
+    // Another country's rain notice below the flood threshold, as the app
+    // names it ("Freezing Rain Advisory" is ice, above).
+    if e.contains("rain advisory") {
+        return DisplayKind::Rain;
+    }
     // No English rule knew it: Mexico and Costa Rica name theirs in Spanish.
     spanish_display_kind(&e)
 }
@@ -1079,6 +1084,8 @@ mod tests {
             ("Avalanche Warning", DisplayKind::Avalanche),
             ("Tsunami Warning", DisplayKind::Tsunami),
             ("Heavy Rain Warning", DisplayKind::Generic),
+            ("Rain Advisory", DisplayKind::Rain),
+            ("Freezing Rain Advisory", DisplayKind::Ice),
             ("Child Abduction Emergency", DisplayKind::Generic),
             ("Caloric Humor Prelude Alert", DisplayKind::Generic),
             ("Civil Emergency Message", DisplayKind::Generic),

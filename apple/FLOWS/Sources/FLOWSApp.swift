@@ -1760,6 +1760,10 @@ final class AppModel: ObservableObject {
     /// The traffic offer on screen is for a road with more risk (the driver
     /// is asked instead of FLOWS switching on its own).
     @Published var trafficOfferRiskier = false
+    /// The driver said yes, and the road's safety check did not finish:
+    /// FLOWS has asked again, saying so. "No data" is never "all clear", so
+    /// the first yes is not taken as a yes to a road nobody checked.
+    @Published var trafficOfferUnchecked = false
     /// FLOWS looked and there is nothing to take: the only faster road runs
     /// through red, none saves enough or keeps the driver's road choices, or
     /// the car is past the turn-off. The chip shows the delay with no button,
@@ -1778,6 +1782,9 @@ final class AppModel: ObservableObject {
         let checkSpacing: CLLocationDistance
         let offeredRisk: Double
         let stagedAt: Date
+        /// The driver has been told its check did not finish, and asked
+        /// again: a second yes takes it.
+        var toldUnchecked = false
     }
     private var stagedFasterRoute: StagedFasterRoute?
     /// How long a weighed road stays good for a yes, and before the next
@@ -1806,6 +1813,7 @@ final class AppModel: ObservableObject {
     /// the pending spoken yes, and the driver's no.
     private func clearTrafficOffer() {
         trafficOfferRiskier = false
+        trafficOfferUnchecked = false
         trafficOfferBlocked = false
         trafficOfferNeedsWeigh = false
         trafficOfferDeclined = false
@@ -6500,6 +6508,12 @@ final class AppModel: ObservableObject {
         guard let candidateRisk = check.candidateRisk else {
             // Its score didn't finish: the plain offer, weighed again next
             // check; a yes meanwhile plans and scores afresh (refusing red).
+            // A road the driver was just asked about again stays as asked.
+            if let asked = stagedFasterRoute, asked.toldUnchecked, asked.legID == leg.id,
+               Date().timeIntervalSince(asked.stagedAt) < Self.stagedFasterRouteMaxAge {
+                trafficOfferNeedsWeigh = true
+                return .settled
+            }
             stagedFasterRoute = nil
             if fresh || wasBlocked { offerPlainFasterRoute(minutes: minutes) }
             trafficOfferNeedsWeigh = true
@@ -6517,6 +6531,7 @@ final class AppModel: ObservableObject {
             offerFasterRoute(minutes: minutes, riskier: check.moreRisk)
         } else {
             trafficOfferRiskier = check.moreRisk
+            trafficOfferUnchecked = false   // this one was checked
         }
         return .settled
     }
@@ -6527,6 +6542,7 @@ final class AppModel: ObservableObject {
     private func blockFasterRoute(saying line: String?) {
         trafficOfferBlocked = true
         trafficOfferRiskier = false
+        trafficOfferUnchecked = false
         trafficOfferNeedsWeigh = false
         stagedFasterRoute = nil
         if case .fasterRoute? = pendingVoiceOffer { pendingVoiceOffer = nil }
@@ -6550,9 +6566,11 @@ final class AppModel: ObservableObject {
     /// offer lives on the traffic chip, so with the chips off FLOWS makes
     /// none of its own; `driverAsked`: a yes the driver gave that has to be
     /// asked again, answered either way.
-    private func offerFasterRoute(minutes: Int, riskier: Bool, driverAsked: Bool = false) {
+    private func offerFasterRoute(minutes: Int, riskier: Bool, driverAsked: Bool = false,
+                                  unchecked: Bool = false) {
         trafficOfferBlocked = false
         trafficOfferRiskier = riskier
+        trafficOfferUnchecked = unchecked
         guard notifyTraffic || driverAsked else { return }
         if hapticAlerts { Haptics.offer() }   // chip just appeared
         // A trip planned mid-drive is waiting for its spoken yes: "go ahead"
@@ -6561,7 +6579,8 @@ final class AppModel: ObservableObject {
         pendingVoiceOffer = .fasterRoute
         guard voiceAlerts else { return }
         VoiceAnnouncer.shared.announce(
-            SiriSummaries.fasterRouteOffer(minutes: minutes, riskier: riskier),
+            unchecked ? SiriSummaries.fasterRouteUnchecked
+                : SiriSummaries.fasterRouteOffer(minutes: minutes, riskier: riskier),
             topic: SpeechTopic.trafficOffer)
         VoiceReply.shared.listenAfterSpeech { [weak self] answer in
             guard let self, case .fasterRoute? = self.pendingVoiceOffer else { return }
@@ -6610,6 +6629,8 @@ final class AppModel: ObservableObject {
         case stayed
         /// Its risk rose since the offer: FLOWS asked again.
         case askedAgain
+        /// Its safety check did not finish: FLOWS said so and asked again.
+        case askedUnchecked
         /// Nothing came of it: no plan, or the trip moved on.
         case nothing
     }
@@ -6653,6 +6674,21 @@ final class AppModel: ObservableObject {
         }
         var route = scored
         route.planKind = staged.route.planKind
+        // The check run on the yes did not finish (a feed did not answer):
+        // the yes was to a checked road. Say so and ask once more; a second
+        // yes is the driver's own call on a road FLOWS could not check.
+        let checked = FasterRoutePolicy.aheadRisk(of: weighed, alongMeters: 1) != nil
+            && FasterRoutePolicy.aheadRisk(of: scored, alongMeters: 1) != nil
+        if !checked, !staged.toldUnchecked {
+            trafficDelayMinutes = minutes
+            stagedFasterRoute = StagedFasterRoute(
+                legID: staged.legID, route: route, line: staged.line,
+                divergeAlong: staged.divergeAlong, checkSpacing: staged.checkSpacing,
+                offeredRisk: staged.offeredRisk, stagedAt: Date(), toldUnchecked: true)
+            offerFasterRoute(minutes: minutes, riskier: false, driverAsked: true, unchecked: true)
+            FlowsDiag.log(.info, "traffic", "faster route: yes on an unfinished check, asked again")
+            return .askedUnchecked
+        }
         if FasterRoutePolicy.riskVerdict(candidateRisk: risk, aheadRisk: staged.offeredRisk,
                                          limitsUnchecked: false) == .riskier {
             // The yes was to less risk than this: ask again, saying so.
@@ -6738,6 +6774,18 @@ final class AppModel: ObservableObject {
             trafficDelayMinutes = minutes   // the jam is still there
             blockFasterRoute(saying: stay)
             return .stayed
+        }
+        // Its score did not finish: the yes was to a faster road, not to one
+        // nobody could check. Say so and ask once more.
+        if check.candidateRisk == nil {
+            trafficDelayMinutes = minutes
+            stagedFasterRoute = StagedFasterRoute(
+                legID: leg.id, route: route, line: check.line, divergeAlong: check.divergeAlong,
+                checkSpacing: check.checkSpacing, offeredRisk: route.weatherRisk,
+                stagedAt: Date(), toldUnchecked: true)
+            offerFasterRoute(minutes: minutes, riskier: false, driverAsked: true, unchecked: true)
+            FlowsDiag.log(.info, "traffic", "faster route: yes on an unfinished check, asked again")
+            return .askedUnchecked
         }
         // Asked again when the road has more risk than the yes was to: than
         // the road offered, when one was weighed (as a yes to a weighed road

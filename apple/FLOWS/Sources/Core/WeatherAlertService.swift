@@ -1583,7 +1583,8 @@ actor WMOAlertCache {
                 id: link,
                 // The risk rules read US names; the headline keeps the
                 // service's own.
-                event: WMOAlertParsing.eventInRiskWords(cap.event, severity: cap.severity),
+                event: WMOAlertParsing.eventInRiskWords(cap.event, severity: cap.severity,
+                                                        detail: cap.description),
                 headline: cap.event + (cap.areaDesc.map { " — \($0)" } ?? ""),
                 severityScore: WeatherAlertService.severityScore(cap.severity),
                 polygon: cap.polygons.first,
