@@ -1150,6 +1150,8 @@ final class AppModel: ObservableObject {
     /// playing instantly instead of searching into the silence.
     private var preStagedStations: [TruckerRadio.Channel] = []
     private var preStagedLabel = ""
+    private var preStagedAt = Date.distantPast
+    private static let preStageKeepsSeconds: TimeInterval = 1800
     private var preStageTask: Task<Void, Never>?
     private var lastBufferReading: Double?
 
@@ -1189,15 +1191,29 @@ final class AppModel: ObservableObject {
         // search before it ever finished, and the fallback would never be
         // staged at all.
         guard preStageTask == nil,
-              preStagedStations.isEmpty,
               !MusicController.shared.hasLocalMusic,
               let genre = lastMusicAsk
                 ?? (radio.queueLabel.isEmpty ? nil : radio.queueLabel) else { return }
-        preStagedLabel = genre
+        // Stations staged for a weak patch that passed were kept for the
+        // rest of the session: hours later a handoff played the old list,
+        // for music asked for since replaced. Staged for another ask, or
+        // long ago, they are fetched again.
+        if !preStagedStations.isEmpty {
+            guard genre != preStagedLabel
+                    || Date().timeIntervalSince(preStagedAt) > Self.preStageKeepsSeconds
+            else { return }
+        }
         preStageTask = Task { [weak self] in
             guard let self else { return }
             await self.radioBrowser.search(text: genre)
-            self.preStagedStations = self.radioBrowser.stations.map(\.channel)
+            let found = self.radioBrowser.stations.map(\.channel)
+            // A search that found nothing on the failing link keeps the
+            // older list: old stations beat silence.
+            if !found.isEmpty {
+                self.preStagedStations = found
+                self.preStagedLabel = genre
+                self.preStagedAt = Date()
+            }
             self.preStageTask = nil   // the next fix may try again
         }
     }
@@ -4741,6 +4757,7 @@ final class AppModel: ObservableObject {
         // This loop is synchronous on the main actor — the journal says how
         // long, so a planning stall can be attributed or ruled out.
         let blendStart = Date()
+        var liveUnchecked = false
         let blended = score.samples.enumerated().map { i, s -> RiskSample in
             let c = s.coordinate
             let dev = onDevicePredictors(near: i)
@@ -4774,7 +4791,11 @@ final class AppModel: ObservableObject {
             // Live feeds: a fire perimeter or a fresh epicentre on the route
             // is a realized primary here exactly as it is on the map, and its
             // peak reaches the route card so the card can name it.
-            let live = HazardFeedScores.live(at: c, snapshot: corridorLive).bandInputContribution
+            // A point the live scorer could not answer is not a clear point:
+            // the route stays "Checking weather…" like any failed check.
+            let liveAnswer = HazardFeedScores.liveChecked(at: c, snapshot: corridorLive)
+            if liveAnswer == nil { liveUnchecked = true }
+            let live = liveAnswer?.bandInputContribution ?? [:]
             for (fam, v) in live where v > (peaks[fam] ?? 0) { peaks[fam] = v }
             return RiskSample(
                 coordinate: c,
@@ -4873,7 +4894,7 @@ final class AppModel: ObservableObject {
         // GO is gated on this flag: a corridor whose NWS fetches FAILED must
         // not present as confidently clear (score.complete's documented
         // contract). Incomplete routes keep "Checking weather…" and hydrate retries.
-        r.weatherScored = score.complete
+        r.weatherScored = score.complete && !liveUnchecked
         return (r, feeds)
     }
 
@@ -5363,13 +5384,17 @@ final class AppModel: ObservableObject {
         // old peak⊕avg blend sat above the weighted baseline by construction
         // and manufactured escalations on quiet routes.
         let closures = HazardFeedScores.PreparedPoints(tripClosures)
-        let sampleRisks = score.samples.map {
-            sampleRealizedRisk(at: $0.coordinate, alertEvent: $0.worstEvent,
-                               alertSeverity: $0.risk,
+        // A window with a point the live scorer could not answer is an
+        // incomplete window: it is not folded into the route as clear.
+        var liveUnchecked = false
+        let sampleRisks = score.samples.map { sample -> Double in
+            let liveAnswer = HazardFeedScores.liveChecked(at: sample.coordinate, snapshot: tripLive)
+            if liveAnswer == nil { liveUnchecked = true }
+            return sampleRealizedRisk(at: sample.coordinate, alertEvent: sample.worstEvent,
+                               alertSeverity: sample.risk,
                                closureScore: HazardFeedScores.closureScore(
-                                   prepared: closures, at: $0.coordinate),
-                               live: HazardFeedScores.live(
-                                   at: $0.coordinate, snapshot: tripLive).bandInputContribution)
+                                   prepared: closures, at: sample.coordinate),
+                               live: liveAnswer?.bandInputContribution ?? [:])
         }
         let peakR = sampleRisks.max() ?? 0
         // The DRIVEN route's samples, segments and alert shapes used to be
@@ -5383,7 +5408,7 @@ final class AppModel: ObservableObject {
         // before its score lands) takes the window's alerts and shapes all
         // the same: it took neither, and "how's the road ahead" answered
         // all-clear under a live warning whose outline was never drawn.
-        if score.complete, var live = navigation.route {
+        if score.complete, !liveUnchecked, var live = navigation.route {
             // Every alert in the window, for "how's the road ahead": the
             // check points keep only their worst.
             var changed = live.watchedAlertEvents != score.events

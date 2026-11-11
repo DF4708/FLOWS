@@ -37,7 +37,10 @@ use std::path::Path;
 
 use super::fts::Fare;
 use super::inflate;
-use super::{Mode, StopEvent, Time, Timetable, TimetableBuilder, TripEvents};
+use super::{
+    Mode, StopEvent, Time, Timetable, TimetableBuilder, TripEvents, NO_DROP_OFF, NO_PICKUP,
+    STOP_ID_MASK,
+};
 use crate::seasonal::haversine_km;
 
 /// Ingestion error: an I/O failure or a described feed problem.
@@ -1410,7 +1413,11 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
         };
         // A row that neither picks up nor sets down is a pass, not a stop:
         // the rider was told to board where the vehicle takes nobody.
-        if f(&row, c_pickup).trim() == "1" && f(&row, c_drop).trim() == "1" {
+        let (no_pickup, no_drop) = (
+            f(&row, c_pickup).trim() == "1",
+            f(&row, c_drop).trim() == "1",
+        );
+        if no_pickup && no_drop {
             continue;
         }
         let earlier_only = days & (1 | ALL_ROWS) == 0;
@@ -1440,6 +1447,13 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
         let Some(&stop) = stop_index.get(f(&row, Some(c_stop))) else {
             continue; // row references an unknown stop
         };
+        // A stop that only sets down, or only picks up, keeps its place in
+        // the trip and carries a mark on its id (`NO_PICKUP`, `NO_DROP_OFF`):
+        // it was a stop like any other, and the rider was sent to board a
+        // bus where it takes nobody on. The mark is part of the pattern, so
+        // trips that differ in it are different engine routes.
+        let stop =
+            stop | if no_pickup { NO_PICKUP } else { 0 } | if no_drop { NO_DROP_OFF } else { 0 };
         let Ok(seq) = f(&row, Some(c_seq)).trim().parse::<u32>() else {
             continue;
         };
@@ -1546,7 +1560,16 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
             floor = d;
             events.push(StopEvent { arr: a, dep: d });
         }
-        let pattern: Vec<u32> = rows.iter().map(|r| r.1).collect();
+        let mut pattern: Vec<u32> = rows.iter().map(|r| r.1).collect();
+        // Nobody gets off where a trip starts or on where it ends, whatever
+        // the feed says there (most mark both): those two marks mean nothing
+        // and are dropped, so such a feed's routes stay unmarked.
+        if let Some(first) = pattern.first_mut() {
+            *first &= !NO_DROP_OFF;
+        }
+        if let Some(last) = pattern.last_mut() {
+            *last &= !NO_PICKUP;
+        }
 
         // Each concrete trip goes in once for every day it runs: as it is for
         // today, and for an earlier day as the part still running after
@@ -1559,7 +1582,7 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
                 }
                 if let Some((pattern, events)) = carried(&pattern, &events, day_start(k)) {
                     for &s in &pattern {
-                        stop_visits[s as usize] += 1;
+                        stop_visits[(s & STOP_ID_MASK) as usize] += 1;
                     }
                     raw.push(RawTrip {
                         route,
@@ -1570,7 +1593,7 @@ fn parse_feed(dir: &Path, date: Option<u32>, starts: DayStarts) -> Result<FeedPa
             }
             if days & 1 != 0 {
                 for &s in &pattern {
-                    stop_visits[s as usize] += 1;
+                    stop_visits[(s & STOP_ID_MASK) as usize] += 1;
                 }
                 raw.push(RawTrip {
                     route,
@@ -3759,6 +3782,50 @@ mod tests {
         assert!(plan(tt, 0, 1, 0, 8).is_empty(), "nobody gets off at Beta");
         assert!(plan(tt, 1, 2, 0, 8).is_empty(), "nobody gets on at Beta");
         assert!(!plan(tt, 0, 2, 0, 8).is_empty(), "the ride itself stands");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stop_that_only_sets_down_or_only_picks_up_is_kept_one_way() {
+        let dir = write_feed(
+            "one_way_stops",
+            &[
+                ("stops.txt", STOPS),
+                ("routes.txt", ROUTES),
+                ("calendar.txt", CALENDAR),
+                ("trips.txt", "route_id,service_id,trip_id\nR1,WK,t1\nR1,WK,t2\n"),
+                (
+                    "stop_times.txt",
+                    "trip_id,arrival_time,departure_time,stop_id,stop_sequence,pickup_type,drop_off_type\n\
+                     t1,08:00:00,08:00:00,A,1,0,1\n\
+                     t1,08:10:00,08:10:00,B,2,1,0\n\
+                     t1,08:20:00,08:20:00,C,3,1,0\n\
+                     t2,09:00:00,09:00:00,A,1,0,0\n\
+                     t2,09:10:00,09:10:00,B,2,0,1\n\
+                     t2,09:20:00,09:20:00,C,3,0,0\n",
+                ),
+            ],
+        );
+        let load = load_gtfs(&dir, Some(20260708)).unwrap();
+        let tt = &load.timetable;
+        let arrive = |from, to| plan(tt, from, to, 0, 8).iter().map(|j| j.arrival).min();
+        // t1 sets down at Beta and takes nobody on there; t2 is the reverse.
+        assert_eq!(arrive(0, 1), Some(8 * 3600 + 600), "t1 sets down at Beta");
+        assert_eq!(
+            arrive(1, 2),
+            Some(9 * 3600 + 1200),
+            "only t2 boards at Beta"
+        );
+        assert_eq!(
+            arrive(0, 2),
+            Some(8 * 3600 + 1200),
+            "the first and last marks mean nothing"
+        );
+        // The marks live through the file.
+        let again = crate::transit::ftt::from_bytes(&crate::transit::ftt::to_bytes(tt)).unwrap();
+        let arrive = |from, to| plan(&again, from, to, 0, 8).iter().map(|j| j.arrival).min();
+        assert_eq!(arrive(0, 1), Some(8 * 3600 + 600));
+        assert_eq!(arrive(1, 2), Some(9 * 3600 + 1200));
         let _ = fs::remove_dir_all(&dir);
     }
 

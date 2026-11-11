@@ -1022,10 +1022,12 @@ impl FlowsHazardSnapshot {
             std::sync::OnceLock::new(),
         )
     }
-    /// The eight live family scores, in `LIVE_FAMILY_NAMES` order.
+    /// The eight live family scores, in `LIVE_FAMILY_NAMES` order; empty when
+    /// the scorer failed, which the caller reads as "not checked" (eight
+    /// zeros read as a checked, clear point).
     pub fn live(&self, lat: f64, lon: f64) -> Vec<f64> {
         let s = &self.0;
-        contain(vec![0.0; 8], || {
+        contain(Vec::new(), || {
             let boxes = self.1.get_or_init(|| hf::ring_boxes(&s.perimeters));
             hf::live_boxed((lat, lon), s, boxes).values().to_vec()
         })

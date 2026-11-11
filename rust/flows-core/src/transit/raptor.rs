@@ -19,7 +19,7 @@
 //! walking — no priority queue, no allocation in the hot loop beyond the fixed
 //! per-round label arrays — matching the CSR discipline in `routing.rs`/`ch.rs`.
 
-use super::{Mode, Time, Timetable, ALL_VEHICLES};
+use super::{Mode, Time, Timetable, ALL_VEHICLES, SKIP_DROP_OFF, SKIP_PICKUP};
 
 /// Sentinel "unreached" arrival time.
 pub const INF_TIME: Time = Time::MAX;
@@ -186,6 +186,7 @@ impl<'a> Raptor<'a> {
                 let hop = route_hop[route as usize];
                 let len = tt.route_len(route);
                 let route_stops = tt.route_stop_ids(route);
+                let route_flags = tt.route_stop_flag_bytes(route);
                 // Event-table geometry hoisted for the whole scan:
                 // `tt.event(route, t, pos)` re-loaded RouteMeta (bounds
                 // check + struct load) at every stop of the innermost loop.
@@ -208,8 +209,10 @@ impl<'a> Raptor<'a> {
                 };
                 while pos < len {
                     let stop_id = route_stops[pos as usize];
-                    // (1) Alight: if riding a trip, try to improve this stop.
-                    if let Some(t) = cur_trip {
+                    let flags = route_flags[pos as usize];
+                    // (1) Alight: if riding a trip, try to improve this stop —
+                    // unless the vehicle lets nobody off here.
+                    if let Some(t) = cur_trip.filter(|_| flags & SKIP_DROP_OFF == 0) {
                         let arr =
                             tt.stop_events[ev_base + t as usize * ev_stride + pos as usize].arr;
                         let bound = r.best_arr[stop_id as usize].min(target_bound);
@@ -236,7 +239,8 @@ impl<'a> Raptor<'a> {
                     // catch a trip departing no sooner, hop on the earliest one —
                     // only ever moving to a strictly earlier trip.
                     let prev = prev_row[stop_id as usize];
-                    if prev != INF_TIME {
+                    // Not where the vehicle takes nobody on.
+                    if prev != INF_TIME && flags & SKIP_PICKUP == 0 {
                         // Getting off one vehicle here and onto another takes
                         // the time the feed says it takes at this stop. Only
                         // after a ride: a walk in already carries its own
@@ -788,13 +792,17 @@ mod tests {
                 }
             }
             for sr in tt.routes_at(u as u32) {
+                let flags = tt.route_stop_flag_bytes(sr.route);
+                if flags[sr.pos as usize] & SKIP_PICKUP != 0 {
+                    continue;
+                }
                 if let Some(t) = tt.earliest_trip(sr.route, sr.pos, a) {
                     let len = tt.route_len(sr.route);
                     let mut pos = sr.pos + 1;
                     while pos < len {
                         let s2 = tt.route_stop_ids(sr.route)[pos as usize];
                         let cand = tt.event(sr.route, t, pos).arr;
-                        if cand < arr[s2 as usize] {
+                        if flags[pos as usize] & SKIP_DROP_OFF == 0 && cand < arr[s2 as usize] {
                             arr[s2 as usize] = cand;
                         }
                         pos += 1;

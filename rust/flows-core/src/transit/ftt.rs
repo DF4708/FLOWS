@@ -18,7 +18,8 @@
 //! ```text
 //! HEADER (64 bytes)
 //!   0..4    magic  "FTT1"
-//!   4..8    format version   u32  (= 1)
+//!   4..8    format version   u32  (1, or 2 when any ROUTE_STOPS entry is
+//!                                  marked — see below)
 //!   8..12   n_stops          u32
 //!   12..16  n_routes         u32
 //!   16..20  n_route_stops    u32
@@ -41,6 +42,13 @@
 //!   FOOTPATHS      n_footpaths    x (to u32, secs u32)
 //! ```
 //!
+//! **v2 marks stops** (2026-11-10), written only when the feed has a stop
+//! that only picks up or only sets down — a shard without one keeps its v1
+//! bytes. A ROUTE_STOPS entry's top bit says nobody boards there
+//! ([`super::NO_PICKUP`]), the next that nobody gets off
+//! ([`super::NO_DROP_OFF`]); the stop id is the low 30 bits. In v1 those
+//! bits are part of the id, so a marked entry is out of range and refused.
+//!
 //! v1 is a sequential read into owned `Vec`s (small shards, instant loads);
 //! because every section is fixed-width, little-endian and 4-byte aligned, the
 //! same layout upgrades to the planned mmap-in-place zero-copy reader without
@@ -54,8 +62,10 @@ use super::{Footpath, Mode, RouteMeta, Stop, StopEvent, StopRoute, Timetable};
 
 /// File magic: the first four bytes of every `.ftt`.
 pub const FTT_MAGIC: [u8; 4] = *b"FTT1";
-/// Format version this module writes and the only one it accepts.
+/// Format version of a shard with no marked stops.
 pub const FTT_VERSION: u32 = 1;
+/// Format version of a shard with a pickup-only or drop-off-only stop.
+pub const FTT_VERSION_MARKS: u32 = 2;
 /// Fixed header size in bytes.
 pub const FTT_HEADER_LEN: usize = 64;
 
@@ -96,9 +106,10 @@ pub fn to_bytes(tt: &Timetable) -> Vec<u8> {
         put_u32(&mut body, r.n_trips);
         put_u32(&mut body, r.mode as u32);
     }
-    for &s in &tt.route_stops {
-        put_u32(&mut body, s);
+    for (&s, &flags) in tt.route_stops.iter().zip(&tt.route_stop_flags) {
+        put_u32(&mut body, s | u32::from(flags) << 30);
     }
+    let marked = tt.route_stop_flags.iter().any(|&f| f != 0);
     for e in &tt.stop_events {
         put_u32(&mut body, e.arr);
         put_u32(&mut body, e.dep);
@@ -121,7 +132,14 @@ pub fn to_bytes(tt: &Timetable) -> Vec<u8> {
     // --- Header. ---
     let mut out = Vec::with_capacity(FTT_HEADER_LEN + body.len());
     out.extend_from_slice(&FTT_MAGIC);
-    put_u32(&mut out, FTT_VERSION);
+    put_u32(
+        &mut out,
+        if marked {
+            FTT_VERSION_MARKS
+        } else {
+            FTT_VERSION
+        },
+    );
     put_u32(&mut out, tt.stops.len() as u32);
     put_u32(&mut out, tt.routes.len() as u32);
     put_u32(&mut out, tt.route_stops.len() as u32);
@@ -226,7 +244,7 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
     }
     let mut h = Cur { b: bytes, pos: 4 };
     let version = h.u32()?;
-    if version != FTT_VERSION {
+    if version != FTT_VERSION && version != FTT_VERSION_MARKS {
         return Err(bad(format!("ftt: unsupported version {version}")));
     }
     let n_stops = h.u32()?;
@@ -330,12 +348,20 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
     }
 
     let mut route_stops = Vec::with_capacity(n_route_stops);
+    let mut route_stop_flags = Vec::with_capacity(n_route_stops);
     for _ in 0..n_route_stops {
-        let s = c.u32()?;
+        let word = c.u32()?;
+        // The marks are a v2 field: in v1 the whole word is the id.
+        let (s, flags) = if version == FTT_VERSION_MARKS {
+            (word & super::STOP_ID_MASK, (word >> 30) as u8)
+        } else {
+            (word, 0)
+        };
         if s as usize >= n_stops {
             return Err(bad("ftt: route stop id out of range"));
         }
         route_stops.push(s);
+        route_stop_flags.push(flags);
     }
 
     let mut stop_events = Vec::with_capacity(n_events);
@@ -440,6 +466,7 @@ pub fn from_bytes(bytes: &[u8]) -> io::Result<Timetable> {
         stops,
         routes,
         route_stops,
+        route_stop_flags,
         stop_events,
         stop_route_off,
         stop_routes,
@@ -573,6 +600,45 @@ mod tests {
     }
 
     #[test]
+    fn marked_stops_are_v2_and_unmarked_shards_keep_v1() {
+        use crate::transit::{NO_DROP_OFF, NO_PICKUP};
+        let plain = to_bytes(&rich_timetable());
+        assert_eq!(&plain[4..8], &FTT_VERSION.to_le_bytes());
+
+        let mut b = TimetableBuilder::new();
+        let a = b.add_stop(0, 0);
+        let m = b.add_stop(0, 1_000_000);
+        let c = b.add_stop(0, 2_000_000);
+        b.add_route(
+            &[a, m | NO_PICKUP, c],
+            vec![vec![ev(0, 0), ev(600, 630), ev(1200, 1200)]],
+            Mode::Bus,
+        );
+        b.add_route(
+            &[a, m | NO_DROP_OFF, c],
+            vec![vec![ev(100, 100), ev(700, 730), ev(1300, 1300)]],
+            Mode::Bus,
+        );
+        let tt = b.build();
+        let bytes = to_bytes(&tt);
+        assert_eq!(&bytes[4..8], &FTT_VERSION_MARKS.to_le_bytes());
+        let back = from_bytes(&bytes).unwrap();
+        assert_eq!(back.route_stops, tt.route_stops);
+        assert_eq!(back.route_stop_flags, tt.route_stop_flags);
+        assert_eq!(to_bytes(&back), bytes);
+        // Nobody boards the first bus at the middle stop; the second does
+        // not set down there.
+        let arrive = |from, to| plan(&back, from, to, 0, 8).iter().map(|j| j.arrival).min();
+        assert_eq!(arrive(a, m), Some(600));
+        assert_eq!(arrive(m, c), Some(1300));
+        // The same bytes called v1: the marks are part of the id there, and
+        // out of range.
+        let mut as_v1 = bytes.clone();
+        as_v1[4..8].copy_from_slice(&FTT_VERSION.to_le_bytes());
+        assert!(from_bytes(&as_v1).is_err());
+    }
+
+    #[test]
     fn corrupt_or_malformed_files_are_refused() {
         let tt = rich_timetable();
         let good = to_bytes(&tt);
@@ -597,9 +663,9 @@ mod tests {
         assert!(from_bytes(&wrong).is_err());
 
         // Wrong version.
-        let mut v2 = good.clone();
-        v2[4..8].copy_from_slice(&2u32.to_le_bytes());
-        assert!(from_bytes(&v2).is_err());
+        let mut v3 = good.clone();
+        v3[4..8].copy_from_slice(&3u32.to_le_bytes());
+        assert!(from_bytes(&v3).is_err());
 
         // Out-of-range stop id inside a route pattern (fix the hash so only the
         // semantic validation can catch it).

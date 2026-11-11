@@ -142,6 +142,19 @@ pub struct Footpath {
     pub secs: Time,
 }
 
+/// Set on a stop id handed to [`TimetableBuilder::add_route`]: the vehicle
+/// calls here but takes nobody on (GTFS `pickup_type` 1).
+pub const NO_PICKUP: u32 = 1 << 31;
+/// Set on a stop id handed to [`TimetableBuilder::add_route`]: the vehicle
+/// calls here but lets nobody off (GTFS `drop_off_type` 1).
+pub const NO_DROP_OFF: u32 = 1 << 30;
+/// The stop id under the two marks above.
+pub const STOP_ID_MASK: u32 = NO_DROP_OFF - 1;
+/// The marks as `Timetable::route_stop_flags` holds them (the id's top two
+/// bits, shifted down).
+pub(crate) const SKIP_PICKUP: u8 = 2;
+pub(crate) const SKIP_DROP_OFF: u8 = 1;
+
 /// The immutable, CSR-packed timetable a query runs over. In Phase 0 it is built in
 /// memory by [`TimetableBuilder`]; in Phase 1 the same field layout is a zero-copy
 /// view over the mmap'd `.ftt` sections — the algorithm is identical either way.
@@ -153,6 +166,10 @@ pub struct Timetable {
     // `stop_events[event_start .. event_start + n_trips * n_stops]` (trip-major).
     routes: Vec<RouteMeta>,
     route_stops: Vec<u32>,
+    // One per `route_stops` entry: SKIP_PICKUP and SKIP_DROP_OFF. A stop
+    // where the vehicle only sets down was boarded like any other, and the
+    // rider was sent to wait for a bus that would not take them.
+    route_stop_flags: Vec<u8>,
     stop_events: Vec<StopEvent>,
 
     // Stop -> routes serving it, CSR by stop.
@@ -216,6 +233,14 @@ impl Timetable {
         let m = &self.routes[r as usize];
         let a = m.stop_start as usize;
         &self.route_stops[a..a + m.n_stops as usize]
+    }
+
+    /// SKIP_PICKUP / SKIP_DROP_OFF for each stop of route `r`'s pattern.
+    #[inline]
+    fn route_stop_flag_bytes(&self, r: u32) -> &[u8] {
+        let m = &self.routes[r as usize];
+        let a = m.stop_start as usize;
+        &self.route_stop_flags[a..a + m.n_stops as usize]
     }
 
     /// Number of stops in route `r`'s pattern.
@@ -308,6 +333,7 @@ pub struct TimetableBuilder {
 
 struct PendingRoute {
     stops: Vec<u32>,
+    flags: Vec<u8>,
     trips: Vec<TripEvents>,
     mode: Mode,
 }
@@ -329,7 +355,8 @@ impl TimetableBuilder {
     /// exactly one `(arr, dep)` per stop in `stops`. Trips are sorted here by
     /// departure at the first stop; callers must supply non-overtaking trips (the
     /// offline builder guarantees this by splitting overtaking trips into separate
-    /// routes). Returns the route id.
+    /// routes). A stop id may carry [`NO_PICKUP`] or [`NO_DROP_OFF`]; all of
+    /// a route's trips share them. Returns the route id.
     pub fn add_route(&mut self, stops: &[u32], trips: Vec<TripEvents>, mode: Mode) -> u32 {
         assert!(stops.len() >= 2, "a route needs at least two stops");
         for t in &trips {
@@ -339,7 +366,8 @@ impl TimetableBuilder {
         trips.sort_by_key(|t| t[0].dep);
         let id = self.routes.len() as u32;
         self.routes.push(PendingRoute {
-            stops: stops.to_vec(),
+            stops: stops.iter().map(|s| s & STOP_ID_MASK).collect(),
+            flags: stops.iter().map(|s| (s >> 30) as u8).collect(),
             trips,
             mode,
         });
@@ -362,6 +390,7 @@ impl TimetableBuilder {
         // every (route, pos) membership so we can invert it to stop -> routes.
         let mut routes = Vec::with_capacity(self.routes.len());
         let mut route_stops = Vec::new();
+        let mut route_stop_flags = Vec::new();
         let mut stop_events = Vec::new();
         let mut memberships: Vec<Vec<StopRoute>> = vec![Vec::new(); n_stops];
 
@@ -370,6 +399,7 @@ impl TimetableBuilder {
             let event_start = stop_events.len() as u32;
             let n_pattern = pr.stops.len() as u32;
 
+            route_stop_flags.extend_from_slice(&pr.flags);
             for (pos, &s) in pr.stops.iter().enumerate() {
                 route_stops.push(s);
                 memberships[s as usize].push(StopRoute {
@@ -414,6 +444,7 @@ impl TimetableBuilder {
             stops: self.stops,
             routes,
             route_stops,
+            route_stop_flags,
             stop_events,
             stop_route_off,
             stop_routes,

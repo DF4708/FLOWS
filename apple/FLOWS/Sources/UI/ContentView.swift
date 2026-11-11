@@ -1042,7 +1042,9 @@ struct ContentView: View {
                             else { return nil }
                             let score = c.forecastScore(latitude: lat, longitude: lon, elevationMeters: nil)
                             var families = Self.familyScores(c, latitude: lat, longitude: lon)
-                            let live = HazardFeedScores.live(at: pt, snapshot: liveSnapshot)
+                            // No answer from the live scorer: the point is unknown, not clear.
+                            guard let live = HazardFeedScores.liveChecked(at: pt, snapshot: liveSnapshot)
+                            else { return nil }
                             families["fire"] = live.fire
                             families["seismic"] = live.seismic
                             let floodRealized = HazardFeedScores.floodGaugeScore(

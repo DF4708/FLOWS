@@ -122,7 +122,7 @@ actor TransitFeeds {
         for row in rows {
             let f = row.text
                 .split(separator: "\u{1F}", omittingEmptySubsequences: false).map(String.init)
-            guard f.count == 10, f[0] == "feed", let url = URL(string: f[3]),
+            guard f.count == 10, f[0] == "feed", let url = secure(f[3]),
                   let minLat = Double(f[5]), let maxLat = Double(f[6]),
                   let minLon = Double(f[7]), let maxLon = Double(f[8])
             else { continue }
@@ -130,10 +130,21 @@ actor TransitFeeds {
                 name: f[1], url: url, operatorName: f[2],
                 area: Area(minLatitude: minLat, maxLatitude: maxLat,
                            minLongitude: minLon, maxLongitude: maxLon),
-                mirror: f[9].isEmpty ? nil : URL(string: f[9])
+                mirror: f[9].isEmpty ? nil : secure(f[9])
             ))
         }
         return out
+    }
+
+    /// A feed's address, asked for over https. The catalogue lists some 370
+    /// feeds by `http://`; the system refuses plain http, so each of those
+    /// failed and waited on its mirror, or was never read. Most of their
+    /// hosts answer https at the same address; one that does not fails as it
+    /// did before.
+    static func secure(_ address: String) -> URL? {
+        guard var parts = URLComponents(string: address) else { return nil }
+        if parts.scheme?.lowercased() == "http" { parts.scheme = "https" }
+        return parts.url
     }
 
     /// The city timetables for a leg ridden on the city — a bus to the

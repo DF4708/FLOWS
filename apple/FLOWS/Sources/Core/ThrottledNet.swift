@@ -114,7 +114,15 @@ enum ThrottledNet {
     /// there), through its own one-at-a-time gate and the host breaker.
     static func download(_ request: URLRequest, to destination: URL) async throws -> URLResponse {
         try await fetchGuarded(host: request.url?.host, gate: bulkGate) {
-            let (file, response) = try await bulkSession.download(for: request)
+            let file: URL, response: URLResponse
+            do {
+                (file, response) = try await bulkSession.download(for: request)
+            } catch {
+                // Callers show an estimate when a timetable does not come;
+                // this is how they can say why.
+                if LowDataRefusal.isOne(error) { LowDataRefusal.shared.note() }
+                throw error
+            }
             let fm = FileManager.default
             try? fm.removeItem(at: destination)
             try fm.moveItem(at: file, to: destination)
@@ -245,6 +253,33 @@ enum CacheEviction {
 /// cooldown exactly ONE probe is admitted (no thundering herd); its outcome
 /// closes or re-opens the breaker. An HTTP response of any status is a
 /// SUCCESS here — the host answered; status handling belongs to callers.
+/// A big download the system refused because the person has Low Data Mode
+/// on. The refusal is right; saying nothing about it was not: the card fell
+/// back to an estimate with no reason given.
+final class LowDataRefusal: @unchecked Sendable {
+    static let shared = LowDataRefusal()
+    private let lock = NSLock()
+    private var last: Date?
+
+    static let notice =
+        "Low Data Mode is on, so FLOWS did not download bus and train times. These are estimates."
+
+    static func isOne(_ error: Error) -> Bool {
+        (error as? URLError)?.networkUnavailableReason == .constrained
+    }
+
+    func note(_ now: Date = Date()) {
+        lock.lock(); last = now; lock.unlock()
+    }
+
+    /// Whether a download was refused at or after `start` (a lookup's start:
+    /// an older refusal belongs to an earlier plan).
+    func happened(since start: Date) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return last.map { $0 >= start } ?? false
+    }
+}
+
 /// Whether the device has a network path right now — a request that failed
 /// while it had none says nothing about the host it asked.
 final class NetworkPath: @unchecked Sendable {

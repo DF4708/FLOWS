@@ -402,6 +402,50 @@ final class RiskRealizationTests: XCTestCase {
         }
     }
 
+    /// The Great Lakes rivers and the straits off Vancouver Island, with a
+    /// town pinned on each bank: the link goes to the service of the bank
+    /// the town is on.
+    func testOfficialURLOnBothBanksOfTheLakesAndStraits() {
+        func canada(_ lat: Double, _ lon: Double) -> Bool {
+            RiskAdvice.officialURL(latitude: lat, longitude: lon)?.host == "weather.gc.ca"
+        }
+        let ca: [(String, Double, Double)] = [
+            ("Windsor ON", 42.3149, -83.0364), ("Sarnia ON", 42.9745, -82.4066),
+            ("London ON", 42.9849, -81.2453), ("Hamilton ON", 43.2557, -79.8711),
+            ("Niagara Falls ON", 43.0896, -79.0849), ("Fort Erie ON", 42.90, -78.93),
+            ("Chippawa ON", 43.06, -79.05), ("Niagara-on-the-Lake ON", 43.255, -79.07),
+            ("Sault Ste. Marie ON", 46.5136, -84.3358), ("Garden River ON", 46.55, -84.15),
+            ("St. Joseph Island ON", 46.2, -83.95), ("Batchawana Bay ON", 46.92, -84.6),
+            ("Leamington ON", 42.05, -82.6), ("Pelee Island ON", 41.77, -82.65),
+            ("Long Point ON", 42.548, -80.05), ("Goderich ON", 43.74, -81.71),
+            ("Wallaceburg ON", 42.59, -82.39), ("Amherstburg ON", 42.10, -83.11),
+            ("Victoria BC", 48.4284, -123.3656), ("Sooke BC", 48.37, -123.73),
+            ("Sidney BC", 48.65, -123.40), ("Saturna Island BC", 48.78, -123.15),
+            ("Port Renfrew BC", 48.55, -124.42),
+        ]
+        for (name, lat, lon) in ca {
+            XCTAssertTrue(canada(lat, lon), "\(name) is in Canada")
+        }
+        let us: [(String, Double, Double)] = [
+            ("Detroit MI", 42.3314, -83.0458), ("Port Huron MI", 42.9709, -82.4249),
+            ("Niagara Falls NY", 43.0962, -79.0377), ("Buffalo NY", 42.8864, -78.8784),
+            ("Grand Island NY", 43.02, -78.96), ("Lewiston NY", 43.1726, -79.0359),
+            ("Sault Ste. Marie MI", 46.4953, -84.3453), ("Sugar Island MI", 46.45, -84.2),
+            ("Drummond Island MI", 46.0, -83.7), ("Whitefish Point MI", 46.77, -84.957),
+            ("Algonac MI", 42.618, -82.531), ("Grosse Pointe MI", 42.386, -82.91),
+            ("Wyandotte MI", 42.21, -83.15), ("Monroe MI", 41.916, -83.398),
+            ("Toledo OH", 41.6528, -83.5379), ("Put-in-Bay OH", 41.65, -82.82),
+            ("Kelleys Island OH", 41.60, -82.70), ("Cleveland OH", 41.4993, -81.6944),
+            ("Erie PA", 42.1292, -80.0851), ("Harbor Beach MI", 43.84, -82.65),
+            ("Port Angeles WA", 48.1181, -123.4307), ("Neah Bay WA", 48.368, -124.625),
+            ("Friday Harbor WA", 48.5343, -123.0171), ("Roche Harbor WA", 48.61, -123.155),
+            ("Point Roberts WA", 48.985, -123.078), ("Bellingham WA", 48.75, -122.48),
+        ]
+        for (name, lat, lon) in us {
+            XCTAssertFalse(canada(lat, lon), "\(name) is in the US")
+        }
+    }
+
     // A severe thunderstorm is not a tornado: only the tornado advice may
     // tell a driver to leave the car for a ditch.
     func testOnlyATornadoSendsTheDriverToADitch() {

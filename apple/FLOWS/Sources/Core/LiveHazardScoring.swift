@@ -223,11 +223,18 @@ extension HazardFeedScores {
     /// One point's score from every live feed, read from the snapshot's Rust
     /// handle in place — the same numbers the map sweep and the route get.
     static func live(at pt: CLLocationCoordinate2D, snapshot s: LiveHazardSnapshot) -> LiveFamilies {
+        liveChecked(at: pt, snapshot: s)
+            ?? LiveFamilies(fire: 0, seismic: 0, spaceRadiation: 0, volcanic: 0,
+                            avalanche: 0, tropical: 0, tsunami: 0, convective: 0)
+    }
+
+    /// The same, or nil when the scorer gave no answer (it failed inside
+    /// Rust and sent back nothing). No answer is not "nothing there": the
+    /// route and the map treat the point as unchecked.
+    static func liveChecked(at pt: CLLocationCoordinate2D,
+                            snapshot s: LiveHazardSnapshot) -> LiveFamilies? {
         let v = s.handle.live(pt.latitude, pt.longitude)
-        guard v.len() == 8 else {
-            return LiveFamilies(fire: 0, seismic: 0, spaceRadiation: 0, volcanic: 0,
-                                avalanche: 0, tropical: 0, tsunami: 0, convective: 0)
-        }
+        guard v.len() == 8 else { return nil }
         return LiveFamilies(fire: v[0], seismic: v[1], spaceRadiation: v[2], volcanic: v[3],
                             avalanche: v[4], tropical: v[5], tsunami: v[6], convective: v[7])
     }

@@ -23,6 +23,20 @@ final class TransitMergeTests: XCTestCase {
 
     // MARK: moving a feed into another's clock
 
+    /// The catalogue's plain-http addresses are asked for over https (the
+    /// system refuses plain http); https ones are left as they are.
+    func testAFeedListedByPlainHTTPIsAskedForOverHTTPS() {
+        XCTAssertEqual(
+            TransitFeeds.secure("http://data.trilliumtransit.com/gtfs/a-b/a-b.zip")?.absoluteString,
+            "https://data.trilliumtransit.com/gtfs/a-b/a-b.zip")
+        XCTAssertEqual(
+            TransitFeeds.secure("https://example.org/feed.zip?x=1")?.absoluteString,
+            "https://example.org/feed.zip?x=1")
+        let near = TransitFeeds.citySources(from: 34.0562, -118.2365, to: 34.1016, -118.3385)
+        XCTAssertFalse(near.isEmpty)
+        XCTAssertTrue(near.allSatisfy { $0.url.scheme == "https" && $0.mirror?.scheme != "http" })
+    }
+
     func testAFeedsShiftIsTheGapBetweenTheTwoDayStarts() {
         func shift(_ from: String, _ into: String, _ date: Int) -> Int? {
             TransitClock.shift(from: from, into: into, serviceDate: date)

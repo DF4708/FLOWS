@@ -571,6 +571,7 @@ struct RouteChoicesView: View {
         // Then the timetables. Deliberately AFTER the card is up: reading one
         // may mean a download, and no one should watch a spinner to find out
         // a train exists.
+        let timetablesBegan = Date()
         var access = quickAccess
         if shape.access == .local,
            let city = await cityPart(shape, from: ep.from, fromName: startName, to: boardC,
@@ -627,8 +628,17 @@ struct RouteChoicesView: View {
             }
         }
         if Task.isCancelled { return }
+        sayIfLowDataRefused(since: timetablesBegan)
         if train != nil || access.schedule != nil || egress.schedule != nil || egress.note != nil {
             publish(access, egress, train: train?.schedule, offName: offName, offKnown: offKnown)
+        }
+    }
+
+    /// The card kept its estimate because Low Data Mode refused a timetable
+    /// download: say so, unless the planner already has something to say.
+    private func sayIfLowDataRefused(since start: Date) {
+        if LowDataRefusal.shared.happened(since: start), model.plannerNotice == nil {
+            model.plannerNotice = LowDataRefusal.notice
         }
     }
 
@@ -690,6 +700,7 @@ struct RouteChoicesView: View {
         let dest = MKMapItem(placemark: MKPlacemark(coordinate: ep.to))
         let startName = ep.fromName.isEmpty ? "your start" : ep.fromName
         let destName = ep.toName.isEmpty ? "your destination" : ep.toName
+        let lookupBegan = Date()
         model.transitOptions[key] = TransitOption(
             title: "City bus and train",
             detail: "Looking up the city's own bus and train times…",
@@ -699,6 +710,7 @@ struct RouteChoicesView: View {
             departing: Date())
         else {
             if Task.isCancelled { return }
+            sayIfLowDataRefused(since: lookupBegan)
             model.transitOptions[key] = nil
             let chosen = model.activeTransitModes
             if chosen.contains(.rail) { await computeGroundTransit(rail: true, shape: shape) }

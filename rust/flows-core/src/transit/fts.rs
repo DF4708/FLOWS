@@ -40,7 +40,8 @@
 //!                                      unless they came from the same build)
 //!   40..48  body length       u64
 //!   48..56  fnv1a-64 body hash u64
-//!   56..64  reserved (zero)
+//!   56..60  reserved (zero; n_currencies in v2)
+//!   60..64  header check      u32  (0 = written before 2026-11-10, unchecked)
 //! BODY
 //!   ZONES    n_zones  x (off u32, len u32)   -- IANA ids, into TEXT
 //!   STOPS    n_stops  x (name_off u32, name_len u32,
@@ -70,7 +71,7 @@ use std::path::Path;
 
 /// File magic: the first four bytes of every `.fts`.
 pub const FTS_MAGIC: [u8; 4] = *b"FTS1";
-/// Format version of a shard with no fares — byte for byte what it always was.
+/// Format version of a shard with no fares.
 pub const FTS_VERSION: u32 = 1;
 /// Format version of a shard whose feed published fares.
 pub const FTS_VERSION_FARES: u32 = 2;
@@ -256,7 +257,8 @@ pub fn to_bytes(labels: &Labels, ftt_body_hash: u64) -> Vec<u8> {
     out.extend_from_slice(&(body.len() as u64).to_le_bytes());
     out.extend_from_slice(&fnv1a64(&body).to_le_bytes());
     put_u32(&mut out, currencies.len() as u32); // 0 in v1: reserved
-    out.extend_from_slice(&[0u8; FTS_HEADER_LEN - 60]); // reserved
+    let check = header_check(&out);
+    put_u32(&mut out, check);
     debug_assert_eq!(out.len(), FTS_HEADER_LEN);
     out.extend_from_slice(&body);
     out
@@ -268,6 +270,17 @@ pub fn write_fts(labels: &Labels, ftt_body_hash: u64, path: &Path) -> io::Result
     let mut f = fs::File::create(path)?;
     f.write_all(&bytes)?;
     f.sync_all()
+}
+
+/// The check over header bytes 0..60, never zero. The body hash covers only
+/// the body, and the two dates sit in the header with nothing in the body to
+/// hold them to: a flipped digit in `service_date` read as a timetable for
+/// another day, and passed. Zero is what every sidecar written before the
+/// check carries there, so a real check is never zero.
+fn header_check(header: &[u8]) -> u32 {
+    let h = fnv1a64(&header[..60]);
+    let folded = (h ^ (h >> 32)) as u32;
+    folded.max(1)
 }
 
 fn bad(msg: &str) -> io::Error {
@@ -319,9 +332,16 @@ pub fn from_bytes(bytes: &[u8], ftt_body_hash: u64) -> io::Result<Labels> {
     // The header sits outside the body hash, so each field in it is checked
     // against something the hash does cover. Reserved bytes are zero (56..60
     // is the currency count in v2 and reserved in v1).
-    let reserved_from = if version == FTS_VERSION_FARES { 60 } else { 56 };
-    if bytes[reserved_from..FTS_HEADER_LEN].iter().any(|&b| b != 0) {
+    if version != FTS_VERSION_FARES && bytes[56..60].iter().any(|&b| b != 0) {
         return Err(bad("fts: reserved header bytes are not zero"));
+    }
+    // The dates have nothing in the body to be checked against, so the
+    // header carries its own check. A sidecar written before the check has
+    // zero there and is read as it always was; those are replaced as their
+    // timetables are rebuilt.
+    let stored_check = u32_at(bytes, 60);
+    if stored_check != 0 && stored_check != header_check(bytes) {
+        return Err(bad("fts: header check mismatch"));
     }
     let want_hash = u64_at(bytes, 48);
     // Checked: the length is the file's word, and a tampered one near the
@@ -522,6 +542,24 @@ mod tests {
         }
         let empty = Labels::default();
         assert_eq!(from_bytes(&to_bytes(&empty, 7), 7).unwrap(), empty);
+    }
+
+    #[test]
+    fn a_changed_date_in_the_header_is_refused() {
+        for fares in [false, true] {
+            let good = to_bytes(&labels(fares), 7);
+            assert_ne!(u32_at(&good, 60), 0, "a written check is never zero");
+            // service_date and feed_published, one bit each.
+            for at in [20usize, 24, 28] {
+                let mut changed = good.clone();
+                changed[at] ^= 1;
+                assert!(from_bytes(&changed, 7).is_err(), "byte {at}");
+            }
+            // A sidecar from before the check (zero there) still reads.
+            let mut old = good.clone();
+            old[60..64].copy_from_slice(&[0; 4]);
+            assert_eq!(from_bytes(&old, 7).unwrap().service_date, 20260923);
+        }
     }
 
     #[test]

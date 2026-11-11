@@ -289,7 +289,8 @@ enum RiskAdvice {
     /// the issuing agency. US is the default; a location routes to a foreign
     /// agency only when it is unambiguously across the border.
     static func officialURL(latitude: Double, longitude: Double) -> URL? {
-        if isNorthOfTheBorder(latitude: latitude, longitude: longitude) {
+        if isNorthOfTheBorder(latitude: latitude, longitude: longitude)
+            || isCanadaBelowTheBands(latitude: latitude, longitude: longitude) {
             return URL(string: "https://weather.gc.ca/en/location/index.html"
                        + String(format: "?coords=%.3f,%.3f", latitude, longitude))
         }
@@ -337,6 +338,52 @@ enum RiskAdvice {
         (59.8, -135.5), (59.45, -136.4), (58.9, -137.5), (59.7, -138.6), (60.3, -139.1),
         (60.3, -141.0),
     ].map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }
+
+    /// Ontario south and west of the bands below, as (latitude, longitude)
+    /// along the water the border runs in: Whitefish Bay, the St. Marys
+    /// River between the two Sault Ste. Maries and around Sugar Island, Lake
+    /// Huron, the St. Clair River, Lake St. Clair, the Detroit River, Lake
+    /// Erie between Pelee Island and the Bass Islands, the Niagara River
+    /// west of Grand Island and through the falls, and back across Ontario.
+    /// The bands read all of this as US, and Windsor, London, Hamilton and
+    /// Niagara Falls were sent to the US Weather Service.
+    private static let ontarioBelowTheBands: [CLLocationCoordinate2D] = [
+        (47.85, -84.95), (46.90, -84.95), (46.60, -84.78), (46.505, -84.62), (46.49, -84.45),
+        (46.508, -84.36), (46.505, -84.30), (46.515, -84.27), (46.54, -84.20), (46.52, -84.12),
+        (46.45, -84.09), (46.28, -84.11), (46.09, -83.98), (46.11, -83.60), (45.95, -83.45),
+        (45.33, -82.52), (43.60, -82.12), (43.0, -82.42), (42.97, -82.416), (42.82, -82.478),
+        (42.715, -82.485), (42.62, -82.52), (42.53, -82.62), (42.36, -82.925), (42.331, -82.975),
+        (42.3237, -83.0417), (42.312, -83.074), (42.285, -83.10), (42.20, -83.13), (42.05, -83.13),
+        (41.83, -83.07), (41.75, -82.78), (41.676, -82.68), (41.85, -82.0), (42.2, -81.25),
+        (42.36, -80.0), (42.6, -79.5), (42.83, -78.95), (42.906, -78.906), (42.94, -78.925),
+        (42.965, -78.975), (43.0, -79.012), (43.045, -79.005), (43.065, -78.995), (43.074, -79.02),
+        (43.076, -79.06), (43.0773, -79.0745), (43.0902, -79.0677), (43.12, -79.062),
+        (43.165, -79.045), (43.26, -79.06), (43.45, -79.06), (45.6, -82.0), (47.85, -83.5),
+    ].map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }
+
+    /// Vancouver Island and the Gulf Islands below the 49th parallel: the
+    /// Strait of Juan de Fuca, Haro Strait and Boundary Pass. Victoria sits
+    /// south of the parallel the west is split by.
+    private static let vancouverIslandBelow49: [CLLocationCoordinate2D] = [
+        (49.0, -123.32), (48.83, -123.0), (48.77, -123.01), (48.69, -123.27), (48.55, -123.22),
+        (48.42, -123.115), (48.28, -123.25), (48.25, -123.55), (48.3, -124.0), (48.5, -124.75),
+        (48.6, -125.6), (49.0, -126.5),
+    ].map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }
+
+    /// Canada that `isNorthOfTheBorder`'s bands leave on the US side:
+    /// southern Ontario and Vancouver Island. Only the official link asks
+    /// this; the alert fetch already asks both countries there
+    /// (`mayBeAcrossTheBorder`).
+    static func isCanadaBelowTheBands(latitude lat: Double, longitude lon: Double) -> Bool {
+        let p = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        if lon >= -85.0, lon <= -78.9, lat >= 41.6, lat <= 47.9 {
+            return HazardFeedScores.pointInPolygon(p, ontarioBelowTheBands)
+        }
+        if lon >= -126.5, lon <= -123.0, lat >= 48.2, lat <= 49.0 {
+            return HazardFeedScores.pointInPolygon(p, vancouverIslandBelow49)
+        }
+        return false
+    }
 
     /// Is the point on the Canadian side of the border? West to east, the
     /// border as the bands the Weather Service and Environment Canada split
