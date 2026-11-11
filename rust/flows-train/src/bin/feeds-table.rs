@@ -12,10 +12,12 @@
 //! of our own to ask.
 //!
 //! SOURCE: MobilityData's Mobility Database catalog
-//! (<https://github.com/MobilityData/mobility-database-catalogs>, the CSV at
-//! <https://bit.ly/catalogs-csv>). The catalog itself needs no account; its
-//! API does. Each FEED keeps its own publisher's terms — the table carries
-//! each one's licence link where the catalog has one, so the app can show it.
+//! (<https://github.com/MobilityData/mobility-database-catalogs>; the current
+//! CSV export is <https://files.mobilitydatabase.org/feeds_v2.csv>, the older
+//! <https://bit.ly/catalogs-csv> leaves out a third of the feeds). It needs no
+//! account; its API does. Each FEED keeps its own publisher's terms — the
+//! table carries each one's licence link where the catalog has one, so the
+//! app can show it.
 //!
 //! Kept: static GTFS, in the US, Canada or Mexico, whose download needs no
 //! key (`urls.authentication_type` empty or 0), with a direct download link,

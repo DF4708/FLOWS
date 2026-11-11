@@ -1157,3 +1157,25 @@ Foursquare's NOTICE must be preserved wherever the shards ship.
 modification statement — **bundle it with the shards in the app**, and any
 About/legal screen listing data sources should credit: *"Place data:
 Foursquare OS Places, © Foursquare Labs, Inc., Apache License 2.0."*
+
+## 14. Data tables shipped in the app: dates, age limits, refresh (2026-11-11)
+
+Every table compiled into the app or bundled in its Resources has a line in
+`scripts/tables/TABLES.tsv`: the day its source was last fetched, the oldest
+it may get, its checksum, and how to refresh it.
+
+- `rust/flows-bridge/tests/table_ages.rs` runs on every landing. It fails
+  when a table is past its limit, when a table changed without a new stamp,
+  or when a new table has no line.
+- `.github/workflows/tables.yml` runs the same test every Monday with three
+  weeks of warning, so the refresh is asked for before a landing is stopped.
+- `scripts/tables/refresh.sh <airports|feeds|ferries|rental> [--check]`
+  fetches the source again, rebuilds the table, refuses one that shrank by a
+  tenth, and stamps it. A refresh is read and landed by a person.
+- Limits: transit feeds and rental places 90 days; airports 180; ferries,
+  Amtrak stations, weather radio stations, shower lists and park fees 365;
+  the storm-history baseline and the risk bundle 400; the usual alert
+  lengths 730.
+- No fetch script yet: Amtrak stations, weather radio stations, the four
+  shower lists and park fees. They are refreshed by hand, and the age test
+  is what says when.

@@ -1,0 +1,18 @@
+# FLOWS data tables: one line per table shipped inside the app.
+# Columns (tab): path, built (the day its source was last fetched), max_days (oldest it may get),
+# cksum and bytes (POSIX `cksum`; "-" for a table that sits inside a hand-edited file), refresh, source.
+# rust/flows-bridge/tests/table_ages.rs reads this. Write a line with scripts/tables/stamp.sh, never by hand.
+rust/flows-core/src/airports_table.rs	2026-11-11	180	3772949320	228522	scripts/tables/refresh.sh airports	OurAirports airports.csv (public domain)
+rust/flows-core/src/ferries_table.rs	2026-11-11	365	294205515	283806	scripts/tables/refresh.sh ferries	BTS National Census of Ferry Operators (US government work)
+rust/flows-core/src/rental_places_table.rs	2026-09-30	90	1457551259	692654	scripts/tables/refresh.sh rental	DiscoverCars place list; positions from Census, GNIS, Natural Earth
+rust/flows-core/src/transit/feeds_table.rs	2026-11-11	90	3220267397	600914	scripts/tables/refresh.sh feeds	MobilityData Mobility Database catalog
+apple/FLOWS/Resources/amtrak_stations.json	2026-07-30	365	3632542237	53822	by hand	Amtrak stations (see docs/TRANSIT_ROUTING.md)
+apple/FLOWS/Resources/nwr_stations.json	2026-07-10	365	3324981681	13640	by hand	NOAA Weather Radio stations (see docs/APPLE_APP.md)
+apple/FLOWS/Resources/truckstop_showers.json	2026-07-10	365	865041657	82956	by hand	Truck stop shower lists (see docs/ARCHITECTURE.md)
+apple/FLOWS/Resources/loves_city_showers.json	2026-07-10	365	440088088	26059	by hand	Truck stop shower lists (see docs/ARCHITECTURE.md)
+apple/FLOWS/Resources/pilot_city_showers.json	2026-07-10	365	4140597094	35446	by hand	Truck stop shower lists (see docs/ARCHITECTURE.md)
+apple/FLOWS/Resources/ta_petro_city_showers.json	2026-07-10	365	584703683	14803	by hand	Truck stop shower lists (see docs/ARCHITECTURE.md)
+apple/FLOWS/Resources/nps_entry_fees.json	2026-07-30	365	2743850723	3515	by hand	National Park Service entrance fees (US government work)
+apple/FLOWS/Resources/baseline_route_head.json	2026-07-11	400	3717342418	3323	scripts/build_history_baseline.sh	NOAA Storm Events 2005-2024 (US government work)
+apple/FLOWS/Resources/app_risk_bundle.frb1	2026-07-19	400	324650607	5030158	scripts/generate_national_bundle.sh	National risk bundle (see docs/ARCHITECTURE.md)
+rust/flows-core/src/alerts.rs	2026-11-11	730	-	-	scripts/alert_lengths	USUAL_EVENT_HOURS: IEM NWS archive medians 2022-24, NIFC WFIGS

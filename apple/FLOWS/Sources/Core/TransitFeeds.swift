@@ -83,7 +83,7 @@ actor TransitFeeds {
     ///
     /// The owner's rule (2026-09-29): every feed downloadable WITHOUT an API
     /// key is on by default. The table is compiled into flows-core from
-    /// MobilityData's catalog — 1,341 feeds across the US, Canada and Mexico —
+    /// MobilityData's catalog — about 1,350 feeds across the US, Canada and Mexico —
     /// so this asks no server anything. Nine feeds are held back because
     /// their own licences forbid commercial use without written permission,
     /// and FLOWS earns referral fees; they stay in the table, marked, for the

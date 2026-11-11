@@ -166,7 +166,7 @@ What runs today:
   by default.** `flows-train`'s `feeds-table` compiles MobilityData's current
   export (`files.mobilitydatabase.org/feeds_v2.csv`; the older bit.ly
   `sources.csv` lacks the Transitland- and NTD-sourced entries its own
-  redirects point to) into `transit/feeds_table.rs`: **1,341 static feeds**
+  redirects point to) into `transit/feeds_table.rs`: **1,341 static feeds** (1,347 after the 2026-11-11 refresh)
   (US 1,186 · CA 149 · MX 6). Kept: key-free, not deprecated, not redirected,
   a usable box; "inactive" feeds stay but rank last (the catalog stopped
   maintaining them — Milwaukee's is one — and the app already skips a lapsed

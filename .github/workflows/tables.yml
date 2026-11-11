@@ -1,0 +1,28 @@
+# -----------------------------------------------------------------------------
+# Copyright (c) 2026 David B. Foster. All rights reserved.
+# -----------------------------------------------------------------------------
+
+# The data tables shipped inside the app (scripts/tables/TABLES.tsv) each
+# have an age limit. The age test runs on every landing; this runs it once a
+# week with three weeks of warning, so a refresh is asked for (a failed run
+# mails the owner) before the limit itself stops a landing. It fetches
+# nothing and changes nothing: a refresh is run and read by a person
+# (scripts/tables/refresh.sh), never landed by a robot.
+name: tables
+
+on:
+  schedule:
+    - cron: "17 14 * * 1"   # Mondays, 14:17 UTC
+  workflow_dispatch:
+
+jobs:
+  ages:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.93.1
+      - name: every table is listed, unchanged and inside its age limit
+        run: cargo test --release -p flows-bridge --test table_ages
+        working-directory: rust
+        env:
+          FLOWS_TABLE_WARN_DAYS: "21"
