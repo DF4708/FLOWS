@@ -468,6 +468,9 @@ struct ContentView: View {
         VStack(spacing: 8) {
             if let stop = model.poi.touristDetail {
                 TouristStopCard(stop: stop) { model.poi.touristDetail = nil }
+                    // A new card per stop: the last stop's late answers
+                    // (its stars, its "added" note) landed on this one.
+                    .id(stop.id)
                     .frame(maxWidth: isCompact ? .infinity : golden.cardMax)
             }
             if let info = hazardInfo {

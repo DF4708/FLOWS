@@ -101,13 +101,16 @@ enum GTFSZip {
         var i = tail.count - 22
         while i >= 0 {
             if u32(tail, i) == 0x0605_4B50 {
-                guard let size = u32(tail, i + 12), let offset = u32(tail, i + 16),
-                      size > 0, offset >= 0, offset + size <= totalSize
+                guard let size = u32(tail, i + 12), let offset = u32(tail, i + 16)
                 else { throw Failure.notAZip }
                 // 0xFFFF_FFFF means the real values live in a ZIP64 record.
+                // Asked first: the size test below failed such a value and
+                // the feed was called "not a zip" instead.
                 guard offset != 0xFFFF_FFFF, size != 0xFFFF_FFFF else {
                     throw Failure.unsupported("this feed is a ZIP64 archive")
                 }
+                guard size > 0, offset >= 0, offset + size <= totalSize
+                else { throw Failure.notAZip }
                 return offset..<(offset + size)
             }
             i -= 1

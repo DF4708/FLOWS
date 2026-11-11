@@ -490,7 +490,15 @@ impl Shard {
                 .min_by_key(|d| (d.cost(), d.dep));
             let Some(d) = best else { break };
             from_time = d.dep.saturating_add(1);
-            out.push(d);
+            // A later start that gets there no later, with no more changes,
+            // IS the row above, told better: the search boards the first
+            // train out even when a later one makes the same connection, so
+            // a frequent first leg onto an hourly train filled the board
+            // with one train three times, the first with an hour's wait.
+            match out.last_mut() {
+                Some(last) if d.arr <= last.arr && d.n_transfers <= last.n_transfers => *last = d,
+                _ => out.push(d),
+            }
         }
         out
     }
@@ -859,6 +867,63 @@ mod tests {
         let mut wrong_version = good.clone();
         wrong_version[4] = 9;
         assert!(fts::from_bytes(&wrong_version, hash).is_err(), "version");
+        clean(&dir, &prefix);
+    }
+
+    #[test]
+    fn a_board_lists_each_connecting_train_once_by_its_last_way_to_catch_it() {
+        // A shuttle every ten minutes onto an hourly train. Every shuttle
+        // before 09:00 catches the same 09:00 train: the board is that train
+        // once, by the last shuttle that makes it, then the next train.
+        let dir = write_feed("connect");
+        std::fs::write(
+            dir.join("routes.txt"),
+            "route_id,route_short_name,route_long_name,route_type\n\
+             R1,,Shuttle,3\nR2,,Western Star,2\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("trips.txt"),
+            "route_id,service_id,trip_id\nR1,WK,s1\nR1,WK,s2\nR1,WK,s3\nR1,WK,s4\nR1,WK,s5\n\
+             R2,WK,w1\nR2,WK,w2\n",
+        )
+        .unwrap();
+        let mut times = String::from("trip_id,arrival_time,departure_time,stop_id,stop_sequence\n");
+        for (trip, at) in [
+            ("s1", "08:00"),
+            ("s2", "08:10"),
+            ("s3", "08:20"),
+            ("s4", "09:10"),
+            ("s5", "09:20"),
+        ] {
+            let (h, m) = at.split_once(':').unwrap();
+            let m: u32 = m.parse().unwrap();
+            times.push_str(&format!("{trip},{at}:00,{at}:00,EAS,1\n"));
+            times.push_str(&format!(
+                "{trip},{h}:{:02}:00,{h}:{:02}:00,MID,2\n",
+                m + 5,
+                m + 5
+            ));
+        }
+        times.push_str("w1,09:00:00,09:00:00,MID,1\nw1,09:30:00,09:30:00,WES,2\n");
+        times.push_str("w2,10:00:00,10:00:00,MID,1\nw2,10:30:00,10:30:00,WES,2\n");
+        std::fs::write(dir.join("stop_times.txt"), times).unwrap();
+        let mut prefix = std::env::temp_dir();
+        prefix.push(format!("flows_shard_out_connect_{}", std::process::id()));
+        build(&dir, Some(20260923), &prefix).unwrap();
+        let s = open(&prefix).unwrap();
+        let from = s.labels.stop_codes.iter().position(|c| c == "EAS").unwrap() as u32;
+        let to = s.labels.stop_codes.iter().position(|c| c == "WES").unwrap() as u32;
+        let board = s.board(from, to, 7 * 3600 + 55 * 60, 3);
+        let rows: Vec<(Time, Time)> = board.iter().map(|d| (d.dep, d.arr)).collect();
+        assert_eq!(
+            rows,
+            vec![
+                (8 * 3600 + 20 * 60, 9 * 3600 + 30 * 60),
+                (9 * 3600 + 20 * 60, 10 * 3600 + 30 * 60),
+            ],
+            "one row per train to the far end, each by its last shuttle"
+        );
         clean(&dir, &prefix);
     }
 

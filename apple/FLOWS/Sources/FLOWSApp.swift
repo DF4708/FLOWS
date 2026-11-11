@@ -1210,7 +1210,9 @@ final class AppModel: ObservableObject {
     private func beginHandoffGrace() {
         guard handoffGraceTask == nil, !handedOffOffline else { return }
         let music = MusicController.shared
-        let radioPlaying = radio.playingChannelID != nil
+        // A paused station is not playing: losing signal with the radio
+        // paused used to start the phone's own music by itself.
+        let radioPlaying = radio.playingChannelID != nil && !radio.isPaused
         // Any OTHER app making sound (a deep-linked service playing in
         // its own app) counts as music that's about to be in trouble.
         let otherAppAudio = !radioPlaying && AudioActivity.isOtherAudioPlaying
@@ -1345,7 +1347,8 @@ final class AppModel: ObservableObject {
     /// health and stage the fallback BEFORE the audio dies.
     func checkPlaybackSignalHealth() {
         guard !breadcrumbs.isOffline, handoffGraceTask == nil,
-              MusicController.shared.isPlaying || radio.playingChannelID != nil
+              MusicController.shared.isPlaying
+                || (radio.playingChannelID != nil && !radio.isPaused)
         else { return }
         let buffer = radio.bufferedSecondsAhead
         let draining = SignalQuality.isDraining(previous: lastBufferReading,
@@ -1703,7 +1706,12 @@ final class AppModel: ObservableObject {
 
     /// Set when the final destination is reached; HUD shows the arrived
     /// banner until the driver dismisses it.
-    @Published var arrivedAt: String?
+    @Published var arrivedAt: String? {
+        didSet { arrivedDate = arrivedAt == nil ? nil : (arrivedDate ?? Date()) }
+    }
+    /// When the trip arrived: the drive ended then, however long the driver
+    /// sits parked before pressing End or heading back.
+    private var arrivedDate: Date?
 
     /// The continuation leg after an added stop (stop → final destination),
     /// planned up front so the map shows the FULL appended route — the leg
@@ -2503,6 +2511,9 @@ final class AppModel: ObservableObject {
         // rest — and once traffic had moved an ETA past 45 s, came back as
         // "new" twins that set off a full rescore. Asked again after five
         // minutes, or as soon as the question changes (No tolls).
+        // Roads for cars only: on a walk this put driving routes, with
+        // driving times, into the walking list.
+        guard !walkingMode else { return }
         let key = Self.routerAskKey(ep.from, ep.to, tollFree: routeFilters.contains(.noTolls))
         if let last = lastRouterAsk, last.key == key, Date().timeIntervalSince(last.at) < 300 { return }
         routeSearchesInFlight += 1
@@ -3252,7 +3263,10 @@ final class AppModel: ObservableObject {
                 Task { [weak self] in
                     let atPump = await LiveHazardFeedFetcher.shared.isAtFuelStation(
                         near: here, electric: electric, diesel: diesel)
-                    guard let self, atPump, self.stoppedSince == stopStart else { return }
+                    // Still this trip: End pressed during the lookup put the
+                    // question on the planning screen.
+                    guard let self, atPump, self.stoppedSince == stopStart,
+                          self.mode == .navigating else { return }
                     self.refuelPrompt = true
                 }
             }
@@ -3822,7 +3836,7 @@ final class AppModel: ObservableObject {
                                                 rangeMiles: range)
             if self.fuelWarningLevel != level { self.fuelWarningLevel = level }
             if self.fuelWarningStation != cheapest { self.fuelWarningStation = cheapest }
-            self.fuelWarningItem = cheapest.flatMap { found.items[$0.name] }
+            self.fuelWarningItem = cheapest.flatMap { found.items[Self.fuelStationKey($0)] }
             let text = FuelWarning.bannerText(
                 fuel: fuel, level: level, station: cheapest)
             // A closed banner stays closed while the spot is the one it was
@@ -3874,8 +3888,17 @@ final class AppModel: ObservableObject {
         request.region = MKCoordinateRegion(center: here,
                                             latitudinalMeters: meters * 2,
                                             longitudinalMeters: meters * 2)
-        guard let items = (try? await MKLocalSearch(request: request).start())?.mapItems
-        else { return nil }
+        // "Nothing found" comes back as an error, not an empty list: read as
+        // a failed search, a stretch with no station at all kept the
+        // last-chance warning silent, the one case it exists for.
+        let items: [MKMapItem]
+        do {
+            items = try await MKLocalSearch(request: request).start().mapItems
+        } catch let error as MKError where error.code == .placemarkNotFound {
+            items = []
+        } catch {
+            return nil
+        }
         var stations: [FuelWarning.Station] = []
         var byName: [String: MKMapItem] = [:]
         // The road still to be driven, sampled — ahead-ness is measured
@@ -3928,11 +3951,18 @@ final class AppModel: ObservableObject {
             // estimate — the same ladder the stop list uses.
             let price = await poi.livePriceProvider(item.placemark.coordinate, fuel)
                 ?? poi.priceProvider(item, fuel)
-            stations.append(FuelWarning.Station(name: name, milesAhead: ahead,
-                                                pricePerUnit: price))
-            byName[name] = item
+            let station = FuelWarning.Station(name: name, milesAhead: ahead,
+                                              pricePerUnit: price)
+            stations.append(station)
+            // By name and distance: two of one chain shared a key, and the
+            // button drove to the farther one than the banner named.
+            byName[Self.fuelStationKey(station)] = item
         }
         return (stations, byName)
+    }
+
+    private static func fuelStationKey(_ station: FuelWarning.Station) -> String {
+        "\(station.name)|\(station.milesAhead)"
     }
 
     /// "Add it to the route" — the action the spoken advisory offers.
@@ -5038,6 +5068,13 @@ final class AppModel: ObservableObject {
         let drivingOn = tripUnderway
         if let feeds = heldChoiceFeeds[route.id] { adoptCorridorFeeds(feeds) }
         heldChoiceFeeds = [:]
+        // A new trip warns afresh. The way back started from the arrived
+        // banner never passed through End, so the cameras it drives past
+        // again stayed silent and its towing warning was already spent.
+        if !drivingOn {
+            announcedCameras.removeAll()
+            warnedTowingViolation = false
+        }
         routeChoices = []
         pendingVoiceOffer = nil
         tripGeneration += 1
@@ -5695,9 +5732,18 @@ final class AppModel: ObservableObject {
     /// a car route with no filters: a walker got roads for cars and a
     /// trailer could be sent under a low bridge.
     func approveEscalationReroute() async {
-        guard let fix = location.coordinate, let dest = finalDestination,
-              let leg = navigation.route else {
+        guard let dest = finalDestination, let leg = navigation.route else {
             escalation = nil
+            return
+        }
+        // No fix right now (a tunnel, a parking deck): the prompt stays up
+        // and says why. It used to vanish with nothing done, which reads as
+        // "rerouted" to a driver heading into the storm.
+        guard let fix = effectivePosition else {
+            if voiceAlerts {
+                VoiceAnnouncer.shared.announce("Can't reroute yet. Still finding where you are.",
+                                               topic: SpeechTopic.escalation)
+            }
             return
         }
         let previous = escalation
@@ -5718,6 +5764,7 @@ final class AppModel: ObservableObject {
             // Tapping Reroute used to make the banner vanish and nothing
             // else happen when the router failed — read as "done" by a
             // driver heading into the storm. Put the prompt back and say so.
+            guard gen == tripGeneration else { return }   // that trip is over
             if mode == .navigating { escalation = previous }
             if voiceAlerts {
                 VoiceAnnouncer.shared.announce("Couldn't find another route yet. Still on this one.",
@@ -6085,7 +6132,14 @@ final class AppModel: ObservableObject {
         // who parked at the destination and pressed End an hour later —
         // taught the model a duration that was never a drive.
         guard arrivedAt != nil else { return }
-        let actual = Date().timeIntervalSince(started) - stopDelaySeconds - shelteredSecondsBanked
+        // To the arrival, not to now: an hour parked before End (or before
+        // the way back) was learned as an hour of driving. And only the part
+        // of a shelter wait that was sat out: a two-hour wait left after
+        // fifteen minutes took the whole two hours off the drive.
+        let end = arrivedDate ?? Date()
+        let waitAhead = shelterSession.map { max(0, $0.until.timeIntervalSince(end)) } ?? 0
+        let actual = end.timeIntervalSince(started)
+            - max(0, stopDelaySeconds - waitAhead) - shelteredSecondsBanked
         // Only whole trips teach anything: a drive abandoned after two
         // minutes says nothing about how long the route takes.
         guard actual > 300, actual < predicted * 4 else { return }
@@ -6717,6 +6771,12 @@ final class AppModel: ObservableObject {
         guard let fix = effectivePosition, let dest = finalDestination,
               let leg = navigation.route else { return false }
         let name = item.name ?? "Stop"
+        // A stop that fails to plan leaves the one already being driven to
+        // as it was. Only the name was cleared: an offline try at a gas
+        // station while heading to a coffee stop left "gas" behind (arriving
+        // for coffee read as a fill-up) and no name (arriving there read as
+        // the end of the trip).
+        let (stopBefore, kindBefore) = (pendingStopName, pendingStopKind)
         pendingStopName = name
         // Classify the ITEM, not the browse mode. This read poi.activeKind
         // — a global "which stop button is lit" flag that survives closing
@@ -6750,9 +6810,16 @@ final class AppModel: ObservableObject {
             to: item.placemark.coordinate, toName: name))
         guard var leg1 = FasterRoutePolicy.swapPick(hop, leg: leg, filters: routeFilters,
                                                     limits: filterLimits, calmest: false)
-        else { pendingStopName = nil; return false }
-        // Driver may have ended/finished the trip while leg1 planned.
-        guard mode == .navigating, gen == tripGeneration else { pendingStopName = nil; return false }
+        else {
+            if gen == tripGeneration { pendingStopName = stopBefore; pendingStopKind = kindBefore }
+            return false
+        }
+        // Driver may have ended/finished the trip while leg1 planned: that
+        // trip's stop is gone with it, and a new trip's is its own.
+        guard mode == .navigating, gen == tripGeneration else {
+            if gen == tripGeneration { pendingStopName = nil; pendingStopKind = nil }
+            return false
+        }
         leg1.planKind = leg.planKind   // later replans keep the driver's choice
         startLeg(leg1)
         Task { [weak self] in
@@ -6866,7 +6933,8 @@ final class AppModel: ObservableObject {
             DrivingProfileStore.shared.recordArrival(
                 predicted: legPredictedSeconds,
                 actual: Date().timeIntervalSince(started),
-                stoppedSeconds: stopDelaySeconds + shelteredSecondsBanked)
+                stoppedSeconds: max(0, stopDelaySeconds - (shelterSession?.remaining ?? 0))
+                    + shelteredSecondsBanked)
         }
         legStartedAt = nil
         legPredictedSeconds = 0

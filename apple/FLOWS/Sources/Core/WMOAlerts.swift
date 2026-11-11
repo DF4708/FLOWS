@@ -109,16 +109,27 @@ enum WMOAlertParsing {
         let effective: String?
         let web: String?
         let description: String?
+        /// A real alert in force: not a test or an exercise, not a
+        /// cancellation, not an "all clear". Those came through as live
+        /// alerts at their stated severity until they expired.
+        var isLive = true
     }
 
     /// CAP `<polygon>` is space-separated `lat,lon` pairs (note: lat FIRST,
     /// unlike GeoJSON).
     static func polygonCoords(_ raw: String) -> [CLLocationCoordinate2D] {
-        raw.split(whereSeparator: { $0 == " " || $0 == "\n" }).compactMap { pair in
+        // Any white space parts the pairs. A Windows line end is one
+        // Character that is not "\n": two pairs joined by it failed to parse
+        // and were dropped, leaving a ring of the wrong shape. And a ring
+        // with a pair that cannot be read is no ring: a wrong shape can miss
+        // the driver.
+        var ring: [CLLocationCoordinate2D] = []
+        for pair in raw.split(whereSeparator: \.isWhitespace) {
             let xy = pair.split(separator: ",")
-            guard xy.count == 2, let lat = Double(xy[0]), let lon = Double(xy[1]) else { return nil }
-            return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+            guard xy.count == 2, let lat = Double(xy[0]), let lon = Double(xy[1]) else { return [] }
+            ring.append(CLLocationCoordinate2D(latitude: lat, longitude: lon))
         }
+        return ring
     }
 
     static func parseCAP(_ xml: String) -> ParsedCAP? {
@@ -144,6 +155,10 @@ enum WMOAlertParsing {
             if ring.count >= 3 { rings.append(ring) }
             search = search[e.upperBound...]
         }
+        let status = tag("status")?.lowercased()
+        let live = (status == nil || status == "actual")
+            && tag("msgType")?.lowercased() != "cancel"
+            && tag("responseType")?.lowercased() != "allclear"
         return ParsedCAP(
             event: tag("event") ?? "Weather alert",
             severity: tag("severity") ?? "Moderate",
@@ -152,6 +167,7 @@ enum WMOAlertParsing {
             expires: tag("expires"),
             effective: tag("effective") ?? tag("onset"),
             web: tag("web"),
-            description: tag("description").map { String($0.prefix(280)) })
+            description: tag("description").map { String($0.prefix(280)) },
+            isLive: live)
     }
 }

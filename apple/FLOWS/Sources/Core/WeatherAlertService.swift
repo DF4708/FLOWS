@@ -1523,6 +1523,7 @@ actor WMOAlertCache {
                           (r as? HTTPURLResponse)?.statusCode == 200,
                           let capXML = String(data: d, encoding: .utf8),
                           let cap = WMOAlertParsing.parseCAP(capXML) else { return nil }
+                    guard cap.isLive else { return [] }
                     guard !cap.polygons.isEmpty else { return [] }
                     // One alert carrying every ring it covers. One alert per
                     // ring under the same id lost all but the first ring

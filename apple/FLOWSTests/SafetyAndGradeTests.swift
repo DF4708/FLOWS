@@ -729,6 +729,30 @@ final class WMOAlertTests: XCTestCase {
             for: .init(latitude: 14.91, longitude: -92.26)), "mx-smn-es")   // Tapachula
     }
 
+    func testACAPFileThatIsNotALiveAlertOrHasABrokenRing() {
+        func cap(_ extra: String, polygon: String = "22.0,-98.0 22.5,-98.0 22.5,-97.5 22.0,-98.0") -> String {
+            "<alert>\(extra)<info><event>Aviso</event><severity>Severe</severity>"
+                + "<area><polygon>\(polygon)</polygon></area></info></alert>"
+        }
+        XCTAssertEqual(WMOAlertParsing.parseCAP(cap(""))?.isLive, true)
+        XCTAssertEqual(WMOAlertParsing.parseCAP(
+            cap("<status>Actual</status><msgType>Alert</msgType>"))?.isLive, true)
+        // A test, an exercise, a cancellation and an all-clear warn nobody.
+        XCTAssertEqual(WMOAlertParsing.parseCAP(cap("<status>Test</status>"))?.isLive, false)
+        XCTAssertEqual(WMOAlertParsing.parseCAP(cap("<status>Exercise</status>"))?.isLive, false)
+        XCTAssertEqual(WMOAlertParsing.parseCAP(
+            cap("<status>Actual</status><msgType>Cancel</msgType>"))?.isLive, false)
+        XCTAssertEqual(WMOAlertParsing.parseCAP(
+            cap("<responseType>AllClear</responseType>"))?.isLive, false)
+        // Pairs parted by a Windows line end or a tab are still four pairs.
+        XCTAssertEqual(WMOAlertParsing.polygonCoords(
+            "22.0,-98.0\r\n22.5,-98.0\t22.5,-97.5\r22.0,-98.0").count, 4)
+        // One pair that cannot be read spoils the ring: no shape, not a wrong one.
+        XCTAssertTrue(WMOAlertParsing.polygonCoords("22.0,-98.0 22.5;-98.0 22.5,-97.5 22.0,-98.0").isEmpty)
+        XCTAssertEqual(WMOAlertParsing.parseCAP(
+            cap("", polygon: "22.0,-98.0 x,-98.0 22.5,-97.5 22.0,-98.0"))?.polygons.count, 0)
+    }
+
     func testRSSAndCAPParsing() {
         let rss = """
         <rss><channel><item><title>Zona de inestabilidad</title>\

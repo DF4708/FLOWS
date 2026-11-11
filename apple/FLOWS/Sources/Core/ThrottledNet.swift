@@ -35,6 +35,10 @@ enum ThrottledNet {
     #endif
 
     static let session: URLSession = {
+        // Start watching the network path now: first met inside a failed
+        // request, it still said "online" and a dead zone at launch was
+        // counted against the hosts.
+        _ = NetworkPath.shared
         let cfg = URLSessionConfiguration.default
         cfg.timeoutIntervalForRequest = 10
         cfg.timeoutIntervalForResource = 30

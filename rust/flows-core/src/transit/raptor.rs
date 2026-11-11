@@ -138,6 +138,7 @@ impl<'a> Raptor<'a> {
         let mut route_hop: Vec<u32> = vec![u32::MAX; tt.n_routes()];
         let mut touched_routes: Vec<u32> = Vec::new();
         let mut trip_marked: Vec<u32> = Vec::new();
+        let mut ride_arr: Vec<Time> = Vec::new();
         for k in 1..=k_max {
             r.rounds_run = k as u32;
             // A stop reachable with k-1 trips is reachable with k; carry forward
@@ -257,9 +258,15 @@ impl<'a> Raptor<'a> {
             }
 
             // Relax bounded footpaths from the stops trips improved this round.
-            // Footpaths are transitively reduced offline, so a single hop suffices.
-            for &q in &trip_marked {
-                let base = cur_row[q as usize];
+            // One walk after a ride, never two in a row: each walk starts
+            // from where the RIDE got to, read before any walk is written.
+            // Read live, a stop a walk had just improved passed that walk on,
+            // or not, by the order the stops happened to be scanned in: the
+            // same question could get two answers, one of them a chain of
+            // walks no link allows.
+            ride_arr.clear();
+            ride_arr.extend(trip_marked.iter().map(|&q| cur_row[q as usize]));
+            for (&q, &base) in trip_marked.iter().zip(&ride_arr) {
                 for fp in tt.footpaths_at(q) {
                     let arr = base.saturating_add(fp.secs);
                     if arr < cur_row[fp.to as usize] {
