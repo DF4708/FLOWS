@@ -436,6 +436,22 @@ func testACancelledAlertIsNotALiveWarning() {
         XCTAssertEqual(memory.eventCount, 20)
         XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"),
                        27 * 2.0.squareRoot(), accuracy: 1e-9)
+        // An update of a storm already under way gives its own send time as
+        // the start (the VTEC start reads zeros). It must not shorten a
+        // storm whose start was seen, and a storm first met half way
+        // through teaches nothing: its true start is not known.
+        func underWay(_ n: Int) -> [String: Any] {
+            ["id": "urn:storm:\(n):late", "properties": [
+                "id": "urn:storm:\(n):late", "event": "Winter Storm Warning",
+                "messageType": "Update",
+                "onset": "2026-12-03T00:00:00Z", "ends": "2026-12-03T06:00:00Z",
+                "parameters": ["VTEC": ["/O.CON.KBUF.WS.W.\(String(format: "%04d", n)).000000T0000Z-261203T0600Z/"]],
+            ] as [String: Any]]
+        }
+        memory.record(AlertLengthLearning.samples(from: [underWay(7), underWay(99)], parse: parse))
+        XCTAssertEqual(memory.eventCount, 20)
+        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"),
+                       27 * 2.0.squareRoot(), accuracy: 1e-9)
         // Other kinds are untouched.
         XCTAssertEqual(memory.usualHours(event: "Flood Warning"), 42, accuracy: 1e-9)
 

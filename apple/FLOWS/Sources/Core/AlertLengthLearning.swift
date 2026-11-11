@@ -19,6 +19,10 @@ struct AlertLengthSample: Equatable {
     /// From its start to its stated end.
     let hours: Double
     let ends: Date
+    /// Whether this message knows the true start. An update of an event
+    /// already under way gives its own send time as the start, so it can
+    /// only move the end of an event whose start was seen before.
+    let opens: Bool
 }
 
 /// Learns how long each kind of alert really runs where this device goes
@@ -56,8 +60,20 @@ enum AlertLengthLearning {
             guard flows_alerts_length_usable(hours) else { return nil }
             return AlertLengthSample(eventKey: eventKey(props: props, id: id),
                                      kind: flows_alerts_usual_kind(event).toString(),
-                                     hours: hours, ends: ends)
+                                     hours: hours, ends: ends, opens: opens(props: props))
         }
+    }
+
+    /// Whether a message carries the event's true start: a VTEC line that
+    /// is NEW or still names a start time (it reads 000000T0000Z once the
+    /// event is under way); with no VTEC line, the first message only.
+    static func opens(props: [String: Any]) -> Bool {
+        let vtec = ((props["parameters"] as? [String: Any])?["VTEC"] as? [String])?.first ?? ""
+        let parts = vtec.split(separator: ".")
+        if parts.count >= 7 {
+            return parts[1] == "NEW" || !parts[6].hasPrefix("000000T0000Z")
+        }
+        return (props["messageType"] as? String)?.lowercased() == "alert"
     }
 
     /// Office, kind and event number out of the VTEC line
@@ -145,9 +161,24 @@ final class AlertLengthMemory: @unchecked Sendable {
         lock.lock()
         let before = stored
         for sample in samples where flows_alerts_length_usable(sample.hours) {
-            let ln = log(sample.hours)
-            if let old = stored.seen[sample.eventKey] {
-                guard old.ln != ln || old.kind != sample.kind else { continue }
+            let old = stored.seen[sample.eventKey]
+            // The start comes only from a message that knows it; the end is
+            // the latest any part of the event states (the longer side).
+            let sampleStart = sample.ends.addingTimeInterval(-sample.hours * 3600)
+            let oldStart = old.map { $0.ends.addingTimeInterval(-exp($0.ln) * 3600) }
+            let start: Date
+            switch (oldStart, sample.opens) {
+            case let (was?, true): start = min(was, sampleStart)
+            case let (was?, false): start = was
+            case (nil, true): start = sampleStart
+            case (nil, false): continue
+            }
+            let ends = max(old?.ends ?? sample.ends, sample.ends)
+            let hours = ends.timeIntervalSince(start) / 3600
+            guard flows_alerts_length_usable(hours) else { continue }
+            let ln = log(hours)
+            if let old {
+                guard abs(old.ln - ln) > 1e-9 || old.kind != sample.kind else { continue }
                 stored.stats[old.kind]?.sumLn -= old.ln
                 stored.stats[old.kind]?.count -= 1
             }
@@ -155,7 +186,7 @@ final class AlertLengthMemory: @unchecked Sendable {
             stat.count += 1
             stat.sumLn += ln
             stored.stats[sample.kind] = stat
-            stored.seen[sample.eventKey] = Seen(kind: sample.kind, ln: ln, ends: sample.ends)
+            stored.seen[sample.eventKey] = Seen(kind: sample.kind, ln: ln, ends: ends)
         }
         stored.stats = stored.stats.filter { $0.value.count > 0 }
         // Forget which events were counted once they are well over; their
@@ -177,6 +208,9 @@ final class AlertLengthMemory: @unchecked Sendable {
         lock.lock()
         stored = Stored()
         lock.unlock()
-        SecureBehaviorStore.shred(url)
+        // On the save queue, so a save already waiting cannot put the file
+        // back after the erase.
+        let url = self.url
+        SecureBehaviorStore.persistQueue.sync { SecureBehaviorStore.shred(url) }
     }
 }
