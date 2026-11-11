@@ -40,7 +40,16 @@ mod ffi {
             has_onset: bool,
             onset: f64,
             message: f64,
+            learned_count: i64,
+            learned_mean_ln: f64,
         ) -> f64;
+        fn flows_alerts_usual_kind(event: &str) -> String;
+        fn flows_alerts_learned_usual_hours(
+            event: &str,
+            learned_count: i64,
+            learned_mean_ln: f64,
+        ) -> f64;
+        fn flows_alerts_length_usable(hours: f64) -> bool;
     }
 }
 
@@ -99,8 +108,12 @@ pub fn flows_alerts_threat_rank(event: &str, severity_score: f64) -> i32 {
 }
 
 /// When an alert with no end time is taken to end, on the clock `onset` and
-/// `message` are in (seconds): `flows_core::alerts::unknown_end`. On
-/// containment, the flat 12 hours past the message this replaced.
+/// `message` are in (seconds): `flows_core::alerts::unknown_end_learned`,
+/// with the `learned_count` events of this kind the device has seen and the
+/// mean natural logarithm of their lengths in hours (a count of 0 is the
+/// measured table alone). On containment, the flat 12 hours past the
+/// message this replaced.
+#[allow(clippy::too_many_arguments)]
 pub fn flows_alerts_unknown_end(
     event: &str,
     severity_score: f64,
@@ -109,15 +122,54 @@ pub fn flows_alerts_unknown_end(
     has_onset: bool,
     onset: f64,
     message: f64,
+    learned_count: i64,
+    learned_mean_ln: f64,
 ) -> f64 {
     contain(message + alerts::UNKNOWN_END_DEFAULT_HOURS * 3600.0, || {
-        alerts::unknown_end(
+        alerts::unknown_end_learned(
             event,
             severity_score,
             u32::try_from(zones.clamp(1, 1 << 20)).unwrap_or(1),
             certainty,
             has_onset.then_some(onset),
             message,
+            seen_count(learned_count),
+            learned_mean_ln,
         )
     })
+}
+
+fn seen_count(count: i64) -> u32 {
+    u32::try_from(count.clamp(0, i64::from(alerts::LEARN_MAX_EVENTS))).unwrap_or(0)
+}
+
+/// The name a kind of event is learned under
+/// (`flows_core::alerts::usual_event_kind`); "other" on containment.
+pub fn flows_alerts_usual_kind(event: &str) -> String {
+    contain("other".to_string(), || {
+        alerts::usual_event_kind(event).to_string()
+    })
+}
+
+/// The usual length in hours of this kind of event, the measured table
+/// moved by what the device has seen
+/// (`flows_core::alerts::learned_usual_hours`); 12 on containment.
+pub fn flows_alerts_learned_usual_hours(
+    event: &str,
+    learned_count: i64,
+    learned_mean_ln: f64,
+) -> f64 {
+    contain(alerts::UNKNOWN_END_DEFAULT_HOURS, || {
+        alerts::learned_usual_hours(
+            alerts::usual_event_hours(event),
+            seen_count(learned_count),
+            learned_mean_ln,
+        )
+    })
+}
+
+/// Whether a seen event's length may be learned from
+/// (`flows_core::alerts::length_sample_usable`); no on containment.
+pub fn flows_alerts_length_usable(hours: f64) -> bool {
+    contain(false, || alerts::length_sample_usable(hours))
 }

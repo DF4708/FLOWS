@@ -253,12 +253,25 @@ public func flows_alerts_threat_rank<GenericToRustStr: ToRustStr>(_ event: Gener
         __swift_bridge__$flows_alerts_threat_rank(eventAsRustStr, severity_score)
     })
 }
-public func flows_alerts_unknown_end<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ severity_score: Double, _ zones: Int64, _ certainty: GenericToRustStr, _ has_onset: Bool, _ onset: Double, _ message: Double) -> Double {
+public func flows_alerts_unknown_end<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ severity_score: Double, _ zones: Int64, _ certainty: GenericToRustStr, _ has_onset: Bool, _ onset: Double, _ message: Double, _ learned_count: Int64, _ learned_mean_ln: Double) -> Double {
     return certainty.toRustStr({ certaintyAsRustStr in
         return event.toRustStr({ eventAsRustStr in
-        __swift_bridge__$flows_alerts_unknown_end(eventAsRustStr, severity_score, zones, certaintyAsRustStr, has_onset, onset, message)
+        __swift_bridge__$flows_alerts_unknown_end(eventAsRustStr, severity_score, zones, certaintyAsRustStr, has_onset, onset, message, learned_count, learned_mean_ln)
     })
     })
+}
+public func flows_alerts_usual_kind<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr) -> RustString {
+    return event.toRustStr({ eventAsRustStr in
+        RustString(ptr: __swift_bridge__$flows_alerts_usual_kind(eventAsRustStr))
+    })
+}
+public func flows_alerts_learned_usual_hours<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ learned_count: Int64, _ learned_mean_ln: Double) -> Double {
+    return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_learned_usual_hours(eventAsRustStr, learned_count, learned_mean_ln)
+    })
+}
+public func flows_alerts_length_usable(_ hours: Double) -> Bool {
+    __swift_bridge__$flows_alerts_length_usable(hours)
 }
 
 

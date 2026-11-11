@@ -1150,12 +1150,26 @@ final class WeatherAlertService: ObservableObject {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let features = json["features"] as? [[String: Any]]
         else { return .failed }
+        Self.learnLengths(from: features)
         return .alerts(Self.parseAlertFeatures(features))
+    }
+
+    /// Every alert that states its own end teaches how long its kind runs
+    /// here (AlertLengthMemory); called on each fresh list, before parsing.
+    nonisolated static func learnLengths(from features: [[String: Any]],
+                                         into memory: AlertLengthMemory = .shared) {
+        memory.record(AlertLengthLearning.samples(from: features) {
+            Self.alertDateParser.date(from: $0)
+        })
     }
 
     /// One parser for every api.weather.gov alert list — the per-point
     /// query and the per-state query return the same feature shape.
-    nonisolated static func parseAlertFeatures(_ features: [[String: Any]]) -> [NWSAlert] {
+    /// `lengths` is what the device has learned about how long each kind of
+    /// alert runs, used only for an alert that gives no end.
+    nonisolated static func parseAlertFeatures(
+        _ features: [[String: Any]], lengths: AlertLengthMemory? = .shared
+    ) -> [NWSAlert] {
         features.compactMap { feature in
             guard let props = feature["properties"] as? [String: Any],
                   let id = props["id"] as? String ?? feature["id"] as? String,
@@ -1188,12 +1202,14 @@ final class WeatherAlertService: ObservableObject {
                 .compactMap { props[$0] as? String }
                 .compactMap { Self.alertDateParser.date(from: $0) }
                 .first
+            let event = (props["event"] as? String) ?? headline
             let expires = ends.map { max($0, message ?? $0) }
                 ?? message.map {
                     RiskTiming.unknownEnd(
-                        event: (props["event"] as? String) ?? headline, severityScore: score,
+                        event: event, severityScore: score,
                         zones: (props["affectedZones"] as? [Any])?.count ?? 1,
-                        certainty: props["certainty"] as? String, onset: onset, message: $0)
+                        certainty: props["certainty"] as? String, onset: onset, message: $0,
+                        learned: lengths?.learned(event: event) ?? (0, 0))
                 }
             // The api.weather.gov alert record IS the NWS's canonical source
             // for this alert (feature id is its URL).
@@ -1413,6 +1429,7 @@ actor StateAlertCache {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let features = json["features"] as? [[String: Any]]
         else { return nil }
+        WeatherAlertService.learnLengths(from: features)
         return WeatherAlertService.parseAlertFeatures(features)
     }
 }

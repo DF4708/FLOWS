@@ -29,15 +29,20 @@ enum RiskTiming {
     /// seen rather than expected (`certainty`, the CAP word), counted from
     /// its `onset`, and never less than a quarter of that past `message`,
     /// when the message itself lapses. The equation and its table are
-    /// `unknown_end_hours` in rust/flows-core (alerts.rs).
+    /// `unknown_end_hours` in rust/flows-core (alerts.rs). `learned` is what
+    /// this device has seen of the kind (AlertLengthMemory): how many
+    /// events, and the mean logarithm of their lengths; a count of 0 is the
+    /// measured table alone.
     static func unknownEnd(event: String, severityScore: Double, zones: Int,
-                           certainty: String?, onset: Date?, message: Date) -> Date {
+                           certainty: String?, onset: Date?, message: Date,
+                           learned: (count: Int, meanLn: Double) = (0, 0)) -> Date {
         let word = certainty ?? ""
         let end = flows_alerts_unknown_end(
             event.isEmpty ? "Alert" : event, severityScore, Int64(max(zones, 1)),
             word.isEmpty ? "Unknown" : word, onset != nil,
             onset?.timeIntervalSinceReferenceDate ?? 0,
-            message.timeIntervalSinceReferenceDate)
+            message.timeIntervalSinceReferenceDate,
+            Int64(max(learned.count, 0)), learned.meanLn.isFinite ? learned.meanLn : 0)
         // Never before the message lapses, whatever came back.
         guard end.isFinite else { return message.addingTimeInterval(12 * 3600) }
         return max(Date(timeIntervalSinceReferenceDate: end), message)

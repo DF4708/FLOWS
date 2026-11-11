@@ -552,8 +552,11 @@ pub fn threat_rank(event: &str, severity_score: f64) -> u8 {
 /// warnings and advisories (public domain; read 2026-11-11). Years 2022 to
 /// 2024, and 2020 to 2024 for the rare kinds (hurricane, tropical storm,
 /// storm surge, snow squall, dust storm, extreme wind, red flag). The count
-/// of events behind each figure is beside it. The archive is US only, and
-/// rows marked "set by hand" name kinds it does not hold.
+/// of events behind each figure is beside it. Wildfires are from the
+/// national incident records instead (National Interagency Fire Center,
+/// 2014 to 2026: from discovery to containment). Both are US only. A kind
+/// with under twenty events on record is not measured from them: rows
+/// marked "set by hand" say what there was.
 pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
     // Watches run shorter than the warnings that follow them.
     (&["hurricane watch", "typhoon watch"], 30.0), // 30.1 h, 65 events
@@ -562,12 +565,14 @@ pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
     (&["storm surge"], 48.0),                      // 48.0 h, 70
     // Hurricane warnings 42.1 h (57), tropical storm warnings 42.6 h (234).
     (&["hurricane", "typhoon", "tropical", "cyclone"], 42.0),
-    (&["volcan", "ashfall"], 48.0), // set by hand: none in the archive
+    (&["volcan", "ashfall"], 15.0), // ashfall advisories 2008-2024: 14.6 h, 23
     (&["flash flood watch"], 9.0),  // 9.0 h, 147
     (&["flash flood"], 3.0),        // 3.1 h, 12,457
     // Coastal 12.8 h (268), lakeshore 12.0 h (21).
     (&["coastal flood", "lakeshore flood"], 13.0),
-    (&["tsunami"], 12.0),       // set by hand: 7 events, from 1 h to 21 days
+    // Set by hand, on the long side: only 14 warnings since 2008, half
+    // under 2.2 h and three of weeks.
+    (&["tsunami"], 12.0),
     (&["flood advisory"], 3.0), // 2.9 h, 27,311
     (&["flood watch"], 17.0),   // 16.6 h, 2,288
     // River flood warnings: 41.8 h, 8,805 (a tenth ran past 19 days). A
@@ -578,17 +583,24 @@ pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
     // Red flag warnings 8.0 h (5,474), fire weather watches 8.0 h (119):
     // the chance of fire is one burning day; a fire is days.
     (&["red flag", "fire weather"], 8.0),
-    (&["fire", "evacuation"], 48.0), // set by hand: not in the archive
-    (&["tornado watch"], 6.0),       // 6.0 h, 1,789
-    (&["thunderstorm watch"], 5.6),  // 5.6 h, 4,120
-    (&["tornado"], 0.5),             // 0.5 h, 8,487
+    // Wildfires of 100 acres or more, discovery to containment: 71.5 h,
+    // 14,146 fires. Size decides far more than anything else here: 36 h
+    // under 1,000 acres, 170 h to 10,000, 740 h to 100,000. An evacuation
+    // has no record of its own and is kept as long as the fire.
+    (&["fire", "evacuation"], 72.0),
+    (&["tornado watch"], 6.0),      // 6.0 h, 1,789
+    (&["thunderstorm watch"], 5.6), // 5.6 h, 4,120
+    (&["tornado"], 0.5),            // 0.5 h, 8,487
     // Severe thunderstorm warnings 0.7 h (63,498), snow squalls 0.7 h (1,145).
     (&["thunderstorm", "snow squall"], 0.7),
     // Special marine warnings 0.9 h (17,248), dust storms 1.1 h (510).
     (&["special marine", "dust storm"], 1.0),
     (&["extreme wind"], 2.0), // 2.0 h, 27
-    // Set by hand: statements are not in the archive.
-    (&["special weather statement", "short term"], 2.0),
+    // Statements drawn as an area on the map, eight weeks of 2024: 0.6 h in
+    // the middle and nine in ten under 0.9 h (5,482). The longer figure is
+    // used: a statement with no area drawn is the longer kind, and those
+    // are not on record.
+    (&["special weather statement", "short term"], 1.0),
     (&["blizzard"], 22.0),       // 21.8 h, 358
     (&["ice storm"], 20.0),      // 20.2 h, 83
     (&["lake effect"], 27.0),    // 27.0 h, 60
@@ -606,7 +618,7 @@ pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
     (&["fog"], 7.0),             // 6.9 h, 5,096
     (&["high surf"], 30.0),      // 30.1 h, 977
     (&["air stagnation"], 96.0), // 96.5 h, 55
-    (&["air quality"], 24.0),    // set by hand: not in the archive
+    (&["air quality"], 24.0),    // set by hand: one event on record
     // High wind warnings 14.0 h (1,859), wind advisories 12.0 h (5,778).
     (&["wind"], 13.0),
 ];
@@ -655,11 +667,91 @@ pub const UNKNOWN_END_TAIL: f64 = 0.25;
 ///   "possible", and has its own measured row besides.
 #[must_use]
 pub fn unknown_end_hours(event: &str, severity_score: f64, zones: u32, certainty: &str) -> f64 {
+    unknown_end_hours_learned(event, severity_score, zones, certainty, 0, 0.0)
+}
+
+/// The name a kind of event is learned under: the first word of its row in
+/// [`USUAL_EVENT_HOURS`], or "other" for an event no row names.
+#[must_use]
+pub fn usual_event_kind(event: &str) -> &'static str {
     let e = lower(event);
-    let usual = USUAL_EVENT_HOURS
+    USUAL_EVENT_HOURS
         .iter()
         .find(|(words, _)| any(&e, words))
-        .map_or(UNKNOWN_END_DEFAULT_HOURS, |&(_, hours)| hours);
+        .and_then(|(words, _)| words.first().copied())
+        .unwrap_or("other")
+}
+
+/// The measured usual length of this kind of event, before any learning.
+#[must_use]
+pub fn usual_event_hours(event: &str) -> f64 {
+    let e = lower(event);
+    USUAL_EVENT_HOURS
+        .iter()
+        .find(|(words, _)| any(&e, words))
+        .map_or(UNKNOWN_END_DEFAULT_HOURS, |&(_, hours)| hours)
+}
+
+/// How many seen events the measured table counts as. With twenty events of
+/// a kind seen on this device, the answer sits halfway (in ratio) between
+/// the table and what the device saw; with sixty, three quarters of the way.
+pub const LEARN_PRIOR_EVENTS: f64 = 20.0;
+/// The most events of one kind that count: past this the table's share
+/// stops shrinking, so the national record always keeps a say (a tenth).
+pub const LEARN_MAX_EVENTS: u32 = 180;
+/// Learning never takes a kind below half its measured length (an alert
+/// dropped early is the unsafe side) or above three times it.
+pub const LEARN_MIN_FACTOR: f64 = 0.5;
+pub const LEARN_MAX_FACTOR: f64 = 3.0;
+/// A seen length outside this, in hours, is a bad record, not an event.
+pub const LEARN_SAMPLE_MIN_HOURS: f64 = 0.1;
+pub const LEARN_SAMPLE_MAX_HOURS: f64 = 720.0;
+
+/// Whether one seen event's length, in hours, may be learned from.
+#[must_use]
+pub fn length_sample_usable(hours: f64) -> bool {
+    hours.is_finite() && (LEARN_SAMPLE_MIN_HOURS..=LEARN_SAMPLE_MAX_HOURS).contains(&hours)
+}
+
+/// The usual length of a kind once this device has seen `count` events of
+/// it, whose lengths have the mean natural logarithm `mean_ln` (lengths of
+/// weather events spread by ratio, so they are averaged as logarithms: the
+/// geometric mean, which for such data sits at the median the table holds).
+///
+/// `ln(usual) = (K × ln(measured) + n × mean_ln) / (K + n)`, with
+/// `K` = [`LEARN_PRIOR_EVENTS`] and `n` = `count` (at most
+/// [`LEARN_MAX_EVENTS`]): the table is treated as `K` events already seen,
+/// so each event the device adds moves the answer in proportion, a lot at
+/// first and less as the count grows. Kept within [`LEARN_MIN_FACTOR`] and
+/// [`LEARN_MAX_FACTOR`] of the measured length. Nothing seen, or a count or
+/// mean that is not a number, is the measured length.
+#[must_use]
+pub fn learned_usual_hours(measured: f64, count: u32, mean_ln: f64) -> f64 {
+    if count == 0 || !mean_ln.is_finite() || !measured.is_finite() || measured <= 0.0 {
+        return measured;
+    }
+    let n = f64::from(count.min(LEARN_MAX_EVENTS));
+    let ln = (LEARN_PRIOR_EVENTS * measured.ln() + n * mean_ln) / (LEARN_PRIOR_EVENTS + n);
+    let learned = ln.exp();
+    if !learned.is_finite() {
+        return measured;
+    }
+    learned.clamp(measured * LEARN_MIN_FACTOR, measured * LEARN_MAX_FACTOR)
+}
+
+/// [`unknown_end_hours`] with what this device has learned about the kind:
+/// `count` events seen, of mean log length `mean_ln`
+/// ([`learned_usual_hours`]).
+#[must_use]
+pub fn unknown_end_hours_learned(
+    event: &str,
+    severity_score: f64,
+    zones: u32,
+    certainty: &str,
+    count: u32,
+    mean_ln: f64,
+) -> f64 {
+    let usual = learned_usual_hours(usual_event_hours(event), count, mean_ln);
     let severity = if severity_score.is_finite() {
         0.5 + severity_score.clamp(0.0, 1.0)
     } else {
@@ -692,7 +784,34 @@ pub fn unknown_end(
     onset: Option<f64>,
     message: f64,
 ) -> f64 {
-    let life = unknown_end_hours(event, severity_score, zones, certainty) * 3600.0;
+    unknown_end_learned(
+        event,
+        severity_score,
+        zones,
+        certainty,
+        onset,
+        message,
+        0,
+        0.0,
+    )
+}
+
+/// [`unknown_end`] with what this device has learned about the kind
+/// ([`unknown_end_hours_learned`]).
+#[must_use]
+#[allow(clippy::too_many_arguments)]
+pub fn unknown_end_learned(
+    event: &str,
+    severity_score: f64,
+    zones: u32,
+    certainty: &str,
+    onset: Option<f64>,
+    message: f64,
+    count: u32,
+    mean_ln: f64,
+) -> f64 {
+    let life =
+        unknown_end_hours_learned(event, severity_score, zones, certainty, count, mean_ln) * 3600.0;
     let tail = message + life * UNKNOWN_END_TAIL;
     match onset {
         Some(began) if began.is_finite() => tail.max(began + life),
@@ -768,20 +887,20 @@ mod tests {
         // A fire outlasts the chance of one; "red flag" is not read as "fire".
         assert_eq!(by_kind("Red Flag Warning"), 8.0 * (0.5 + 0.72));
         assert_eq!(by_kind("Fire Weather Watch"), 8.0 * (0.5 + 0.72));
-        assert_eq!(by_kind("Fire Warning"), 48.0 * (0.5 + 0.72));
+        assert_eq!(by_kind("Fire Warning"), 72.0 * (0.5 + 0.72));
         // An event nothing names keeps the old 12 hours as its usual length.
         assert_eq!(h("Civil Emergency Message", 0.5, 1, "Likely"), 12.0);
         // More severe runs longer.
         assert!(h("Flood Warning", 0.95, 1, "Likely") > h("Flood Warning", 0.45, 1, "Likely"));
         // Wider runs longer, 0.15 per doubling, up to 1.6 times.
-        assert_eq!(h("Fire Warning", 0.5, 4, "Likely"), 48.0 * 1.3);
-        assert_eq!(h("Fire Warning", 0.5, 16, "Likely"), 48.0 * 1.6);
-        assert_eq!(h("Fire Warning", 0.5, 400, "Likely"), 48.0 * 1.6);
-        assert_eq!(h("Fire Warning", 0.5, 0, "Likely"), 48.0);
+        assert_eq!(h("Fire Warning", 0.5, 4, "Likely"), 72.0 * 1.3);
+        assert_eq!(h("Fire Warning", 0.5, 16, "Likely"), 72.0 * 1.6);
+        assert_eq!(h("Fire Warning", 0.5, 400, "Likely"), 72.0 * 1.6);
+        assert_eq!(h("Fire Warning", 0.5, 0, "Likely"), 72.0);
         // Seen is longer than may be.
-        assert_eq!(h("Fire Warning", 0.5, 1, "Observed"), 60.0);
-        assert_eq!(h("Fire Warning", 0.5, 1, "Possible"), 36.0);
-        assert_eq!(h("Fire Warning", 0.5, 1, "Unlikely"), 24.0);
+        assert_eq!(h("Fire Warning", 0.5, 1, "Observed"), 90.0);
+        assert_eq!(h("Fire Warning", 0.5, 1, "Possible"), 54.0);
+        assert_eq!(h("Fire Warning", 0.5, 1, "Unlikely"), 36.0);
         // A watch has its own measured length, shorter than its warning.
         assert_eq!(h("Hurricane Watch", 0.5, 1, "Possible"), 30.0 * 0.75);
         // Within half an hour and a week, whatever comes in.
@@ -791,17 +910,73 @@ mod tests {
     }
 
     #[test]
+    fn the_usual_length_moves_in_proportion_to_what_the_device_has_seen() {
+        let near = |a: f64, b: f64| (a - b).abs() < 1e-9 * b.max(1.0);
+        // Nothing seen, or nothing usable: the measured table.
+        assert_eq!(learned_usual_hours(27.0, 0, 3.0), 27.0);
+        assert_eq!(learned_usual_hours(27.0, 5, f64::NAN), 27.0);
+        assert_eq!(learned_usual_hours(27.0, 5, f64::INFINITY), 27.0);
+        // Seeing what the table says changes nothing.
+        assert!(near(learned_usual_hours(27.0, 40, 27.0_f64.ln()), 27.0));
+        // Events of 54 hours against a table of 27: one event moves it a
+        // twenty-first of the way (in ratio), twenty half way, sixty three
+        // quarters.
+        let seen = 54.0_f64.ln();
+        let part = |n: f64| 27.0 * 2.0_f64.powf(n / (20.0 + n));
+        assert!(near(learned_usual_hours(27.0, 1, seen), part(1.0)));
+        assert!(near(learned_usual_hours(27.0, 20, seen), part(20.0)));
+        assert!(near(learned_usual_hours(27.0, 60, seen), part(60.0)));
+        assert!(learned_usual_hours(27.0, 1, seen) < learned_usual_hours(27.0, 2, seen));
+        // The table always keeps a tenth of the say.
+        assert_eq!(
+            learned_usual_hours(27.0, 180, seen),
+            learned_usual_hours(27.0, 1_000_000, seen)
+        );
+        assert!(learned_usual_hours(27.0, 1_000_000, seen) < 54.0);
+        // Never under half the measured length, never over three times it.
+        assert_eq!(learned_usual_hours(27.0, 180, 0.2_f64.ln()), 13.5);
+        assert_eq!(learned_usual_hours(27.0, 180, 700.0_f64.ln()), 81.0);
+        // A length is learned from only when it is a believable event.
+        assert!(length_sample_usable(0.5) && length_sample_usable(720.0));
+        assert!(!length_sample_usable(0.05) && !length_sample_usable(721.0));
+        assert!(!length_sample_usable(f64::NAN) && !length_sample_usable(-3.0));
+        // Each kind is learned under its own name, and the answer follows.
+        assert_eq!(usual_event_kind("Winter Storm Warning"), "winter storm");
+        assert_eq!(usual_event_kind("Hurricane Watch"), "hurricane watch");
+        assert_eq!(usual_event_kind("Flood Warning"), "flood");
+        assert_eq!(usual_event_kind("Civil Emergency Message"), "other");
+        assert_eq!(usual_event_hours("Winter Storm Warning"), 27.0);
+        assert_eq!(usual_event_hours("Civil Emergency Message"), 12.0);
+        let plain = unknown_end_hours("Winter Storm Warning", 0.5, 1, "Likely");
+        let taught = unknown_end_hours_learned("Winter Storm Warning", 0.5, 1, "Likely", 20, seen);
+        assert_eq!(plain, 27.0);
+        assert!(near(taught, part(20.0)));
+        let hour = 3600.0;
+        let end = unknown_end_learned(
+            "Winter Storm Warning",
+            0.5,
+            1,
+            "Likely",
+            Some(0.0),
+            hour,
+            20,
+            seen,
+        );
+        assert!(near(end, part(20.0) * hour));
+    }
+
+    #[test]
     fn an_unknown_end_is_never_before_the_message_lapses() {
         let hour = 3600.0;
         // Just begun: the whole life from the start.
         let end = unknown_end("Fire Warning", 0.5, 1, "Likely", Some(0.0), hour);
-        assert_eq!(end, 48.0 * hour);
+        assert_eq!(end, 72.0 * hour);
         // Begun a week ago and still told about: a quarter of its life more.
         let end = unknown_end("Fire Warning", 0.5, 1, "Likely", Some(0.0), 200.0 * hour);
-        assert_eq!(end, 212.0 * hour);
+        assert_eq!(end, 218.0 * hour);
         // No start on record: the life runs from the message.
         let end = unknown_end("Fire Warning", 0.5, 1, "Likely", None, 10.0 * hour);
-        assert_eq!(end, 58.0 * hour);
+        assert_eq!(end, 82.0 * hour);
         let end = unknown_end(
             "Fire Warning",
             0.5,
@@ -810,7 +985,7 @@ mod tests {
             Some(f64::NAN),
             10.0 * hour,
         );
-        assert_eq!(end, 58.0 * hour);
+        assert_eq!(end, 82.0 * hour);
         // A short statement no longer lingers half a day.
         let end = unknown_end(
             "Special Weather Statement",

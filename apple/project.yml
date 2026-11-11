@@ -313,6 +313,7 @@ targets:
       - path: FLOWS/Sources/Core/Favorites.swift
       - path: FLOWS/Sources/Core/FilterLimits.swift
       - path: FLOWS/Sources/Core/RiskTiming.swift
+      - path: FLOWS/Sources/Core/AlertLengthLearning.swift
       - path: FLOWS/Sources/Core/VehicleProfile.swift
       - path: FLOWS/Sources/Core/VehicleSpecs.swift
       - path: FLOWS/Sources/Core/FuelPrices.swift

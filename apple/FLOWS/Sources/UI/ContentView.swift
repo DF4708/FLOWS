@@ -4679,6 +4679,7 @@ struct SettingsSheet: View {
                         learnedRow("Places remembered", "\(EverydayPlaces.shared.allPlaces.count)")
                         learnedRow("Destinations kept", "\(model.recents.entries.count)")
                         learnedRow("Choices recorded", "\(ChoiceLogStore.shared.eventCount)")
+                        learnedRow("Alerts learned from", "\(AlertLengthMemory.shared.eventCount)")
                         learnedRow("Your pace", DrivingProfileStore.shared.profile.etaDescription)
                         // Where the driver has actually been. The erase button
                         // reached these four, but this list — "exactly what is

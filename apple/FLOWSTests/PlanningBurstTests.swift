@@ -397,6 +397,87 @@ func testACancelledAlertIsNotALiveWarning() {
         XCTAssertEqual(early, message, "never before the message itself lapses")
     }
 
+    /// The device learns how long each kind of alert runs from the alerts
+    /// that state their end, in proportion to how many it has seen (owner,
+    /// 2026-11-11), and forgets it all on erase.
+    func testAlertLengthsAreLearnedInProportionToWhatWasSeen() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("flows-alert-lengths-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let memory = AlertLengthMemory(directory: dir)
+        let iso = ISO8601DateFormatter()
+        let parse: (String) -> Date? = { iso.date(from: $0) }
+        func storm(_ n: Int, hours: Int, action: String = "NEW",
+                   extra: [String: Any] = [:]) -> [String: Any] {
+            let ends = iso.string(from: try! XCTUnwrap(parse("2026-12-01T00:00:00Z"))
+                .addingTimeInterval(Double(hours) * 3600))
+            let props: [String: Any] = [
+                "id": "urn:storm:\(n):\(action)", "event": "Winter Storm Warning",
+                "onset": "2026-12-01T00:00:00Z", "ends": ends,
+                "parameters": ["VTEC": ["/O.\(action).KBUF.WS.W.\(String(format: "%04d", n)).261201T0000Z-261203T0000Z/"]],
+            ]
+            return ["id": "urn:storm:\(n):\(action)", "properties": props.merging(extra) { $1 }]
+        }
+        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"), 27, accuracy: 1e-9)
+        XCTAssertEqual(memory.eventCount, 0)
+
+        // Twenty storms of 54 hours: half way, in ratio, from 27 to 54.
+        let twenty = (1...20).map { storm($0, hours: 54) }
+        memory.record(AlertLengthLearning.samples(from: twenty, parse: parse))
+        XCTAssertEqual(memory.eventCount, 20)
+        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"),
+                       27 * 2.0.squareRoot(), accuracy: 1e-9)
+        // The same list again, and an update of one storm under a new
+        // message id, count nothing twice.
+        memory.record(AlertLengthLearning.samples(from: twenty, parse: parse))
+        memory.record(AlertLengthLearning.samples(
+            from: [storm(7, hours: 54, action: "CON")], parse: parse))
+        XCTAssertEqual(memory.eventCount, 20)
+        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"),
+                       27 * 2.0.squareRoot(), accuracy: 1e-9)
+        // Other kinds are untouched.
+        XCTAssertEqual(memory.usualHours(event: "Flood Warning"), 42, accuracy: 1e-9)
+
+        // An alert with no end now runs the learned length.
+        let noEnd: [String: Any] = [
+            "id": "urn:x",
+            "properties": ["id": "urn:x", "event": "Winter Storm Warning",
+                           "headline": "Winter Storm Warning", "severity": "Severe",
+                           "expires": "2026-12-01T10:00:00Z"],
+            "geometry": NSNull()]
+        let message = try XCTUnwrap(parse("2026-12-01T10:00:00Z"))
+        let taught = try XCTUnwrap(
+            WeatherAlertService.parseAlertFeatures([noEnd], lengths: memory).first?.expires)
+        XCTAssertEqual(taught.timeIntervalSince(message) / 3600,
+                       27 * 2.0.squareRoot() * 1.38, accuracy: 1e-6)
+        let plain = try XCTUnwrap(
+            WeatherAlertService.parseAlertFeatures([noEnd], lengths: nil).first?.expires)
+        XCTAssertEqual(plain.timeIntervalSince(message) / 3600, 27 * 1.38, accuracy: 1e-6)
+
+        // What teaches nothing: a cancel, no end, no start, a length that is
+        // not a believable event.
+        let nothing = AlertLengthLearning.samples(from: [
+            storm(30, hours: 54, extra: ["messageType": "Cancel"]),
+            noEnd,
+            storm(31, hours: 0),
+            storm(32, hours: 5_000),
+        ], parse: parse)
+        XCTAssertEqual(nothing, [])
+
+        // Kept across launches, sealed; gone on erase.
+        let saved = expectation(description: "saved")
+        SecureBehaviorStore.persistQueue.async { saved.fulfill() }
+        wait(for: [saved], timeout: 5)
+        XCTAssertEqual(AlertLengthMemory(directory: dir).eventCount, 20)
+        let raw = try Data(contentsOf: dir.appendingPathComponent("flows_alert_lengths.json"))
+        XCTAssertNil(String(data: raw, encoding: .utf8).flatMap { $0.range(of: "KBUF") })
+        memory.erase()
+        XCTAssertEqual(memory.eventCount, 0)
+        XCTAssertEqual(memory.usualHours(event: "Winter Storm Warning"), 27, accuracy: 1e-9)
+        XCTAssertEqual(AlertLengthMemory(directory: dir).eventCount, 0)
+    }
+
     /// With no end given, an alert runs as long as its kind usually does,
     /// by how severe, how wide and how sure it is (owner, 2026-11-11), from
     /// when it began.
@@ -427,18 +508,24 @@ func testACancelledAlertIsNotALiveWarning() {
         // The kind decides: a hurricane far outlasts a short statement, and
         // a fire the chance of one.
         let statement = try hoursPastMessage("Special Weather Statement")
-        XCTAssertEqual(statement, 2 * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(statement, 1 * 1.38, accuracy: 1e-6)
         XCTAssertEqual(try hoursPastMessage("Hurricane Warning"), 42 * 1.38, accuracy: 1e-6)
         XCTAssertEqual(try hoursPastMessage("Red Flag Warning"), 8 * 1.38, accuracy: 1e-6)
-        XCTAssertEqual(try hoursPastMessage("Fire Warning"), 48 * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(try hoursPastMessage("Fire Warning"), 72 * 1.38, accuracy: 1e-6)
         // Wider and seen run longer: four zones is 1.3 times, seen a quarter more.
         XCTAssertEqual(
             try hoursPastMessage("Fire Warning", ["affectedZones": ["a", "b", "c", "d"],
                                                   "certainty": "Observed"]),
-            48 * 1.38 * 1.3 * 1.25, accuracy: 1e-6)
+            72 * 1.38 * 1.3 * 1.25, accuracy: 1e-6)
         // Less severe runs shorter.
         XCTAssertEqual(try hoursPastMessage("Fire Warning", ["severity": "Minor"]),
-                       48 * 0.95, accuracy: 1e-6)
+                       72 * 0.95, accuracy: 1e-6)
+        // Nothing learned yet in a test run: the measured table alone, the
+        // same as with no memory at all.
+        XCTAssertEqual(
+            WeatherAlertService.parseAlertFeatures([alert("Hurricane Warning")], lengths: nil)
+                .first?.expires,
+            WeatherAlertService.parseAlertFeatures([alert("Hurricane Warning")]).first?.expires)
         // The facade never answers before the message lapses.
         let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
         let end = RiskTiming.unknownEnd(event: "", severityScore: .nan, zones: 0,

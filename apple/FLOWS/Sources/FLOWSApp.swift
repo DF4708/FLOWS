@@ -3395,6 +3395,7 @@ final class AppModel: ObservableObject {
         // and the elevation service were asked about, a plain-text trail.
         vehicle.eraseRefuelLearning()
         BufferMemory.shared.erase()
+        AlertLengthMemory.shared.erase()   // which alerts were seen, and how long they ran
         drivingInWindowSeconds = 0
         drivingSeconds = 0
         UserDefaults.standard.removeObject(forKey: "flows.hos.window")
