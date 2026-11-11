@@ -45,6 +45,22 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      # The Swift twin of the rustfmt step. The formatter's output changes
+      # between versions, so the check only means something under the pinned
+      # one: use whichever installed Xcode carries it. A runner with none
+      # says so in a warning and leaves the check to the land gate, which
+      # always runs it.
+      - name: formatting (swift-format, no drift)
+        run: |
+          want="$(sed -n 's/^PINNED="\(.*\)"$/\1/p' scripts/check_swift_format.sh)"
+          for xcode in /Applications/Xcode*.app; do
+            have="$(DEVELOPER_DIR="$xcode/Contents/Developer" xcrun swift-format --version 2>/dev/null || true)"
+            if [ "$have" = "$want" ]; then
+              DEVELOPER_DIR="$xcode/Contents/Developer" sh scripts/check_swift_format.sh
+              exit 0
+            fi
+          done
+          echo "::warning::no installed Xcode carries swift-format $want; format check not run here"
       # The test target depends on the RustBridge aggregate target, which runs
       # scripts/build_rust_bridge.sh: a universal macOS library, so both darwin
       # targets are needed on the same pinned toolchain as the rust job.

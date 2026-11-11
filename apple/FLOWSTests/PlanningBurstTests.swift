@@ -120,23 +120,38 @@ final class PlanningBurstTests: XCTestCase {
     func testLowPriorityWaitsBehindNormalRequests() async {
         actor Order {
             var seen: [String] = []
+            var holding = false
+            func hold() { holding = true }
             func add(_ s: String) { seen.append(s) }
             func all() -> [String] { seen }
         }
         let gate = RequestGate(baseCeiling: { 1 }, burstCeiling: { 1 })
         let order = Order()
+        // Each step waits for the line to show the one before it, not for a
+        // fixed time: on a busy machine a fixed wait let the holder finish
+        // before the normal request had queued. The wait is bounded so a
+        // broken gate fails the test instead of hanging it.
+        @Sendable func until(_ ready: @Sendable ((normal: Int, low: Int)) -> Bool) async {
+            for _ in 0..<2_000 {
+                if ready(await gate.parked) { return }
+                try? await Task.sleep(for: .milliseconds(5))
+            }
+        }
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 try? await gate.withPermit {
-                    try? await Task.sleep(for: .milliseconds(300))
+                    await order.hold()
+                    await until { $0.normal == 1 && $0.low == 1 }
                     await order.add("holder")
                 }
             }
-            try? await Task.sleep(for: .milliseconds(60))
+            for _ in 0..<2_000 where !(await order.holding) {
+                try? await Task.sleep(for: .milliseconds(5))
+            }
             group.addTask {
                 try? await gate.withPermit(low: true) { await order.add("low") }
             }
-            try? await Task.sleep(for: .milliseconds(60))
+            await until { $0.low == 1 }
             group.addTask {
                 try? await gate.withPermit { await order.add("normal") }
             }

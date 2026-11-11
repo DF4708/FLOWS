@@ -471,6 +471,10 @@ actor RequestGate {
     /// leaked burst makes no such request, so it still runs out.
     @TaskLocal static var insidePlanningBurst = false
 
+    /// How many callers are parked in each line right now. Tests wait on
+    /// this instead of on the clock.
+    var parked: (normal: Int, low: Int) { (waiters.count, lowWaiters.count) }
+
     private func acquire(low: Bool) async {
         if Self.insidePlanningBurst, burstDepth > 0 {
             burstExpiry = max(burstExpiry, Date().addingTimeInterval(burstSafetyWindow))
