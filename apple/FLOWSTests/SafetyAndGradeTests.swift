@@ -863,6 +863,13 @@ final class WMOAlertTests: XCTestCase {
         XCTAssertEqual(rain("Vientos muy fuertes, lluvias aisladas."), "Rain Advisory")
         XCTAssertEqual(rain("Lluvias de fuertes a muy fuertes en Tabasco."), "Flood Advisory")
         XCTAssertEqual(rain("Se esperan torrenciales lluvias en Guerrero."), "Flood Advisory")
+        // A plain "sin" says there is none; a less plain no still counts,
+        // and so does heavy rain named elsewhere in the same notice.
+        XCTAssertEqual(rain("Cielo nublado, sin lluvias intensas."), "Rain Advisory")
+        XCTAssertEqual(rain("Sin torrenciales lluvias en la zona."), "Rain Advisory")
+        XCTAssertEqual(rain("No solo lluvias intensas, tambien granizo."), "Flood Advisory")
+        XCTAssertEqual(rain("Sin lluvias intensas en el norte; lluvias torrenciales en el sur."),
+                       "Flood Advisory")
         XCTAssertEqual(rain("Precipitaciones intensas en la sierra."), "Flood Advisory")
         // A notice that names the flood is one at any level.
         XCTAssertEqual(words("Lluvias e inundaciones", "Minor"), "Flood Advisory")
