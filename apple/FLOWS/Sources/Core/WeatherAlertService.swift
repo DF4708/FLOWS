@@ -1172,21 +1172,29 @@ final class WeatherAlertService: ObservableObject {
             // `ends` is the event's own end: a winter storm warning whose
             // message expired at 04:00 still ends the next evening, and was
             // dropped from every check point reached after 04:00. With no
-            // `ends` ("until further notice", a river flood), the hazard is
-            // taken to run 12 h past the message: an unknown end is not an
-            // early one.
+            // `ends` ("until further notice", a river flood, a hurricane),
+            // the hazard runs as long as its kind usually does, longer when
+            // it is severe, wide or seen (RiskTiming.unknownEnd; owner,
+            // 2026-11-11, in place of a flat 12 h past the message): an
+            // unknown end is not an early one, and a short statement is not
+            // half a day.
             let message = (props["expires"] as? String).flatMap {
                 Self.alertDateParser.date(from: $0)
             }
             let ends = (props["ends"] as? String).flatMap {
                 Self.alertDateParser.date(from: $0)
             }
-            let expires = ends.map { max($0, message ?? $0) }
-                ?? message.map { $0.addingTimeInterval(12 * 3600) }
             let onset = ["onset", "effective", "sent"]
                 .compactMap { props[$0] as? String }
                 .compactMap { Self.alertDateParser.date(from: $0) }
                 .first
+            let expires = ends.map { max($0, message ?? $0) }
+                ?? message.map {
+                    RiskTiming.unknownEnd(
+                        event: (props["event"] as? String) ?? headline, severityScore: score,
+                        zones: (props["affectedZones"] as? [Any])?.count ?? 1,
+                        certainty: props["certainty"] as? String, onset: onset, message: $0)
+                }
             // The api.weather.gov alert record IS the NWS's canonical source
             // for this alert (feature id is its URL).
             let source = (feature["id"] as? String).flatMap(URL.init(string:))

@@ -4150,8 +4150,8 @@ struct SettingsSheet: View {
             // Part of the fuel reminders: with those off it asks nothing,
             // so it greys out rather than show an ON that does nothing.
             Toggle(isOn: $model.refuelCheckInsEnabled) {
-                Text("After I fill up, ask where the gauge was (helps FLOWS "
-                     + "guess my range)").scaledFont(.caption)
+                Text("After I stop at a gas station, ask if I filled up")
+                    .scaledFont(.caption)
             }
             .disabled(!model.notifyFuel)
             // Last in the section, with what turning it off does right under

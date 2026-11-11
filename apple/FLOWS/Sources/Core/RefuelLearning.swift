@@ -8,6 +8,10 @@
 
 import Foundation
 
+/// Retired 2026-11-11: the fuel question now asks the level AFTER a fill
+/// (yes or no, with a dial), so nothing records an answer here any more.
+/// The stored answers are still read, and still erased with the rest.
+///
 /// Refuel-prediction learning: every time the driver answers the analog
 /// gauge ("where was the needle before you filled?"), the reported fraction
 /// is compared to what the odometer model predicted. While accuracy sits

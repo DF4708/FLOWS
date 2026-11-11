@@ -3186,8 +3186,12 @@ final class AppModel: ObservableObject {
 
     /// Cumulative driving time since the last 30-minute break (HOS timer).
     @Published private(set) var drivingSeconds: Double = 0
-    /// Prompt shown after a fuel-stop-length dwell: "did you fill up?"
+    /// Prompt shown after a stop at a gas station: "Did you fill up?"
     @Published var refuelPrompt = false
+    /// Where the question was last put: one question a station visit (the
+    /// arrival at an added gas stop asks, and the stop that follows there
+    /// must not ask again).
+    private var refuelAskedAt: CLLocation?
     private var lastClockFix: Date?
     private var stoppedSince: Date?
     /// Where that stop began. A stop is a place: a clock that only ended
@@ -3225,6 +3229,8 @@ final class AppModel: ObservableObject {
     private func updateDrivingClocks(fix: CLLocation) {
         let now = fix.timestamp
         defer { lastClockFix = now }
+        // The car answered for itself while the question was up.
+        if refuelPrompt, vehicle.telemetry().fuelFraction != nil { refuelPrompt = false }
         // No fixes across a stop (the app closed or suspended) is the stop
         // itself, as long a rest as the gap — from the last driving fix
         // when this is a trip's first.
@@ -3267,21 +3273,20 @@ final class AppModel: ObservableObject {
             if stoppedSince == nil { stoppedSince = now; stoppedAt = fix }
             // GPS-based refuel detection: a 4+ minute dwell mid-trip looks
             // like a fuel stop → ask ONCE per dwell. (CarPlay does not
-            // expose the vehicle's real fuel level to third-party nav apps —
-            // when Apple opens that API this becomes automatic.)
+            // expose the vehicle's real fuel level to third-party nav apps.)
+            // A car that reports its own fuel (a linked account, a wired
+            // reader) is never asked: its reading sets the gauge.
             // Not on a walk: a walker stopping by a station filled no tank.
             if let stopStart = stoppedSince, let profile = vehicle.profile,
                navigation.route?.isWalk != true,
                vehicle.telemetry().fuelFraction == nil,   // real data = no need to ask
                now.timeIntervalSince(stopStart) >= 240,
                refuelPromptShownAt.map({ $0 < stopStart }) ?? true,
-               // Learning asks until the model is accurate. Past that the
-               // question still comes where a fill matters — the model at
-               // half a tank or less: otherwise no fill was ever recorded
-               // again, the miles ran on across fill-ups, and a full tank
-               // read empty ("find fuel now").
-               vehicle.refuelLearning.shouldPrompt(checkInsEnabled: refuelCheckInsEnabled && notifyFuel)
-                || (refuelCheckInsEnabled && notifyFuel && (vehicle.predictedFuelFraction ?? 1) <= 0.5) {
+               refuelAskedAt.map({ $0.distance(from: fix) > 200 }) ?? true,
+               // Asked at every stop at a station (owner, 2026-11-11): a
+               // fill nobody recorded lets the miles run on across
+               // fill-ups, and a full tank reads empty ("find fuel now").
+               refuelCheckInsEnabled, notifyFuel {
                 // Only ask where fuel actually IS. A four-minute dwell is
                 // lunch as often as it is a fill-up, and a question that is
                 // usually wrong gets dismissed unread. The prompt waits for
@@ -3296,25 +3301,36 @@ final class AppModel: ObservableObject {
                     // Still this trip: End pressed during the lookup put the
                     // question on the planning screen.
                     guard let self, atPump, self.stoppedSince == stopStart,
-                          self.mode == .navigating else { return }
+                          self.mode == .navigating,
+                          self.vehicle.telemetry().fuelFraction == nil else { return }
                     self.refuelPrompt = true
+                    self.refuelAskedAt = fix
                 }
             }
         }
     }
 
-    /// Gauge answered: `fractionBefore` = where the needle sat pre-fill
-    /// (nil = dismissed without answering → assume a full refuel, which
-    /// never hurts the accuracy stat).
-    func answerRefuelPrompt(didFill: Bool, fractionBefore: Double? = nil) {
-        if didFill {
-            if let fractionBefore {
-                vehicle.recordRefuel(reportedFractionBefore: fractionBefore)
-            } else {
-                vehicle.filledUp()
-            }
-        }
+    /// The fuel question answered (owner, 2026-11-11). Yes sets the tank to
+    /// `levelNow`, the dial's reading (1 = full, where the dial starts); No
+    /// changes nothing. There is no other way to close the question: closing
+    /// it used to count as a full tank.
+    func answerRefuelPrompt(didFill: Bool, levelNow: Double = 1) {
+        if didFill { vehicle.setFuelLevel(levelNow) }
         refuelPrompt = false
+    }
+
+    /// Arrived at a gas stop the driver added. The car's own reading says
+    /// what went in when there is one; otherwise FLOWS asks, as it does
+    /// after any stop at a station. With the question turned off, the stop
+    /// is taken as a fill, as it always was: nothing else would record one.
+    private func arrivedAtGasStop() {
+        guard vehicle.telemetry().fuelFraction == nil else { return }
+        if refuelCheckInsEnabled, notifyFuel {
+            refuelPrompt = true
+            refuelAskedAt = location.latest
+        } else {
+            vehicle.filledUp()
+        }
     }
 
     // MARK: long-trip share — "tell someone where you're going"
@@ -5328,6 +5344,7 @@ final class AppModel: ObservableObject {
         announcedCameras.removeAll()
         refuelPrompt = false
         refuelPromptShownAt = nil
+        refuelAskedAt = nil
         upcomingSteepGrade = nil
         workZonesAhead = 0
         workZoneRoad = nil
@@ -6941,9 +6958,7 @@ final class AppModel: ObservableObject {
     /// arrival at the final destination shows the arrived banner.
     private func handleArrival() {
         if let next = upcomingLeg {
-            // Arriving at an added GAS stop = a fill-up: reset the tank
-            // odometer feeding the range model.
-            if pendingStopKind == .gas { vehicle.filledUp() }
+            if pendingStopKind == .gas { arrivedAtGasStop() }
             pendingStopKind = nil
             upcomingLeg = nil
             pendingStopName = nil
@@ -6958,7 +6973,7 @@ final class AppModel: ObservableObject {
         // on a leg it has.)
         if let stopName = pendingStopName, let dest = finalDestination,
            let arrivedLeg = navigation.route {
-            if pendingStopKind == .gas { vehicle.filledUp() }
+            if pendingStopKind == .gas { arrivedAtGasStop() }
             pendingStopKind = nil
             pendingStopName = nil
             // The leg to the stop is done: a faster-route check still in

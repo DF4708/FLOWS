@@ -23,6 +23,26 @@ enum RiskTiming {
             arrivalOffset, now.timeIntervalSinceReferenceDate)
     }
 
+    /// When an alert that gives no end time is taken to end (owner,
+    /// 2026-11-11): as long as its kind of event usually runs, longer when
+    /// it is severe, covers many `zones` (counties or forecast zones) or is
+    /// seen rather than expected (`certainty`, the CAP word), counted from
+    /// its `onset`, and never less than a quarter of that past `message`,
+    /// when the message itself lapses. The equation and its table are
+    /// `unknown_end_hours` in rust/flows-core (alerts.rs).
+    static func unknownEnd(event: String, severityScore: Double, zones: Int,
+                           certainty: String?, onset: Date?, message: Date) -> Date {
+        let word = certainty ?? ""
+        let end = flows_alerts_unknown_end(
+            event.isEmpty ? "Alert" : event, severityScore, Int64(max(zones, 1)),
+            word.isEmpty ? "Unknown" : word, onset != nil,
+            onset?.timeIntervalSinceReferenceDate ?? 0,
+            message.timeIntervalSinceReferenceDate)
+        // Never before the message lapses, whatever came back.
+        guard end.isFinite else { return message.addingTimeInterval(12 * 3600) }
+        return max(Date(timeIntervalSinceReferenceDate: end), message)
+    }
+
     /// Seconds from departure to each of `sampleCount` uniformly spaced
     /// corridor samples on a route that takes `totalTravelSeconds` end to end.
     /// A count past the bridge's maximum (2^20) answers no samples — the

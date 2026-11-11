@@ -173,6 +173,38 @@ final class VehicleSettingsTests: XCTestCase {
         defaults.removePersistentDomain(forName: suite)
     }
 
+    /// The pump answer: Yes sets the tank to the dial, full or short of it.
+    @MainActor
+    func testAFillShortOfFullSetsTheTankToTheDial() throws {
+        let suite = "flows.tests.vehicle.level"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let store = VehicleStore(defaults: defaults)
+        store.setFuelLevel(0.5)   // no vehicle: nothing to set, nothing breaks
+        XCTAssertNil(store.predictedFuelFraction)
+
+        store.profile = VehicleProfile(make: "Ford", model: "Transit", fuelType: .diesel,
+                                       tankCapacityUnits: 25, ratedMilesPerUnit: 20)
+        for _ in 0..<50 { store.recordFix(speedMps: 30, deltaMeters: 8_000) }
+        let before = try XCTUnwrap(store.predictedFuelFraction)
+        XCTAssertLessThan(before, 0.7)
+        // Three quarters at the pump.
+        store.setFuelLevel(0.75)
+        XCTAssertEqual(try XCTUnwrap(store.predictedFuelFraction), 0.75, accuracy: 1e-3)
+        XCTAssertGreaterThan(store.milesSinceFill, 0)
+        // Full is the plain fill.
+        store.setFuelLevel(1)
+        XCTAssertEqual(store.milesSinceFill, 0)
+        // Out of range is held to the gauge; not a number changes nothing.
+        store.setFuelLevel(0.4)
+        let held = store.milesSinceFill
+        store.setFuelLevel(.nan)
+        XCTAssertEqual(store.milesSinceFill, held)
+        store.setFuelLevel(7)
+        XCTAssertEqual(store.milesSinceFill, 0)
+        defaults.removePersistentDomain(forName: suite)
+    }
+
     // Which token answers end a Smartcar sign-in: SmartcarExchangeTests.
 
     // MARK: shapes and big rigs

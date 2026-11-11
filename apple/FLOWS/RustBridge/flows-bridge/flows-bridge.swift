@@ -253,6 +253,13 @@ public func flows_alerts_threat_rank<GenericToRustStr: ToRustStr>(_ event: Gener
         __swift_bridge__$flows_alerts_threat_rank(eventAsRustStr, severity_score)
     })
 }
+public func flows_alerts_unknown_end<GenericToRustStr: ToRustStr>(_ event: GenericToRustStr, _ severity_score: Double, _ zones: Int64, _ certainty: GenericToRustStr, _ has_onset: Bool, _ onset: Double, _ message: Double) -> Double {
+    return certainty.toRustStr({ certaintyAsRustStr in
+        return event.toRustStr({ eventAsRustStr in
+        __swift_bridge__$flows_alerts_unknown_end(eventAsRustStr, severity_score, zones, certaintyAsRustStr, has_onset, onset, message)
+    })
+    })
+}
 
 
 public func flows_climate_south_anchor() -> Double {

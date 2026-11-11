@@ -32,6 +32,15 @@ mod ffi {
             seconds_until_expiry: f64,
         ) -> i32;
         fn flows_alerts_threat_rank(event: &str, severity_score: f64) -> i32;
+        fn flows_alerts_unknown_end(
+            event: &str,
+            severity_score: f64,
+            zones: i64,
+            certainty: &str,
+            has_onset: bool,
+            onset: f64,
+            message: f64,
+        ) -> f64;
     }
 }
 
@@ -87,4 +96,28 @@ pub fn flows_alerts_action(
 /// 0..=3, see `flows_core::alerts::threat_rank`; 0 on containment.
 pub fn flows_alerts_threat_rank(event: &str, severity_score: f64) -> i32 {
     contain(0, || i32::from(alerts::threat_rank(event, severity_score)))
+}
+
+/// When an alert with no end time is taken to end, on the clock `onset` and
+/// `message` are in (seconds): `flows_core::alerts::unknown_end`. On
+/// containment, the flat 12 hours past the message this replaced.
+pub fn flows_alerts_unknown_end(
+    event: &str,
+    severity_score: f64,
+    zones: i64,
+    certainty: &str,
+    has_onset: bool,
+    onset: f64,
+    message: f64,
+) -> f64 {
+    contain(message + alerts::UNKNOWN_END_DEFAULT_HOURS * 3600.0, || {
+        alerts::unknown_end(
+            event,
+            severity_score,
+            u32::try_from(zones.clamp(1, 1 << 20)).unwrap_or(1),
+            certainty,
+            has_onset.then_some(onset),
+            message,
+        )
+    })
 }

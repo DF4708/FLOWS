@@ -220,44 +220,62 @@ struct ImminentBannerView: View {
     }
 }
 
-/// The analog refuel gauge: a semicircular dial with a draggable red needle
-/// — "where was the needle BEFORE you filled?" Trains the refuel-prediction
-/// learning toward its 80% accuracy floor.
+/// The fuel question after a stop at a gas station (owner, 2026-11-11): a
+/// plain yes or no, with a half dial that starts on Full and can be turned
+/// to where the tank is now for a fill that stopped short. Yes sets the
+/// tank to the dial; No changes nothing. There is no third way out: the
+/// old close button counted as a full tank, and a range that reads too
+/// high is the one that strands a driver.
 struct GasGaugeCard: View {
     @Environment(\.golden) private var golden
-    /// Starting position (the model's own prediction).
-    let predictedFraction: Double
-    var accuracy: Double
-    var onConfirm: (Double) -> Void
-    var onNoRefuel: () -> Void
-    var onDismiss: () -> Void
+    /// Yes, with the tank's level now (1 = full).
+    var onYes: (Double) -> Void
+    var onNo: () -> Void
 
-    @State private var fraction: Double = 0.5
-    @State private var appeared = false
+    @State private var fraction: Double = 1
+
+    /// The level a Yes sets: the top of the dial is Full, where a finger
+    /// can't land on exactly 100 %.
+    static func level(dial: Double) -> Double {
+        let f = min(max(dial, 0), 1)
+        return f >= 0.97 ? 1 : f
+    }
+
+    private var levelText: String {
+        let level = Self.level(dial: fraction)
+        return level >= 1 ? "Tank now: Full"
+            : "Tank now: \(Int((level * 100).rounded()))%"
+    }
+
+    private func answer(_ title: String, primary: Bool,
+                        action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .scaledFont(size: 16, weight: .heavy)
+                .frame(maxWidth: .infinity, minHeight: Theme.tapMinimum)
+                .background(primary ? Theme.cta : Theme.fill(0.08))
+                .foregroundStyle(primary ? Theme.onCTA : Color.primary)
+                .clipShape(Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack {
-                Label("Just refueled?", systemImage: "fuelpump.circle.fill")
-                    .scaledFont(size: 15, weight: .bold)
-                Spacer()
-                // Physical dismiss assumes "yes, filled to full".
-                Button { onDismiss() } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            Text("Drag the needle to where the gauge sat BEFORE filling — "
-                 + "it teaches the range prediction (currently "
-                 + String(format: "%.0f%%", accuracy * 100) + " accurate).")
+            Label("Did you fill up?", systemImage: "fuelpump.circle.fill")
+                .scaledFont(size: 15, weight: .bold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Not full? Turn the dial to where the tank is now.")
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
             GaugeDial(fraction: $fraction)
                 // A draggable needle is unusable without sight and hard
                 // with a tremor — VoiceOver gets the value spoken as a
                 // percentage and adjusts it in 5% steps instead.
                 .accessibilityElement()
-                .accessibilityLabel("Fuel level before filling")
+                .accessibilityLabel("Fuel level now")
                 .accessibilityValue("\(Int((fraction * 100).rounded())) percent")
                 .accessibilityAdjustableAction { direction in
                     switch direction {
@@ -269,35 +287,17 @@ struct GasGaugeCard: View {
                 // Golden sizing rather than the old hardcoded 220×130 — both
                 // sides improved this control, in different dimensions.
                 .frame(width: golden.step(1), height: golden.step(1) * 0.6)
+            Text(levelText)
+                .scaledFont(size: 13, weight: .semibold)
+                .accessibilityHidden(true)   // the dial speaks its own value
+            // The two answers, the same size side by side.
             HStack(spacing: 8) {
-                Button("Didn't refuel") { onNoRefuel() }
-                    .scaledFont(size: 13, weight: .semibold)
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 14)
-                    .frame(minHeight: 38)
-                    .background(Theme.fill(0.06))
-                    .clipShape(Capsule())
-                Spacer()
-                Button(String(format: "It was at %.0f%% — filled up", fraction * 100)) {
-                    onConfirm(fraction)
-                }
-                .scaledFont(size: 13, weight: .heavy)
-                .buttonStyle(.plain)
-                .padding(.horizontal, 14)
-                .frame(minHeight: 38)
-                .background(Theme.cta)
-                .foregroundStyle(Theme.onCTA)
-                .clipShape(Capsule())
+                answer("No", primary: false) { onNo() }
+                answer("Yes", primary: true) { onYes(Self.level(dial: fraction)) }
             }
         }
         .floatingCard()
         .frame(maxWidth: golden.cardMax)
-        .onAppear {
-            if !appeared {
-                fraction = min(max(predictedFraction, 0), 1)
-                appeared = true
-            }
-        }
     }
 }
 
@@ -582,8 +582,7 @@ struct DemoAlertsView: View {
                 Text("Fuel gauge check-in (drag the needle)")
                     .scaledFont(.caption, weight: .bold)
                     .id("cards")
-                GasGaugeCard(predictedFraction: 0.35, accuracy: 0.62,
-                             onConfirm: { _ in }, onNoRefuel: {}, onDismiss: {})
+                GasGaugeCard(onYes: { _ in }, onNo: {})
 
                 Text("Towing card (your own numbers — look only here)")
                     .scaledFont(.caption, weight: .bold)

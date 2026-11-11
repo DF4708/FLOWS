@@ -542,9 +542,202 @@ pub fn threat_rank(event: &str, severity_score: f64) -> u8 {
     0
 }
 
+/// How long each kind of event usually runs, in hours, first match wins
+/// (so "flash flood" is read before "flood", "red flag" before "fire").
+/// These are the usual lengths of each kind of official product, set by
+/// hand: a tornado or thunderstorm warning is under an hour, a winter storm
+/// a day, a river in flood two days, a hurricane three. An event nothing
+/// here names keeps the old flat rule, [`UNKNOWN_END_DEFAULT_HOURS`].
+pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
+    (
+        &["hurricane", "typhoon", "tropical", "cyclone", "storm surge"],
+        72.0,
+    ),
+    (&["volcan", "ashfall"], 48.0),
+    (&["flash flood"], 6.0),
+    (&["coastal flood", "lakeshore flood", "tsunami"], 12.0),
+    (&["flood", "hydrologic"], 48.0),
+    // The chance of fire is one burning day; a fire is days.
+    (&["red flag", "fire weather"], 12.0),
+    (&["fire", "evacuation"], 48.0),
+    (
+        &[
+            "tornado",
+            "thunderstorm",
+            "snow squall",
+            "dust storm",
+            "special marine",
+            "extreme wind",
+        ],
+        1.0,
+    ),
+    (&["special weather statement", "short term"], 2.0),
+    (
+        &[
+            "blizzard",
+            "winter",
+            "ice storm",
+            "lake effect",
+            "snow",
+            "avalanche",
+            "heat",
+            "cold",
+            "wind chill",
+            "freeze",
+            "frost",
+            "air quality",
+            "air stagnation",
+        ],
+        24.0,
+    ),
+];
+
+/// The usual length of an event no row of [`USUAL_EVENT_HOURS`] names: the
+/// flat 12 hours every alert with no end time was kept before 2026-11-11.
+pub const UNKNOWN_END_DEFAULT_HOURS: f64 = 12.0;
+/// The shortest and longest an alert with no end time is taken to run.
+pub const UNKNOWN_END_MIN_HOURS: f64 = 0.5;
+pub const UNKNOWN_END_MAX_HOURS: f64 = 168.0;
+/// The share of its life an alert is kept past its message, however long
+/// ago it began: an event still being told about has not ended.
+pub const UNKNOWN_END_TAIL: f64 = 0.25;
+
+/// How long, in hours from its start, an alert that gives no end time is
+/// taken to run (owner, 2026-11-11: by how long such events last and how
+/// severe this one is, not a flat 12 hours).
+///
+/// `hours = usual × severity × reach × certainty`, kept within
+/// [`UNKNOWN_END_MIN_HOURS`]..=[`UNKNOWN_END_MAX_HOURS`]:
+///
+/// * `usual`: [`USUAL_EVENT_HOURS`] for the event's kind.
+/// * `severity`: `0.5 + severity_score` (CAP score 0..1), so Minor is about
+///   the usual length and Extreme about one and a half times it.
+/// * `reach`: a quarter more for each doubling of `zones` (the counties or
+///   forecast zones named), up to twice at sixteen: a fire across counties
+///   outlasts one in a single zone.
+/// * `certainty`: the CAP word; 1.25 observed, 0.75 possible, 0.5 unlikely,
+///   and never above 0.75 for a watch (what may happen, not what is).
+#[must_use]
+pub fn unknown_end_hours(event: &str, severity_score: f64, zones: u32, certainty: &str) -> f64 {
+    let e = lower(event);
+    let usual = USUAL_EVENT_HOURS
+        .iter()
+        .find(|(words, _)| any(&e, words))
+        .map_or(UNKNOWN_END_DEFAULT_HOURS, |&(_, hours)| hours);
+    let severity = if severity_score.is_finite() {
+        0.5 + severity_score.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let reach = 1.0 + 0.25 * f64::from(zones.clamp(1, 16).ilog2());
+    let c = lower(certainty);
+    let mut sure: f64 = if c.contains("observed") {
+        1.25
+    } else if c.contains("unlikely") {
+        0.5
+    } else if c.contains("possible") {
+        0.75
+    } else {
+        1.0
+    };
+    if e.contains("watch") {
+        sure = sure.min(0.75);
+    }
+    (usual * severity * reach * sure).clamp(UNKNOWN_END_MIN_HOURS, UNKNOWN_END_MAX_HOURS)
+}
+
+/// When an alert with no end time is taken to end, on the clock `onset` and
+/// `message` are given in (seconds): its life from when it began, and never
+/// less than [`UNKNOWN_END_TAIL`] of that life past the message's own lapse.
+/// With no `onset` the life runs from the message.
+#[must_use]
+pub fn unknown_end(
+    event: &str,
+    severity_score: f64,
+    zones: u32,
+    certainty: &str,
+    onset: Option<f64>,
+    message: f64,
+) -> f64 {
+    let life = unknown_end_hours(event, severity_score, zones, certainty) * 3600.0;
+    let tail = message + life * UNKNOWN_END_TAIL;
+    match onset {
+        Some(began) if began.is_finite() => tail.max(began + life),
+        _ => tail.max(message + life),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_alert_with_no_end_runs_as_long_as_its_kind_and_severity() {
+        let h = |event, severity, zones, certainty| {
+            unknown_end_hours(event, severity, zones, certainty)
+        };
+        // The same severity, reach and certainty: the kind decides.
+        let by_kind = |event| h(event, 0.72, 1, "Likely");
+        assert!(by_kind("Hurricane Warning") > by_kind("Flood Warning"));
+        assert!(by_kind("Flood Warning") > by_kind("Winter Storm Warning"));
+        assert!(by_kind("Winter Storm Warning") > by_kind("Flash Flood Warning"));
+        assert!(by_kind("Flash Flood Warning") > by_kind("Special Weather Statement"));
+        assert!(by_kind("Special Weather Statement") > by_kind("Severe Thunderstorm Warning"));
+        // A fire outlasts the chance of one; "red flag" is not read as "fire".
+        assert_eq!(by_kind("Red Flag Warning"), 12.0 * (0.5 + 0.72));
+        assert_eq!(by_kind("Fire Warning"), 48.0 * (0.5 + 0.72));
+        // An event nothing names keeps the old 12 hours as its usual length.
+        assert_eq!(h("Civil Emergency Message", 0.5, 1, "Likely"), 12.0);
+        // More severe runs longer.
+        assert!(h("Flood Warning", 0.95, 1, "Likely") > h("Flood Warning", 0.45, 1, "Likely"));
+        // Wider runs longer, a quarter per doubling, up to twice.
+        assert_eq!(h("Fire Warning", 0.5, 4, "Likely"), 48.0 * 1.5);
+        assert_eq!(h("Fire Warning", 0.5, 16, "Likely"), 96.0);
+        assert_eq!(h("Fire Warning", 0.5, 400, "Likely"), 96.0);
+        assert_eq!(h("Fire Warning", 0.5, 0, "Likely"), 48.0);
+        // Seen is longer than may be; a watch is never more than "possible".
+        assert_eq!(h("Fire Warning", 0.5, 1, "Observed"), 60.0);
+        assert_eq!(h("Fire Warning", 0.5, 1, "Possible"), 36.0);
+        assert_eq!(h("Fire Warning", 0.5, 1, "Unlikely"), 24.0);
+        assert_eq!(h("Hurricane Watch", 0.5, 1, "Observed"), 54.0);
+        // Within half an hour and a week, whatever comes in.
+        assert_eq!(h("Hurricane Warning", 0.95, 16, "Observed"), 168.0);
+        assert_eq!(h("Tornado Warning", 0.0, 1, "Unlikely"), 0.5);
+        assert_eq!(h("Flood Warning", f64::NAN, 1, ""), 48.0);
+    }
+
+    #[test]
+    fn an_unknown_end_is_never_before_the_message_lapses() {
+        let hour = 3600.0;
+        // Just begun: the whole life from the start.
+        let end = unknown_end("Fire Warning", 0.5, 1, "Likely", Some(0.0), hour);
+        assert_eq!(end, 48.0 * hour);
+        // Begun a week ago and still told about: a quarter of its life more.
+        let end = unknown_end("Fire Warning", 0.5, 1, "Likely", Some(0.0), 200.0 * hour);
+        assert_eq!(end, 212.0 * hour);
+        // No start on record: the life runs from the message.
+        let end = unknown_end("Fire Warning", 0.5, 1, "Likely", None, 10.0 * hour);
+        assert_eq!(end, 58.0 * hour);
+        let end = unknown_end(
+            "Fire Warning",
+            0.5,
+            1,
+            "Likely",
+            Some(f64::NAN),
+            10.0 * hour,
+        );
+        assert_eq!(end, 58.0 * hour);
+        // A short statement no longer lingers half a day.
+        let end = unknown_end(
+            "Special Weather Statement",
+            0.72,
+            1,
+            "Observed",
+            Some(0.0),
+            hour,
+        );
+        assert!(end > hour && end < 4.0 * hour, "{end}");
+    }
 
     #[test]
     fn display_names_match_the_enum_one_to_one() {

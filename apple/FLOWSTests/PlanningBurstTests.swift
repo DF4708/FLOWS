@@ -365,7 +365,7 @@ final class PlanningBurstTests: XCTestCase {
     }
 
     /// An alert is in force until the EVENT ends, not until its message
-    /// lapses; with no end given, it runs on 12 h past the message.
+    /// lapses (with no end given: testAnAlertWithNoEndRunsAsLongAsItsKind).
 func testACancelledAlertIsNotALiveWarning() {
         func alert(_ type: String) -> [String: Any] {
             ["id": "urn:x",
@@ -390,11 +390,60 @@ func testACancelledAlertIsNotALiveWarning() {
         let parse = { (extra: [String: Any]) in
             WeatherAlertService.parseAlertFeatures([alert(extra)]).first?.expires
         }
-        let message = try XCTUnwrap(parse([:])).addingTimeInterval(-12 * 3600)
+        let message = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-12-01T10:00:00Z"))
         let ends = try XCTUnwrap(parse(["ends": "2026-12-01T20:00:00-06:00"]))
         XCTAssertEqual(ends.timeIntervalSince(message), 16 * 3600, "until the storm ends at 20:00")
         let early = try XCTUnwrap(parse(["ends": "2026-12-01T02:00:00-06:00"]))
         XCTAssertEqual(early, message, "never before the message itself lapses")
+    }
+
+    /// With no end given, an alert runs as long as its kind usually does,
+    /// by how severe, how wide and how sure it is (owner, 2026-11-11), from
+    /// when it began.
+    func testAnAlertWithNoEndRunsAsLongAsItsKind() throws {
+        func alert(_ event: String, _ extra: [String: Any] = [:]) -> [String: Any] {
+            ["id": "urn:x",
+             "properties": ["id": "urn:x", "event": event, "headline": event,
+                            "severity": "Severe", "expires": "2026-12-01T04:00:00-06:00"]
+                .merging(extra) { $1 },
+             "geometry": NSNull()]
+        }
+        func hoursPastMessage(_ event: String, _ extra: [String: Any] = [:]) throws -> Double {
+            let message = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-12-01T10:00:00Z"))
+            let end = try XCTUnwrap(
+                WeatherAlertService.parseAlertFeatures([alert(event, extra)]).first?.expires)
+            return end.timeIntervalSince(message) / 3600
+        }
+        // No start on record: a winter storm's day, at Severe (0.5 + 0.88).
+        XCTAssertEqual(try hoursPastMessage("Winter Storm Warning"), 24 * 1.38, accuracy: 1e-6)
+        // Counted from when it began, two hours before the message lapses.
+        XCTAssertEqual(
+            try hoursPastMessage("Winter Storm Warning", ["sent": "2026-12-01T02:00:00-06:00"]),
+            24 * 1.38 - 2, accuracy: 1e-6)
+        // Begun long ago and still told about: a quarter of its life more.
+        XCTAssertEqual(
+            try hoursPastMessage("Winter Storm Warning", ["sent": "2026-11-20T02:00:00-06:00"]),
+            24 * 1.38 / 4, accuracy: 1e-6)
+        // The kind decides: a hurricane far outlasts a short statement, and
+        // a fire the chance of one.
+        let statement = try hoursPastMessage("Special Weather Statement")
+        XCTAssertEqual(statement, 2 * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(try hoursPastMessage("Hurricane Warning"), 72 * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(try hoursPastMessage("Red Flag Warning"), 12 * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(try hoursPastMessage("Fire Warning"), 48 * 1.38, accuracy: 1e-6)
+        // Wider and seen run longer: four zones is half again, seen a quarter.
+        XCTAssertEqual(
+            try hoursPastMessage("Fire Warning", ["affectedZones": ["a", "b", "c", "d"],
+                                                  "certainty": "Observed"]),
+            48 * 1.38 * 1.5 * 1.25, accuracy: 1e-6)
+        // Less severe runs shorter.
+        XCTAssertEqual(try hoursPastMessage("Fire Warning", ["severity": "Minor"]),
+                       48 * 0.95, accuracy: 1e-6)
+        // The facade never answers before the message lapses.
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let end = RiskTiming.unknownEnd(event: "", severityScore: .nan, zones: 0,
+                                        certainty: nil, onset: nil, message: now)
+        XCTAssertEqual(end.timeIntervalSince(now), 12 * 3600, accuracy: 1e-6)
     }
 
     func testStatesContainingUsesBBoxOverlap() {

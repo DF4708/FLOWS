@@ -250,16 +250,38 @@ final class VehicleStore: ObservableObject {
         return telemetry().fuelFraction ?? predictedFuelFraction
     }
 
-    /// Analog-gauge answer: the driver says where the needle was BEFORE
-    /// filling. Trains the learning, then assumes a full tank.
-    func recordRefuel(reportedFractionBefore: Double) {
-        if let predicted = predictedFuelFraction {
-            var learning = refuelLearning
-            learning.record(predictedFraction: predicted,
-                            reportedFraction: reportedFractionBefore)
-            refuelLearning = learning
+    /// The driver's answer at the pump: the tank stands at `fraction` now
+    /// (1 = full). The model's miles are set to where it reads that level,
+    /// as a real reading sets them.
+    func setFuelLevel(_ fraction: Double) {
+        guard fraction.isFinite else { return }
+        let level = min(max(fraction, 0), 1)
+        guard level < 1, let miles = milesWhereModelReads(level) else {
+            // Full, or no vehicle to model: the plain fill.
+            if level >= 1 { filledUp() }
+            return
         }
-        filledUp()
+        milesSinceFill = miles
+    }
+
+    /// The miles since a fill at which the odometer model reads `target` of
+    /// a tank, at the current driving habits; nil with no vehicle.
+    private func milesWhereModelReads(_ target: Double) -> Double? {
+        guard let profile else { return nil }
+        func modelled(_ miles: Double) -> Double {
+            profile.fuelFractionAfter(milesSinceFill: miles, averageSpeedMph: averageSpeedMph,
+                                      idleFraction: idleFraction)
+        }
+        // The model's fraction falls as the miles grow: bisect for the
+        // miles where it meets the level, up to two tanks' worth.
+        var lo = 0.0
+        var hi = max(profile.tankCapacityUnits * profile.ratedMilesPerUnit * 2, 1)
+        guard hi.isFinite, modelled(lo).isFinite else { return nil }
+        for _ in 0..<40 {
+            let mid = (lo + hi) / 2
+            if modelled(mid) > target { lo = mid } else { hi = mid }
+        }
+        return (lo + hi) / 2
     }
 
     /// Feed one GPS fix: accumulate tank consumption and update habit averages.
@@ -288,24 +310,10 @@ final class VehicleStore: ObservableObject {
     private func followRealReading(now: Date = Date()) {
         // The once-a-minute gate first: `telemetry()` merges and sorts the tire
         // dictionaries, and this runs on every fix.
-        guard let profile, now.timeIntervalSince(lastFollowed) >= 60,
+        guard profile != nil, now.timeIntervalSince(lastFollowed) >= 60,
               let real = telemetry().fuelFraction, real.isFinite else { return }
         lastFollowed = now
-        let target = min(max(real, 0), 1)
-        func modelled(_ miles: Double) -> Double {
-            profile.fuelFractionAfter(milesSinceFill: miles, averageSpeedMph: averageSpeedMph,
-                                      idleFraction: idleFraction)
-        }
-        // The model's fraction falls as the miles grow: bisect for the
-        // miles where it meets the reading, up to two tanks' worth.
-        var lo = 0.0
-        var hi = max(profile.tankCapacityUnits * profile.ratedMilesPerUnit * 2, 1)
-        guard hi.isFinite, modelled(lo).isFinite else { return }
-        for _ in 0..<40 {
-            let mid = (lo + hi) / 2
-            if modelled(mid) > target { lo = mid } else { hi = mid }
-        }
-        let miles = (lo + hi) / 2
+        guard let miles = milesWhereModelReads(min(max(real, 0), 1)) else { return }
         if abs(miles - milesSinceFill) > 0.5 { milesSinceFill = miles }
     }
 

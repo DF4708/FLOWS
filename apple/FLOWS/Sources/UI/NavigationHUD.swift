@@ -3116,18 +3116,12 @@ struct NavigationHUD: View {
         }
     }
 
-    /// GPS saw a fuel-stop-length dwell → the analog gauge asks where the
-    /// needle was BEFORE the fill (trains the refuel prediction toward its
-    /// 80% accuracy floor). Dismissing assumes a full refuel.
+    /// A stop at a gas station, with no fuel reading from the car: did you
+    /// fill up, yes or no, and the dial for a tank that isn't full.
     private var refuelGauge: some View {
         GasGaugeCard(
-            predictedFraction: model.vehicle.predictedFuelFraction ?? 0.5,
-            accuracy: model.vehicle.refuelLearning.accuracy,
-            onConfirm: { fraction in
-                model.answerRefuelPrompt(didFill: true, fractionBefore: fraction)
-            },
-            onNoRefuel: { model.answerRefuelPrompt(didFill: false) },
-            onDismiss: { model.answerRefuelPrompt(didFill: true) })
+            onYes: { level in model.answerRefuelPrompt(didFill: true, levelNow: level) },
+            onNo: { model.answerRefuelPrompt(didFill: false) })
     }
 
     /// The grade table applied: "7.2% grade in 1.4 mi".
