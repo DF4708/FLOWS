@@ -543,54 +543,81 @@ pub fn threat_rank(event: &str, severity_score: f64) -> u8 {
 }
 
 /// How long each kind of event usually runs, in hours, first match wins
-/// (so "flash flood" is read before "flood", "red flag" before "fire").
-/// These are the usual lengths of each kind of official product, set by
-/// hand: a tornado or thunderstorm warning is under an hour, a winter storm
-/// a day, a river in flood two days, a hurricane three. An event nothing
-/// here names keeps the old flat rule, [`UNKNOWN_END_DEFAULT_HOURS`].
+/// (so "flash flood" is read before "flood", "red flag" before "fire", a
+/// watch before its warning).
+///
+/// Measured, not guessed: each figure is the middle (median) length, from
+/// first issue to final end, of the official US events of that kind in the
+/// Iowa Environmental Mesonet archive of National Weather Service watches,
+/// warnings and advisories (public domain; read 2026-11-11). Years 2022 to
+/// 2024, and 2020 to 2024 for the rare kinds (hurricane, tropical storm,
+/// storm surge, snow squall, dust storm, extreme wind, red flag). The count
+/// of events behind each figure is beside it. The archive is US only, and
+/// rows marked "set by hand" name kinds it does not hold.
 pub const USUAL_EVENT_HOURS: &[(&[&str], f64)] = &[
-    (
-        &["hurricane", "typhoon", "tropical", "cyclone", "storm surge"],
-        72.0,
-    ),
-    (&["volcan", "ashfall"], 48.0),
-    (&["flash flood"], 6.0),
-    (&["coastal flood", "lakeshore flood", "tsunami"], 12.0),
-    (&["flood", "hydrologic"], 48.0),
-    // The chance of fire is one burning day; a fire is days.
-    (&["red flag", "fire weather"], 12.0),
-    (&["fire", "evacuation"], 48.0),
-    (
-        &[
-            "tornado",
-            "thunderstorm",
-            "snow squall",
-            "dust storm",
-            "special marine",
-            "extreme wind",
-        ],
-        1.0,
-    ),
+    // Watches run shorter than the warnings that follow them.
+    (&["hurricane watch", "typhoon watch"], 30.0), // 30.1 h, 65 events
+    (&["tropical storm watch"], 21.0),             // 20.7 h, 197
+    (&["storm surge watch"], 25.0),                // 25.1 h, 84
+    (&["storm surge"], 48.0),                      // 48.0 h, 70
+    // Hurricane warnings 42.1 h (57), tropical storm warnings 42.6 h (234).
+    (&["hurricane", "typhoon", "tropical", "cyclone"], 42.0),
+    (&["volcan", "ashfall"], 48.0), // set by hand: none in the archive
+    (&["flash flood watch"], 9.0),  // 9.0 h, 147
+    (&["flash flood"], 3.0),        // 3.1 h, 12,457
+    // Coastal 12.8 h (268), lakeshore 12.0 h (21).
+    (&["coastal flood", "lakeshore flood"], 13.0),
+    (&["tsunami"], 12.0),       // set by hand: 7 events, from 1 h to 21 days
+    (&["flood advisory"], 3.0), // 2.9 h, 27,311
+    (&["flood watch"], 17.0),   // 16.6 h, 2,288
+    // River flood warnings: 41.8 h, 8,805 (a tenth ran past 19 days). A
+    // "Flood Warning" for an area rather than a river is shorter (6.0 h,
+    // 3,838) under the same name; the river figure is used, as rivers are
+    // the floods told "until further notice".
+    (&["flood", "hydrologic"], 42.0),
+    // Red flag warnings 8.0 h (5,474), fire weather watches 8.0 h (119):
+    // the chance of fire is one burning day; a fire is days.
+    (&["red flag", "fire weather"], 8.0),
+    (&["fire", "evacuation"], 48.0), // set by hand: not in the archive
+    (&["tornado watch"], 6.0),       // 6.0 h, 1,789
+    (&["thunderstorm watch"], 5.6),  // 5.6 h, 4,120
+    (&["tornado"], 0.5),             // 0.5 h, 8,487
+    // Severe thunderstorm warnings 0.7 h (63,498), snow squalls 0.7 h (1,145).
+    (&["thunderstorm", "snow squall"], 0.7),
+    // Special marine warnings 0.9 h (17,248), dust storms 1.1 h (510).
+    (&["special marine", "dust storm"], 1.0),
+    (&["extreme wind"], 2.0), // 2.0 h, 27
+    // Set by hand: statements are not in the archive.
     (&["special weather statement", "short term"], 2.0),
-    (
-        &[
-            "blizzard",
-            "winter",
-            "ice storm",
-            "lake effect",
-            "snow",
-            "avalanche",
-            "heat",
-            "cold",
-            "wind chill",
-            "freeze",
-            "frost",
-            "air quality",
-            "air stagnation",
-        ],
-        24.0,
-    ),
+    (&["blizzard"], 22.0),       // 21.8 h, 358
+    (&["ice storm"], 20.0),      // 20.2 h, 83
+    (&["lake effect"], 27.0),    // 27.0 h, 60
+    (&["winter storm"], 27.0),   // 27.0 h, 2,113
+    (&["winter weather"], 18.0), // 18.0 h, 6,308
+    // Set by hand: the winter kinds the rows above do not name.
+    (&["winter", "snow", "avalanche", "freezing rain"], 24.0),
+    (&["wind chill"], 19.0), // 19.0 h, 293
+    (&["cold"], 9.0),        // 9.0 h, 48 advisories (2 warnings: 12.8 h)
+    // Extreme heat warnings 9.0 h (1,137), heat advisories 8.0 h (4,030):
+    // told a day at a time, though a quarter of the warnings ran past 34 h.
+    (&["heat"], 9.0),
+    // Freeze warnings 8.0 h (1,653), frost advisories 7.0 h (1,778).
+    (&["freeze", "frost"], 8.0),
+    (&["fog"], 7.0),             // 6.9 h, 5,096
+    (&["high surf"], 30.0),      // 30.1 h, 977
+    (&["air stagnation"], 96.0), // 96.5 h, 55
+    (&["air quality"], 24.0),    // set by hand: not in the archive
+    // High wind warnings 14.0 h (1,859), wind advisories 12.0 h (5,778).
+    (&["wind"], 13.0),
 ];
+
+/// How much longer an event runs for each doubling of the counties or
+/// forecast zones it names. Measured from the same records: across the
+/// eighteen kinds with enough events at both ends, an event naming sixteen
+/// or more zones ran 1.6 times as long as one naming a single zone (the
+/// middle kind; from no longer at all for heat advisories to four times for
+/// coastal floods), which is 0.15 a doubling over four doublings.
+pub const UNKNOWN_END_REACH_STEP: f64 = 0.15;
 
 /// The usual length of an event no row of [`USUAL_EVENT_HOURS`] names: the
 /// flat 12 hours every alert with no end time was kept before 2026-11-11.
@@ -609,14 +636,23 @@ pub const UNKNOWN_END_TAIL: f64 = 0.25;
 /// `hours = usual × severity × reach × certainty`, kept within
 /// [`UNKNOWN_END_MIN_HOURS`]..=[`UNKNOWN_END_MAX_HOURS`]:
 ///
-/// * `usual`: [`USUAL_EVENT_HOURS`] for the event's kind.
+/// * `usual`: [`USUAL_EVENT_HOURS`] for the event's kind, the measured
+///   middle length of such events.
 /// * `severity`: `0.5 + severity_score` (CAP score 0..1), so Minor is about
-///   the usual length and Extreme about one and a half times it.
-/// * `reach`: a quarter more for each doubling of `zones` (the counties or
-///   forecast zones named), up to twice at sixteen: a fire across counties
-///   outlasts one in a single zone.
-/// * `certainty`: the CAP word; 1.25 observed, 0.75 possible, 0.5 unlikely,
-///   and never above 0.75 for a watch (what may happen, not what is).
+///   the usual length and Extreme about one and a half times it. Checked
+///   against the records, not fitted to them: warnings ran 1.2 to 1.5
+///   times as long as the advisories of the same weather (winter storm 27 h
+///   to 18 h, high wind 14 h to 12 h), and at Severe (about 1.4 times) the
+///   answer lands near the length three in four past events stayed under
+///   (winter storm 37 h against 40 h, hurricane 58 h against 51 h, flash
+///   flood 4.1 h against 4.0 h). River floods spread wider than this: major
+///   ones ran three times as long as minor ones (119 h to 38 h).
+/// * `reach`: [`UNKNOWN_END_REACH_STEP`] more for each doubling of `zones`
+///   (the counties or forecast zones named), up to 1.6 times at sixteen: a
+///   fire across counties outlasts one in a single zone.
+/// * `certainty`: the CAP word; 1.25 observed, 0.75 possible, 0.5 unlikely.
+///   Set by hand: the archive does not record the word. A watch is told as
+///   "possible", and has its own measured row besides.
 #[must_use]
 pub fn unknown_end_hours(event: &str, severity_score: f64, zones: u32, certainty: &str) -> f64 {
     let e = lower(event);
@@ -629,9 +665,9 @@ pub fn unknown_end_hours(event: &str, severity_score: f64, zones: u32, certainty
     } else {
         1.0
     };
-    let reach = 1.0 + 0.25 * f64::from(zones.clamp(1, 16).ilog2());
+    let reach = 1.0 + UNKNOWN_END_REACH_STEP * f64::from(zones.clamp(1, 16).ilog2());
     let c = lower(certainty);
-    let mut sure: f64 = if c.contains("observed") {
+    let sure: f64 = if c.contains("observed") {
         1.25
     } else if c.contains("unlikely") {
         0.5
@@ -640,9 +676,6 @@ pub fn unknown_end_hours(event: &str, severity_score: f64, zones: u32, certainty
     } else {
         1.0
     };
-    if e.contains("watch") {
-        sure = sure.min(0.75);
-    }
     (usual * severity * reach * sure).clamp(UNKNOWN_END_MIN_HOURS, UNKNOWN_END_MAX_HOURS)
 }
 
@@ -678,32 +711,83 @@ mod tests {
         };
         // The same severity, reach and certainty: the kind decides.
         let by_kind = |event| h(event, 0.72, 1, "Likely");
-        assert!(by_kind("Hurricane Warning") > by_kind("Flood Warning"));
+        // (A river in flood runs as long as a hurricane warning: 42 hours.)
+        assert!(by_kind("Storm Surge Warning") > by_kind("Hurricane Warning"));
+        assert!(by_kind("Hurricane Warning") >= by_kind("Flood Warning"));
         assert!(by_kind("Flood Warning") > by_kind("Winter Storm Warning"));
+        assert!(by_kind("Winter Storm Warning") > by_kind("Winter Weather Advisory"));
+        assert!(by_kind("Winter Weather Advisory") > by_kind("High Wind Warning"));
         assert!(by_kind("Winter Storm Warning") > by_kind("Flash Flood Warning"));
         assert!(by_kind("Flash Flood Warning") > by_kind("Special Weather Statement"));
         assert!(by_kind("Special Weather Statement") > by_kind("Severe Thunderstorm Warning"));
+        assert!(by_kind("Severe Thunderstorm Warning") > by_kind("Tornado Warning"));
+        // The measured lengths, each read by its own row.
+        let usual = |event| h(event, 0.5, 1, "Likely");
+        for (event, hours) in [
+            ("Hurricane Warning", 42.0),
+            ("Tropical Storm Warning", 42.0),
+            ("Hurricane Watch", 30.0),
+            ("Tropical Storm Watch", 21.0),
+            ("Storm Surge Watch", 25.0),
+            ("Storm Surge Warning", 48.0),
+            ("Flash Flood Warning", 3.0),
+            ("Flash Flood Watch", 9.0),
+            ("Coastal Flood Warning", 13.0),
+            ("Flood Advisory", 3.0),
+            ("Flood Watch", 17.0),
+            ("Flood Warning", 42.0),
+            ("Tornado Watch", 6.0),
+            ("Severe Thunderstorm Watch", 5.6),
+            ("Tornado Warning", 0.5),
+            ("Severe Thunderstorm Warning", 0.7),
+            ("Snow Squall Warning", 0.7),
+            ("Special Marine Warning", 1.0),
+            ("Extreme Wind Warning", 2.0),
+            ("Blizzard Warning", 22.0),
+            ("Ice Storm Warning", 20.0),
+            ("Lake Effect Snow Warning", 27.0),
+            ("Winter Storm Warning", 27.0),
+            ("Winter Storm Watch", 27.0),
+            ("Winter Weather Advisory", 18.0),
+            ("Avalanche Warning", 24.0),
+            ("Wind Chill Warning", 19.0),
+            ("Extreme Cold Warning", 9.0),
+            ("Extreme Heat Warning", 9.0),
+            ("Heat Advisory", 9.0),
+            ("Freeze Warning", 8.0),
+            ("Frost Advisory", 8.0),
+            ("Dense Fog Advisory", 7.0),
+            ("High Surf Advisory", 30.0),
+            ("Air Stagnation Advisory", 96.0),
+            ("Air Quality Alert", 24.0),
+            ("High Wind Warning", 13.0),
+            ("Wind Advisory", 13.0),
+        ] {
+            assert_eq!(usual(event), hours, "{event}");
+        }
         // A fire outlasts the chance of one; "red flag" is not read as "fire".
-        assert_eq!(by_kind("Red Flag Warning"), 12.0 * (0.5 + 0.72));
+        assert_eq!(by_kind("Red Flag Warning"), 8.0 * (0.5 + 0.72));
+        assert_eq!(by_kind("Fire Weather Watch"), 8.0 * (0.5 + 0.72));
         assert_eq!(by_kind("Fire Warning"), 48.0 * (0.5 + 0.72));
         // An event nothing names keeps the old 12 hours as its usual length.
         assert_eq!(h("Civil Emergency Message", 0.5, 1, "Likely"), 12.0);
         // More severe runs longer.
         assert!(h("Flood Warning", 0.95, 1, "Likely") > h("Flood Warning", 0.45, 1, "Likely"));
-        // Wider runs longer, a quarter per doubling, up to twice.
-        assert_eq!(h("Fire Warning", 0.5, 4, "Likely"), 48.0 * 1.5);
-        assert_eq!(h("Fire Warning", 0.5, 16, "Likely"), 96.0);
-        assert_eq!(h("Fire Warning", 0.5, 400, "Likely"), 96.0);
+        // Wider runs longer, 0.15 per doubling, up to 1.6 times.
+        assert_eq!(h("Fire Warning", 0.5, 4, "Likely"), 48.0 * 1.3);
+        assert_eq!(h("Fire Warning", 0.5, 16, "Likely"), 48.0 * 1.6);
+        assert_eq!(h("Fire Warning", 0.5, 400, "Likely"), 48.0 * 1.6);
         assert_eq!(h("Fire Warning", 0.5, 0, "Likely"), 48.0);
-        // Seen is longer than may be; a watch is never more than "possible".
+        // Seen is longer than may be.
         assert_eq!(h("Fire Warning", 0.5, 1, "Observed"), 60.0);
         assert_eq!(h("Fire Warning", 0.5, 1, "Possible"), 36.0);
         assert_eq!(h("Fire Warning", 0.5, 1, "Unlikely"), 24.0);
-        assert_eq!(h("Hurricane Watch", 0.5, 1, "Observed"), 54.0);
+        // A watch has its own measured length, shorter than its warning.
+        assert_eq!(h("Hurricane Watch", 0.5, 1, "Possible"), 30.0 * 0.75);
         // Within half an hour and a week, whatever comes in.
-        assert_eq!(h("Hurricane Warning", 0.95, 16, "Observed"), 168.0);
+        assert_eq!(h("Air Stagnation Advisory", 1.0, 16, "Observed"), 168.0);
         assert_eq!(h("Tornado Warning", 0.0, 1, "Unlikely"), 0.5);
-        assert_eq!(h("Flood Warning", f64::NAN, 1, ""), 48.0);
+        assert_eq!(h("Flood Warning", f64::NAN, 1, ""), 42.0);
     }
 
     #[test]

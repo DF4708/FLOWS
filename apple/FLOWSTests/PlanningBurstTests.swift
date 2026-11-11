@@ -414,28 +414,28 @@ func testACancelledAlertIsNotALiveWarning() {
                 WeatherAlertService.parseAlertFeatures([alert(event, extra)]).first?.expires)
             return end.timeIntervalSince(message) / 3600
         }
-        // No start on record: a winter storm's day, at Severe (0.5 + 0.88).
-        XCTAssertEqual(try hoursPastMessage("Winter Storm Warning"), 24 * 1.38, accuracy: 1e-6)
+        // No start on record: a winter storm's 27 hours, at Severe (0.5 + 0.88).
+        XCTAssertEqual(try hoursPastMessage("Winter Storm Warning"), 27 * 1.38, accuracy: 1e-6)
         // Counted from when it began, two hours before the message lapses.
         XCTAssertEqual(
             try hoursPastMessage("Winter Storm Warning", ["sent": "2026-12-01T02:00:00-06:00"]),
-            24 * 1.38 - 2, accuracy: 1e-6)
+            27 * 1.38 - 2, accuracy: 1e-6)
         // Begun long ago and still told about: a quarter of its life more.
         XCTAssertEqual(
             try hoursPastMessage("Winter Storm Warning", ["sent": "2026-11-20T02:00:00-06:00"]),
-            24 * 1.38 / 4, accuracy: 1e-6)
+            27 * 1.38 / 4, accuracy: 1e-6)
         // The kind decides: a hurricane far outlasts a short statement, and
         // a fire the chance of one.
         let statement = try hoursPastMessage("Special Weather Statement")
         XCTAssertEqual(statement, 2 * 1.38, accuracy: 1e-6)
-        XCTAssertEqual(try hoursPastMessage("Hurricane Warning"), 72 * 1.38, accuracy: 1e-6)
-        XCTAssertEqual(try hoursPastMessage("Red Flag Warning"), 12 * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(try hoursPastMessage("Hurricane Warning"), 42 * 1.38, accuracy: 1e-6)
+        XCTAssertEqual(try hoursPastMessage("Red Flag Warning"), 8 * 1.38, accuracy: 1e-6)
         XCTAssertEqual(try hoursPastMessage("Fire Warning"), 48 * 1.38, accuracy: 1e-6)
-        // Wider and seen run longer: four zones is half again, seen a quarter.
+        // Wider and seen run longer: four zones is 1.3 times, seen a quarter more.
         XCTAssertEqual(
             try hoursPastMessage("Fire Warning", ["affectedZones": ["a", "b", "c", "d"],
                                                   "certainty": "Observed"]),
-            48 * 1.38 * 1.5 * 1.25, accuracy: 1e-6)
+            48 * 1.38 * 1.3 * 1.25, accuracy: 1e-6)
         // Less severe runs shorter.
         XCTAssertEqual(try hoursPastMessage("Fire Warning", ["severity": "Minor"]),
                        48 * 0.95, accuracy: 1e-6)
