@@ -8,6 +8,7 @@
 
 import CoreLocation
 import Foundation
+import os
 
 #if os(iOS)
     import AVFoundation
@@ -82,7 +83,7 @@ final class CrashDetectionService: ObservableObject {
         private var audioEngine: AVAudioEngine?
         private var recognitionTask: SFSpeechRecognitionTask?
         private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-        private static let accelWindowSize = 25
+        private nonisolated static let accelWindowSize = 25
         /// Bumped every begin(); an impact hop carries the generation it was
         /// enqueued under and drops itself if end() (or a new begin()) has since
         /// moved on. Moving samples off the main queue removed the mutual
@@ -114,20 +115,26 @@ final class CrashDetectionService: ObservableObject {
             // moderate one) rather than a single trigger-happy sample — see
             // CrashLogic.isImpact. Confined to the serial motionQueue: the
             // MainActor never sees per-sample traffic.
-            var window: [Double] = []
-            motion.startAccelerometerUpdates(to: Self.motionQueue) { [weak self] data, _ in
+            // The window sits behind a short lock so the compiler can see that
+            // only one sample at a time touches it.
+            let window = OSAllocatedUnfairLock<[Double]>(initialState: [])
+            motion.startAccelerometerUpdates(to: Self.motionQueue) { @Sendable [weak self] data, _ in
                 guard self != nil, let data else { return }
                 let g = sqrt(
                     data.acceleration.x * data.acceleration.x
                         + data.acceleration.y * data.acceleration.y
                         + data.acceleration.z * data.acceleration.z)
-                window.append(g)
-                if window.count > Self.accelWindowSize {
-                    window.removeFirst(window.count - Self.accelWindowSize)
-                }
-                if CrashLogic.isImpact(window: window) {
+                let impact: [Double]? = window.withLock { window in
+                    window.append(g)
+                    if window.count > Self.accelWindowSize {
+                        window.removeFirst(window.count - Self.accelWindowSize)
+                    }
+                    guard CrashLogic.isImpact(window: window) else { return nil }
                     let snapshot = window
                     window.removeAll(keepingCapacity: true)  // consume — don't re-fire this event
+                    return snapshot
+                }
+                if let snapshot = impact {
                     Task { @MainActor [weak self] in
                         // Drop a hop enqueued before end()/a new begin(): its
                         // generation is stale, so it can't fire a check-in after
@@ -174,7 +181,7 @@ final class CrashDetectionService: ObservableObject {
         static func askReplyPermissionsIfNeeded() async {
             if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
                 await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                    SFSpeechRecognizer.requestAuthorization { _ in done.resume() }
+                    SFSpeechRecognizer.requestAuthorization { @Sendable _ in done.resume() }
                 }
             }
             if AVAudioApplication.shared.recordPermission == .undetermined {
@@ -385,7 +392,7 @@ final class CrashDetectionService: ObservableObject {
         /// Starts ONLY after the prompt finishes speaking — otherwise the mic
         /// records the phone's own "…say yes to get help…" and could self-trigger.
         private func listenForReply(seconds: Double) {
-            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            SFSpeechRecognizer.requestAuthorization { @Sendable [weak self] auth in
                 guard auth == .authorized else { return }
                 Task { @MainActor in
                     guard let self else { return }
@@ -437,14 +444,15 @@ final class CrashDetectionService: ObservableObject {
             // Defensive: if the session still isn't record-capable (0 Hz), do NOT
             // installTap — it would NSException. Degrade to the on-screen buttons.
             guard format.sampleRate > 0, format.channelCount > 0 else { return }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                request.append(buffer)
+            let feed = SpeechAudioFeed(request)
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in
+                feed.append(buffer)
             }
             engine.prepare()
             try? engine.start()
             audioEngine = engine
             recognitionRequest = request
-            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, _ in
+            recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, _ in
                 guard let self, let result else { return }
                 let transcript = result.bestTranscription.formattedString
                 let isFinal = result.isFinal

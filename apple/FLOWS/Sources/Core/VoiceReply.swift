@@ -137,11 +137,11 @@ enum VoicePick {
         private var audioEngine: AVAudioEngine?
         private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
         private var recognitionTask: SFSpeechRecognitionTask?
-        private var onAnswer: ((Bool?) -> Void)?
+        private var onAnswer: (@MainActor (Bool?) -> Void)?
         private var answered = false
         /// Dictation mode (the in-app mic): capture the words instead of
         /// interpreting yes/no; the transcript is delivered at window end.
-        private var onTranscript: ((String?) -> Void)?
+        private var onTranscript: (@MainActor (String?) -> Void)?
         private var lastHeard = ""
         /// Which listen is open: a timeout or a late transcript from an earlier
         /// one must not close or answer the one that replaced it.
@@ -160,10 +160,10 @@ enum VoicePick {
         /// answer (the on-screen chip stays, nothing is guessed).
         func listenAfterSpeech(
             seconds: Double = 6.0,
-            onAnswer: @escaping (Bool?) -> Void
+            onAnswer: @escaping @MainActor (Bool?) -> Void
         ) {
             waitingToListen += 1
-            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            SFSpeechRecognizer.requestAuthorization { @Sendable [weak self] auth in
                 Task { @MainActor in
                     guard let self else { return }
                     guard auth == .authorized else {
@@ -187,10 +187,10 @@ enum VoicePick {
         /// window closes first. nil = permission refused or nothing heard.
         func listenForDictation(
             seconds: Double = 5.0,
-            onTranscript: @escaping (String?) -> Void
+            onTranscript: @escaping @MainActor (String?) -> Void
         ) {
             waitingToListen += 1
-            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            SFSpeechRecognizer.requestAuthorization { @Sendable [weak self] auth in
                 Task { @MainActor in
                     guard let self else { return }
                     self.waitingToListen -= 1
@@ -206,8 +206,8 @@ enum VoicePick {
         }
 
         private func begin(
-            seconds: Double, onAnswer: ((Bool?) -> Void)?,
-            onTranscript: ((String?) -> Void)? = nil
+            seconds: Double, onAnswer: (@MainActor (Bool?) -> Void)?,
+            onTranscript: (@MainActor (String?) -> Void)? = nil
         ) {
             // The crash check-in has its own microphone and its own "yes". A
             // second listen opened over it (a faster-road offer landing during
@@ -267,14 +267,15 @@ enum VoicePick {
                 finish(with: nil)
                 return
             }
-            input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-                request.append(buffer)
+            let feed = SpeechAudioFeed(request)
+            input.installTap(onBus: 0, bufferSize: 1024, format: format) { @Sendable buffer, _ in
+                feed.append(buffer)
             }
             engine.prepare()
             try? engine.start()
             audioEngine = engine
             recognitionRequest = request
-            recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, _ in
+            recognitionTask = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, _ in
                 guard let result else { return }
                 let transcript = result.bestTranscription.formattedString
                 let isFinal = result.isFinal
@@ -348,13 +349,13 @@ enum VoicePick {
         static let shared = VoiceReply()
         func listenAfterSpeech(
             seconds: Double = 6.0,
-            onAnswer: @escaping (Bool?) -> Void
+            onAnswer: @escaping @MainActor (Bool?) -> Void
         ) {
             onAnswer(nil)
         }
         func listenForDictation(
             seconds: Double = 5.0,
-            onTranscript: @escaping (String?) -> Void
+            onTranscript: @escaping @MainActor (String?) -> Void
         ) {
             onTranscript(nil)
         }

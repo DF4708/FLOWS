@@ -218,7 +218,7 @@ final class ScannerListener: ObservableObject {
         starting = true
         #if canImport(Speech)
             let mine = session
-            SFSpeechRecognizer.requestAuthorization { [weak self] auth in
+            SFSpeechRecognizer.requestAuthorization { @Sendable [weak self] auth in
                 Task { @MainActor in
                     guard let self, self.session == mine else { return }
                     self.starting = false
@@ -283,20 +283,22 @@ final class ScannerListener: ObservableObject {
             }
 
             let mine = session
-            task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            task = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
+                // Plain values cross to the main actor; the result object stays here.
+                let failure = error?.localizedDescription
+                let heard = result.map { ($0.bestTranscription.formattedString, $0.isFinal) }
                 Task { @MainActor in
                     guard let self, self.session == mine else { return }
-                    if let error {
+                    if let failure {
                         self.status = "Feed dropped."
                         self.isListening = false
                         self.retryAfter = Date().addingTimeInterval(60)
                         FlowsDiag.log(
-                            .warn, "scanner", "recognition ended: \(error.localizedDescription) — retry in 60 s")
+                            .warn, "scanner", "recognition ended: \(failure) — retry in 60 s")
                     }
-                    guard let result else { return }
-                    let text = result.bestTranscription.formattedString
+                    guard let (text, isFinal) = heard else { return }
                     // Only act on a settled phrase, not every partial guess.
-                    guard result.isFinal || text.count > 60 else { return }
+                    guard isFinal || text.count > 60 else { return }
                     // The count, never the words: dispatch audio is not the
                     // driver's, but the journal is exportable all the same.
                     let before = self.incidents.count
@@ -306,7 +308,7 @@ final class ScannerListener: ObservableObject {
                     self.consider(transcript: String(text.suffix(200)), feed: feed)
                     FlowsDiag.log(
                         .info, "scanner",
-                        "heard \(text.count) chars (final: \(result.isFinal)); "
+                        "heard \(text.count) chars (final: \(isFinal)); "
                             + "incidents \(before) → \(self.incidents.count)")
                 }
             }

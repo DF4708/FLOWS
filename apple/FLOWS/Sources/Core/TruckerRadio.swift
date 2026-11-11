@@ -480,7 +480,7 @@ final class TruckerRadio: ObservableObject {
         let p = AVPlayer(playerItem: item)
         p.automaticallyWaitsToMinimizeStalling = true
         p.volume = ducked ? 0.25 : 1
-        statusObservation = item.observe(\.status) { [weak self] item, _ in
+        statusObservation = item.observe(\.status) { @Sendable [weak self] item, _ in
             Task { @MainActor in
                 // A station tuned since owns the status line and the
                 // playing mark; this report is about the one it replaced.
