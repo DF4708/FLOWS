@@ -154,6 +154,25 @@ struct SeasonalStore: Codable {
     /// fine-tuning (a head must not be re-fit from three trips).
     var totalTrips: Int { routes.values.reduce(0) { $0 + $1.tripCount } }
 
+    /// This store with an older one folded in: the file put to one side
+    /// (see `SeasonalRiskModel.keepAside`) once a build can read it again.
+    /// What only one of them holds is kept. Where both hold the same route
+    /// or road, the one with more history stays, and the older one on a
+    /// tie: it is the one with the years in it.
+    func joined(withOlder older: SeasonalStore) -> SeasonalStore {
+        var out = self
+        for (key, rec) in older.routes where rec.tripCount >= (routes[key]?.tripCount ?? 0) {
+            out.routes[key] = rec
+        }
+        for (key, rec) in older.edges where rec.weeks.count >= (edges[key]?.weeks.count ?? 0) {
+            out.edges[key] = rec
+        }
+        for (key, stat) in older.origins where origins[key] == nil {
+            out.origins[key] = stat
+        }
+        return out
+    }
+
     /// A route is "modeled" (allowed to steer ranking) only past its frequency
     /// gate — one-offs accrue history but don't yet influence routing.
     func isModeled(_ key: RouteKey) -> Bool {
@@ -541,15 +560,18 @@ final class SeasonalRiskModel: ObservableObject {
                 try? JSONDecoder().decode(SeasonalStore.self, from: $0)
             }
             var fromAside = false
-            if decoded == nil {
-                if opened != nil {
-                    // Opened but not decodable: out of the next save's way.
-                    Self.keepAside(storeURL, at: asideFileURL)
-                } else if let kept = Self.openAside(asideFileURL) {
-                    // One put aside by an earlier build decodes in this one.
-                    decoded = kept
-                    fromAside = true
-                }
+            if decoded == nil, opened != nil {
+                // Opened but not decodable: out of the next save's way.
+                Self.keepAside(storeURL, at: asideFileURL)
+            } else if let kept = Self.openAside(asideFileURL) {
+                // One put aside by an earlier build decodes in this one.
+                // This is asked on every launch, store or no store: the
+                // arrival after a file went aside writes a new store, and
+                // asking only when there was none meant the copy was never
+                // tried again and never aged out. The trips made since are
+                // folded in with it.
+                decoded = decoded.map { $0.joined(withOlder: kept) } ?? kept
+                fromAside = true
             }
             let loadedStore = decoded
             let cameFromAside = fromAside

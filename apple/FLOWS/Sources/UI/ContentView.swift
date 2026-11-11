@@ -995,6 +995,11 @@ struct ContentView: View {
                         tsunamis: await tsunamiTask, spcZones: await spcTask,
                         closures: await closureTask)
             }
+            // Every way out of this sweep stops them: a sweep the next pan
+            // replaced used to leave all eleven requests running in the
+            // background lane, in the new sweep's way. Stopping the ones
+            // that are already in does nothing.
+            defer { feeds.cancel() }
             let feedsIn = SweepFlag()
             Task { @MainActor in
                 _ = await feeds.value

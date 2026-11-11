@@ -881,4 +881,35 @@ func testACancelledAlertIsNotALiveWarning() {
         XCTAssertNil(SeasonalRiskModel.openAside(aside, now: late))
         XCTAssertFalse(FileManager.default.fileExists(atPath: aside.path))
     }
+
+    /// The file put aside comes back next to the trips made since: neither
+    /// side's routes are lost, and a shared route keeps the longer history.
+    func testAStorePutAsideIsFoldedIntoTheTripsMadeSince() {
+        func record(_ trips: Int) -> RouteRecord {
+            var r = RouteRecord()
+            r.tripCount = trips
+            return r
+        }
+        func key(_ a: Double, _ b: Double) -> RouteKey {
+            RouteKey(origin: CLLocationCoordinate2D(latitude: a, longitude: -a),
+                     dest: CLLocationCoordinate2D(latitude: b, longitude: -b))
+        }
+        let shared = key(10, 20)
+        let oldOnly = key(30, 40)
+        let newOnly = key(50, 60)
+        var older = SeasonalStore()
+        older.routes[shared] = record(40)
+        older.routes[oldOnly] = record(7)
+        var newer = SeasonalStore()
+        newer.routes[shared] = record(2)
+        newer.routes[newOnly] = record(1)
+
+        let both = newer.joined(withOlder: older)
+        XCTAssertEqual(both.routes[shared]?.tripCount, 40)
+        XCTAssertEqual(both.routes[oldOnly]?.tripCount, 7)
+        XCTAssertEqual(both.routes[newOnly]?.tripCount, 1)
+        // A route driven more since than before keeps the newer record.
+        newer.routes[shared] = record(41)
+        XCTAssertEqual(newer.joined(withOlder: older).routes[shared]?.tripCount, 41)
+    }
 }
