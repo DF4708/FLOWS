@@ -112,7 +112,13 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             Task { @MainActor in
                 guard let model = AppModel.shared else { return }
                 if model.radio.isWeatherStation(model.radio.playingChannelID) {
-                    model.radio.stop()
+                    // Paused, the press brings it back; it used to stop a
+                    // radio that was already silent, and took two presses.
+                    if model.radio.isPaused {
+                        model.radio.pauseOrResume()
+                    } else {
+                        model.radio.stop()
+                    }
                 } else if let channel = model.effectivePosition
                     .flatMap({ model.radio.nearestChannel(to: $0)?.channel })
                     ?? model.radio.nearestChannel(stateCode: model.currentStateCode) {

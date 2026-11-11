@@ -118,6 +118,13 @@ struct TransitItinerary {
         doorToDoorSeconds ?? legs.compactMap(\.seconds).reduce(0, +)
     }
 
+    /// The total is short: a leg has no time (a walk no route was found
+    /// for) and no timetable gave the whole trip. The header says "at
+    /// least"; bare, the trip read shorter than it is.
+    var totalLeavesOutALeg: Bool {
+        doorToDoorSeconds == nil && legs.contains { $0.seconds == nil }
+    }
+
     /// Door to door around a timetable: `before` getting to the first vehicle,
     /// the timetable's own span from boarding it to leaving the last one —
     /// every connection's wait inside it — and `after` from there. The wait

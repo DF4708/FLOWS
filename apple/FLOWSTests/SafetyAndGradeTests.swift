@@ -1152,6 +1152,18 @@ final class TransitItineraryTests: XCTestCase {
         XCTAssertEqual(itin.legs.last?.kind, .walk, "last mile must be a walk, never a drive")
         XCTAssertEqual(itin.legs.first?.kind, .walk)
         XCTAssertEqual(itin.totalSeconds, 141_200, accuracy: 1)
+        XCTAssertFalse(itin.totalLeavesOutALeg)
+        // A walk with no time makes the total "at least", unless a timetable
+        // gave the whole trip door to door.
+        var short = TransitItinerary(
+            mode: "Amtrak",
+            legs: legs + [TransitLeg(kind: .walk, fromName: "A", toName: "B",
+                                     seconds: nil, miles: nil, polyline: nil, steps: [])],
+            fare: 0, mapsDestination: itin.mapsDestination, rideGeometryIsApproximate: true)
+        XCTAssertTrue(short.totalLeavesOutALeg)
+        XCTAssertEqual(short.totalSeconds, 141_200, accuracy: 1)
+        short.doorToDoorSeconds = 150_000
+        XCTAssertFalse(short.totalLeavesOutALeg)
         // Default provenance is "real geometry"; the flag can flip to false so
         // the UI can honestly downgrade the "follows the roads" claim.
         XCTAssertTrue(itin.rideGeometryIsReal)

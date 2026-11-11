@@ -1637,7 +1637,8 @@ struct RouteChoicesView: View {
                 }
                 Spacer()
                 if let itin = t.itinerary {
-                    Text("\(TransitPlanning.fmt(itin.totalSeconds))"
+                    Text((itin.totalLeavesOutALeg ? "At least " : "")
+                         + "\(TransitPlanning.fmt(itin.totalSeconds))"
                          + (itin.fare <= 0 ? ""
                             // The operators' own fares are said as they are; a
                             // total with any estimate in it says so.
